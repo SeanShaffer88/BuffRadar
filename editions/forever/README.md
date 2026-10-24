@@ -16,6 +16,8 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
 
 ---
 
+**Docs:** [Features](FEATURES.md) · [Description](DESCRIPTION.md) · [Changelog](CHANGELOG.md)
+
 ## Features
 
 - **Live list of who needs what.** Players stay listed until every buff you can cast
