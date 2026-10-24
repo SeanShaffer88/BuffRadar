@@ -1,0 +1,10 @@
+<Bindings>
+    <Binding name="CLICK BuffRadarNextButton:LeftButton" category="BUFFRADAR">
+    </Binding>
+    <Binding name="BUFFRADAR_TOGGLE" category="BUFFRADAR">
+        BuffRadar_ToggleWindow()
+    </Binding>
+    <Binding name="BUFFRADAR_MUTE" category="BUFFRADAR">
+        BuffRadar_ToggleSound()
+    </Binding>
+</Bindings>

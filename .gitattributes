@@ -1,0 +1,6 @@
+# Store text files with LF line endings; check them out as the platform prefers.
+* text=auto
+# Media files are binary: never touch their bytes.
+*.png binary
+*.ogg binary
+*.zip binary
