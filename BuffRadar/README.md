@@ -17,6 +17,8 @@ layout — only the `.toc` differs, and BuffRadar picks the right buff set when 
 
 ---
 
+**Docs:** [Features](FEATURES.md) · [Description](DESCRIPTION.md) · [Changelog](CHANGELOG.md)
+
 ## Features
 
 - **Live list of who needs what.** Players stay listed until every buff you can cast
