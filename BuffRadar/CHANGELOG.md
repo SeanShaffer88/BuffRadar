@@ -2,6 +2,116 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.3.2 — 2026-10-23 — Retail edition
+
+- **Earth Shield is offered to one tank at a time.** It can sit on only one
+  other player, so with two tanks around, one always showed as missing it.
+  While yours is on a tank, no one else is offered it; when it's about to
+  run out, only that tank is. (Skyfury was checked too: it can be given to
+  players outside your group, so it stays as it is.)
+- **Out-of-range rows are marked,** with *out of range* under the greyed
+  name, so the state doesn't rely on color alone. Fixed alongside: a
+  player who came back into range kept the grey name.
+- **German translation** of the main window, its tooltips and the minimap
+  tooltips (`Locales\deDE.lua`), which is also the template for other
+  languages.
+- **One source for both editions.** The retail and Forever editions are now
+  built from the same `BuffRadar.lua`, which picks its buff set and class
+  tables when it loads (from the client's interface version). Fixes and
+  features land in both at once; each zip differs only in its `.toc` and docs.
+
+- **Fix: Battle Shout and Blessing of the Bronze no longer list strangers.**
+  Both only reach you and your party or raid, but players outside the group
+  (seen through nameplates, target or mouseover) were still listed as
+  needing them — forever, since casting could never reach them. After the
+  group was buffed, the *Cast next buff* key stayed stuck on a stranger and
+  recast the buff every time its cooldown ended. These two buffs are now
+  offered only to you and your group members; the settings window labels
+  them "you & your group".
+- **Tanks are recognised by their group role.** Earth Shield's "tanks" and
+  the *role* sort order used to go by class, so every death knight, monk
+  and demon hunter counted as a tank — damage dealers included. Group
+  members now count as tanks by the role they picked (role check or
+  dungeon finder); a raid's main-tank/main-assist flag still counts for
+  sorting too. Players with no assigned role (strangers, or groups without
+  a role check) fall back to the old class rule for Earth Shield.
+- **Buffing group members no longer changes your target.** Every cast on
+  another player used to target them by name, cast, then switch back to
+  your previous target — a visible target flicker that also disturbed
+  target history. Party and raid members are now cast on directly; the
+  target-swap remains only for players outside your group.
+- **Rebuff timing in the settings window.** The Buffs tab has a seconds
+  box next to each buff (empty = use the all-buffs time) and one for the
+  all-buffs time, so `/br rebuff` is no longer the only way to set them.
+  Checkbox labels are now clickable, not just the box.
+- **Sturdier with protected game values.** When the game hands BuffRadar
+  a protected ("secret") player name, ID, class or level, it no longer
+  risks an error: such a name is still shown but not used for sorting,
+  a player whose ID is protected is skipped, and the cast counter and
+  `/br clicks` output ignore protected values. Before, one protected name
+  could break the list ("attempt to compare").
+- **More of the window can be translated.** The window's combat label,
+  "+N more", cast counter, row tooltips and the gear, resize-grip,
+  minimap-button and addon-menu tooltips now go through the translation
+  table too; anything a translation leaves out stays in English.
+- **Settings window in the standard game style.** It now uses the game's
+  own window frame — title bar, close button, the BuffRadar icon in the
+  corner — with the five sections as tabs along the bottom edge, like the
+  character window. A client without those parts gets the previous look.
+- **Less work in busy places.** Aura changes on units BuffRadar never
+  lists (enemy and NPC nameplates, pets, bosses, arena opponents) no
+  longer trigger a list update, and nothing is rescanned during combat,
+  when the list is frozen anyway — it catches up as combat ends. The
+  steady 0.4-second rescan rests while scanning is paused (major city,
+  battleground) or you know no supported buffs; zone changes, learning a
+  spell and settings changes still update right away. The spell-rank
+  table, which only the Forever edition uses, is no longer built.
+- **BuffRadar in the game's options.** Esc > Options > AddOns now lists
+  BuffRadar, with a button that opens its settings window.
+- **Addon menu entry works like the minimap button.** In the minimap's
+  addon menu, left-click BuffRadar to show or hide the window and
+  right-click it for settings (it used to open settings on any click);
+  hovering it shows a tooltip.
+- **Fix: right-clicking the minimap button opens settings,** as its
+  tooltip always said. The button only listened to left clicks.
+- **Hover help on every setting.** Each checkbox, button, slider and
+  dropdown in the settings window shows a short explanation when you
+  hover it.
+- **Fix: right-clicking a row no longer casts.** A row's cast applied to
+  every mouse button, so right-clicking someone to ignore them also buffed
+  them (and counted the cast). Right-click now only ignores.
+- **Ignore list: realm-aware, any capitalization, removable one by one.**
+  Right-clicking a row now ignores that player as *Name-Realm*, so a
+  player with the same name on another realm is no longer hidden too.
+  `/br ignore` and `/br unignore` no longer care about capitals or spaces
+  (`/br ignore bob` matches Bob); a plain name ignores it on every realm,
+  and `/br unignore <name>` clears that name on every realm. The Ignore &
+  Stats tab lists ignored players with a remove button next to each (up
+  to 12 shown; `/br ignorelist` lists all). Names ignored by older
+  versions keep working as "every realm" entries, and duplicates that
+  differ only in capitals are merged; the saved format is unchanged.
+- **Settings that did nothing on retail are gone.** The Behavior tab's
+  "Offer group buffs" option and its threshold slider are hidden (retail
+  has no group versions of buffs; one cast already covers the group), and
+  the rest of that column moves up. `/br groupcast` explains this instead
+  of changing a setting that had no effect, `/br mode` offers only
+  `target` and `macro` (the `id` and `rank` modes pick spell ranks, which
+  retail doesn't have), and the `BLESSINGS` key is no longer accepted by
+  `/br toggle` or `/br rebuff`. A saved `id`/`rank` mode switches back to
+  the default `target`. The Forever-only code stays in place, switched
+  off, so the two editions remain one codebase apart.
+- **Resizable window.** Drag the list window's bottom-right corner to make
+  it wider (up to 400) or narrower (down to 180), so long names stop being
+  cut off. The height still follows the list, and the top edge stays put.
+  The grip hides while the window is locked (`/br lock`) and does nothing
+  in combat, when the game doesn't allow resizing. Reset look restores the
+  default width.
+- **Scale dropdowns.** The list window's scale slider is now a dropdown of
+  presets (50%–200%), and the settings window has its own scale dropdown,
+  both on the Window tab. `/br scale` still takes any value from 0.5 to 2
+  (shown as "Custom" in the dropdown). Changing the list window's scale in
+  combat is now refused with a message instead of being blocked by the game.
+
 ## 1.3.1 — 2026-10-22 — Retail edition
 
 - **Fix: the window no longer moves as names are added and removed** (the

@@ -1,6 +1,6 @@
--- BuffRadar - click-to-buff list for World of Warcraft (RETAIL edition)
--- Ported from the WoW: Forever edition (1.2.3). Same engine; the buff set,
--- class tables and interface version target retail (Midnight, patch 12.1.5).
+-- BuffRadar - click-to-buff list for World of Warcraft (Retail and Forever)
+-- One source for both editions: the buff set and class tables are picked at
+-- load from the client's interface version (see CLASSIC_FEATURES below).
 -- Copyright (C) 2026 Malikor
 --
 -- This program is free software: you can redistribute it and/or modify
@@ -60,12 +60,27 @@ local MACRO_NAME = "BuffRadar"
 ---------------------------------------------------------------------------
 local MAX_ROWS  = 15
 local ROW_H     = 24
-local WIDTH     = 210
+local WIDTH     = 210  -- default window width; drag the corner grip to change it
+local MIN_WIDTH, MAX_WIDTH = 180, 400
+local SCALE_PRESETS = { 0.5, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2 }  -- scale dropdowns
 local HEADER_H  = 24
 local MAX_ICONS = 5
 local UPDATE_INTERVAL = 0.4
 local FOOTER_H  = 16
 local SOUND_FILE = "Interface\\AddOns\\BuffRadar\\Media\\droplet.ogg"
+
+-- Edition, picked at load from the client's interface version: the
+-- Forever client reports 16001, retail 120105 and up. One source serves
+-- both; each edition's zip differs only in its .toc and docs. CLASSIC_FEATURES (true
+-- on Forever) turns on spell ranks, group versions of buffs (Prayer of
+-- Fortitude, ...) and paladin blessings; on retail their settings, commands
+-- and cast modes ("id", "rank") are hidden and that code stays inert.
+local CLASSIC_FEATURES
+do
+  local ok, _, _, _, iface = pcall(GetBuildInfo)
+  iface = ok and tonumber(iface) or 0
+  CLASSIC_FEATURES = iface > 0 and iface < 100000
+end
 
 ---------------------------------------------------------------------------
 -- Buff data. Edit freely.
@@ -74,20 +89,6 @@ local SOUND_FILE = "Interface\\AddOns\\BuffRadar\\Media\\droplet.ogg"
 --   classes : which classes actually benefit
 --   on      : enabled by default (toggle in game with /br toggle KEY)
 ---------------------------------------------------------------------------
--- Retail edition: all thirteen classes. (The Forever edition lists nine.)
-local ALL  = { WARRIOR=true, PALADIN=true, HUNTER=true, ROGUE=true, PRIEST=true,
-               SHAMAN=true, MAGE=true, WARLOCK=true, DRUID=true,
-               DEATHKNIGHT=true, MONK=true, DEMONHUNTER=true, EVOKER=true }
--- Retail mana users: hunters use focus, so they drop off this list; evokers and
--- monks (Mistweaver) join it.
-local MANA = { PALADIN=true, PRIEST=true, SHAMAN=true, MAGE=true,
-               WARLOCK=true, DRUID=true, MONK=true, EVOKER=true }
-
-local MELEE = { WARRIOR=true, ROGUE=true, PALADIN=true, SHAMAN=true, DRUID=true,
-                DEATHKNIGHT=true, MONK=true, DEMONHUNTER=true }
-local TANKS = { WARRIOR=true, PALADIN=true, DRUID=true, DEATHKNIGHT=true,
-                MONK=true, DEMONHUNTER=true }
-
 -- Fields:
 --   key      settings key (/br toggle KEY, or the checkboxes in /br config)
 --   id/name  spell to cast (rank-1 id gives the localized name; English fallback)
@@ -95,49 +96,137 @@ local TANKS = { WARRIOR=true, PALADIN=true, DRUID=true, DEATHKNIGHT=true,
 --            is cast, and ANY of them already on the target counts as "has it"
 --   also     other auras that count as "has it" (group / greater versions)
 --   classes  who benefits (ignored for self-only buffs)
---   self     true = can only be cast on yourself (shown on your own row)
+--   role     only players with this assigned group role ("TANK", ...); players
+--            with no assigned role (strangers, unassigned) fall back to classes
+--   self    true = can only be cast on yourself (shown on your own row)
+--   groupOnly true = only reaches you and your party/raid (e.g. Battle Shout):
+--            players outside your group are never listed for it
+--   single   true = yours can sit on only one other player at a time (Earth
+--            Shield): while it's on someone, nobody else is listed for it
 --   who      short label for the settings window
 --   on       enabled by default
--- Retail edition buff set. Retail has no spell ranks and no separate group
--- versions: casting a raid buff on one group member applies it to the whole
--- party/raid in range, so the per-person list simply clears as the aura lands.
--- Blizzard's own list of player-cast long-term raid buffs (hotfix notes,
--- 2026-04-03): Mark of the Wild, Arcane Intellect, Battle Shout, Power Word:
--- Fortitude, Skyfury, Source of Magic, Symbiotic Relationship, Blessing of
--- the Bronze. The last two are deliberately NOT here: each can sit on only
--- ONE player per caster, so everyone else would show as "missing" forever.
--- Spells from the Forever edition that retail removed (mage armors, Divine
--- Spirit, Fear Ward, Inner Fire, blessings, ...) are gone too — BuffRadar
--- only ever offers spells found in your spellbook, so they could never fire.
-local BUFF_DEFS = {
-  -- Mage
-  { key="ARCANE_INTELLECT", id=1459,  name="Arcane Intellect",
-    also={}, classes=MANA, who="mana users", on=true },
-  -- Warrior (new in the retail edition: warriors have no buffs in Forever)
-  { key="BATTLE_SHOUT",     id=6673,  name="Battle Shout",
-    also={}, classes=ALL, who="everyone", on=true },
-  -- Priest
-  { key="FORTITUDE",        id=1243,  name="Power Word: Fortitude",
-    also={}, classes=ALL, who="everyone", on=true },
-  -- Druid
-  { key="MARK_OF_THE_WILD", id=1126,  name="Mark of the Wild",
-    also={}, classes=ALL, who="everyone", on=true },
-  { key="THORNS",           id=467,   name="Thorns",
-    also={}, classes=MELEE, who="melee classes (PvP talent)", on=false },
-  -- Shaman
-  { key="SKYFURY",          id=462854, name="Skyfury",
-    also={}, classes=ALL, who="everyone", on=true },
-  { key="SHAMAN_SHIELD", self=true, who="you", on=true,
-    choices={ {52127, "Water Shield"}, {324, "Lightning Shield"} } },
-  { key="EARTH_SHIELD",     id=974,   name="Earth Shield",
-    also={}, classes=TANKS, who="tanks", on=false },
-  -- Evoker (new in the retail edition)
-  { key="BLESSING_OF_THE_BRONZE", id=381732, name="Blessing of the Bronze",
-    also={}, classes=ALL, who="everyone", on=true },
-  -- Warlock
-  { key="UNENDING_BREATH",  id=5697,  name="Unending Breath",
-    also={}, classes=ALL, who="everyone (situational)", on=false },
-}
+local ALL, MANA, MELEE, TANKS, BUFF_DEFS  -- who benefits / what you can cast (per edition)
+if not CLASSIC_FEATURES then
+  -- Retail edition: all thirteen classes. (The Forever edition lists nine.)
+  ALL  = { WARRIOR=true, PALADIN=true, HUNTER=true, ROGUE=true, PRIEST=true,
+                 SHAMAN=true, MAGE=true, WARLOCK=true, DRUID=true,
+                 DEATHKNIGHT=true, MONK=true, DEMONHUNTER=true, EVOKER=true }
+  -- Retail mana users: hunters use focus, so they drop off this list; evokers and
+  -- monks (Mistweaver) join it.
+  MANA = { PALADIN=true, PRIEST=true, SHAMAN=true, MAGE=true,
+                 WARLOCK=true, DRUID=true, MONK=true, EVOKER=true }
+
+  MELEE = { WARRIOR=true, ROGUE=true, PALADIN=true, SHAMAN=true, DRUID=true,
+                  DEATHKNIGHT=true, MONK=true, DEMONHUNTER=true }
+  TANKS = { WARRIOR=true, PALADIN=true, DRUID=true, DEATHKNIGHT=true,
+                  MONK=true, DEMONHUNTER=true }
+
+  -- Retail edition buff set. Retail has no spell ranks and no separate group
+  -- versions: casting a raid buff on one group member applies it to the whole
+  -- party/raid in range, so the per-person list simply clears as the aura lands.
+  -- Blizzard's own list of player-cast long-term raid buffs (hotfix notes,
+  -- 2026-04-03): Mark of the Wild, Arcane Intellect, Battle Shout, Power Word:
+  -- Fortitude, Skyfury, Source of Magic, Symbiotic Relationship, Blessing of
+  -- the Bronze. Source of Magic and Symbiotic Relationship are deliberately NOT
+  -- here: each can sit on only ONE player per caster, so everyone else would
+  -- show as "missing" forever. Battle Shout and Blessing of the Bronze are
+  -- groupOnly: they can't be given to players outside your group, so listing
+  -- strangers for them would also leave those strangers "missing" forever.
+  -- Spells from the Forever edition that retail removed (mage armors, Divine
+  -- Spirit, Fear Ward, Inner Fire, blessings, ...) are gone too — BuffRadar
+  -- only ever offers spells found in your spellbook, so they could never fire.
+  BUFF_DEFS = {
+    -- Mage
+    { key="ARCANE_INTELLECT", id=1459,  name="Arcane Intellect",
+      also={}, classes=MANA, who="mana users", on=true },
+    -- Warrior (new in the retail edition: warriors have no buffs in Forever)
+    { key="BATTLE_SHOUT",     id=6673,  name="Battle Shout",
+      also={}, classes=ALL, groupOnly=true, who="you & your group", on=true },
+    -- Priest
+    { key="FORTITUDE",        id=1243,  name="Power Word: Fortitude",
+      also={}, classes=ALL, who="everyone", on=true },
+    -- Druid
+    { key="MARK_OF_THE_WILD", id=1126,  name="Mark of the Wild",
+      also={}, classes=ALL, who="everyone", on=true },
+    { key="THORNS",           id=467,   name="Thorns",
+      also={}, classes=MELEE, who="melee classes (PvP talent)", on=false },
+    -- Shaman. Skyfury is NOT groupOnly: it's cast on a target ally, and only
+    -- spreads to the whole party/raid when that ally is in your group, so
+    -- players outside the group can receive it too.
+    { key="SKYFURY",          id=462854, name="Skyfury",
+      also={}, classes=ALL, who="everyone", on=true },
+    { key="SHAMAN_SHIELD", self=true, who="you", on=true,
+      choices={ {52127, "Water Shield"}, {324, "Lightning Shield"} } },
+    -- Earth Shield sits on one other player at a time (plus yourself with
+    -- Elemental Orbit, which BuffRadar doesn't count): single.
+    { key="EARTH_SHIELD",     id=974,   name="Earth Shield",
+      also={}, classes=TANKS, role="TANK", single=true, who="tanks", on=false },
+    -- Evoker (new in the retail edition)
+    { key="BLESSING_OF_THE_BRONZE", id=381732, name="Blessing of the Bronze",
+      also={}, classes=ALL, groupOnly=true, who="you & your group", on=true },
+    -- Warlock
+    { key="UNENDING_BREATH",  id=5697,  name="Unending Breath",
+      also={}, classes=ALL, who="everyone (situational)", on=false },
+  }
+else
+  -- Forever edition (1.2.4 tables, unchanged): nine classes, spell ranks,
+  -- group versions of buffs, paladin blessings (see BLESSINGS below).
+  ALL  = { WARRIOR=true, PALADIN=true, HUNTER=true, ROGUE=true, PRIEST=true,
+                 SHAMAN=true, MAGE=true, WARLOCK=true, DRUID=true }
+  MANA = { PALADIN=true, HUNTER=true, PRIEST=true, SHAMAN=true, MAGE=true,
+                 WARLOCK=true, DRUID=true }
+
+  MELEE = { WARRIOR=true, ROGUE=true, PALADIN=true, SHAMAN=true, DRUID=true }
+  TANKS = { WARRIOR=true }
+
+  BUFF_DEFS = {
+    -- Mage
+    { key="ARCANE_INTELLECT", id=1459,  name="Arcane Intellect",
+      also={ {23028, "Arcane Brilliance"} }, groupCast={ 23028, "Arcane Brilliance" },
+      classes=MANA, who="mana users", on=true },
+    { key="MAGE_ARMOR", self=true, who="you", on=true,
+      choices={ {30482, "Molten Armor"}, {6117, "Mage Armor"}, {7302, "Ice Armor"}, {168, "Frost Armor"} } },
+    { key="DAMPEN_MAGIC",     id=604,   name="Dampen Magic",
+      also={}, classes=ALL, who="everyone (situational)", on=false },
+    { key="AMPLIFY_MAGIC",    id=1008,  name="Amplify Magic",
+      also={}, classes=ALL, who="everyone (situational)", on=false },
+    -- Priest
+    { key="FORTITUDE",        id=1243,  name="Power Word: Fortitude",
+      also={ {21562, "Prayer of Fortitude"} }, groupCast={ 21562, "Prayer of Fortitude" },
+      classes=ALL, who="everyone", on=true },
+    { key="DIVINE_SPIRIT",    id=14752, name="Divine Spirit",
+      also={ {27681, "Prayer of Spirit"} }, groupCast={ 27681, "Prayer of Spirit" },
+      classes=MANA, who="mana users", on=true },
+    { key="FEAR_WARD",        id=6346,  name="Fear Ward",
+      also={}, classes=TANKS, who="warriors", on=true },
+    { key="INNER_FIRE",       id=588,   name="Inner Fire",
+      self=true, also={}, who="you", on=true },
+    { key="SHADOW_PROT",      id=976,   name="Shadow Protection",
+      also={ {27683, "Prayer of Shadow Protection"} }, groupCast={ 27683, "Prayer of Shadow Protection" },
+      classes=ALL, who="everyone (situational)", on=false },
+    -- Druid
+    { key="MARK_OF_THE_WILD", id=1126,  name="Mark of the Wild",
+      also={ {21849, "Gift of the Wild"} }, groupCast={ 21849, "Gift of the Wild" },
+      classes=ALL, who="everyone", on=true },
+    { key="THORNS",           id=467,   name="Thorns",
+      also={}, classes=MELEE, who="melee classes", on=true },
+    -- Shaman
+    { key="SHAMAN_SHIELD", self=true, who="you", on=true,
+      choices={ {24398, "Water Shield"}, {324, "Lightning Shield"} } },
+    { key="EARTH_SHIELD",     id=974,   name="Earth Shield",
+      also={}, classes=TANKS, who="warriors", on=false },
+    { key="WATER_BREATHING",  id=131,   name="Water Breathing",
+      also={}, classes=ALL, who="everyone (situational)", on=false },
+    -- Warlock
+    { key="WARLOCK_ARMOR", self=true, who="you", on=true,
+      choices={ {28176, "Fel Armor"}, {706, "Demon Armor"}, {687, "Demon Skin"} } },
+    { key="UNENDING_BREATH",  id=5697,  name="Unending Breath",
+      also={}, classes=ALL, who="everyone (situational)", on=false },
+    { key="DETECT_INVIS", classes=ALL, who="everyone (situational)", on=false,
+      choices={ {11743, "Detect Greater Invisibility"}, {2970, "Detect Invisibility"},
+                {132, "Detect Lesser Invisibility"} } },
+  }
+end
 
 -- Paladin: only one of YOUR blessings can sit on a player, so each class gets the
 -- first blessing in its list that you know. Kings leads every list: it buffs all
@@ -182,6 +271,8 @@ local DEFAULTS = {
   autoHide = false,    -- hide the window when nobody needs anything
   rebuff = 30,         -- re-list a player when your buff has less than this many seconds left
   scale = 1,
+  width = 210,         -- list window width (corner grip); height always follows the list
+  cfgScale = 1,        -- settings window scale
   enabled = {},
   point = nil,
   castMethod = "target", -- "target" (target player, cast, restore target), "id", "macro", "rank"
@@ -199,7 +290,7 @@ local DEFAULTS = {
   groupCast = false,   -- offer the group version (Prayer of Fortitude etc.) when enough group members need a buff
   groupCastMin = 3,    -- how many group members must need the buff first
   showOutOfRange = false, -- also list out-of-range players, greyed and unclickable
-  sortMode = "name",   -- list order: "name" or "role" (tanks and healers first)
+  sortMode = "name",   -- list order: "name" or "role" (tanks and leaders first)
   ignored = {},        -- player names BuffRadar never lists (right-click a row)
   rebuffPer = {},      -- per-buff rebuff thresholds in seconds: buff key -> seconds
   alertSound = "droplet", -- alert sound: "droplet", "system" or "none"
@@ -213,6 +304,10 @@ local db
 
 -- SavedVariables sanity check: anything missing, mistyped, out of range or left over
 -- from an older layout is repaired or dropped, so a damaged WTF file can't break the addon.
+-- (Its helpers live in a do-block to stay within Lua 5.1's 200-local limit for
+-- the file; see the config window section.)
+local SanitizeDB
+do
 local KNOWN_KEYS = { point = true, dbVersion = true }
 for k in pairs(DEFAULTS) do KNOWN_KEYS[k] = true end
 local ENUMS = {
@@ -221,7 +316,8 @@ local ENUMS = {
   sortMode = { name = true, role = true },
   alertSound = { droplet = true, system = true, none = true },
 }
-local RANGES = { bgAlpha = { 0, 1 }, scale = { 0.5, 2 }, rebuff = { 0, 3600 }, castsTotal = { 0, 1e9 },
+local RANGES = { bgAlpha = { 0, 1 }, scale = { 0.5, 2 }, cfgScale = { 0.5, 2 },
+                 width = { MIN_WIDTH, MAX_WIDTH }, rebuff = { 0, 3600 }, castsTotal = { 0, 1e9 },
                  groupCastMin = { 2, 40 }, minimapAngle = { 0, 360 } }
 
 local function IsNumber(v)
@@ -229,7 +325,7 @@ local function IsNumber(v)
 end
 local function Clamp(v, lo, hi) return math_max(lo, math_min(hi, v)) end
 
-local function SanitizeDB(saved)
+function SanitizeDB(saved)
   if type(saved) ~= "table" then saved = {} end
   for k in pairs(saved) do
     if type(k) ~= "string" or not KNOWN_KEYS[k] then saved[k] = nil end
@@ -284,6 +380,7 @@ local function SanitizeDB(saved)
   if saved.dbVersion ~= nil and not IsNumber(saved.dbVersion) then saved.dbVersion = nil end
   return saved
 end
+end -- SanitizeDB block
 
 local function Print(msg)
   DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffBuffRadar|r: " .. tostring(msg))
@@ -294,13 +391,36 @@ end
 -- can set BuffRadarLocales["deDE"] = { ["Paused in a major city."] = "..." }
 -- before this file loads; only the window's status lines are wired so far.
 ---------------------------------------------------------------------------
+-- Every string the main window, its row tooltips and the minimap / addon-menu
+-- tooltips show is listed here (the list doubles as the translator's checklist).
+-- Strings with %d / %s are string.format patterns: keep the placeholders.
+-- Any key a translation leaves out falls back to English.
 local L = {
+  -- window status lines
   ["Paused in a major city."] = "Paused in a major city.",
   ["Paused in a battleground."] = "Paused in a battleground.",
   ["Everyone nearby is buffed."] = "Everyone nearby is buffed.",
   ["Friendly nameplates are off."] = "Friendly nameplates are off.",
   ["No supported buffs in your spellbook."] = "No supported buffs in your spellbook.",
+  ["combat"] = "combat",
+  ["+%d more"] = "+%d more",
+  ["Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time"] =
+    "Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time",
+  ["out of range"] = "out of range",  -- under a greyed row's name
+  -- row tooltip
+  ["Out of range — move closer to cast:"] = "Out of range — move closer to cast:",
+  ["Click to cast: %s"] = "Click to cast: %s",
+  ["Group version — one cast buffs the whole party."] = "Group version — one cast buffs the whole party.",
+  ["Right-click to ignore this player."] = "Right-click to ignore this player.",
+  ["Still needs: %s"] = "Still needs: %s",
+  -- window buttons, minimap button and addon menu
+  ["BuffRadar settings"] = "BuffRadar settings",
+  ["Drag to resize the width"] = "Drag to resize the width",
+  ["Left-click: show / hide the window"] = "Left-click: show / hide the window",
+  ["Right-click: settings"] = "Right-click: settings",
+  ["Drag: move around the minimap"] = "Drag: move around the minimap",
 }
+setmetatable(L, { __index = function(_, k) return k end })
 do
   local loc = (GetLocale and GetLocale()) or "enUS"
   local pack = _G.BuffRadarLocales and _G.BuffRadarLocales[loc]
@@ -333,6 +453,8 @@ local function SpellIcon(name)
   return iconCache[name]
 end
 
+local BookInfo  -- spellbook readers: block-scoped helpers (200-local limit)
+do
 local BANK = BOOKTYPE_SPELL or "spell"
 local function BookName(i)
   if GetSpellBookItemName then
@@ -345,7 +467,7 @@ local function BookName(i)
 end
 
 -- name, rank text ("Rank 5" or ""), spell id
-local function BookInfo(i)
+function BookInfo(i)
   local name, sub, id
   if C_SpellBook and C_SpellBook.GetSpellBookItemInfo and Enum and Enum.SpellBookSpellBank then
     local ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, i, Enum.SpellBookSpellBank.Player)
@@ -363,6 +485,7 @@ local function BookInfo(i)
   if not name then name = BookName(i) end
   return name, sub, id
 end
+end -- spellbook readers block
 
 local function InRaid()
   if IsInRaid then return IsInRaid() end
@@ -452,6 +575,12 @@ local function InRange(spell, unit)
     ok, r = pcall(IsSpellInRange, spell, unit)
   end
   if not ok then r = nil end
+  -- A protected (secret) answer can't be compared: treat it as "unknown".
+  -- (Readable() below does this elsewhere; it's defined after this function.)
+  if r ~= nil and issecretvalue then
+    local okS, secret = pcall(issecretvalue, r)
+    if not okS or secret then r = nil end
+  end
   if r == true or r == 1 then return true end
   if r == false or r == 0 then return false end
   -- Range unknown: fall back to group range / follow distance.
@@ -491,6 +620,16 @@ local function SafeNumber(v)
   if not Readable(v) then return nil end
   local ok, n = pcall(tonumber, v)
   return ok and n or nil
+end
+
+-- Group role the player picked (dungeon finder / role check): "TANK", "HEALER"
+-- or "DAMAGER"; nil for strangers, unassigned players or an unreadable answer.
+local function AssignedRole(unit)
+  if not UnitGroupRolesAssigned then return nil end
+  local ok, r = pcall(UnitGroupRolesAssigned, unit)
+  r = ok and SafeString(r) or nil
+  if r == "TANK" or r == "HEALER" or r == "DAMAGER" then return r end
+  return nil
 end
 
 local function GetField(t, k) return t[k] end  -- shared pcall target (no per-call closures)
@@ -567,6 +706,8 @@ local bookCount = 0
 local sessionShow = false   -- user explicitly opened the window this session
 local lastError
 
+local BuildBuffList  -- reads the spellbook; helpers block-scoped (200-local limit)
+do
 local function KnowsSpell(id, name)
   if known[name] then return true end
   if C_SpellBook and C_SpellBook.IsSpellKnown then
@@ -606,7 +747,7 @@ end
 
 local function ByRank(a, b) return a.rank < b.rank end
 
-local function BuildBuffList()
+function BuildBuffList()
   wipe(known)
   local total = SpellbookSize()
   local probing = total == 0      -- size unknown: walk until the book clearly ends
@@ -618,11 +759,13 @@ local function BuildBuffList()
     local ok, n, sub, id = pcall(BookInfo, i)
     if ok and n then
       misses = 0
-      known[n] = true
+      known[n] = true  -- name-based fallback for KnowsSpell: kept on every edition
       bookCount = bookCount + 1
-      ranks[n] = ranks[n] or {}
-      local num = tonumber((sub or ""):match("(%d+)")) or 0
-      table.insert(ranks[n], { rank = num, sub = sub, id = id })
+      if CLASSIC_FEATURES then  -- spell ranks: Forever only (retail has none)
+        ranks[n] = ranks[n] or {}
+        local num = tonumber((sub or ""):match("(%d+)")) or 0
+        table.insert(ranks[n], { rank = num, sub = sub, id = id })
+      end
     else
       misses = misses + 1
       if probing and misses >= 30 then break end
@@ -655,12 +798,12 @@ local function BuildBuffList()
       end
       myBuffs[#myBuffs + 1] = { key = d.key, name = castName, names = names,
                                 classes = d.classes or ALL, self = d.self,
-                                who = d.who, default = d.on, groupName = groupName }
+                                groupOnly = d.groupOnly, role = d.role, single = d.single, who = d.who, default = d.on, groupName = groupName }
     end
   end
 
   wipe(myBlessing)
-  for class, list in pairs(BLESSING_PRIORITY) do
+  for class, list in pairs(CLASSIC_FEATURES and BLESSING_PRIORITY or {}) do
     for _, k in ipairs(list) do
       local b = BLESSINGS[k]
       local name = SpellName(b.id, b.name)
@@ -674,6 +817,7 @@ local function BuildBuffList()
 
   hasAnyBuff = (#myBuffs > 0) or (next(myBlessing) ~= nil)
 end
+end -- BuildBuffList block
 
 local function IsOn(key, default)
   local v = db.enabled[key]
@@ -710,20 +854,41 @@ end
 
 -- Ordered list of my spells this unit still needs.
 -- Your own row: self-only buffs always; other buffs only with /br self.
-local function Missing(unit, out)
+-- isGroup: the unit came from your party/raid roster (or is you); group-only
+-- buffs are skipped for everyone else.
+
+-- Single-target buffs (Earth Shield): during each scan, holder[key] is the
+-- unit that has YOUR copy (found with the "PLAYER" aura filter, i.e. cast by
+-- you), and CollectEntries then drops that buff from everyone else's row.
+-- If the game can't tell whose it is, nothing is dropped (the old behavior).
+-- keep/drop are scratch lists reused by CollectEntries.
+local Single = { holder = {}, spell = {}, keep = {}, drop = {} }
+
+local function Missing(unit, out, isGroup)
   wipe(out)
   local _, class = UnitClass(unit)
+  class = SafeString(class)  -- used as a table key below; protected values can't be
   if not class then return 0 end
   local isSelf = UnitIsUnit(unit, "player")
   scanUnit = nil  -- force a fresh index scan (fallback path) for this unit
   local n = 0
+  local role, roleRead = nil, false  -- assigned role, read once and only if a buff needs it
   for i = 1, #myBuffs do
     local b = myBuffs[i]
+    if b.single and not isSelf and not Single.holder[b.key] and GetAuraByName then
+      local ok, a = pcall(GetAuraByName, unit, b.name, "HELPFUL|PLAYER")
+      if ok and a ~= nil then Single.holder[b.key], Single.spell[b.key] = unit, b.name end
+    end
     local applies
     if b.self then
       applies = isSelf
     else
       applies = b.classes[class] and (not isSelf or db.includeSelf)
+                and (isGroup or isSelf or not b.groupOnly)
+      if applies and b.role then
+        if not roleRead then role, roleRead = AssignedRole(unit), true end
+        if role and role ~= b.role then applies = false end  -- e.g. a DPS death knight
+      end
     end
     if applies and IsOn(b.key, b.default) and not OnCooldown(b.name)
        and not HasAny(unit, b.names, (db.rebuffPer and db.rebuffPer[b.key]) or db.rebuff) then
@@ -767,14 +932,16 @@ local function EntryOrder(a, b)
   end
   if (a.outOfRange or false) ~= (b.outOfRange or false) then return not a.outOfRange end
   if a.group ~= b.group then return a.group end
-  return (a.name or "") < (b.name or "")
+  return a.sortName < b.sortName  -- readable name, or "" (a shown name may be protected)
 end
 
--- Sort priority for "role" mode: you, then tanks (raid MAINTANK/MAINASSIST),
--- then group leaders, then everyone else. Classic gives no spec/role query,
--- so this is roster flags only — no guessing from class.
+-- Sort priority for "role" mode: you, then tanks, then group leaders, then
+-- everyone else. Tanks are players with the TANK group role (retail role
+-- check / dungeon finder) or the raid MAINTANK/MAINASSIST flag — never a
+-- guess from class.
 local function RoleOf(unit)
   if UnitIsUnit(unit, "player") then return 0 end
+  if AssignedRole(unit) == "TANK" then return 1 end
   local idx = unit:match("^raid(%d+)$")
   if idx and GetRaidRosterInfo then
     local ok, _, _, _, _, _, _, _, _, role = pcall(GetRaidRosterInfo, tonumber(idx))
@@ -784,13 +951,111 @@ local function RoleOf(unit)
   return 3
 end
 
+---------------------------------------------------------------------------
+-- Ignore list. db.ignored keeps names as entered (value true -- the same
+-- format as before 1.3.2); matching goes through Ignore.index, keyed by
+-- Ignore.Key(): lowercase, spaces removed. "Name-Realm" ignores one player;
+-- a bare "Name" (every entry saved before 1.3.2) ignores that name on any realm.
+---------------------------------------------------------------------------
+-- One table rather than separate locals: the file's main chunk is close to
+-- Lua 5.1's 200-local limit (see the config window section).
+--   index: Ignore.Key(name) -> name as stored in db.ignored
+--   realm: your own realm, filled in on first use
+local Ignore = { index = {} }
+
+function Ignore.Key(name) return (name:gsub("%s+", "")):lower() end
+
+-- Called after the saved settings load: builds the index and drops entries
+-- that differ only in case or spacing ("bob" next to "Bob").
+function Ignore.Rebuild()
+  wipe(Ignore.index)
+  local dupes
+  for name in pairs(db.ignored) do
+    local k = Ignore.Key(name)
+    if Ignore.index[k] then
+      dupes = dupes or {}
+      dupes[#dupes + 1] = name
+    else
+      Ignore.index[k] = name
+    end
+  end
+  if dupes then
+    for _, name in ipairs(dupes) do db.ignored[name] = nil end
+  end
+end
+
+-- Returns false when the name (in any spelling) is already on the list.
+function Ignore.Add(name)
+  local k = Ignore.Key(name)
+  if Ignore.index[k] then return false end
+  db.ignored[name] = true
+  Ignore.index[k] = name
+  return true
+end
+
+-- Removes the matching entry. Unless exact, a bare name also removes that
+-- name's Name-Realm entries, so "/br unignore Bob" clears Bob on every realm.
+-- Returns the removed names as they were stored.
+function Ignore.Remove(name, exact)
+  local k, removed = Ignore.Key(name), {}
+  if Ignore.index[k] then removed[1] = Ignore.index[k] end
+  if not exact and not k:find("-", 1, true) then
+    local prefix = k .. "-"
+    for key, stored in pairs(Ignore.index) do
+      if key:sub(1, #prefix) == prefix then removed[#removed + 1] = stored end
+    end
+  end
+  for _, stored in ipairs(removed) do
+    db.ignored[stored] = nil
+    Ignore.index[Ignore.Key(stored)] = nil
+  end
+  return removed
+end
+
+-- "Name-Realm" (your own realm filled in) and the bare name; nil when unreadable.
+function Ignore.UnitNames(unit)
+  local name, realm
+  if UnitFullName then
+    local ok, n, r = pcall(UnitFullName, unit)
+    if ok then name, realm = SafeString(n), SafeString(r) end
+  end
+  if not name then
+    local ok, n = pcall(UnitName, unit)
+    name = ok and SafeString(n) or nil
+  end
+  if not name then return nil, nil end
+  if not realm or realm == "" then
+    if not Ignore.realm and GetNormalizedRealmName then
+      local ok, r = pcall(GetNormalizedRealmName)
+      Ignore.realm = ok and SafeString(r) or nil
+    end
+    realm = Ignore.realm
+  end
+  return realm and realm ~= "" and (name .. "-" .. realm) or name, name
+end
+
+function Ignore.Has(full, short)
+  if full and Ignore.index[Ignore.Key(full)] then return true end
+  return short ~= nil and Ignore.index[Ignore.Key(short)] ~= nil
+end
+
+function Ignore.ByKey(a, b) return Ignore.Key(a) < Ignore.Key(b) end
+-- Ignored names as stored, sorted alphabetically (case-insensitive).
+function Ignore.Sorted()
+  local names = {}
+  for name in pairs(db.ignored) do names[#names + 1] = name end
+  table_sort(names, Ignore.ByKey)
+  return names
+end
+
 local function Consider(unit, isGroup)
   if not Valid(unit) then return end
-  local guid = UnitGUID(unit)
+  -- The GUID is a table key (seen[], the listed sets) and gets compared; a
+  -- protected one can't be either, so that unit is skipped.
+  local guid = SafeString(UnitGUID(unit))
   if not guid or seen[guid] then return end
-  local okN, nm = pcall(UnitName, unit)
-  nm = okN and SafeString(nm) or nil
-  if nm and db.ignored and db.ignored[nm] then return end  -- on the ignore list
+  local full, nm = Ignore.UnitNames(unit)
+  if next(Ignore.index) and Ignore.Has(full, nm) then return end  -- on the ignore list
   seen[guid] = true
   local slot = nEntries + 1
   local e = entries[slot]
@@ -799,12 +1064,15 @@ local function Consider(unit, isGroup)
     if p > 0 then e = entryPool[p]; entryPool[p] = nil else e = { missing = {} } end
     entries[slot] = e
   end
-  local n = Missing(unit, e.missing)
+  local n = Missing(unit, e.missing, isGroup)
   local inRange = n > 0 and InRange(e.missing[1], unit)
   if n == 0 or (not inRange and not db.showOutOfRange) then return end  -- slot is reused next time
   nEntries = slot
   local _, class = UnitClass(unit)
-  e.unit, e.guid, e.name, e.class, e.group = unit, guid, nm or UnitName(unit), class, isGroup
+  -- e.name may be a protected value (display only: SetText accepts those);
+  -- sorting uses sortName and the class goes through SafeString (table key).
+  e.unit, e.guid, e.name, e.class, e.group = unit, guid, nm or UnitName(unit), SafeString(class), isGroup
+  e.fullName, e.sortName = full, nm or ""
   e.isSelf = UnitIsUnit(unit, "player")
   e.outOfRange = not inRange
   e.groupCast = false
@@ -818,6 +1086,7 @@ local scanPlatesSeen, scanPlayersSeen = 0, 0
 local function CollectEntries()
   wipe(seen)
   wipe(cdCache)
+  wipe(Single.holder)
   nEntries = 0
   scanPlatesSeen, scanPlayersSeen = 0, 0
   local list = InRaid() and RAID or PARTY
@@ -833,6 +1102,29 @@ local function CollectEntries()
     end
     Consider(u, false)
   end
+  -- Single-target buffs whose holder was found: only the holder's row may
+  -- still offer it (when it's about to run out). Rows left with nothing to
+  -- cast drop off; every entry object stays in entries[] exactly once, the
+  -- dropped ones after nEntries, so the tail loop below pools them.
+  if next(Single.holder) then
+    local keep, drop = Single.keep, Single.drop
+    wipe(keep); wipe(drop)
+    for i = 1, nEntries do
+      local e = entries[i]
+      for key, holderUnit in pairs(Single.holder) do
+        if e.unit ~= holderUnit then
+          local m, spell = e.missing, Single.spell[key]
+          for j = #m, 1, -1 do
+            if m[j] == spell then table.remove(m, j) end
+          end
+        end
+      end
+      if e.missing[1] then keep[#keep + 1] = e else drop[#drop + 1] = e end
+    end
+    for i = 1, #keep do entries[i] = keep[i] end
+    for i = 1, #drop do entries[#keep + i] = drop[i] end
+    nEntries = #keep
+  end
   for i = #entries, nEntries + 1, -1 do  -- return the unused tail to the pool
     entryPool[#entryPool + 1] = entries[i]
     entries[i] = nil
@@ -846,7 +1138,10 @@ end
 -- Classic rule: a buff fails if its rank's required level is more than 10
 -- above the target's level. If the client can't tell us spell levels, we
 -- simply use the highest rank.
+-- (Rank helpers are block-scoped; only Bind is used outside: 200-local limit.)
 ---------------------------------------------------------------------------
+local Bind
+do
 local function LevelLearned(id)
   if not id then return nil end
   local fn = (C_Spell and C_Spell.GetSpellLevelLearned) or GetSpellLevelLearned
@@ -878,13 +1173,19 @@ local function CastText(name, unit)
   return name
 end
 
-local function Bind(btn, unit, spell)
+function Bind(btn, unit, spell)
   local pick = PickRank(spell, unit)
   local method = db.castMethod
   if method == "target" then
-    -- Same approach as BuffYou (MIT, by datdata): self-casts go straight to "player";
-    -- anyone else is targeted by exact name, then the buff is cast by plain name
-    -- (which uses your highest rank), then your previous target is restored.
+    -- Self-casts go straight to "player", and party/raid members are cast on
+    -- by their group unit (party2, raid14, ...), so your target never changes.
+    -- Anyone else -- nameplate, target or mouseover units, which can point at
+    -- a different player by the time you click -- uses BuffYou's approach
+    -- (MIT, by datdata): target them by exact name, cast the buff by plain
+    -- name (your highest rank), then restore your previous target.
+    -- Group units are rebound on every roster change (GROUP_ROSTER_UPDATE
+    -- refreshes the list); only a roster change during combat, while the
+    -- list is frozen, can leave a row pointing at whoever took that slot.
     btn:SetAttribute("type", nil)
     btn:SetAttribute("unit", nil)
     btn:SetAttribute("spell", nil)
@@ -895,8 +1196,15 @@ local function Bind(btn, unit, spell)
       btn:SetAttribute("unit", "player")
       return
     end
+    if unit:match("^party%d+$") or unit:match("^raid%d+$") then
+      btn:SetAttribute("type", "spell")
+      btn:SetAttribute("spell", spell)
+      btn:SetAttribute("unit", unit)
+      return
+    end
     local ok, name = pcall(GetUnitName or UnitName, unit, true)
-    if ok and type(name) == "string" and name ~= "" then
+    name = ok and SafeString(name) or nil  -- a protected name can't build a macro: no cast
+    if name and name ~= "" then
       btn:SetAttribute("type", "macro")
       btn:SetAttribute("macrotext", "/targetexact " .. name .. "\n/cast " .. spell .. "\n/targetlasttarget")
     end
@@ -913,6 +1221,7 @@ local function Bind(btn, unit, spell)
     btn:SetAttribute("macrotext", "/cast [@" .. unit .. ",help,nodead] " .. text)
   end
 end
+end -- Bind block
 
 ---------------------------------------------------------------------------
 -- UI
@@ -920,7 +1229,7 @@ end
 local frame, title, countText, emptyText, overflowText, combatText, nextBtn
 local OpenConfig, RefreshConfig, MakeMacro  -- defined further down
 local QueueRefresh  -- assigned to the event coalescer further down
-local BuildMinimapButton  -- assigned in the minimap section further down
+local BuildMinimapButton, RefreshMinimapButton  -- assigned in the minimap section further down
 local footerText
 local sessionCasts = 0
 local pendingCast            -- { spell = name, time = t } set when a BuffRadar button is clicked
@@ -947,7 +1256,6 @@ local function PlayAlert()
   end
   if PlaySoundFile then pcall(PlaySoundFile, SOUND_FILE, "Master") end
 end
-local PlayDroplet = PlayAlert  -- older call sites use this name
 
 local lastCounterSession, lastCounterTotal
 local function UpdateCounter()
@@ -957,7 +1265,7 @@ local function UpdateCounter()
   local total = db.castsTotal or 0
   if sessionCasts ~= lastCounterSession or total ~= lastCounterTotal then
     lastCounterSession, lastCounterTotal = sessionCasts, total
-    footerText:SetText(string_format("Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time",
+    footerText:SetText(string_format(L["Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time"],
       sessionCasts, total))
   end
 end
@@ -1051,34 +1359,36 @@ local function Row_OnEnter(self)
   if not self.entry then return end
   local e = self.entry
   GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-  if UnitExists(e.unit) and UnitGUID(e.unit) == e.guid then
+  if UnitExists(e.unit) and SafeString(UnitGUID(e.unit)) == e.guid then
     GameTooltip:SetUnit(e.unit)
   else
     GameTooltip:AddLine(e.name)
   end
   GameTooltip:AddLine(" ")
   if e.outOfRange then
-    GameTooltip:AddLine("Out of range — move closer to cast:", 1, 0.5, 0.3)
+    GameTooltip:AddLine(L["Out of range — move closer to cast:"], 1, 0.5, 0.3)
     GameTooltip:AddLine("|cff00ff00" .. e.missing[1] .. "|r")
   else
-    GameTooltip:AddLine("Click to cast: |cff00ff00" .. e.missing[1] .. "|r")
+    GameTooltip:AddLine(string_format(L["Click to cast: %s"], "|cff00ff00" .. e.missing[1] .. "|r"))
   end
   if e.groupCast then
-    GameTooltip:AddLine("Group version — one cast buffs the whole party.", 0.4, 0.8, 1)
+    GameTooltip:AddLine(L["Group version — one cast buffs the whole party."], 0.4, 0.8, 1)
   end
-  GameTooltip:AddLine("Right-click to ignore this player.", 0.6, 0.6, 0.6)
+  GameTooltip:AddLine(L["Right-click to ignore this player."], 0.6, 0.6, 0.6)
   if #e.missing > 1 then
     local rest = {}
     for i = 2, #e.missing do rest[#rest + 1] = e.missing[i] end
-    GameTooltip:AddLine("Still needs: " .. table.concat(rest, ", "), 0.8, 0.8, 0.8, true)
+    GameTooltip:AddLine(string_format(L["Still needs: %s"], table.concat(rest, ", ")), 0.8, 0.8, 0.8, true)
   end
   GameTooltip:Show()
 end
 
 local function CreateRow(i)
   local b = CreateFrame("Button", "BuffRadarRow" .. i, frame, "SecureActionButtonTemplate")
-  b:SetSize(WIDTH - 12, ROW_H)
+  -- Anchored on both sides, so rows follow the window's width when it's resized.
+  b:SetHeight(ROW_H)
   b:SetPoint("TOPLEFT", frame, "TOPLEFT", 6, -HEADER_H - (i - 1) * ROW_H)
+  b:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -6, -HEADER_H - (i - 1) * ROW_H)
   if db.clickReg == "down" then
     b:RegisterForClicks("AnyDown")
   elseif db.clickReg == "up" then
@@ -1087,6 +1397,12 @@ local function CreateRow(i)
     b:RegisterForClicks("AnyUp", "AnyDown")
   end
   b:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+  -- Right-click only ignores (see the OnClick hook below). Bind() sets the plain
+  -- "type" attribute, which the secure template uses for EVERY mouse button
+  -- unless a button-specific one exists; this "type2" override is a made-up
+  -- action the template doesn't know, so a right-click casts nothing.
+  -- Bind() never touches "type2", so this holds for the row's lifetime.
+  b:SetAttribute("type2", "buffradarignore")
 
   b.portrait = b:CreateTexture(nil, "ARTWORK")
   b.portrait:SetSize(ROW_H - 2, ROW_H - 2)
@@ -1118,6 +1434,12 @@ local function CreateRow(i)
   b.name:SetPoint("RIGHT", b, "RIGHT", -(MAX_ICONS * 18 + 4), 0)
   b.name:SetJustifyH("LEFT")
   if b.name.SetWordWrap then b.name:SetWordWrap(false) end
+  -- "out of range" under the name of a greyed row, so the state doesn't rest
+  -- on color alone (RenderRow moves the name up to make room).
+  b.far = b:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  b.far:SetPoint("TOPLEFT", b.name, "BOTTOMLEFT", 0, -1)
+  b.far:SetText(L["out of range"])
+  b.far:Hide()
 
   -- HookScript, never SetScript: SetScript would REPLACE the
   -- SecureActionButtonTemplate's own OnClick (SecureActionButton_OnClick),
@@ -1129,19 +1451,24 @@ local function CreateRow(i)
     -- toggle on exactly one phase (release, unless casts trigger on press).
     if down ~= (db.clickReg == "down") then return end
     local e = self.entry
-    if not e or not e.name or not db then return end
-    db.ignored = db.ignored or {}
-    if db.ignored[e.name] then
-      db.ignored[e.name] = nil
-      Print("No longer ignoring " .. e.name .. ".")
+    if not e or not db then return end
+    local short = SafeString(e.name)  -- a protected (secret) name can't be stored
+    local who = e.fullName or short   -- Name-Realm: ignores this one player only
+    if not who then return end
+    if Ignore.Has(e.fullName, short) then
+      -- (a row still showing an ignored player: it drops off on the next refresh)
+      local removed = Ignore.Remove(who)
+      if #removed == 0 and short then removed = Ignore.Remove(short) end
+      Print("No longer ignoring " .. table.concat(removed, ", ") .. ".")
     else
-      db.ignored[e.name] = true
-      Print("Ignoring " .. e.name .. ". Right-click again or /br unignore to undo.")
+      Ignore.Add(who)
+      Print("Ignoring " .. who .. ". Undo with /br unignore " .. who .. " or on the Ignore & Stats tab.")
     end
     if QueueRefresh then QueueRefresh() end
   end)
   b:SetScript("PostClick", function(self, button, down)
-    if self:GetAttribute("type") then NotePendingCast(self.entry) end
+    -- (a right-click casts nothing, so it mustn't count toward the cast counter)
+    if button ~= "RightButton" and self:GetAttribute("type") then NotePendingCast(self.entry) end
     if db.clickDebug then
       Print(string.format("click: %s %s | type=%s | %s", tostring(button),
         down and "down" or "up", tostring(self:GetAttribute("type")),
@@ -1155,6 +1482,16 @@ local function CreateRow(i)
   rows[i] = b
 end
 
+local grip  -- width resize grip, bottom-right corner (built in BuildUI)
+
+-- Width and scale. The window holds secure row buttons, so its size can't
+-- change in combat; callers retry after combat (PLAYER_REGEN_ENABLED).
+local function ApplyGeometry()
+  if not frame or InCombatLockdown() then return end
+  frame:SetWidth(db.width or WIDTH)
+  frame:SetScale(db.scale or 1)
+end
+
 local function ApplyAppearance()
   if not frame then return end
   local c = db.bgColor or DEFAULTS.bgColor
@@ -1162,6 +1499,7 @@ local function ApplyAppearance()
     frame:SetBackdropColor(c[1], c[2], c[3], db.bgAlpha or 0.92)
     frame:SetBackdropBorderColor(0.35, 0.55, 0.8, db.showBorder and 1 or 0)
   end
+  if grip then grip:SetShown(not db.locked) end
   title:SetShown(db.showTitle and true or false)
   combatText:ClearAllPoints()
   if db.showTitle then
@@ -1200,7 +1538,7 @@ end
 -- Secure attribute writes only when what the button should cast actually changed.
 local function BindCached(btn, unit, spell, guid)
   local method = db.castMethod
-  local lvl = UnitLevel(unit) or 0
+  local lvl = SafeNumber(UnitLevel(unit)) or 0  -- compared below
   if btn.bGuid == guid and btn.bUnit == unit and btn.bSpell == spell
      and btn.bMethod == method and btn.bLevel == lvl then
     return
@@ -1241,7 +1579,7 @@ local function BuildNextButton()
       self:SetAttribute("macrotext", nil)
     ]])
   end
-  nextBtn:HookScript("PostClick", function(self, button, down)
+  nextBtn:HookScript("PostClick", function(self, _, down)
     NotePendingCast(self.entry)
     self.bGuid, self.isClear = nil, false  -- attributes changed outside our cache
     if not nextWrapped then ClearNext() end  -- one press = one cast
@@ -1258,10 +1596,19 @@ local function BuildUI()
 
   frame = CreateFrame("Frame", "BuffRadarFrame", UIParent,
                       BackdropTemplateMixin and "BackdropTemplate" or nil)
-  frame:SetSize(WIDTH, HEADER_H + 30)
+  frame:SetSize(db.width or WIDTH, HEADER_H + 30)
   frame:SetFrameStrata("MEDIUM")
   frame:SetClampedToScreen(true)
   frame:SetMovable(true)
+  frame:SetResizable(true)
+  -- Only the width is user-sized (StartSizing("RIGHT")); the height bounds are
+  -- wide open because Refresh() sets the height to fit the list.
+  if frame.SetResizeBounds then
+    frame:SetResizeBounds(MIN_WIDTH, 1, MAX_WIDTH, 4000)
+  elseif frame.SetMinResize then
+    frame:SetMinResize(MIN_WIDTH, 1)
+    frame:SetMaxResize(MAX_WIDTH, 4000)
+  end
   frame:EnableMouse(true)
   frame:RegisterForDrag("LeftButton")
   frame:SetScript("OnDragStart", function(self)
@@ -1309,7 +1656,7 @@ local function BuildUI()
   gear:SetScript("OnClick", function() OpenConfig() end)
   gear:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine("BuffRadar settings")
+    GameTooltip:AddLine(L["BuffRadar settings"])
     GameTooltip:Show()
   end)
   gear:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1319,26 +1666,54 @@ local function BuildUI()
 
   combatText = frame:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
   combatText:SetPoint("LEFT", title, "RIGHT", 6, 0)
-  combatText:SetText("combat")
+  combatText:SetText(L["combat"])
   combatText:Hide()
 
   emptyText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   emptyText:SetPoint("TOPLEFT", 10, -HEADER_H - 3)
-  emptyText:SetText("Everyone nearby is buffed.")
+  emptyText:SetText(L["Everyone nearby is buffed."])
 
   overflowText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   overflowText:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -HEADER_H)
 
   footerText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   footerText:SetPoint("LEFT", gear, "RIGHT", 5, 0)
+  footerText:SetPoint("RIGHT", frame, "BOTTOMRIGHT", -16, 13)  -- clear of the resize grip
   footerText:SetJustifyH("LEFT")
+  if footerText.SetWordWrap then footerText:SetWordWrap(false) end
+
+  -- Resize grip: drag the bottom-right corner to change the width.
+  grip = CreateFrame("Button", nil, frame)
+  grip:SetSize(12, 12)
+  grip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -3, 3)
+  grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+  grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+  grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight", "ADD")
+  grip:SetScript("OnMouseDown", function(self, button)
+    if button ~= "LeftButton" or db.locked or InCombatLockdown() then return end
+    frame:StartSizing("RIGHT")
+    self.isSizing = true
+  end)
+  grip:SetScript("OnMouseUp", function(self)
+    if not self.isSizing or InCombatLockdown() then return end
+    frame:StopMovingOrSizing()
+    self.isSizing = false
+    db.width = math_floor(frame:GetWidth() + 0.5)
+    SavePosition()  -- re-anchor by the top-left corner (sizing can move the anchor)
+  end)
+  grip:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:AddLine(L["Drag to resize the width"])
+    GameTooltip:Show()
+  end)
+  grip:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
   for i = 1, MAX_ROWS do CreateRow(i) end
 
   local okNext, errNext = pcall(BuildNextButton)
   if not okNext then Print("|cffff4040keybind button unavailable:|r " .. tostring(errNext)) end
 
-  frame:SetScale(db.scale or 1)
+  ApplyGeometry()
   RestorePosition()
   ApplyAppearance()
   UpdateCounter()
@@ -1347,8 +1722,9 @@ local function BuildUI()
 end
 
 ---------------------------------------------------------------------------
--- Minimap button + addon compartment
+-- Minimap button + addon compartment (block-scoped: 200-local limit)
 ---------------------------------------------------------------------------
+do
 local minimapBtn
 
 local function PositionMinimapButton()
@@ -1386,12 +1762,15 @@ BuildMinimapButton = function()
   b:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
     GameTooltip:AddLine("|cff33ccffBuff|rRadar")
-    GameTooltip:AddLine("Left-click: show / hide the window", 0.8, 0.8, 0.8)
-    GameTooltip:AddLine("Right-click: settings", 0.8, 0.8, 0.8)
-    GameTooltip:AddLine("Drag: move around the minimap", 0.8, 0.8, 0.8)
+    GameTooltip:AddLine(L["Left-click: show / hide the window"], 0.8, 0.8, 0.8)
+    GameTooltip:AddLine(L["Right-click: settings"], 0.8, 0.8, 0.8)
+    GameTooltip:AddLine(L["Drag: move around the minimap"], 0.8, 0.8, 0.8)
     GameTooltip:Show()
   end)
   b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  -- A Button only receives left clicks unless told otherwise; without this the
+  -- right-click-for-settings in the tooltip never fired.
+  b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   b:SetScript("OnClick", function(_, button)
     if button == "RightButton" then OpenConfig()
     elseif BuffRadar_ToggleWindow then BuffRadar_ToggleWindow() end
@@ -1411,15 +1790,35 @@ BuildMinimapButton = function()
   minimapBtn = b
   RefreshMinimapButton()
 
+  -- Addon compartment (the minimap's addon menu): same clicks as the minimap
+  -- button. The click callback's arguments differ between client versions:
+  -- newer menus pass a table with .buttonName, older dropdowns pass the mouse
+  -- button as the 5th argument; anything else counts as a left click.
   if AddonCompartmentFrame and AddonCompartmentFrame.RegisterAddon then
     pcall(AddonCompartmentFrame.RegisterAddon, AddonCompartmentFrame, {
       text = "BuffRadar",
       icon = "Interface\\AddOns\\BuffRadar\\Media\\icon.png",
       notCheckable = true,
-      func = function() OpenConfig() end,
+      registerForAnyClick = true,
+      func = function(...)
+        local a2, a5 = select(2, ...), select(5, ...)
+        local mouse = (type(a2) == "table" and a2.buttonName) or a5
+        if mouse == "RightButton" then OpenConfig()
+        elseif BuffRadar_ToggleWindow then BuffRadar_ToggleWindow() end
+      end,
+      funcOnEnter = function(button)
+        if type(button) ~= "table" then return end
+        GameTooltip:SetOwner(button, "ANCHOR_LEFT")
+        GameTooltip:AddLine("|cff33ccffBuff|rRadar")
+        GameTooltip:AddLine(L["Left-click: show / hide the window"], 0.8, 0.8, 0.8)
+        GameTooltip:AddLine(L["Right-click: settings"], 0.8, 0.8, 0.8)
+        GameTooltip:Show()
+      end,
+      funcOnLeave = function() GameTooltip:Hide() end,
     })
   end
 end
+end -- minimap block
 
 ---------------------------------------------------------------------------
 -- Refresh
@@ -1449,7 +1848,7 @@ end
 local function InvalidateRows()
   for i = 1, #rows do
     local row = rows[i]
-    row.cGuid, row.cUnit, row.bGuid = nil, nil, nil
+    row.cGuid, row.cUnit, row.bGuid, row.cFar = nil, nil, nil, nil
     wipe(row.cMissing)
   end
   if nextBtn then nextBtn.bGuid, nextBtn.isClear = nil, false end
@@ -1463,8 +1862,20 @@ local function RenderRow(row, e)
     -- this file: if a build renames or restricts it, the row still renders.
     if SetPortraitTexture then pcall(SetPortraitTexture, row.portrait, e.unit) end
     row.name:SetText(e.name)
-    row.name:SetTextColor(ClassColor(e.class))
     row.cGuid, row.cUnit = e.guid, e.unit
+    row.cFar = nil  -- new player on this row: set color and layout below
+  end
+  -- In range: class-colored name centered on the row. Out of range: grey name
+  -- moved up, with "out of range" under it. (Before 1.3.2 the grey stayed
+  -- after the player came back into range.)
+  local far = e.outOfRange and true or false
+  if row.cFar ~= far then
+    row.cFar = far
+    row.name:ClearAllPoints()
+    row.name:SetPoint("LEFT", row.portrait, "RIGHT", 6, far and 5 or 0)
+    row.name:SetPoint("RIGHT", row, "RIGHT", -(MAX_ICONS * 18 + 4), far and 5 or 0)
+    row.far:SetShown(far)
+    if far then row.name:SetTextColor(0.55, 0.55, 0.55) else row.name:SetTextColor(ClassColor(e.class)) end
   end
   local cm, changed = row.cMissing, false
   for j = 1, MAX_ICONS do
@@ -1486,7 +1897,6 @@ local function RenderRow(row, e)
   if e.outOfRange then
     -- Greyed placeholder row: no live binding behind the click, and the
     -- cached binding is cleared so a reused row can't cast a stale target.
-    row.name:SetTextColor(0.55, 0.55, 0.55)
     row:SetAlpha(0.6)
     if row.bGuid ~= nil then
       row:SetAttribute("type", nil)
@@ -1513,10 +1923,18 @@ local function ShowStatus(text)
   SetShownIfChanged(frame, true)
 end
 
+-- True while the last refresh found nothing that time alone can change: no
+-- supported buffs known, or scanning paused (city / battleground). The steady
+-- timer skips its refreshes then; events (zone changes, learning a spell,
+-- settings changes) still refresh right away and clear it.
+local refreshIdle = false
+
 local function Refresh()
   if not built or InCombatLockdown() then return end
+  refreshIdle = false
 
   if not hasAnyBuff then
+    refreshIdle = true
     ClearNext()
     for i = 1, MAX_ROWS do ClearRow(rows[i]) end
     if sessionShow and not db.hidden then
@@ -1531,6 +1949,7 @@ local function Refresh()
 
   -- No scanning in major cities
   if db.pauseInCities and InMajorCity() then
+    refreshIdle = true
     ClearNext()
     wipe(listedBefore)
     for i = 1, MAX_ROWS do ClearRow(rows[i]) end
@@ -1545,6 +1964,7 @@ local function Refresh()
   -- No scanning in battlegrounds / arenas (optional; flag rules make lists noisy)
   local instType = InInstanceNow()
   if db.pauseInBG and (instType == "pvp" or instType == "arena") then
+    refreshIdle = true
     ClearNext()
     wipe(listedBefore)
     for i = 1, MAX_ROWS do ClearRow(rows[i]) end
@@ -1614,9 +2034,8 @@ local function Refresh()
   for i = 1, n do
     local guid = entries[i].guid
     listedNow[guid] = true
-    if entries[i].outOfRange then
-      -- greyed rows don't ding: they're not castable yet
-    elseif not listedBefore[guid] then
+    -- (greyed out-of-range rows don't ding: they're not castable yet)
+    if not entries[i].outOfRange and not listedBefore[guid] then
       local gone = recentlyGone[guid]
       if not gone or now - gone > 10 then newName = true end
     end
@@ -1630,7 +2049,7 @@ local function Refresh()
   listedBefore = listedNow
   if newName and db.playSound and now - lastSoundAt > 1 then
     lastSoundAt = now
-    PlayDroplet()
+    PlayAlert()
   end
 
   local shown = math_min(n, MAX_ROWS)
@@ -1655,7 +2074,7 @@ local function Refresh()
     end
     if overflowText.cCount ~= n then
       overflowText.cCount = n
-      overflowText:SetText(string_format("+%d more", n - MAX_ROWS))
+      overflowText:SetText(string_format(L["+%d more"], n - MAX_ROWS))
     end
     SetShownIfChanged(overflowText, true)
   else
@@ -1701,22 +2120,34 @@ if C_Timer and C_Timer.NewTicker and C_Timer.After then
     refreshQueued = true
     C_Timer.After(SOON_DELAY, QueuedRefresh)
   end
+  -- The steady tick catches what no event reports (players walking in and out
+  -- of range, buffs running low, cooldowns ending); it has nothing to do while
+  -- Refresh() reports idle, and in combat, when Refresh() can't run anyway.
+  local function TickRefresh()
+    if refreshIdle or InCombatLockdown() then return end
+    SafeRefresh()
+  end
   StartTicker = function()
-    if not ticker then ticker = C_Timer.NewTicker(UPDATE_INTERVAL, SafeRefresh) end
+    if not ticker then ticker = C_Timer.NewTicker(UPDATE_INTERVAL, TickRefresh) end
   end
 else
   -- Fallback for clients without C_Timer: throttled accumulator, never per-frame work.
-  local elapsed = 0
+  -- soonPending marks an event-driven refresh, which runs even while idle.
+  local elapsed, soonPending = 0, false
   StartTicker = function()
     driver:SetScript("OnUpdate", function(_, dt)
       elapsed = elapsed + dt
       if elapsed >= UPDATE_INTERVAL then
         elapsed = 0
-        SafeRefresh()
+        if soonPending or not refreshIdle then
+          soonPending = false
+          SafeRefresh()
+        end
       end
     end)
   end
   Soon = function()
+    soonPending = true
     if elapsed < UPDATE_INTERVAL - SOON_DELAY then elapsed = UPDATE_INTERVAL - SOON_DELAY end
   end
 end
@@ -1762,7 +2193,7 @@ local function RequestSpellData()
     if d.choices then for _, c in ipairs(d.choices) do WantSpell(c[1]) end end
     if d.also then for _, a in ipairs(d.also) do WantSpell(a[1]) end end
   end
-  for _, b in pairs(BLESSINGS) do
+  for _, b in pairs(CLASSIC_FEATURES and BLESSINGS or {}) do
     WantSpell(b.id)
     WantSpell(b.greater[1])
   end
@@ -1784,6 +2215,22 @@ for _, ev in ipairs({
 end
 
 driver:SetScript("OnEvent", function(_, event, arg1, ...)
+  -- The busiest events, filtered first. They only ever lead to a list refresh:
+  --  * in combat the list is frozen and PLAYER_REGEN_ENABLED refreshes it
+  --    afterwards, so they're dropped outright;
+  --  * UNIT_AURA also fires for units BuffRadar never lists (enemy and NPC
+  --    nameplates, pets, bosses, arena opponents) -- those are dropped too.
+  if event == "UNIT_AURA" or event == "NAME_PLATE_UNIT_ADDED" or event == "NAME_PLATE_UNIT_REMOVED"
+     or event == "UPDATE_MOUSEOVER_UNIT" then
+    if InCombatLockdown() then return end
+    if event == "UNIT_AURA" and type(arg1) == "string" and arg1 ~= "player" and arg1 ~= "target"
+       and arg1 ~= "mouseover" and not arg1:find("^party%d") and not arg1:find("^raid%d")
+       and not (arg1:find("^nameplate%d") and UnitIsPlayer(arg1)) then
+      return
+    end
+    Soon()
+    return
+  end
   if event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN" then
     if arg1 == ADDON then
       Print("|cffff4040the game blocked a BuffRadar action|r (" .. event .. ": " ..
@@ -1794,15 +2241,16 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   if event == "UNIT_SPELLCAST_SENT" or event == "UNIT_SPELLCAST_FAILED"
      or event == "UNIT_SPELLCAST_SUCCEEDED" or event == "UI_ERROR_MESSAGE" then
     if db and db.clickDebug and (event == "UI_ERROR_MESSAGE" or arg1 == "player") then
-      local parts = { tostring(arg1) }
-      for i = 1, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+      local parts = { SafeString(arg1) or "?" }  -- "?" = nil or protected
+      for i = 1, select("#", ...) do parts[#parts + 1] = SafeString((select(i, ...))) or "?" end
       Print("|cffaaaaaa" .. event .. ": " .. table.concat(parts, ", ") .. "|r")
     end
     if event ~= "UNIT_SPELLCAST_SUCCEEDED" or arg1 ~= "player" then return end
     if arg1 == "player" and pendingCast and db then
       local spellID = select(2, ...)
       local ok, name = pcall(SpellName, spellID, nil)
-      if ok and name == pendingCast.spell and GetTime() - pendingCast.time < 3 then
+      name = ok and SafeString(name) or nil  -- compared and used as a stats key
+      if name and name == pendingCast.spell and GetTime() - pendingCast.time < 3 then
         pendingCast = nil
         sessionCasts = sessionCasts + 1
         db.castsTotal = (db.castsTotal or 0) + 1
@@ -1841,6 +2289,13 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     driver:UnregisterEvent("ADDON_LOADED")  -- one-off
     BuffRadarDB = SanitizeDB(BuffRadarDB)
     db = BuffRadarDB
+    Ignore.Rebuild()
+    -- Settings shared with the Forever edition: Classic-only choices fall back
+    -- to the defaults here (their controls are hidden on this edition).
+    if not CLASSIC_FEATURES then
+      if db.castMethod == "id" or db.castMethod == "rank" then db.castMethod = "target" end
+      db.groupCast = false
+    end
     if (db.dbVersion or 0) < 3 then
       db.castMethod = "target"
       db.clickReg = "both"
@@ -1857,6 +2312,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if not db then
       BuffRadarDB = SanitizeDB(BuffRadarDB)
       db = BuffRadarDB
+      Ignore.Rebuild()
     end
     RequestSpellData()
     local ok, err = pcall(BuildBuffList)
@@ -1880,6 +2336,12 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       frame.isMoving = false
       SavePosition()
     end
+    if grip and grip.isSizing then  -- same for a resize in progress
+      frame:StopMovingOrSizing()
+      grip.isSizing = false
+      db.width = math_floor(frame:GetWidth() + 0.5)
+      SavePosition()
+    end
     if nextBtn then nextBtn.bGuid, nextBtn.isClear = nil, false end  -- driver clears it
     -- Fallback when the secure combat driver isn't available: this event still runs
     -- just before combat lockdown starts, so the key can be disarmed here.
@@ -1887,6 +2349,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   elseif event == "PLAYER_REGEN_ENABLED" then
     if combatText then combatText:Hide() end
     BuildUI()
+    ApplyGeometry()  -- a scale/width change made during combat lands now
     ApplyNextRegistration()
     Soon()
   elseif event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_TAB" or event == "LEARNED_SPELL_IN_SKILL_LINE" then
@@ -1921,8 +2384,10 @@ function BuffRadar_ToggleSound()
 end
 
 ---------------------------------------------------------------------------
--- Keybind + macro helpers
+-- Keybind + macro helpers (block-scoped except the two below: 200-local limit)
 ---------------------------------------------------------------------------
+local KeybindText, OpenKeybinds
+do
 local function MacroBody()
   if GetCVarBool and GetCVarBool("ActionButtonUseKeyDown") then
     return "/click BuffRadarNextButton LeftButton 1"
@@ -1930,7 +2395,7 @@ local function MacroBody()
   return "/click BuffRadarNextButton"
 end
 
-local function KeybindText(binding)
+function KeybindText(binding)
   local k1, k2 = nil, nil
   if GetBindingKey then k1, k2 = GetBindingKey(binding or NEXT_BINDING) end
   if not k1 then return "|cff888888not bound|r" end
@@ -1938,7 +2403,7 @@ local function KeybindText(binding)
   return "|cffffd100" .. nice(k1) .. (k2 and (", " .. nice(k2)) or "") .. "|r"
 end
 
-local function OpenKeybinds()
+function OpenKeybinds()
   if InCombatLockdown() then Print("Can't open key bindings during combat."); return end
   local ok = false
   if Settings and Settings.OpenToCategory and Settings.KEYBINDINGS_CATEGORY_ID then
@@ -1981,12 +2446,21 @@ MakeMacro = function(quiet)
   if idx and PickupMacro then pcall(PickupMacro, idx) end
   Print("Macro |cffffd100BuffRadar|r is on your cursor; drop it on an action bar. It runs: " .. body)
 end
+end -- keybind + macro block
 
 ---------------------------------------------------------------------------
 -- Config window (tabbed: Window / Alerts / Buffs / Behavior / Ignore & Stats)
+--
+-- This section sits in a do ... end block (left unindented). WoW's Lua 5.1
+-- refuses to compile a file whose main chunk has more than 200 local
+-- variables in scope at once -- and then NOTHING in the file runs: no window,
+-- no /br, no minimap button (the 1.3.2 test build hit exactly this). Locals
+-- declared inside a block stop counting when the block ends, so the
+-- settings-window helpers below don't use up the file's budget. Only
+-- OpenConfig and RefreshConfig (declared near the top) are used outside it.
 ---------------------------------------------------------------------------
+do
 local cfg
-local cfgTab = "look"
 
 local function MakeCheck(parent, label, getter, setter)
   local cb = CreateFrame("CheckButton", nil, parent)
@@ -1998,9 +2472,55 @@ local function MakeCheck(parent, label, getter, setter)
   cb.label = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   cb.label:SetPoint("LEFT", cb, "RIGHT", 4, 1)
   cb.label:SetText(label)
+  cb.FitLabel = function(self)  -- the label is part of the click target, not just the box
+    local w = self.label:GetStringWidth()
+    if self.label.maxWidth then w = math_min(w, self.label.maxWidth) end
+    self:SetHitRectInsets(0, -(w + 4), 0, 0)
+  end
+  cb:FitLabel()
   cb:SetScript("OnClick", function(self) setter(self:GetChecked() and true or false) end)
   cb.Update = function(self) self:SetChecked(getter() and true or false) end
   return cb
+end
+
+-- Hover help for a settings control: a white title line plus wrapped detail.
+-- heading/text may be functions, for help that depends on the current state.
+local function Tip(widget, heading, text)
+  widget:HookScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:AddLine(type(heading) == "function" and heading() or heading, 1, 1, 1)
+    local t = type(text) == "function" and text() or text
+    if t then GameTooltip:AddLine(t, 0.85, 0.85, 0.85, true) end
+    GameTooltip:Show()
+  end)
+  widget:HookScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
+-- Seconds entry box (0-3600). Enter or clicking away saves, Esc cancels;
+-- onCommit gets the number, or nil for an empty box. Shows getText() otherwise.
+local function MakeSecondsBox(parent, getText, onCommit)
+  local eb = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+  eb:SetSize(40, 20)
+  eb:SetAutoFocus(false)
+  eb:SetNumeric(true)
+  eb:SetMaxLetters(4)
+  eb:SetJustifyH("CENTER")
+  eb.Revert = function(self) self:SetText(getText()) end
+  eb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+  eb:SetScript("OnEscapePressed", function(self) self.cancel = true; self:ClearFocus() end)
+  eb:SetScript("OnEditFocusLost", function(self)
+    self:HighlightText(0, 0)
+    if self.cancel then self.cancel = false; self:Revert(); return end
+    local s = self:GetText()
+    local n = tonumber(s)
+    if s ~= "" and (not n or n > 3600) then
+      Print("Rebuff time must be a whole number from 0 to 3600 seconds.")
+    else
+      onCommit(n)
+    end
+    self:Revert()
+  end)
+  return eb
 end
 
 local function MakeButton(parent, text, width, onClick)
@@ -2067,17 +2587,63 @@ local function OpenColorPicker()
   end
 end
 
+local function PercentText(v) return math_floor(v * 100 + 0.5) .. "%" end
+
+-- Scale picker: the game's menu dropdown, with one entry per SCALE_PRESETS value.
+-- A scale set by /br scale that isn't a preset shows as "Custom (n%)". Clients
+-- without the dropdown template get a button that steps through the presets.
+local function MakeScaleDropdown(parent, getter, setter)
+  local ok, dd = pcall(CreateFrame, "DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
+  if ok and dd and dd.SetupMenu then
+    dd:SetWidth(120)
+    dd:SetupMenu(function(_, root)
+      for _, v in ipairs(SCALE_PRESETS) do
+        root:CreateRadio(PercentText(v),
+          function(x) return math.abs(getter() - x) < 0.001 end,
+          function(x) setter(x) end, v)
+      end
+    end)
+    dd.Update = function(self)
+      if self.SetDefaultText then self:SetDefaultText("Custom (" .. PercentText(getter()) .. ")") end
+      if self.GenerateMenu then self:GenerateMenu() end
+    end
+    return dd
+  end
+  local b = MakeButton(parent, "", 120, function(self)
+    local cur, nextV = getter(), SCALE_PRESETS[1]
+    for _, v in ipairs(SCALE_PRESETS) do
+      if v > cur + 0.001 then nextV = v; break end
+    end
+    setter(nextV)
+    self:Update()
+  end)
+  b.Update = function(self) self:SetText(PercentText(getter())) end
+  return b
+end
+
 local function SelectTab(key)
-  cfgTab = key
   for k, panel in pairs(cfg.panels) do panel:SetShown(k == key) end
-  for k, btn in pairs(cfg.tabBtns) do
-    if k == key then btn:LockHighlight() else btn:UnlockHighlight() end
+  if cfg.nativeTabs then
+    PanelTemplates_SetTab(cfg, cfg.tabBtns[key]:GetID())
+  else
+    for k, btn in pairs(cfg.tabBtns) do
+      if k == key then btn:LockHighlight() else btn:UnlockHighlight() end
+    end
   end
 end
 
 local function BuildConfig()
-  cfg = CreateFrame("Frame", "BuffRadarConfig", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+  -- Blizzard's standard window (title bar, BuffRadar icon in the portrait
+  -- corner, close button, inset content area) so it matches the retail UI.
+  -- A client without that template gets the original hand-drawn window.
+  cfg = CreateFrame("Frame", "BuffRadarConfig", UIParent, "ButtonFrameTemplate")
+  local native = cfg.SetTitle and cfg.Inset and cfg.CloseButton and true or false
+  if not native then
+    cfg:Hide()
+    cfg = CreateFrame("Frame", "BuffRadarConfig", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+  end
   cfg:SetSize(600, 470)
+  cfg:SetScale(db.cfgScale or 1)
   cfg:SetPoint("CENTER")
   cfg:SetFrameStrata("DIALOG")
   cfg:SetClampedToScreen(true)
@@ -2086,41 +2652,80 @@ local function BuildConfig()
   cfg:RegisterForDrag("LeftButton")
   cfg:SetScript("OnDragStart", cfg.StartMoving)
   cfg:SetScript("OnDragStop", cfg.StopMovingOrSizing)
-  if cfg.SetBackdrop then
-    cfg:SetBackdrop({
-      bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-      tile = true, tileSize = 16, edgeSize = 14,
-      insets = { left = 4, right = 4, top = 4, bottom = 4 },
-    })
-    cfg:SetBackdropColor(0.05, 0.06, 0.1, 0.97)
-    cfg:SetBackdropBorderColor(0.35, 0.55, 0.8, 1)
-  end
   if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarConfig") end -- Esc closes it
 
-  local head = cfg:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-  head:SetPoint("TOP", 0, -12)
-  head:SetText("|cff33ccffBuff|rRadar Settings")
+  if native then
+    cfg:SetTitle("BuffRadar Settings")
+    if ButtonFrameTemplate_HideButtonBar then ButtonFrameTemplate_HideButtonBar(cfg) end
+    if cfg.SetPortraitToAsset then
+      cfg:SetPortraitToAsset("Interface\\AddOns\\BuffRadar\\Media\\icon.png")
+    elseif ButtonFrameTemplate_HidePortrait then
+      ButtonFrameTemplate_HidePortrait(cfg)
+    end
+  else
+    if cfg.SetBackdrop then
+      cfg:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 14,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 },
+      })
+      cfg:SetBackdropColor(0.05, 0.06, 0.1, 0.97)
+      cfg:SetBackdropBorderColor(0.35, 0.55, 0.8, 1)
+    end
+    local head = cfg:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    head:SetPoint("TOP", 0, -12)
+    head:SetText("|cff33ccffBuff|rRadar Settings")
+    local close = CreateFrame("Button", nil, cfg, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", -2, -2)
+  end
 
-  local close = CreateFrame("Button", nil, cfg, "UIPanelCloseButton")
-  close:SetPoint("TOPRIGHT", -2, -2)
-
-  -- Tabs
+  -- Tabs: Blizzard's bottom tabs on the standard window (named
+  -- BuffRadarConfigTab1..5, as PanelTemplates expects), otherwise the
+  -- original row of buttons along the top.
   cfg.panels, cfg.tabBtns = {}, {}
+  cfg.nativeTabs = native and PanelTemplates_SetNumTabs and PanelTemplates_SetTab and true or false
   local tabDefs = {
     { "look", "Window" }, { "alerts", "Alerts" }, { "buffs", "Buffs" },
     { "behavior", "Behavior" }, { "data", "Ignore & Stats" },
   }
+  local tabList, prevTab = {}, nil
   for i, td in ipairs(tabDefs) do
     local key, label = td[1], td[2]
-    local btn = MakeButton(cfg, label, 106, function() SelectTab(key); RefreshConfig() end)
-    btn:SetPoint("TOPLEFT", 16 + (i - 1) * 112, -40)
+    local function onClick() SelectTab(key); RefreshConfig() end
+    local btn
+    if cfg.nativeTabs then
+      btn = CreateFrame("Button", "BuffRadarConfigTab" .. i, cfg, "PanelTabButtonTemplate")
+      btn:SetID(i)
+      btn:SetText(label)
+      btn:SetScript("OnClick", onClick)
+      if PanelTemplates_TabResize then PanelTemplates_TabResize(btn, 0) end
+      if prevTab then
+        btn:SetPoint("TOPLEFT", prevTab, "TOPRIGHT", 3, 0)
+      else
+        btn:SetPoint("TOPLEFT", cfg, "BOTTOMLEFT", 11, 2)
+      end
+      prevTab = btn
+      tabList[i] = btn
+    else
+      btn = MakeButton(cfg, label, 106, onClick)
+      btn:SetPoint("TOPLEFT", 16 + (i - 1) * 112, -40)
+    end
     cfg.tabBtns[key] = btn
     local panel = CreateFrame("Frame", nil, cfg)
-    panel:SetPoint("TOPLEFT", 8, -70)
-    panel:SetPoint("BOTTOMRIGHT", -8, 8)
+    if native then  -- inside the template's inset area, below the title bar
+      panel:SetPoint("TOPLEFT", cfg.Inset, "TOPLEFT", 4, -4)
+      panel:SetPoint("BOTTOMRIGHT", cfg.Inset, "BOTTOMRIGHT", -4, 4)
+    else
+      panel:SetPoint("TOPLEFT", 8, -70)
+      panel:SetPoint("BOTTOMRIGHT", -8, 8)
+    end
     panel:Hide()
     cfg.panels[key] = panel
+  end
+  if cfg.nativeTabs then
+    cfg.Tabs = tabList  -- newer PanelTemplates look here; older ones use the names
+    PanelTemplates_SetNumTabs(cfg, #tabList)
   end
 
   local function section(panel, text, x, y)
@@ -2176,21 +2781,25 @@ local function BuildConfig()
   local scaleLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   scaleLabel:SetPoint("TOPLEFT", 14, -178)
   scaleLabel:SetText("Window scale")
-  local scaleValue = look:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  scaleValue:SetPoint("LEFT", scaleLabel, "RIGHT", 8, 0)
-  cfg.scaleValue = scaleValue
-  cfg.scaleSlider = MakeSlider(look, 16, -198, 250, 50, 200, 5, function(v)
-    v = math.floor(v + 0.5)
-    db.scale = v / 100
-    scaleValue:SetText(v .. "%")
-    if frame then frame:SetScale(db.scale) end
-  end)
+  cfg.scaleDrop = MakeScaleDropdown(look,
+    function() return db.scale or 1 end,
+    function(v)
+      if InCombatLockdown() then Print("Can't rescale the window during combat."); return end
+      db.scale = v
+      ApplyGeometry()
+      RefreshConfig()
+    end)
+  cfg.scaleDrop:SetPoint("LEFT", scaleLabel, "RIGHT", 12, 0)
+  local widthHint = look:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  widthHint:SetPoint("TOPLEFT", 14, -206)
+  widthHint:SetText("Drag the window's bottom-right corner to change its width.")
 
   local resetLook = MakeButton(look, "Reset look", 110, function()
     db.bgColor = { DEFAULTS.bgColor[1], DEFAULTS.bgColor[2], DEFAULTS.bgColor[3] }
     db.bgAlpha = DEFAULTS.bgAlpha
     db.showTitle, db.showBorder, db.scale = true, true, 1
-    if frame then frame:SetScale(1) end
+    db.width = DEFAULTS.width
+    ApplyGeometry()  -- in combat this lands when combat ends
     ApplyAppearance()
     RefreshConfig()
   end)
@@ -2200,6 +2809,18 @@ local function BuildConfig()
     function() return db.showMinimap end,
     function(v) db.showMinimap = v; if RefreshMinimapButton then RefreshMinimapButton() end end)
   cfg.minimapCheck:SetPoint("TOPLEFT", 10, -268)
+
+  local cfgScaleLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  cfgScaleLabel:SetPoint("TOPLEFT", 14, -308)
+  cfgScaleLabel:SetText("Settings window scale")
+  cfg.cfgScaleDrop = MakeScaleDropdown(look,
+    function() return db.cfgScale or 1 end,
+    function(v)
+      db.cfgScale = v
+      cfg:SetScale(v)
+      RefreshConfig()
+    end)
+  cfg.cfgScaleDrop:SetPoint("LEFT", cfgScaleLabel, "RIGHT", 12, 0)
 
   ------------------------------------------------------------------
   -- Tab: Alerts
@@ -2267,15 +2888,43 @@ local function BuildConfig()
   local buffs = cfg.panels.buffs
   section(buffs, "Buffs to offer (only ones you know are listed)", 10, -6)
 
+  -- Each buff row: checkbox + label, then a rebuff-time box. Empty box = use
+  -- the all-buffs time below; a number overrides it for that buff only.
   cfg.buffChecks = {}
   local cols = { 10, 302 }
+  local rebuffTip = "Offer this buff again when less than this many seconds of it remain. " ..
+    "Leave empty to use the all-buffs time below. Press Enter to save, Esc to cancel."
   for i = 1, 16 do
     local cb = MakeCheck(buffs, "", function() return false end, function() end)
     local col = (i <= 8) and 1 or 2
     local row = (i - 1) % 8
     cb:SetPoint("TOPLEFT", cols[col], -34 - row * 26)
+    cb.label:SetWidth(196)
+    cb.label:SetJustifyH("LEFT")
+    if cb.label.SetWordWrap then cb.label:SetWordWrap(false) end
+    cb.label.maxWidth = 196
+    Tip(cb, function() return cb.itemLabel or "" end,
+      function() return "Offered to: " .. (cb.itemWho or "?") .. ". Untick to stop offering it." end)
+    cb.rebuffBox = MakeSecondsBox(buffs,
+      function() return (cb.itemKey and db.rebuffPer[cb.itemKey]) and tostring(db.rebuffPer[cb.itemKey]) or "" end,
+      function(n)
+        if not cb.itemKey then return end
+        db.rebuffPer[cb.itemKey] = n  -- nil (empty box) = back to the all-buffs time
+        Refresh()
+      end)
+    cb.rebuffBox:SetPoint("LEFT", buffs, "TOPLEFT", cols[col] + 236, -46 - row * 26)
+    Tip(cb.rebuffBox, "Rebuff time (seconds)", rebuffTip)
     cb:Hide()
+    cb.rebuffBox:Hide()
     cfg.buffChecks[i] = cb
+  end
+  cfg.rebuffHeads = {}
+  for c = 1, 2 do
+    local head = buffs:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    head:SetPoint("BOTTOM", buffs, "TOPLEFT", cols[c] + 256, -32)
+    head:SetText("Rebuff (s)")
+    head:Hide()
+    cfg.rebuffHeads[c] = head
   end
   cfg.noBuffs = buffs:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   cfg.noBuffs:SetPoint("TOPLEFT", 14, -36)
@@ -2285,12 +2934,33 @@ local function BuildConfig()
     function() return db.includeSelf end,
     function(v) db.includeSelf = v; Refresh() end)
   cfg.selfCheck:SetPoint("TOPLEFT", 10, -252)
+  Tip(cfg.selfCheck, "Buff myself first",
+    "Check your own character for every buff that suits your class and list yourself at the top. " ..
+    "Self-only buffs (like a shaman's shield) are always checked.")
+
+  local rebuffLabel = buffs:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  rebuffLabel:SetPoint("TOPLEFT", 14, -290)
+  rebuffLabel:SetText("Offer a buff again when less than")
+  cfg.rebuffDefault = MakeSecondsBox(buffs,
+    function() return tostring(db.rebuff or 30) end,
+    function(n)
+      if not n then return end  -- the all-buffs time can't be empty
+      db.rebuff = n
+      Refresh()
+    end)
+  cfg.rebuffDefault:SetPoint("LEFT", rebuffLabel, "RIGHT", 10, 0)
+  local rebuffUnit = buffs:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  rebuffUnit:SetPoint("LEFT", cfg.rebuffDefault, "RIGHT", 6, 0)
+  rebuffUnit:SetText("seconds remain (all buffs)")
+  Tip(cfg.rebuffDefault, "Rebuff time for all buffs (seconds)",
+    "A buff that runs out sooner than this is offered again. 0 = only when it's gone. " ..
+    "Per-buff boxes above override it. Same as /br rebuff <seconds>.")
 
   local rebuffHint = buffs:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  rebuffHint:SetPoint("TOPLEFT", 14, -284)
+  rebuffHint:SetPoint("TOPLEFT", 14, -314)
   rebuffHint:SetWidth(540)
   rebuffHint:SetJustifyH("LEFT")
-  rebuffHint:SetText("Rebuff timing: /br rebuff <seconds> sets it for all buffs; /br rebuff KEY <seconds> (e.g. /br rebuff THORNS 60) sets one buff. Keys are listed by /br buffs.")
+  rebuffHint:SetText("Whole seconds, 0 to 3600. Press Enter to save, Esc to cancel.")
 
   ------------------------------------------------------------------
   -- Tab: Behavior
@@ -2331,18 +3001,28 @@ local function BuildConfig()
     gcValue:SetText(tostring(db.groupCastMin))
     Refresh()
   end)
+  -- Group-cast offers need group versions of buffs (Classic only): hide the
+  -- controls here and move the rest of the column up into their space.
+  local castY = 0
+  if not CLASSIC_FEATURES then
+    cfg.groupCastCheck:Hide()
+    gcLabel:Hide()
+    gcValue:Hide()
+    cfg.gcSlider:Hide()
+    castY = 82
+  end
 
   cfg.oorCheck = MakeCheck(beh, "Show out-of-range players (greyed)",
     function() return db.showOutOfRange end,
     function(v) db.showOutOfRange = v; Refresh() end)
-  cfg.oorCheck:SetPoint("TOPLEFT", 296, -112)
+  cfg.oorCheck:SetPoint("TOPLEFT", 296, -112 + castY)
 
   cfg.sortBtn = MakeButton(beh, "Sort: name", 130, function()
     db.sortMode = (db.sortMode == "role") and "name" or "role"
     RefreshConfig()
     Refresh()
   end)
-  cfg.sortBtn:SetPoint("TOPLEFT", 320, -140)
+  cfg.sortBtn:SetPoint("TOPLEFT", 320, -140 + castY)
   local sortHint = beh:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   sortHint:SetPoint("LEFT", cfg.sortBtn, "RIGHT", 8, 0)
   sortHint:SetText("role = tanks & leaders first")
@@ -2362,17 +3042,57 @@ local function BuildConfig()
   cfg.ignoreText:SetPoint("TOPLEFT", 14, -32)
   cfg.ignoreText:SetWidth(540)
   cfg.ignoreText:SetJustifyH("LEFT")
+
+  -- One cell per ignored name (3 columns x 4 rows), each with a remove button.
+  -- RefreshConfig fills them; names past the 12th are counted in ignoreText.
+  cfg.ignoreCells = {}
+  for i = 1, 12 do
+    local col, row = (i - 1) % 3, math_floor((i - 1) / 3)
+    local cell = CreateFrame("Frame", nil, data)
+    cell:SetSize(176, 20)
+    cell:SetPoint("TOPLEFT", 14 + col * 182, -50 - row * 20)
+    local x = CreateFrame("Button", nil, cell)
+    x:SetSize(14, 14)
+    x:SetPoint("LEFT", 0, 0)
+    x:SetNormalTexture("Interface\\Buttons\\UI-StopButton")
+    x:SetHighlightTexture("Interface\\Buttons\\UI-StopButton", "ADD")
+    x:SetScript("OnClick", function()
+      if not cell.ignored then return end
+      local removed = Ignore.Remove(cell.ignored, true)  -- just this entry
+      Print("No longer ignoring " .. table.concat(removed, ", ") .. ".")
+      RefreshConfig()
+      Refresh()
+    end)
+    x:SetScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:AddLine("Stop ignoring " .. tostring(cell.ignored))
+      if cell.ignored and not cell.ignored:find("-", 1, true) then
+        GameTooltip:AddLine("(this name on every realm)", 0.6, 0.6, 0.6)
+      end
+      GameTooltip:Show()
+    end)
+    x:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    cell.text = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    cell.text:SetPoint("LEFT", x, "RIGHT", 4, 0)
+    cell.text:SetPoint("RIGHT", cell, "RIGHT", -2, 0)
+    cell.text:SetJustifyH("LEFT")
+    if cell.text.SetWordWrap then cell.text:SetWordWrap(false) end
+    cell:Hide()
+    cfg.ignoreCells[i] = cell
+  end
+
   local clearIgnores = MakeButton(data, "Clear ignore list", 140, function()
     wipe(db.ignored)
+    wipe(Ignore.index)
     Print("Ignore list cleared.")
     RefreshConfig()
     Refresh()
   end)
-  clearIgnores:SetPoint("TOPLEFT", 14, -84)
+  clearIgnores:SetPoint("TOPLEFT", 14, -138)
 
-  section(data, "Casts by spell (all-time)", 10, -124)
+  section(data, "Casts by spell (all-time)", 10, -178)
   cfg.statsText = data:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  cfg.statsText:SetPoint("TOPLEFT", 14, -150)
+  cfg.statsText:SetPoint("TOPLEFT", 14, -204)
   cfg.statsText:SetWidth(540)
   cfg.statsText:SetJustifyH("LEFT")
   local resetStats = MakeButton(data, "Reset stats", 110, function()
@@ -2380,7 +3100,40 @@ local function BuildConfig()
     Print("Cast statistics reset.")
     RefreshConfig()
   end)
-  resetStats:SetPoint("TOPLEFT", 14, -236)
+  resetStats:SetPoint("TOPLEFT", 14, -290)
+
+  ------------------------------------------------------------------
+  -- Hover help (the Buffs tab sets its own above)
+  ------------------------------------------------------------------
+  -- Window
+  Tip(swatch, "Background color", "Click to pick the BuffRadar window's background color.")
+  Tip(cfg.slider, "Background opacity", "0% = fully see-through background (text and icons stay visible). Scroll the mouse wheel to adjust in steps.")
+  Tip(cfg.titleCheck, "Show BuffRadar title", "The \"BuffRadar\" name in the window's top-left corner.")
+  Tip(cfg.borderCheck, "Show border", "The thin blue edge around the window.")
+  Tip(cfg.scaleDrop, "Window scale", "Makes everything in the list window bigger or smaller. Can't be changed during combat. /br scale accepts any value from 0.5 to 2.")
+  Tip(resetLook, "Reset look", "Restores the default color, opacity, title, border, scale and width. Your position and other settings are kept.")
+  Tip(cfg.minimapCheck, "Minimap button", "Left-click it to show or hide the window, right-click for settings, drag it around the minimap. The addon compartment (minimap menu) works either way.")
+  Tip(cfg.cfgScaleDrop, "Settings window scale", "Makes this settings window bigger or smaller.")
+  -- Alerts
+  Tip(cfg.soundCheck, "New name alert", "Play a sound when a player appears on the list. Mute it any time with your Mute / unmute key or /br sound.")
+  Tip(cfg.soundBtn, "Alert sound", "Click to switch between the water droplet, the game's raid warning sound and no sound. Plays the new choice.")
+  Tip(test, "Test", "Play the alert sound now.")
+  Tip(cfg.muteInstCheck, "Quiet in instances", "No alert sound in dungeons, raids, battlegrounds or arenas. The list still updates.")
+  Tip(cfg.counterCheck, "Cast counter", "Shows casts made through BuffRadar this session and all-time at the bottom of the window.")
+  Tip(resetCount, "Reset counts", "Sets this session's and the all-time cast counts to zero. Per-spell stats (Ignore & Stats tab) are kept.")
+  Tip(setKey, "Set keybind", "Opens Key Bindings at the BuffRadar section: Cast next buff, Show / hide window, Mute / unmute sound.")
+  Tip(makeMacro, "Create macro", "Puts a BuffRadar macro on your cursor. Drop it on an action bar; pressing it casts the next buff.")
+  -- Behavior
+  Tip(cfg.groupCheck, "Only show in a party or raid", "Hide the window while you're solo. The Cast next buff key still works.")
+  Tip(cfg.cityCheck, "Pause in major cities", "No scanning in capital cities, where crowds would fill the list. /br debug shows whether your zone counts as a city.")
+  Tip(cfg.bgCheck, "Pause in battlegrounds and arenas", "No scanning in PvP instances.")
+  Tip(cfg.groupCastCheck, "Offer group buffs", "When enough group members need a buff, offer its group version (one cast covers the party).")
+  Tip(cfg.gcSlider, "Group buff threshold", "How many group members must need the buff before the group version is offered.")
+  Tip(cfg.oorCheck, "Show out-of-range players", "Keep players who are too far away on the list, greyed out and not clickable, so you see who's coming.")
+  Tip(cfg.sortBtn, "List order", "Click to switch: name = alphabetical; role = you, then tanks, then group leaders. After that, players in range come first, then group members, then by name.")
+  -- Ignore & Stats
+  Tip(clearIgnores, "Clear ignore list", "Stops ignoring everyone on the list.")
+  Tip(resetStats, "Reset stats", "Clears the casts-by-spell statistics. The cast counter is kept.")
 
   cfg:SetScript("OnShow", function() RefreshConfig() end)
   SelectTab("look")
@@ -2393,8 +3146,8 @@ RefreshConfig = function()
   if cfg.swatch.SetBackdropColor then cfg.swatch:SetBackdropColor(c[1], c[2], c[3], 1) end
   cfg.slider:SetValue(math.floor((db.bgAlpha or 0.92) * 100 + 0.5))
   cfg.alphaValue:SetText(math.floor((db.bgAlpha or 0.92) * 100 + 0.5) .. "%")
-  cfg.scaleSlider:SetValue(math.floor((db.scale or 1) * 100 + 0.5))
-  cfg.scaleValue:SetText(math.floor((db.scale or 1) * 100 + 0.5) .. "%")
+  cfg.scaleDrop:Update()
+  cfg.cfgScaleDrop:Update()
   cfg.titleCheck:Update()
   cfg.borderCheck:Update()
   cfg.minimapCheck:Update()
@@ -2414,23 +3167,38 @@ RefreshConfig = function()
   cfg.oorCheck:Update()
   cfg.sortBtn:SetText("Sort: " .. tostring(db.sortMode))
 
-  -- Ignore list summary
-  local names = {}
-  for name in pairs(db.ignored or {}) do names[#names + 1] = name end
-  table.sort(names)
-  cfg.ignoreText:SetText(#names == 0 and "Nobody is ignored. Right-click a name in the window to ignore that player."
-    or ("Ignored (" .. #names .. "): " .. table.concat(names, ", ")))
+  -- Ignore list: one removable cell per name, the overflow counted in the summary
+  local names = Ignore.Sorted()
+  local cells = cfg.ignoreCells
+  if #names == 0 then
+    cfg.ignoreText:SetText("Nobody is ignored. Right-click a name in the window to ignore that player.")
+  elseif #names > #cells then
+    cfg.ignoreText:SetText(string.format("Ignored (%d) — %d more not shown; /br ignorelist lists all, /br unignore <name> removes one.",
+      #names, #names - #cells))
+  else
+    cfg.ignoreText:SetText(string.format("Ignored (%d) — click the red button to stop ignoring a player. A name without a realm covers every realm.",
+      #names))
+  end
+  for i, cell in ipairs(cells) do
+    cell.ignored = names[i]
+    if names[i] then
+      cell.text:SetText(names[i])
+      cell:Show()
+    else
+      cell:Hide()
+    end
+  end
 
   -- Stats summary: top 8 spells by count
-  local rows = {}
-  for name, n in pairs(db.stats or {}) do rows[#rows + 1] = { name = name, n = n } end
-  table.sort(rows, function(a, b) return a.n > b.n end)
-  if #rows == 0 then
+  local statRows = {}
+  for name, n in pairs(db.stats or {}) do statRows[#statRows + 1] = { name = name, n = n } end
+  table.sort(statRows, function(a, b) return a.n > b.n end)
+  if #statRows == 0 then
     cfg.statsText:SetText("No casts recorded yet. Statistics count casts made through BuffRadar.")
   else
     local parts = {}
-    for i = 1, math.min(8, #rows) do
-      parts[#parts + 1] = string.format("%s: %d", rows[i].name, rows[i].n)
+    for i = 1, math.min(8, #statRows) do
+      parts[#parts + 1] = string.format("%s: %d", statRows[i].name, statRows[i].n)
     end
     cfg.statsText:SetText(table.concat(parts, "   ·   "))
   end
@@ -2445,30 +3213,67 @@ RefreshConfig = function()
   for i, cb in ipairs(cfg.buffChecks) do
     local it = items[i]
     if it then
+      cb.itemKey, cb.itemLabel, cb.itemWho = it.key, it.label, it.who
       cb.label:SetText(it.label .. "  |cff888888" .. (it.who or "") .. "|r")
+      cb:FitLabel()
       cb:SetChecked(IsOn(it.key, it.default) and true or false)
       cb:SetScript("OnClick", function(self)
         db.enabled[it.key] = self:GetChecked() and true or false
         Refresh()
       end)
       cb:Show()
+      -- Blessings have no per-buff time (Missing() uses the all-buffs one)
+      local showBox = it.key ~= "BLESSINGS"
+      cb.rebuffBox:SetShown(showBox)
+      if showBox and not cb.rebuffBox:HasFocus() then cb.rebuffBox:Revert() end
     else
+      cb.itemKey = nil
       cb:Hide()
+      cb.rebuffBox:Hide()
     end
   end
+  cfg.rebuffHeads[1]:SetShown(#items > 0)
+  cfg.rebuffHeads[2]:SetShown(#items > 8)
+  if not cfg.rebuffDefault:HasFocus() then cfg.rebuffDefault:Revert() end
   cfg.noBuffs:SetShown(#items == 0)
   cfg.selfCheck:Update()
 end
 
-OpenConfig = function()
+-- Toggles the settings window; forceShow opens it without toggling it closed.
+OpenConfig = function(forceShow)
   if not cfg then BuildConfig() end
-  if cfg:IsShown() then cfg:Hide() else cfg:Show() end
+  if cfg:IsShown() and not forceShow then cfg:Hide() else cfg:Show() end
 end
 
+-- Esc > Options > AddOns > BuffRadar: a short page with a button that opens
+-- the full settings window (which has more room than the options page).
+if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
+  local page = CreateFrame("Frame")
+  local head = page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  head:SetPoint("TOPLEFT", 16, -16)
+  head:SetText("|cff33ccffBuff|rRadar")
+  local about = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  about:SetPoint("TOPLEFT", head, "BOTTOMLEFT", 0, -10)
+  about:SetWidth(520)
+  about:SetJustifyH("LEFT")
+  about:SetText("BuffRadar's settings have their own window. You can also open it with the gear " ..
+    "icon in the BuffRadar window, by right-clicking the minimap button or the addon menu " ..
+    "entry, or with /br config.")
+  local open = MakeButton(page, "Open BuffRadar settings", 200, function()
+    if SettingsPanel and SettingsPanel:IsShown() and HideUIPanel then pcall(HideUIPanel, SettingsPanel) end
+    OpenConfig(true)
+  end)
+  open:SetPoint("TOPLEFT", about, "BOTTOMLEFT", 0, -14)
+  local ok, category = pcall(Settings.RegisterCanvasLayoutCategory, page, "BuffRadar")
+  if ok and category then pcall(Settings.RegisterAddOnCategory, category) end
+end
+end -- config window block
+
 
 ---------------------------------------------------------------------------
--- Slash commands
+-- Slash commands (in a do-block too: see the config window section)
 ---------------------------------------------------------------------------
+do
 local function OnOff(v) return v and "|cff00ff00on|r" or "|cffff4040off|r" end
 
 local function ListBuffs()
@@ -2526,7 +3331,7 @@ local function HandleSlash(msg)
   elseif cmd == "sound" then
     db.playSound = not db.playSound
     Print("Droplet sound " .. OnOff(db.playSound))
-    if db.playSound then PlayDroplet() end
+    if db.playSound then PlayAlert() end
   elseif cmd == "count" or cmd == "counts" then
     Print(string.format("Casts through BuffRadar: %d this session, %d all-time.", sessionCasts, db.castsTotal or 0))
   elseif cmd == "resetcount" then
@@ -2542,16 +3347,21 @@ local function HandleSlash(msg)
     Print("Click diagnostics " .. OnOff(db.clickDebug))
   elseif cmd == "mode" then
     local m = rest:lower()
-    if m == "target" or m == "id" or m == "macro" or m == "rank" then
+    -- "id" and "rank" pick a spell rank, which only the Forever edition has.
+    if m == "target" or m == "macro" or (CLASSIC_FEATURES and (m == "id" or m == "rank")) then
       if InCombatLockdown() then Print("Can't change mode during combat."); return end
       db.castMethod = m
       Print("Cast mode: " .. m)
-    else
+    elseif CLASSIC_FEATURES then
       Print("Usage: /br mode target|id|macro|rank   (currently " .. tostring(db.castMethod) .. ")")
       Print("  target = target the player, cast, restore your target (default)")
       Print("  id = cast the chosen rank by spell ID")
       Print("  macro = /cast by plain name (game picks highest rank)")
       Print("  rank = /cast Name(Rank N)")
+    else
+      Print("Usage: /br mode target|macro   (currently " .. tostring(db.castMethod) .. ")")
+      Print("  target = group members directly; others: target, cast, restore your target (default)")
+      Print("  macro = /cast [@unit] by spell name")
     end
   elseif cmd == "clickreg" then
     local m = rest:lower()
@@ -2570,13 +3380,14 @@ local function HandleSlash(msg)
   elseif cmd == "debug" then
     local ver, build, _, iface = GetBuildInfo()
     local _, myClass = UnitClass("player")
-    Print(string.format("client %s build %s (interface %s), class %s, spellbook entries %d, window built %s",
-      tostring(ver), tostring(build), tostring(iface), tostring(myClass), bookCount, tostring(built)))
+    Print(string.format("client %s build %s (interface %s, %s edition), class %s, spellbook entries %d, window built %s",
+      tostring(ver), tostring(build), tostring(iface), CLASSIC_FEATURES and "Forever" or "Retail",
+      tostring(myClass), bookCount, tostring(built)))
     local names = {}
     for _, b in ipairs(myBuffs) do names[#names + 1] = b.name end
     for class, b in pairs(myBlessing) do names[#names + 1] = class .. "=" .. b.name end
     Print("buffs found: " .. (#names > 0 and table.concat(names, ", ") or "none"))
-    for _, b in ipairs(myBuffs) do
+    for _, b in ipairs(CLASSIC_FEATURES and myBuffs or {}) do  -- rank details: Forever only
       local list = ranks[b.name]
       if list and #list > 0 then
         local top = list[#list]
@@ -2604,7 +3415,8 @@ local function HandleSlash(msg)
     if lastError then Print("last error: " .. tostring(lastError)) end
   elseif cmd == "lock" then
     db.locked = not db.locked
-    Print("Window lock " .. OnOff(db.locked))
+    ApplyAppearance()  -- the resize grip hides while locked
+    Print("Window lock (moving and resizing) " .. OnOff(db.locked))
   elseif cmd == "self" then
     db.includeSelf = not db.includeSelf
     Print("Check yourself first (all buffs that suit you) " .. OnOff(db.includeSelf))
@@ -2618,7 +3430,7 @@ local function HandleSlash(msg)
     local key, secs = rest:match("^(%S+)%s+(%d+)$")
     if key and secs then
       key = key:upper()
-      local found = (key == "BLESSINGS")
+      local found = CLASSIC_FEATURES and key == "BLESSINGS"
       if not found then
         for _, d in ipairs(BUFF_DEFS) do if d.key == key then found = true break end end
       end
@@ -2639,6 +3451,8 @@ local function HandleSlash(msg)
       end
     end
     Refresh()
+  elseif cmd == "groupcast" and not CLASSIC_FEATURES then
+    Print("Group-cast offers aren't needed here: on retail, one cast of a raid buff covers the whole group.")
   elseif cmd == "groupcast" then
     local m = rest:lower()
     local n = tonumber(m)
@@ -2664,19 +3478,24 @@ local function HandleSlash(msg)
     Print("List order: " .. db.sortMode .. (db.sortMode == "role" and " (tanks & leaders first)" or ""))
     Refresh()
   elseif cmd == "ignore" then
-    if rest == "" then Print("Usage: /br ignore <name>  (or right-click a row)"); return end
-    db.ignored[rest] = true
-    Print("Ignoring " .. rest .. ".")
-    Refresh()
+    if rest == "" then Print("Usage: /br ignore <name> or <name-realm>  (or right-click a row)"); return end
+    if Ignore.Add(rest) then
+      Print("Ignoring " .. rest .. (rest:find("-", 1, true) and "." or " on every realm."))
+    else
+      Print(rest .. " is already ignored.")
+    end
+    if RefreshConfig then RefreshConfig() end
   elseif cmd == "unignore" then
-    if rest == "" then Print("Usage: /br unignore <name>"); return end
-    db.ignored[rest] = nil
-    Print("No longer ignoring " .. rest .. ".")
-    Refresh()
+    if rest == "" then Print("Usage: /br unignore <name> (every realm) or <name-realm>"); return end
+    local removed = Ignore.Remove(rest)
+    if #removed == 0 then
+      Print(rest .. " isn't on the ignore list. See /br ignorelist.")
+    else
+      Print("No longer ignoring " .. table.concat(removed, ", ") .. ".")
+    end
+    if RefreshConfig then RefreshConfig() end
   elseif cmd == "ignorelist" or cmd == "ignores" then
-    local names = {}
-    for name in pairs(db.ignored or {}) do names[#names + 1] = name end
-    table.sort(names)
+    local names = Ignore.Sorted()
     Print(#names == 0 and "Ignore list is empty." or ("Ignored: " .. table.concat(names, ", ")))
   elseif cmd == "bg" then
     db.pauseInBG = not db.pauseInBG
@@ -2711,7 +3530,8 @@ local function HandleSlash(msg)
     local n = tonumber(rest)
     if n and n >= 0.5 and n <= 2 then
       db.scale = n
-      if frame then frame:SetScale(n) end
+      ApplyGeometry()
+      if RefreshConfig then RefreshConfig() end
     else
       Print("Usage: /br scale <0.5 - 2>")
     end
@@ -2723,7 +3543,7 @@ local function HandleSlash(msg)
     ListBuffs()
   elseif cmd == "toggle" then
     local key = rest:upper()
-    local found = (key == "BLESSINGS")
+    local found = CLASSIC_FEATURES and key == "BLESSINGS"
     local default = true
     for _, d in ipairs(BUFF_DEFS) do
       if d.key == key then found = true; default = d.on end
@@ -2754,10 +3574,13 @@ local function HandleSlash(msg)
     Print("  /br rebuff <sec> | scale <n> | reset")
     Print("  /br buffs | toggle <KEY>")
     Print("  /br clicks  - print what each click tries to cast")
-    Print("  /br mode target|id|macro|rank  - how clicks cast (default target)")
+    Print("  /br mode " .. (CLASSIC_FEATURES and "target|id|macro|rank" or "target|macro") ..
+      "  - how clicks cast (default target)")
     Print("  /br clickreg both|down|up  - which half of the click casts")
     Print("  /br plates  - turn on friendly nameplates (needed for non-group players)")
-    Print("  /br groupcast [on|off|<n>]  - offer group buffs when n+ players need one")
+    if CLASSIC_FEATURES then
+      Print("  /br groupcast [on|off|<n>]  - offer group buffs when n+ players need one")
+    end
     Print("  /br sort name|role  - list order (role = tanks & leaders first)")
     Print("  /br ignore <name> | unignore <name> | ignorelist")
     Print("  /br rebuff KEY <sec>  - per-buff rebuff timing (see /br buffs for keys)")
@@ -2772,3 +3595,4 @@ SlashCmdList.BUFFRADAR = function(msg)
   local ok, err = pcall(HandleSlash, msg)
   if not ok then Print("|cffff4040error:|r " .. tostring(err)) end
 end
+end -- slash commands block
