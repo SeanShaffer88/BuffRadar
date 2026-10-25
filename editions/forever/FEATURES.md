@@ -1,13 +1,42 @@
 # BuffRadar — Features (Forever edition)
 
-The full feature list for BuffRadar 1.4.0 (Forever edition) for
+The full feature list for BuffRadar 1.5.0 (Forever edition) for
 WoW: Forever (Interface 16001). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
 Prepared 2026-10-24 from the shipped 1.3.2 Forever README and
-CHANGELOG; updated 2026-10-25 for 1.4.0. Since 1.3.2 both editions are built from one source —
+CHANGELOG; updated 2026-10-25 for 1.5.0. Since 1.3.2 both editions are built from one source —
 the addon picks the Forever buff set when it loads on the Forever
 client — and the Forever buff set itself is unchanged from 1.2.4.
+
+## New in 1.5.0
+
+- **Cast sync between BuffRadar users** (`/br sync`): casts by any
+  BuffRadar user in the group mark the target *being buffed* on every
+  user's list for a few seconds and sink their row.
+- **Chat buff requests** (`/br requests`): a whisper or nearby say
+  asking for a buff tags the asker's row *asked for a buff*.
+- **Join digest** (`/br digest`): one summary line when joining a
+  group.
+- **Buff toggle strip** (`/br strip`): one icon per castable buff
+  under the title; click to toggle. The **role filter chips** beside
+  it need assigned group roles, which this client doesn't expose, so
+  they have no effect here.
+- **Need sort** (`/br sort need`): most missing buffs first.
+- **Idle fade** (`/br fade <0-90>`): the window fades while the
+  mouse is elsewhere.
+- **Named settings profiles** (`/br profile save|load|delete|list`,
+  or the Ignore & Stats tab): complete settings sets under a name.
+- **Drop alert** (`/br watch`): message, sound and border flash when
+  your single-target buff drops off its holder.
+- **Coverage cooldown note:** a buff on a real cooldown is flagged
+  on the coverage line, e.g. *Fortitude 15/15 (~3m cd)*.
+- **Flight-path pause** (`/br taxi`, optional) and an **off-screen
+  window rescue** with `/br resetpos`.
+- German translation now covers all 53 strings; `/br selftest` also
+  reports the 1.5.0 state (sync, requests, filter, profiles, fade).
+  (Phase-aware scanning is in the shared source too, but this client
+  has no phasing, so it changes nothing here.)
 
 ## New in 1.4.0
 
@@ -158,7 +187,7 @@ stays hidden on those characters.
 
 - 1.2.2 and earlier were confirmed working live by SEAN on
   2026-10-20. 1.2.4 (the TOPLEFT anchoring fix) was built but
-  unverified in game, and **1.3.2 — the unified-source build — and
-  1.4.0 are likewise built but UNVERIFIED in game**. The Retail
-  edition (1.4.0, Interface 120105) is a separate zip from the same
+  unverified in game, and **1.3.2 — the unified-source build — 1.4.0
+  and 1.5.0 are likewise built but UNVERIFIED in game**. The Retail
+  edition (1.5.0, Interface 120105) is a separate zip from the same
   source with its own feature list.

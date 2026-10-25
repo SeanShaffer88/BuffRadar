@@ -1,15 +1,44 @@
 # BuffRadar — Features (Retail edition)
 
-The full feature list for BuffRadar 1.4.0 for WoW Retail
+The full feature list for BuffRadar 1.5.0 for WoW Retail
 (patch 12.1.5, Interface 120105). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
 Prepared 2026-10-24 from the shipped 1.3.2 README and CHANGELOG;
-updated 2026-10-25 for 1.4.0.
+updated 2026-10-25 for 1.5.0.
 Since 1.3.2 the Retail and Forever editions are built from one
 source — the addon picks its buff set when it loads — so fixes and
 features land in both at once; differences from the Forever edition
 are called out below.
+
+## New in 1.5.0
+
+- **Cast sync between BuffRadar users** (`/br sync`): casts by any
+  BuffRadar user in the group mark the target *being buffed* on every
+  user's list for a few seconds and sink their row.
+- **Chat buff requests** (`/br requests`): a whisper or nearby say
+  asking for a buff tags the asker's row *asked for a buff*.
+- **Join digest** (`/br digest`): one summary line when joining a
+  group, and again when a Mythic+ run starts.
+- **Buff toggle strip** (`/br strip`): one icon per castable buff
+  under the title; click to toggle. Beside it, **role filter chips**
+  (All / Tank / Heal / DPS, `/br filter`) narrow the window list to
+  one role — reports still cover everyone.
+- **Need sort** (`/br sort need`): most missing buffs first.
+- **Phase-aware scanning:** group members in another phase are not
+  listed.
+- **Idle fade** (`/br fade <0-90>`): the window fades while the
+  mouse is elsewhere.
+- **Named settings profiles** (`/br profile save|load|delete|list`,
+  or the Ignore & Stats tab): complete settings sets under a name.
+- **Drop alert** (`/br watch`): message, sound and border flash when
+  your single-target buff (Earth Shield) drops off its holder.
+- **Coverage cooldown note:** a buff on a real cooldown is flagged
+  on the coverage line, e.g. *Skyfury 15/15 (~3m cd)*.
+- **Flight-path pause** (`/br taxi`, optional) and an **off-screen
+  window rescue** with `/br resetpos`.
+- German translation now covers all 53 strings; `/br selftest` also
+  reports the 1.5.0 state (sync, requests, filter, profiles, fade).
 
 ## New in 1.4.0
 
@@ -131,8 +160,8 @@ ranked on retail).
 
 ## Verification status
 
-- **1.4.0 is built but UNVERIFIED in a retail client** (1.3.2 was
-  never verified either). Midnight
+- **1.5.0 is built but UNVERIFIED in a retail client** (1.4.0 and
+  1.3.2 were never verified either). Midnight
   removed the "load out-of-date addons" option, so this edition
   loads only while its interface version matches the live patch
   (120105 = 12.1.5); a new retail patch needs a new build with the

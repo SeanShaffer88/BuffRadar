@@ -2,6 +2,42 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.5.0 — 2026-10-25 — Forever edition
+
+The same fourteen enhancements as retail 1.5.0, from the shared
+source (four items on the original list duplicated 1.4.0 features and
+were replaced — see the retail changelog):
+
+- **Cast sync between BuffRadar users** (`/br sync`): a cast by any
+  BuffRadar user in your group marks that player *being buffed* on
+  everyone's list for a few seconds, so nobody double-casts.
+- **Chat buff requests** (`/br requests`): a listed player who
+  whispers or says they need a buff gets an *asked for a buff* marker.
+- **Join digest** (`/br digest`): one line when you join a group —
+  how many people are missing buffs, and how many casts that is.
+- **Buff toggle strip** (`/br strip`): icons for your buffs under the
+  title; click to toggle one without opening settings. The role
+  filter chips beside them need assigned group roles, which this
+  client doesn't expose, so the chips have no effect here.
+- **Need sort** (`/br sort need`): most missing buffs first.
+- **Idle fade** (`/br fade <0-90>`): the window fades while your
+  mouse is elsewhere.
+- **Named settings profiles** (`/br profile save|load|delete|list`).
+- **Drop alert** (`/br watch`): a message, sound and border flash
+  when your single-target buff drops off its holder.
+- **Coverage cooldown note:** a buff on cooldown is flagged on the
+  coverage line, e.g. *Fortitude 15/15 (~3m cd)*, since it can't be
+  counted as missing while it cools down.
+- **Flight-path pause** (optional, `/br taxi`) and an **off-screen
+  window rescue** plus `/br resetpos`.
+- Internals: SavedVariables dbVersion is now 7 (old saves migrate
+  automatically); the German translation covers all 53 strings; the
+  trial run covers all of the above (164 steps per fake-client
+  setup).
+- **Not yet verified in game.** 1.5.0 has passed the full offline
+  check suite only; 1.2.2 remains the last version confirmed live on
+  this client (beta build 1.60.1.70450).
+
 ## 1.4.0 — 2026-10-25 — Forever edition
 
 The same twenty enhancements as retail 1.4.0, from the shared

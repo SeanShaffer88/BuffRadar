@@ -37,6 +37,9 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     function methods.GetAttribute(self, k) return self.attrs[k] end
     function methods.SetText(self, t) self.text = t end
     function methods.GetText(self) return self.text end
+    function methods.SetAlpha(self, a) self.alpha = a end
+    function methods.GetAlpha(self) return self.alpha or 1 end
+    function methods.IsMouseOver(self) return env.__mouseOver or false end
     function methods.GetStringWidth() return 120 end
     function methods.GetWidth() return 210 end
     function methods.GetHeight() return 120 end
@@ -139,6 +142,10 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
   env.UnitIsDeadOrGhost = over("UnitIsDeadOrGhost", function() return false end)
   env.__sent = {}
   env.SendChatMessage = function(msg, chattype) env.__sent[#env.__sent + 1] = { msg = msg, chattype = chattype } end
+  env.__addonSent = {}
+  env.SendAddonMessage = function(prefix, msg, channel)
+    env.__addonSent[#env.__addonSent + 1] = { prefix = prefix, msg = msg, channel = channel }
+  end
   env.UnitIsConnected = function() return true end
   env.UnitCanAssist = function() return true end
   env.UnitIsPVP = function() return false end

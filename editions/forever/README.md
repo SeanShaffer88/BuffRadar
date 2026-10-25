@@ -9,7 +9,7 @@ buffs — with their portrait, class-colored name and icons of what they still n
 Click a name to buff them. Press one key (or one macro) to buff the next person.
 You always come first.
 
-Version 1.4.0 · Interface 16001 · License: GPLv3 (1.2.4 was last verified on Forever beta build 1.60.1.70450)
+Version 1.5.0 · Interface 16001 · License: GPLv3 (1.2.4 was last verified on Forever beta build 1.60.1.70450)
 
 The Forever and retail editions are built from the same source; this zip's `.toc`
 targets the Forever client, and BuffRadar picks the Forever buff set when it loads.
@@ -64,6 +64,28 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
   per-character window position option.
 - **Post-combat flash:** the border pulses once when combat ends with
   buffs still missing.
+- **Cast sync between BuffRadar users:** when anyone running BuffRadar in
+  your group casts a buff, everyone's list marks that player *being buffed*
+  for a few seconds — no more double-casting the same buff.
+- **Chat requests and join digest:** a listed player who asks for a buff
+  in a whisper or nearby say gets an *asked for a buff* marker, and
+  joining a group prints a one-line summary of who still needs what.
+- **Toggle strip:** a bar under the title carries one icon per buff you
+  can cast (click to toggle it). The role filter chips beside it need
+  assigned group roles, which this client doesn't expose, so they have
+  no effect here.
+- **Need ordering** option: whoever is missing the most buffs comes first.
+- **Named settings profiles:** save complete settings sets under a name
+  and load them on any character (`/br profile`).
+- **Drop alert:** when your Earth Shield drops off its holder, you get a
+  message, the alert sound and a border flash.
+- **Coverage honesty:** a buff on a real cooldown is flagged on the
+  coverage line — *Fortitude 15/15 (~3m cd)* — since it can't be counted
+  as missing while it cools down.
+- **Idle fade and flight-path pause:** the window can fade while your
+  mouse is elsewhere, and (optionally) pause while you're on a flight
+  path. A saved window position that would land off-screen is rescued
+  instead of restored blind.
 - **Stays out of the way:** pauses in major cities (and, optionally, in
   battlegrounds), can show only while you're in a party or raid, and has a
   show/hide keybind, a minimap button and an addon-compartment entry.
@@ -143,10 +165,16 @@ Hover over a name to see exactly what will be cast and what they still need.
 | `/br count` · `/br resetcount` | Show or reset the cast counter |
 | `/br rebuff <seconds>` · `/br rebuff KEY <seconds>` | Re-offer a buff when less than this much time is left (default 30; per-buff override by key; also on Settings > Buffs) |
 | `/br groupcast [on\|off\|<n>]` | Offer group buff versions when n+ group members need the same buff |
-| `/br sort name\|role\|distance` | List order: name, tanks & leaders first, or nearest first |
+| `/br sort name\|role\|distance\|need` | List order: name, tanks & leaders first, nearest first, or most missing first |
 | `/br ignore <name>` · `/br unignore <name>` · `/br ignorelist` | Manage the ignore list (or right-click a row; remove names on the Ignore & Stats tab). Capitals don't matter; `Name-Realm` means that one player, a plain `Name` means that name on every realm |
 | `/br alertsound droplet\|system\|none` | Choose the new-name alert sound |
 | `/br announce` | Post the group's missing buffs to party/raid chat |
+| `/br sync` · `/br requests` · `/br digest` | Cast sync between BuffRadar users · chat-request markers · join summary |
+| `/br filter all\|tank\|healer\|dps` | Narrow the window list to one role (needs assigned roles; no effect on this client) |
+| `/br strip` · `/br fade <0-90>` | Buff toggle strip on the window · idle fade while the mouse is away |
+| `/br profile save\|load\|delete\|list <name>` | Named settings profiles |
+| `/br watch` · `/br taxi` | Alert when your single-target buff drops · pause on flight paths |
+| `/br resetpos` | Reset the window position (also clears the per-character spot) |
 | `/br signore <name>` · `/br unsignore <name>` | Ignore a player for this session only (or Shift-right-click a row) |
 | `/br mana <0-100>` | Pause listing below this mana % (0 = off) |
 | `/br export` · `/br import` | Copy settings between characters as one string |

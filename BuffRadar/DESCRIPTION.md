@@ -3,7 +3,7 @@
 **A click-to-buff list for World of Warcraft — Retail (patch 12.1.5).**
 
 Store-listing copy prepared 2026-10-24 from the shipped 1.3.2
-README; status note updated 2026-10-25 for 1.4.0.
+README; status note updated 2026-10-25 for 1.5.0.
 
 ---
 
@@ -34,10 +34,16 @@ raid, one click usually clears several rows at once.
   tells you so (and warns at login) instead of claiming everyone is
   buffed — `/br debug` shows exactly what it can see.
 - **Stays out of the way.** Pauses in major cities, optional
-  battleground pause, party/raid-only mode, autohide, a minimap
-  button, and a water-droplet alert (mutable, or swapped for a system
-  sound or silence) when someone new needs a buff. Buffing your group
-  doesn't even change your target.
+  battleground and flight-path pauses, party/raid-only mode, autohide,
+  an idle fade while your mouse is elsewhere, a minimap button, and a
+  water-droplet alert (mutable, or swapped for a system sound or
+  silence) when someone new needs a buff. Buffing your group doesn't
+  even change your target.
+- **Coordinates with your group.** Two BuffRadar users in one group
+  no longer double-cast: a cast marks that player *being buffed* on
+  everyone's list. Players who ask for a buff in chat get marked, a
+  one-line digest greets you when you join a group, and an alert
+  fires when your Earth Shield drops off its holder.
 - **Yours to tune.** A tabbed settings window with hover help on
   every setting, per-buff toggles and rebuff thresholds, a resizable
   window, role ordering, a realm-aware right-click ignore list, cast
@@ -68,5 +74,5 @@ the same settings layout.
 BuffRadar is by Malikor, GPLv3. Casting approach and buff coverage
 were informed by BuffYou by datdata (MIT).
 
-**Status note:** 1.4.0 is built but not yet verified in a retail
+**Status note:** 1.5.0 is built but not yet verified in a retail
 client.

@@ -2,6 +2,65 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.5.0 — 2026-10-25 — Retail edition
+
+Fourteen more enhancements in the shared source (the Forever edition
+gets them too). Four items from the original list turned out to
+duplicate things 1.4.0 already does — name sorting, window locking and
+a combat indicator already existed, and players being resurrected are
+already kept off the list while dead — so they were replaced with the
+items marked †.
+
+- **Cast sync between BuffRadar users.** When you or another BuffRadar
+  user in your group casts a buff, everyone's list marks that player
+  *being buffed* for a few seconds and sinks their row, so two of you
+  don't cast the same buff on the same player. (`/br sync`)
+- **Chat buff requests.** A listed player who whispers you (or says
+  nearby) asking for a buff gets an *asked for a buff* marker on their
+  row. (`/br requests`)
+- **Join digest.** Joining a group prints one line — how many people
+  are missing buffs, and how many casts that is; a Mythic+ run starting
+  prints the same summary again. (`/br digest`)
+- **Role filter chips.** All / Tank / Heal / DPS chips on the window
+  narrow the list to one role; announcements and ready-check reports
+  still cover everyone. (`/br filter all|tank|healer|dps`)
+- **Buff toggle strip.** A bar under the title carries one icon per
+  buff you can cast; click an icon to toggle that buff without opening
+  settings. (Settings > Window, or `/br strip`)
+- † **Need sort** (`/br sort need`, also the Settings sort button):
+  whoever is missing the most buffs comes first.
+- † **Phase-aware scanning:** a group member in another phase is no
+  longer listed — you can't reach them anyway.
+- † **Idle fade** (Settings > Window, or `/br fade <0-90>`): the
+  window fades while your mouse is elsewhere and comes back at full
+  opacity when you hover it.
+- **Named settings profiles** (`/br profile save|load|delete|list`,
+  also on the Ignore & Stats tab): keep several complete settings
+  sets and swap them on any character.
+- **Drop alert.** When your Earth Shield (or any single-target buff
+  of yours) disappears from the player who had it, you get a message,
+  the alert sound and a border flash, once per drop. (`/br watch`)
+- **Coverage cooldown note.** A buff on a real cooldown is never
+  counted as missing, so its coverage can read complete while people
+  still need it; the coverage line now flags it, e.g. *Skyfury 15/15
+  (~3m cd)*.
+- † **Flight-path pause** (optional, `/br taxi`): the list pauses
+  while you're on a flight path, like the city pause.
+- **Window rescue.** A saved window position that would land
+  (mostly) off-screen — after a monitor or resolution change — is
+  forgotten instead of restored blind, and `/br resetpos` resets the
+  position explicitly; it also clears the per-character spot, which
+  `/br reset` used to leave behind.
+- Internals: `/br selftest` also reports the sync/requests state,
+  role filter, profile count and idle fade; SavedVariables dbVersion
+  is now 7 (old saves migrate automatically); the German translation
+  covers all 53 strings; the file sits at 187 of Lua 5.1's 200
+  top-level locals. The trial run covers all of the above — 164
+  steps (165 on the German setup) in each of six fake-client setups.
+- **Not yet verified in game.** 1.5.0 has passed the full offline
+  check suite only; the in-game check is still owed (1.4.0 and 1.3.2
+  are likewise unverified).
+
 ## 1.4.0 — 2026-10-25 — Retail edition
 
 Twenty enhancements in the shared source (the Forever edition gets
