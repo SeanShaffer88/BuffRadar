@@ -1,0 +1,25 @@
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install lupa (bundles real Lua 5.1)
+        run: pip install lupa
+      - name: Lua 5.1 compile
+        run: python -I tools/luacheck51.py BuffRadar/BuffRadar.lua BuffRadar/Locales/deDE.lua
+      - name: Lua 5.1 limits (200 locals / 60 upvalues)
+        run: python -I tools/lualimits.py BuffRadar/BuffRadar.lua
+      - name: Translations
+        run: python -I tools/localecheck.py BuffRadar/BuffRadar.lua BuffRadar/Locales
+      - name: Trial run (fake game client, both editions)
+        run: python -I tools/smoke51.py tools/wowstub.lua BuffRadar/BuffRadar.lua
