@@ -3,7 +3,7 @@
 **A click-to-buff list for World of Warcraft — Retail (patch 12.1.5).**
 
 Store-listing copy prepared 2026-10-24 from the shipped 1.3.2
-README; status note updated 2026-10-25 for 1.5.0.
+README; status note updated 2026-10-25 for 1.6.0.
 
 ---
 
@@ -74,5 +74,5 @@ the same settings layout.
 BuffRadar is by Malikor, GPLv3. Casting approach and buff coverage
 were informed by BuffYou by datdata (MIT).
 
-**Status note:** 1.5.0 is built but not yet verified in a retail
-client.
+**Status note:** 1.6.0 is built but not yet verified in a retail
+client (1.5.0, 1.4.0 and 1.3.2 are likewise unverified).

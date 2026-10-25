@@ -2,6 +2,69 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.6.0 — 2026-10-25 — Retail edition
+
+Ten more enhancements from the 50-item list, in the shared source
+(the Forever edition gets them too, except the blessing planner,
+which is Forever-only). One item on the list — a buff-next keybind —
+turned out to duplicate the *Cast next buff* keybind BuffRadar has
+shipped for a long time, so it was replaced in this batch by the
+shipped presets below.
+
+- **Buff assignments.** The group leader (or an assistant) can assign
+  a buff to one player: `/br assign FORTITUDE Anna`. On that player's
+  BuffRadar the rows for it are tagged *your assignment* and float
+  up; on everyone else's they sink, tagged *assigned elsewhere*, so
+  a group with several buffers stops stepping on itself. Assignments
+  are per group session and travel over the cast-sync channel
+  (`/br sync`).
+- **Buddy split** (`/br buddy`, Settings > Behavior): when two or
+  more BuffRadar users are in the group with sync on, the list is
+  split between them by a stable hash — each of you sees your share
+  float and the rest sink, tagged *buddy's watch*. Nobody is hidden;
+  the split is a sort, not a filter.
+- **All-buffed pill** (Settings > Window, or `/br pill`): when
+  everyone in the group is fully buffed, the window collapses into a
+  small pill that still shows the coverage count. Click the pill to
+  peek at the full window for five seconds; the window returns on
+  its own the moment anyone needs a buff again.
+- **Cast queue tag.** Right after one of your casts lands, the next
+  row is tagged *up next* for a few seconds, so your eye is already
+  on the person you're about to buff.
+- **Consumables watch** (`/br consumables`): the coverage line also
+  counts flask and food buffs across the group (and Augment Runes on
+  this edition). Read-only — consumables never create rows, since
+  you can't cast them on anyone.
+- **Custom watched spells** (`/br custom add|remove|list <spell ID>`):
+  any buff spell you know can be watched like a built-in — handy for
+  a toy, trinket or profession buff the addon doesn't ship with.
+  Custom spells are per character and are not carried by settings
+  export or named profiles (a profile can't grant a spell another
+  character doesn't know).
+- **Coverage uptime** (`/br uptime`): the share of grouped scans
+  this run that found nobody missing anything, shown on the coverage
+  line once there are enough scans to mean something. The score
+  resets when a Mythic+ run starts and when the group ends.
+- **Shipped presets** (`/br preset raid|dungeon|solo`, also buttons
+  on the Ignore & Stats tab): sensible one-click starting points —
+  role sort + group casts for raid, need sort + group-only for
+  dungeons, name sort for solo.
+- **Auto-switch profiles** (`/br autoprofile <context> <profile>`):
+  entering a raid, dungeon, battleground, grouped open world or
+  solo play loads the named profile you mapped to that context.
+- Internals: `/br selftest` also reports the 1.6.0 state (pill,
+  queue tag, consumables, custom spell count, buddy split, uptime,
+  assignments, blessing plan, auto profiles, peers); SavedVariables
+  dbVersion is now 8 (old saves migrate automatically, and corrupt
+  custom-spell / auto-profile entries are repaired on load); the
+  German translation covers all 62 strings; the file sits at 188 of
+  Lua 5.1's 200 top-level locals. The trial run covers all of the
+  above — 174 steps (175 on the German setup) in each of six
+  fake-client setups.
+- **Not yet verified in game.** 1.6.0 has passed the full offline
+  check suite only; the in-game check is still owed (1.5.0, 1.4.0
+  and 1.3.2 are likewise unverified).
+
 ## 1.5.0 — 2026-10-25 — Retail edition
 
 Fourteen more enhancements in the shared source (the Forever edition

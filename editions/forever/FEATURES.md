@@ -1,13 +1,46 @@
 # BuffRadar — Features (Forever edition)
 
-The full feature list for BuffRadar 1.5.0 (Forever edition) for
+The full feature list for BuffRadar 1.6.0 (Forever edition) for
 WoW: Forever (Interface 16001). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
 Prepared 2026-10-24 from the shipped 1.3.2 Forever README and
-CHANGELOG; updated 2026-10-25 for 1.5.0. Since 1.3.2 both editions are built from one source —
+CHANGELOG; updated 2026-10-25 for 1.6.0. Since 1.3.2 both editions are built from one source —
 the addon picks the Forever buff set when it loads on the Forever
 client — and the Forever buff set itself is unchanged from 1.2.4.
+
+## New in 1.6.0
+
+- **Blessing planner** (`/br bless <CLASS> <BLESSING> [name]`): the
+  leader, an assistant or any paladin plans which blessing each
+  class receives. Your casts follow the plan; other paladins running
+  BuffRadar see the planned blessing on their rows for that class,
+  and one named paladin can own a class. Session-only; travels over
+  the cast-sync channel (`/br sync`).
+- **Buff assignments** (`/br assign <BUFF> <name|none>`): the leader
+  or an assistant assigns a buff to one player; their rows float
+  (*your assignment*), everyone else's sink (*assigned elsewhere*).
+- **Buddy split** (`/br buddy`): with sync on, BuffRadar users split
+  the list by a stable hash — your share floats, the rest sink
+  tagged *buddy's watch*.
+- **All-buffed pill** (`/br pill`): the window collapses to a small
+  pill with the coverage count while everyone is fully buffed;
+  click to peek for five seconds.
+- **Cast queue tag:** the next row is tagged *up next* briefly after
+  one of your casts lands.
+- **Consumables watch** (`/br consumables`): flask and food counts
+  on the coverage line (no Augment Rune on this client).
+- **Custom watched spells** (`/br custom add|remove|list <spell ID>`):
+  watch any buff spell you know. Per character; not carried by
+  settings export or named profiles.
+- **Coverage uptime** (`/br uptime`): the share of grouped scans this
+  session that found nobody missing anything; resets when the group
+  ends.
+- **Shipped presets** (`/br preset raid|dungeon|solo`) and
+  **auto-switch profiles** (`/br autoprofile <context> <profile>`),
+  as on retail.
+- German translation covers all 62 strings; `/br selftest` also
+  reports the 1.6.0 state.
 
 ## New in 1.5.0
 
@@ -187,7 +220,7 @@ stays hidden on those characters.
 
 - 1.2.2 and earlier were confirmed working live by SEAN on
   2026-10-20. 1.2.4 (the TOPLEFT anchoring fix) was built but
-  unverified in game, and **1.3.2 — the unified-source build — 1.4.0
-  and 1.5.0 are likewise built but UNVERIFIED in game**. The Retail
-  edition (1.5.0, Interface 120105) is a separate zip from the same
+  unverified in game, and **1.3.2 — the unified-source build — 1.4.0,
+  1.5.0 and 1.6.0 are likewise built but UNVERIFIED in game**. The Retail
+  edition (1.6.0, Interface 120105) is a separate zip from the same
   source with its own feature list.

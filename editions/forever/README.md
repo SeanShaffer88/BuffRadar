@@ -9,7 +9,7 @@ buffs — with their portrait, class-colored name and icons of what they still n
 Click a name to buff them. Press one key (or one macro) to buff the next person.
 You always come first.
 
-Version 1.5.0 · Interface 16001 · License: GPLv3 (1.2.4 was last verified on Forever beta build 1.60.1.70450)
+Version 1.6.0 · Interface 16001 · License: GPLv3 (1.2.4 was last verified on Forever beta build 1.60.1.70450)
 
 The Forever and retail editions are built from the same source; this zip's `.toc`
 targets the Forever client, and BuffRadar picks the Forever buff set when it loads.
@@ -86,6 +86,30 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
   mouse is elsewhere, and (optionally) pause while you're on a flight
   path. A saved window position that would land off-screen is rescued
   instead of restored blind.
+- **Blessing planner:** plan which blessing each class gets
+  (`/br bless WARRIOR KINGS`) — your casts follow the plan, and other
+  paladins running BuffRadar see it on their rows; one named paladin
+  can own a class.
+- **Buff assignments:** the leader can assign a buff to one player —
+  their rows float (*your assignment*), everyone else's sink
+  (*assigned elsewhere*).
+- **Buddy split:** two or more BuffRadar users in a group can split the
+  list between them by a stable hash; your share floats, the rest sink.
+- **All-buffed pill:** when everyone is fully buffed the window
+  collapses to a small pill with the coverage count; click to peek.
+- **Cast queue tag:** the next row is tagged *up next* for a few
+  seconds after one of your casts lands.
+- **Consumables watch:** the coverage line also counts flasks and food
+  across the group (read-only — no rows).
+- **Custom watched spells:** watch any buff spell you know
+  (`/br custom add <spell ID>`), offered to everyone it suits.
+- **Coverage uptime:** the share of grouped scans this session that
+  found nobody missing anything, on the coverage line and via
+  `/br uptime`.
+- **Presets and auto profiles:** one-click Raid / Dungeon / Solo
+  presets (`/br preset`), and named profiles that load themselves by
+  context — raid, dungeon, battleground, grouped world, solo
+  (`/br autoprofile`).
 - **Stays out of the way:** pauses in major cities (and, optionally, in
   battlegrounds), can show only while you're in a party or raid, and has a
   show/hide keybind, a minimap button and an addon-compartment entry.
@@ -174,6 +198,12 @@ Hover over a name to see exactly what will be cast and what they still need.
 | `/br strip` · `/br fade <0-90>` | Buff toggle strip on the window · idle fade while the mouse is away |
 | `/br profile save\|load\|delete\|list <name>` | Named settings profiles |
 | `/br watch` · `/br taxi` | Alert when your single-target buff drops · pause on flight paths |
+| `/br bless <CLASS> <BLESSING> [name]` | Plan which blessing each class gets |
+| `/br assign <BUFF> <name\|none>` | Leader assigns a buff to one player (rows float/sink by owner) |
+| `/br buddy` · `/br pill` | Split the list with other BuffRadar users · all-buffed pill |
+| `/br consumables` · `/br uptime` | Flask/food counts on the coverage line · coverage uptime % |
+| `/br custom add\|remove\|list <spell ID>` | Watch any buff spell you know |
+| `/br preset raid\|dungeon\|solo` · `/br autoprofile <context> <profile>` | Shipped presets · load a profile by context |
 | `/br resetpos` | Reset the window position (also clears the per-character spot) |
 | `/br signore <name>` · `/br unsignore <name>` | Ignore a player for this session only (or Shift-right-click a row) |
 | `/br mana <0-100>` | Pause listing below this mana % (0 = off) |

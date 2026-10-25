@@ -115,7 +115,22 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
       if f then return f(unit, name, filter) end
       return nil
     end,
+    -- Index-based reading, fed by env.__over.AuraList(unit) returning an
+    -- array of { name = ..., expirationTime = ... }; default: no auras.
+    GetBuffDataByIndex = function(unit, i)
+      local f = env.__over.AuraList
+      local list = f and f(unit)
+      if list then return list[i] end
+      return nil
+    end,
   }
+  env.UnitBuff = function(unit, i)
+    local f = env.__over.AuraList
+    local list = f and f(unit)
+    local a = list and list[i]
+    if a then return a.name, "", 0, 0, 0, 0, a.expirationTime end
+    return nil
+  end
   env.GetBuildInfo = function() return "12.1.5", "99999", "Oct 2026", 120105 end
   env.GetTime = function() return os.clock() end
   env.__combat = false

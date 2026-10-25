@@ -2,6 +2,54 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.6.0 — 2026-10-25 — Forever edition
+
+The same ten enhancements as retail 1.6.0, from the shared source —
+plus the blessing planner, which belongs to this edition. (One item
+on the original list, a buff-next keybind, duplicated the existing
+*Cast next buff* keybind and was replaced by the shipped presets;
+see the retail changelog.)
+
+- **Blessing planner** (`/br bless <CLASS> <BLESSING> [name]`): the
+  leader, an assistant or any paladin can plan which blessing each
+  class gets — e.g. Kings for warriors, Wisdom for priests. Your own
+  casts follow the plan automatically; other paladins running
+  BuffRadar see the planned blessing on their rows for that class,
+  and a named paladin can be given a class personally. The plan
+  travels over the cast-sync channel (`/br sync`) and lasts for the
+  group session.
+- **Buff assignments** (`/br assign <BUFF> <name|none>`): the leader
+  or an assistant assigns a buff to one player; their rows for it
+  float tagged *your assignment*, everyone else's sink tagged
+  *assigned elsewhere*.
+- **Buddy split** (`/br buddy`): two or more BuffRadar users split
+  the list between them by a stable hash; your share floats, the
+  rest sink tagged *buddy's watch*.
+- **All-buffed pill** (`/br pill`): the window collapses to a small
+  pill showing the coverage count while everyone is fully buffed;
+  click it to peek for five seconds.
+- **Cast queue tag:** the next row is tagged *up next* for a few
+  seconds after one of your casts lands.
+- **Consumables watch** (`/br consumables`): the coverage line also
+  counts flask and food buffs across the group. (No Augment Rune
+  count on this edition — the item doesn't exist here.)
+- **Custom watched spells** (`/br custom add|remove|list <spell ID>`):
+  watch any buff spell you know. Per character; not carried by
+  settings export or named profiles.
+- **Coverage uptime** (`/br uptime`): the share of grouped scans this
+  session that found nobody missing anything; resets when the group
+  ends.
+- **Shipped presets** (`/br preset raid|dungeon|solo`) and
+  **auto-switch profiles** (`/br autoprofile <context> <profile>`),
+  as on retail.
+- Internals: `/br selftest` reports the 1.6.0 state; SavedVariables
+  dbVersion is now 8 (old saves migrate automatically); the German
+  translation covers all 62 strings. The trial run covers all of the
+  above — 174 steps (175 on the German setup) in each of six
+  fake-client setups.
+- **Not yet verified in game.** 1.6.0 has passed the full offline
+  check suite only; the in-game check is still owed.
+
 ## 1.5.0 — 2026-10-25 — Forever edition
 
 The same fourteen enhancements as retail 1.5.0, from the shared

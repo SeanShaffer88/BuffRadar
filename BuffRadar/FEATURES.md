@@ -1,15 +1,54 @@
 # BuffRadar — Features (Retail edition)
 
-The full feature list for BuffRadar 1.5.0 for WoW Retail
+The full feature list for BuffRadar 1.6.0 for WoW Retail
 (patch 12.1.5, Interface 120105). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
 Prepared 2026-10-24 from the shipped 1.3.2 README and CHANGELOG;
-updated 2026-10-25 for 1.5.0.
+updated 2026-10-25 for 1.6.0.
 Since 1.3.2 the Retail and Forever editions are built from one
 source — the addon picks its buff set when it loads — so fixes and
 features land in both at once; differences from the Forever edition
 are called out below.
+
+## New in 1.6.0
+
+- **Buff assignments** (`/br assign <BUFF> <name|none>`): the group
+  leader or an assistant assigns a buff to one player. On their list
+  the rows float, tagged *your assignment*; on everyone else's they
+  sink, tagged *assigned elsewhere*. Session-only; travels over the
+  cast-sync channel (`/br sync`).
+- **Buddy split** (`/br buddy`): with sync on, two or more BuffRadar
+  users split the list by a stable hash of each player's GUID. Your
+  share floats; the rest sink, tagged *buddy's watch*. A sort, not a
+  filter — nobody disappears.
+- **Blessing planner** (Forever edition only, `/br bless`): plan a
+  blessing per class, optionally for one named paladin.
+- **All-buffed pill** (`/br pill`): while everyone in the group is
+  fully buffed the window collapses to a small pill showing the
+  coverage count; click it to peek at the window for five seconds.
+- **Cast queue tag:** after one of your casts lands, the next row is
+  tagged *up next* for a few seconds.
+- **Consumables watch** (`/br consumables`): flask, food and Augment
+  Rune counts join the coverage line. Read-only: consumables never
+  create rows.
+- **Custom watched spells** (`/br custom add|remove|list <spell ID>`):
+  watch any buff spell you know, offered to everyone it suits.
+  Stored per character; not carried by settings export or named
+  profiles.
+- **Coverage uptime** (`/br uptime`): the share of grouped scans
+  this run that found nobody missing anything, on the coverage line
+  from ten scans up. Resets when a Mythic+ run starts and when the
+  group ends.
+- **Shipped presets** (`/br preset raid|dungeon|solo`, buttons on
+  the Ignore & Stats tab): one-click starting points for raid,
+  dungeon and solo play.
+- **Auto-switch profiles** (`/br autoprofile <context> <profile>`):
+  raid, dungeon, pvp, world (grouped) and solo contexts each load a
+  mapped named profile on entry.
+- German translation covers all 62 strings; `/br selftest` also
+  reports the 1.6.0 state (pill, queue tag, consumables, customs,
+  buddy split, uptime, assignments, plan, auto profiles, peers).
 
 ## New in 1.5.0
 
@@ -160,8 +199,8 @@ ranked on retail).
 
 ## Verification status
 
-- **1.5.0 is built but UNVERIFIED in a retail client** (1.4.0 and
-  1.3.2 were never verified either). Midnight
+- **1.6.0 is built but UNVERIFIED in a retail client** (1.5.0, 1.4.0
+  and 1.3.2 were never verified either). Midnight
   removed the "load out-of-date addons" option, so this edition
   loads only while its interface version matches the live patch
   (120105 = 12.1.5); a new retail patch needs a new build with the

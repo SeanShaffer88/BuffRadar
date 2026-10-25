@@ -313,6 +313,12 @@ local DEFAULTS = {
   roleFilter = "ALL",  -- window list filter: "ALL", "TANK", "HEALER" or "DAMAGER" (1.5.0)
   showStrip = true,    -- buff toggle strip + filter chips under the title (1.5.0)
   idleFade = 0,        -- fade the window by this % while the mouse is away (0 = off) (1.5.0)
+  pill = false,        -- collapse to a small pill while everyone is buffed (1.6.0)
+  queueTag = true,     -- tag the top row "up next" right after a cast lands (1.6.0)
+  consumables = false, -- coverage line also tracks flasks, food and runes (1.6.0)
+  buddySplit = false,  -- share the list with other BuffRadar users present (1.6.0)
+  autoProfile = {},    -- load a named profile per context: raid/dungeon/pvp/world/solo -> name (1.6.0)
+  customSpells = {},   -- extra spell IDs to watch, added with /br custom (1.6.0)
   stats = {},          -- all-time casts per spell name: name -> count
 }
 local db
@@ -407,6 +413,28 @@ function SanitizeDB(saved)
           end
         end
         v = clean
+      elseif k == "autoProfile" then
+        local clean = {}
+        if v then
+          for ctx, name in pairs(v) do
+            if type(ctx) == "string" and type(name) == "string" and #name <= 40 then
+              clean[ctx] = name
+            end
+          end
+        end
+        v = clean
+      elseif k == "customSpells" then
+        local clean, seenIds = {}, {}
+        if v then
+          for _, id in ipairs(v) do
+            if IsNumber(id) and id >= 1 and id <= 2000000 and not seenIds[id] then
+              seenIds[id] = true
+              clean[#clean + 1] = math_floor(id)
+              if #clean >= 20 then break end
+            end
+          end
+        end
+        v = clean
       elseif k == "rebuffPer" or k == "stats" then
         local clean = {}
         if v then
@@ -470,6 +498,15 @@ local L = {
   ["a buff just expired"] = "a buff just expired",  -- under the name (1.4.0)
   ["being buffed"] = "being buffed",  -- another BuffRadar user just cast it (1.5.0)
   ["asked for a buff"] = "asked for a buff",  -- asked in chat (1.5.0)
+  ["up next"] = "up next",  -- the row your next cast should go to (1.6.0)
+  ["your assignment"] = "your assignment",  -- the leader gave this buff to you (1.6.0)
+  ["assigned elsewhere"] = "assigned elsewhere",  -- the leader gave this buff to another user (1.6.0)
+  ["buddy's watch"] = "buddy's watch",  -- buddy split gave this row to the other user (1.6.0)
+  ["All buffed"] = "All buffed",  -- pill text (1.6.0)
+  ["Collapse to a pill while everyone is buffed"] = "Collapse to a pill while everyone is buffed",
+  ["Tag the next row after a cast"] = "Tag the next row after a cast",
+  ["Track flasks, food and runes (coverage line)"] = "Track flasks, food and runes (coverage line)",
+  ["Split the list with other BuffRadar users"] = "Split the list with other BuffRadar users",
   ["Low mana -- buffing paused."] = "Low mana -- buffing paused.",
   ["~%dm left"] = "~%dm left",  -- on a row whose buff is about to expire
   ["~%ds left"] = "~%ds left",
@@ -793,7 +830,7 @@ end
 ---------------------------------------------------------------------------
 -- What can I cast?
 ---------------------------------------------------------------------------
-local known, myBuffs, myBlessing = {}, {}, {}
+local known, myBuffs, myBlessing, blessKnown = {}, {}, {}, {}
 local ranks = {}   -- ranks[name] = { {rank=n, sub="Rank n", id=spellID}, ... } ascending
 local hasAnyBuff = false
 local bookCount = 0
@@ -896,6 +933,21 @@ function BuildBuffList()
     end
   end
 
+  -- Custom watched spells (1.6.0): any spell you know can join the list.
+  -- A spell whose name matches a built-in buff is skipped -- it is already
+  -- watched, and listing it twice would double its rows.
+  for _, id in ipairs(db and db.customSpells or {}) do
+    local n = SpellName(id, nil)
+    if n and KnowsSpell(id, n) then
+      local dup = false
+      for _, b in ipairs(myBuffs) do if b.name == n then dup = true break end end
+      if not dup then
+        myBuffs[#myBuffs + 1] = { key = "CUSTOM" .. id, name = n, names = { n },
+                                  classes = ALL, default = true, custom = id }
+      end
+    end
+  end
+
   wipe(myBlessing)
   for class, list in pairs(CLASSIC_FEATURES and BLESSING_PRIORITY or {}) do
     for _, k in ipairs(list) do
@@ -906,6 +958,17 @@ function BuildBuffList()
                               names = { name, SpellName(b.greater[1], b.greater[2]) } }
         break
       end
+    end
+  end
+
+  -- Every blessing you know, by key: the blessing planner (1.6.0) picks
+  -- from this instead of the per-class priority list when a plan is set.
+  wipe(blessKnown)
+  for k, b in pairs(BLESSINGS) do
+    local name = SpellName(b.id, b.name)
+    if KnowsSpell(b.id, name) then
+      blessKnown[k] = { name = name,
+                        names = { name, SpellName(b.greater[1], b.greater[2]) } }
     end
   end
 
@@ -992,7 +1055,34 @@ local X = { session = {}, dead = {}, rezAt = {}, tally = {}, tallyUnits = 0,
             listA = {}, listB = {}, recentlyGone = {}, sessionCasts = 0,
             missPrev = {}, missNow = {}, expiredAt = {}, rowH = 24,
             handled = {}, asked = {}, applyFilter = true,
-            prevHolder = {} }
+            prevHolder = {}, queueAt = 0, consTally = {},
+            assign = {}, blessPlan = {}, peers = {},
+            upTotal = 0, upFull = 0 }
+
+-- Consumables watch (1.6.0): not castable, so these never make rows --
+-- they only feed the coverage line. Matched by aura name: exact names, or
+-- a substring ("Flask of ..." covers every flask on both clients).
+X.CONS_DEFS = {
+  { key = "FLASK", label = "Flask", sub = "Flask of" },
+  { key = "FOOD", label = "Food", names = { "Well Fed" } },
+}
+if not CLASSIC_FEATURES then
+  X.CONS_DEFS[#X.CONS_DEFS + 1] = { key = "RUNE", label = "Rune", sub = "Augment Rune" }
+end
+
+function X.ConsHas(unit, def)
+  for i = 1, 40 do
+    local done, name = ReadBuff(unit, i)
+    if done then break end
+    if name then
+      if def.sub and name:find(def.sub, 1, true) then return true end
+      if def.names then
+        for _, nm in ipairs(def.names) do if name == nm then return true end end
+      end
+    end
+  end
+  return false
+end
 X.listedBefore = X.listA  -- guid -> true for names on the board last refresh
 
 function X.Track(unit)
@@ -1020,6 +1110,14 @@ local function Missing(unit, out, isGroup)
   local isSelf = UnitIsUnit(unit, "player")
   X.remainTmp = nil
   if isGroup then X.tallyUnits = X.tallyUnits + 1 end
+  if isGroup and db.consumables then
+    for _, cd in ipairs(X.CONS_DEFS) do
+      local t = X.consTally[cd.key]
+      if not t then t = { total = 0, miss = 0 }; X.consTally[cd.key] = t end
+      t.total = t.total + 1
+      if not X.ConsHas(unit, cd) then t.miss = t.miss + 1 end
+    end
+  end
   scanUnit = nil  -- force a fresh index scan (fallback path) for this unit
   local n = 0
   local role, roleRead = nil, false  -- assigned role, read once and only if a buff needs it
@@ -1062,6 +1160,15 @@ local function Missing(unit, out, isGroup)
     end
   end
   local bl = myBlessing[class]
+  -- Blessing plan (1.6.0): a class another paladin covers drops off your
+  -- list entirely; a class planned to you uses the planned blessing even
+  -- when the priority list would pick a different one. (plan.mine was
+  -- resolved when the plan was set -- Ignore isn't in scope here.)
+  local plan = X.blessPlan[class]
+  if plan then
+    if not plan.mine then bl = nil
+    elseif blessKnown[plan.key] then bl = blessKnown[plan.key] end
+  end
   if bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf) then
     local t
     if isGroup then
@@ -1111,6 +1218,9 @@ local nEntries = 0
 local function EntryOrder(a, b)
   if a.isSelf ~= b.isSelf then return a.isSelf end
   if (a.rezzed or false) ~= (b.rezzed or false) then return a.rezzed ~= nil end
+  if (a.mine or false) ~= (b.mine or false) then return a.mine ~= nil end
+  if (a.theirs or false) ~= (b.theirs or false) then return not a.theirs end
+  if (a.buddy or false) ~= (b.buddy or false) then return not a.buddy end
   if (a.handled or false) ~= (b.handled or false) then return not a.handled end
   if db.sortMode == "need" and #a.missing ~= #b.missing then return #a.missing > #b.missing end
   if db.sortMode == "distance" and (a.rangeBucket or 2) ~= (b.rangeBucket or 2) then
@@ -1315,6 +1425,7 @@ local function CollectEntries()
   wipe(cdLeftCache)
   wipe(Single.holder)
   wipe(X.tally)
+  wipe(X.consTally)
   X.tallyUnits = 0
   X.missPrev, X.missNow = X.missNow, {}
   wipe(X.missNow)
@@ -1371,10 +1482,47 @@ local function CollectEntries()
     e.handled = (h and nowT - h.t < 5 and h.key == X.KeyOfName(e.missing[1])) or nil
     local ak = X.asked[e.guid]
     e.asked = (ak and nowT - ak < 120) or nil
+    e.queued = nil  -- set after the sort, on the new top row only
   end
   for guid, h in pairs(X.handled) do if nowT - h.t > 60 then X.handled[guid] = nil end end
   for guid, t in pairs(X.asked) do if nowT - t > 180 then X.asked[guid] = nil end end
+  -- Assignments + buddy split (1.6.0): your assigned buffs float, buffs
+  -- assigned to someone else sink; with buddy split on, the entries are
+  -- shared between the BuffRadar users present by a stable hash of the
+  -- player GUID, so every user works their own share of the list.
+  local meFull = Ignore.UnitNames("player")
+  local myKey = meFull and Ignore.Key(meFull)
+  local users, myIdx = nil, 0
+  if db and db.buddySplit and InGroup() and myKey then
+    local keys = { myKey }
+    for k, p in pairs(X.peers) do
+      if nowT - p.t < 90 and k ~= myKey then keys[#keys + 1] = k end
+    end
+    if #keys >= 2 then
+      table_sort(keys)
+      users = keys
+      for i, k in ipairs(keys) do if k == myKey then myIdx = i break end end
+    end
+  end
+  for i = 1, nEntries do
+    local e = entries[i]
+    local k = X.KeyOfName(e.missing[1])
+    local who = k and X.assign[k]
+    e.mine = (who and myKey and Ignore.Key(who) == myKey) or nil
+    e.theirs = (who and not e.mine) or nil
+    e.buddy = nil
+    if users and not e.isSelf and not e.rezzed then
+      local s = 0
+      for j = 1, #e.guid do s = s + e.guid:byte(j) end
+      if s % #users ~= myIdx - 1 then e.buddy = true end
+    end
+  end
   if nEntries > 1 then table_sort(entries, EntryOrder) end
+  -- Cast queue highlight (1.6.0): right after one of your casts lands, the
+  -- new top row is where the next cast should go.
+  if nEntries > 0 and db and db.queueTag and nowT - (X.queueAt or 0) < 3 then
+    entries[1].queued = true
+  end
   return nEntries
 end
 
@@ -1448,7 +1596,8 @@ X.EXPORT_KEYS = { "locked", "includeSelf", "avoidPvP", "autoHide", "rebuff", "sc
   "width", "cfgScale", "castMethod", "clickReg", "bgAlpha", "showTitle", "showBorder",
   "playSound", "showCounter", "groupOnly", "pauseInCities", "groupCast", "groupCastMin",
   "showOutOfRange", "sortMode", "alertSound", "muteInInstance", "showMinimap", "lowMana",
-  "sync", "requests", "joinDigest", "roleFilter", "showStrip", "idleFade" }
+  "sync", "requests", "joinDigest", "roleFilter", "showStrip", "idleFade",
+  "pill", "queueTag", "consumables", "buddySplit" }
 
 local function Esc(v) return (tostring(v):gsub("%%", "%%25"):gsub(";", "%%3B"):gsub("=", "%%3D")) end
 local function Unesc(v) return (v:gsub("%%3D", "="):gsub("%%3B", ";"):gsub("%%25", "%%")) end
@@ -1537,6 +1686,28 @@ function X.ProfileNames()
   for name in pairs(db.profiles) do names[#names + 1] = name end
   table_sort(names)
   return names
+end
+
+-- Shipped presets (1.6.0, replacing a proposed buff-next keybind -- the
+-- BuffRadarNextButton binding already ships): one-click window/behavior
+-- setups. They touch only the keys listed, never buff toggles or timings,
+-- so they compose with spec profiles and named profiles.
+X.PRESETS = {
+  raid = { sortMode = "role", groupCast = true, showOutOfRange = true,
+           groupOnly = false, pauseInCities = true },
+  dungeon = { sortMode = "need", groupCast = true, showOutOfRange = false,
+              groupOnly = true, pauseInCities = true },
+  solo = { sortMode = "name", groupCast = false, showOutOfRange = false,
+           groupOnly = false, pauseInCities = false },
+}
+
+function X.ApplyPreset(name)
+  local p = X.PRESETS[name]
+  if not p then return false end
+  for k, v in pairs(p) do
+    if DEFAULTS[k] ~= nil and type(v) == type(DEFAULTS[k]) then db[k] = v end
+  end
+  return true
 end
 
 -- /br announce: post the group's missing buffs to party/raid chat (or
@@ -1735,13 +1906,11 @@ function X.InitSync()
   end
 end
 
--- Tell the other BuffRadar users in the group "I just cast KEY on GUID",
--- so their lists sink that player instead of double-casting the same buff.
-function X.SyncSend(key, guid)
+-- One broadcast to the group's BuffRadar users (party or raid channel).
+function X.Broadcast(msg)
   if not db or not db.sync then return end
   local channel = InRaid() and "RAID" or (InGroup() and "PARTY" or nil)
   if not channel then return end
-  local msg = "CAST;" .. key .. ";" .. guid
   if _G.C_ChatInfo and _G.C_ChatInfo.SendAddonMessage then
     pcall(_G.C_ChatInfo.SendAddonMessage, "BuffRadar", msg, channel)
   elseif _G.SendAddonMessage then
@@ -1749,15 +1918,101 @@ function X.SyncSend(key, guid)
   end
 end
 
+-- Tell the other BuffRadar users in the group "I just cast KEY on GUID",
+-- so their lists sink that player instead of double-casting the same buff.
+function X.SyncSend(key, guid)
+  X.Broadcast("CAST;" .. key .. ";" .. guid)
+end
+
+-- The unit a message sender is playing, or nil when they're not in the
+-- group right now. Sender names arrive as "Name-Realm".
+function X.SenderUnit(sender)
+  local ks = Ignore.Key(sender)
+  local function hit(u)
+    if not UnitExists(u) then return false end
+    local full, short = Ignore.UnitNames(u)
+    return (full and Ignore.Key(full) == ks) or (short and Ignore.Key(short) == ks)
+  end
+  if hit("player") then return "player" end
+  local list = InRaid() and RAID or PARTY
+  for i = 1, #list do if hit(list[i]) then return list[i] end end
+  return nil
+end
+
+-- May this sender set group-wide plans? The leader and assistants may;
+-- for blessing plans a paladin may too (paladins plan among themselves).
+function X.SenderTrusted(sender, forBless)
+  local u = X.SenderUnit(sender)
+  if not u then return false end
+  if _G.UnitIsGroupLeader and _G.UnitIsGroupLeader(u) then return true end
+  if _G.UnitIsGroupAssistant and _G.UnitIsGroupAssistant(u) then return true end
+  local idx = u:match("^raid(%d+)$")
+  if idx and GetRaidRosterInfo then
+    local ok, _, rank = pcall(GetRaidRosterInfo, tonumber(idx))
+    if ok and rank and rank >= 1 then return true end
+  end
+  if forBless then
+    local _, cl = UnitClass(u)
+    if cl == "PALADIN" then return true end
+  end
+  return false
+end
+
+-- Am I allowed to set group-wide plans from this client?
+function X.AmLead()
+  if _G.UnitIsGroupLeader and _G.UnitIsGroupLeader("player") then return true end
+  if _G.UnitIsGroupAssistant and _G.UnitIsGroupAssistant("player") then return true end
+  if InRaid() and GetRaidRosterInfo then
+    for i = 1, 40 do
+      if UnitIsUnit(RAID[i], "player") then
+        local ok, _, rank = pcall(GetRaidRosterInfo, i)
+        if ok and rank and rank >= 1 then return true end
+      end
+    end
+  end
+  return false
+end
+
 function X.OnAddonMsg(prefix, msg, sender)
   if prefix ~= "BuffRadar" or not db or not db.sync then return end
   if type(msg) ~= "string" or type(sender) ~= "string" then return end
   local me = Ignore.UnitNames("player")
   if me and Ignore.Key(sender) == Ignore.Key(me) then return end  -- my own note
+  -- Any traffic from another user marks their presence (buddy split).
+  X.peers[Ignore.Key(sender)] = { t = GetTime(), name = sender }
   local key, guid = msg:match("^CAST;([%w_]+);(.+)$")
   if key and guid then
     X.handled[guid] = { key = key, t = GetTime() }
     if QueueRefresh then QueueRefresh() end
+    return
+  end
+  -- Buff assignments (1.6.0): only the leader or an assistant may set them.
+  local ak, av = msg:match("^ASSIGN;([%w_]+);(.+)$")
+  if ak then
+    if X.SenderTrusted(sender) then
+      if av == "none" then X.assign[ak] = nil else X.assign[ak] = av end
+      if QueueRefresh then QueueRefresh() end
+    end
+    return
+  end
+  -- Blessing plan (1.6.0, Forever): leaders, assistants and paladins.
+  local bc, bk, bn = msg:match("^BLESS;([%w_]+);([%w_]+);(.+)$")
+  if bc then
+    if X.SenderTrusted(sender, true) then
+      if bn == "none" or bk == "NONE" then
+        X.blessPlan[bc] = nil
+      else
+        X.blessPlan[bc] = { key = bk, name = bn,
+                            mine = me ~= nil and Ignore.Key(bn) == Ignore.Key(me) }
+      end
+      if QueueRefresh then QueueRefresh() end
+    end
+    return
+  end
+  -- Presence ping: answer once so the sender knows a buddy is here.
+  if msg:match("^HELLO;") then
+    if me then X.Broadcast("HERE;" .. me) end
+    return
   end
 end
 
@@ -1811,6 +2066,19 @@ function X.OnRoster()
     else
       X.JoinDigest("join")
     end
+  end
+  -- Presence (1.6.0): say hello (throttled) so other users know a buddy is
+  -- here; assignments and plans belong to the group, so they end with it.
+  if g and db and db.sync and GetTime() - (X.helloAt or 0) > 10 then
+    X.helloAt = GetTime()
+    local me = Ignore.UnitNames("player")
+    if me then X.Broadcast("HELLO;" .. me) end
+  end
+  if not g then
+    wipe(X.assign)
+    wipe(X.blessPlan)
+    wipe(X.peers)
+    X.upTotal, X.upFull = 0, 0  -- the run is over (1.6.0)
   end
   X.inGroupPrev = g
 end
@@ -2090,6 +2358,10 @@ local function ApplyAppearance()
   if frame.SetBackdropColor then
     frame:SetBackdropColor(c[1], c[2], c[3], db.bgAlpha or 0.92)
     frame:SetBackdropBorderColor(0.35, 0.55, 0.8, db.showBorder and 1 or 0)
+  end
+  if X.pill and X.pill.SetBackdropColor then
+    X.pill:SetBackdropColor(c[1], c[2], c[3], db.bgAlpha or 0.92)
+    X.pill:SetBackdropBorderColor(0.35, 0.55, 0.8, db.showBorder and 1 or 0)
   end
   if grip then grip:SetShown(not db.locked) end
   title:SetShown(db.showTitle and true or false)
@@ -2482,6 +2754,35 @@ local function BuildUI()
   if coverText.SetWordWrap then coverText:SetWordWrap(false) end
   coverText:Hide()
 
+  -- All-buffed pill (1.6.0): with /br pill on, the full window collapses to
+  -- this small button while the group is fully buffed. It sits where the
+  -- window's top-left corner is; clicking it peeks at the full window.
+  local pill = CreateFrame("Button", "BuffRadarPill", UIParent,
+                           BackdropTemplateMixin and "BackdropTemplate" or nil)
+  pill:SetSize(150, 22)
+  pill:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+  pill:SetFrameStrata("MEDIUM")
+  if pill.SetBackdrop then
+    pill:SetBackdrop({
+      bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 16, edgeSize = 12,
+      insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    })
+    pill:SetBackdropColor(0.04, 0.05, 0.09, 0.92)
+    pill:SetBackdropBorderColor(0.35, 0.55, 0.8, 1)
+  end
+  pill.text = pill:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  pill.text:SetPoint("CENTER", 0, 0)
+  pill.text:SetText(L["All buffed"])
+  pill:SetScript("OnClick", function(self)
+    X.pillPeek = GetTime() + 5
+    self:Hide()
+    if frame then frame:Show() end
+  end)
+  pill:Hide()
+  X.pill = pill
+
   -- Toggle strip + role filter bar (1.5.0), directly under the title:
   -- your buff icons on the left (click one to toggle that buff), the role
   -- filter chips on the right. ApplyRowLayout shows/hides the bar and
@@ -2741,7 +3042,11 @@ local function RenderRow(row, e)
   if not far then
     if e.expired then tag = L["a buff just expired"]
     elseif e.rezzed then tag = L["recently rezzed"]
+    elseif e.queued then tag = L["up next"]
     elseif e.handled then tag = L["being buffed"]
+    elseif e.mine then tag = L["your assignment"]
+    elseif e.theirs then tag = L["assigned elsewhere"]
+    elseif e.buddy then tag = L["buddy's watch"]
     elseif e.asked then tag = L["asked for a buff"] end
   end
   if not tag and e.remain1 then
@@ -2802,6 +3107,7 @@ end
 
 -- Shared look for the "nothing to list" states (no buffs known / paused in a city).
 local function ShowStatus(text)
+  if X.pill then SetShownIfChanged(X.pill, false) end
   SetShownIfChanged(coverText, false)
   SetTextIfChanged(countText, "")
   SetShownIfChanged(overflowText, false)
@@ -2834,6 +3140,7 @@ local function Refresh()
       ShowStatus(L["No supported buffs in your spellbook."])
     else
       SetShownIfChanged(frame, false)
+      if X.pill then SetShownIfChanged(X.pill, false) end
     end
     return
   end
@@ -2953,6 +3260,7 @@ local function Refresh()
 
   if db.hidden or groupHidden then
     SetShownIfChanged(frame, false)
+    if X.pill then SetShownIfChanged(X.pill, false) end
     wipe(X.listedBefore)
     return
   end
@@ -3043,7 +3351,25 @@ local function Refresh()
     if tb and tb.total > 0 then
       parts[#parts + 1] = string_format("Blessings %d/%d", tb.total - tb.miss, tb.total)
     end
+    if db.consumables then
+      for _, cd in ipairs(X.CONS_DEFS) do
+        local t = X.consTally[cd.key]
+        if t and t.total > 0 then
+          parts[#parts + 1] = string_format("%s %d/%d", cd.label, t.total - t.miss, t.total)
+        end
+      end
+    end
+    -- Coverage uptime (1.6.0): the share of grouped scans this run that
+    -- found nobody missing anything. A scan-based score, reset when a
+    -- Mythic+ run starts and when the group ends.
+    X.upTotal = X.upTotal + 1
+    if listedGroup == 0 then X.upFull = X.upFull + 1 end
+    if X.upTotal >= 10 then
+      parts[#parts + 1] = string_format("Uptime %d%%",
+        math_floor(100 * X.upFull / X.upTotal + 0.5))
+    end
     SetTextIfChanged(coverText, table.concat(parts, "  ·  "))
+    X.coverFrac = string_format("%d/%d", X.tallyUnits - listedGroup, X.tallyUnits)
     coverShown = true
   end
   SetShownIfChanged(coverText, coverShown)
@@ -3055,7 +3381,20 @@ local function Refresh()
   UpdateCounter()
   SetHeightIfChanged(frame, h)
 
-  SetShownIfChanged(frame, not (db.autoHide and n == 0 and not sessionShow))
+  -- All-buffed pill (1.6.0): in a group with nobody missing anything, the
+  -- window can collapse to the pill until someone needs a buff again (or
+  -- the pill is clicked for a peek).
+  local pillMode = db.pill and n == 0 and InGroup() and not db.hidden
+    and not groupHidden and GetTime() > (X.pillPeek or 0)
+  if pillMode and X.pill then
+    SetTextIfChanged(X.pill.text, "|cff33ccffBuff|rRadar · "
+      .. (X.coverFrac and (X.coverFrac .. " ") or "") .. L["All buffed"])
+    SetShownIfChanged(frame, false)
+    SetShownIfChanged(X.pill, true)
+  else
+    if X.pill then SetShownIfChanged(X.pill, false) end
+    SetShownIfChanged(frame, not (db.autoHide and n == 0 and not sessionShow))
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -3232,6 +3571,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
         db.stats[name] = (db.stats[name] or 0) + 1
         UpdateCounter()
         if pk and pg then X.SyncSend(pk, pg) end
+        X.queueAt = GetTime()  -- the new top row is "up next" for a moment (1.6.0)
       end
     end
     Soon()
@@ -3275,11 +3615,13 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   end
   if event == "GROUP_ROSTER_UPDATE" then
     if db then X.OnRoster() end
+    if db and X.AutoProfileCheck then X.AutoProfileCheck() end
     Soon()
     return
   end
   if event == "CHALLENGE_MODE_START" then
     if db then
+      X.upTotal, X.upFull = 0, 0  -- a fresh run, a fresh uptime score (1.6.0)
       Soon()
       if db.joinDigest and hasAnyBuff then X.JoinDigest("run") end
     end
@@ -3313,6 +3655,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     end
     if (db.dbVersion or 0) < 7 then
       db.dbVersion = 7        -- 1.5.0: profiles / sync / role filter added; nothing to migrate
+    end
+    if (db.dbVersion or 0) < 8 then
+      db.dbVersion = 8        -- 1.6.0: consumables / customSpells / buddySplit / autoProfile added; nothing to migrate
     end
     X.SpecSwap()
   elseif event == "PLAYER_LOGIN" then
@@ -3368,6 +3713,10 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if db then ScheduleRebuild() end
   else
     if (event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE") and db then X.OnRoster() end
+    if (event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED"
+        or event == "ZONE_CHANGED_INDOORS") and db and X.AutoProfileCheck then
+      X.AutoProfileCheck()
+    end
     Soon()
   end
 end)
@@ -3852,6 +4201,11 @@ local function BuildConfig()
   end)
   resetLook:SetPoint("TOPLEFT", 14, -232)
 
+  cfg.pillCheck = MakeCheck(look, L["Collapse to a pill while everyone is buffed"],
+    function() return db.pill end,
+    function(v) db.pill = v; Refresh() end)
+  cfg.pillCheck:SetPoint("TOPLEFT", 10, -344)
+
   cfg.minimapCheck = MakeCheck(look, L["Minimap button (drag it around the minimap)"],
     function() return db.showMinimap end,
     function(v) db.showMinimap = v; if RefreshMinimapButton then RefreshMinimapButton() end end)
@@ -4041,6 +4395,11 @@ local function BuildConfig()
     function(v) db.pauseTaxi = v; Refresh() end)
   cfg.taxiCheck:SetPoint("TOPLEFT", 10, -108)
 
+  cfg.consCheck = MakeCheck(beh, L["Track flasks, food and runes (coverage line)"],
+    function() return db.consumables end,
+    function(v) db.consumables = v; Refresh() end)
+  cfg.consCheck:SetPoint("TOPLEFT", 10, -134)
+
   section(beh, "Casting & order", 302, -6)
 
   cfg.groupCastCheck = MakeCheck(beh, L["Offer group buffs in a party or raid"],
@@ -4104,6 +4463,16 @@ local function BuildConfig()
     function() return db.joinDigest end,
     function(v) db.joinDigest = v end)
   cfg.digestCheck:SetPoint("TOPLEFT", 296, -252 + castY)
+
+  cfg.queueCheck = MakeCheck(beh, L["Tag the next row after a cast"],
+    function() return db.queueTag end,
+    function(v) db.queueTag = v end)
+  cfg.queueCheck:SetPoint("TOPLEFT", 296, -278 + castY)
+
+  cfg.buddyCheck = MakeCheck(beh, L["Split the list with other BuffRadar users"],
+    function() return db.buddySplit end,
+    function(v) db.buddySplit = v; Refresh() end)
+  cfg.buddyCheck:SetPoint("TOPLEFT", 296, -304 + castY)
 
   local behHint = beh:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   behHint:SetPoint("TOPLEFT", 14, -140)
@@ -4225,6 +4594,25 @@ local function BuildConfig()
   cfg.profileText:SetWidth(540)
   cfg.profileText:SetJustifyH("LEFT")
 
+  local presetHint = data:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  presetHint:SetPoint("TOPLEFT", 14, -452)
+  presetHint:SetText("Presets set window and behavior only (buff toggles are kept):")
+  local presetX = 14
+  for _, pname in ipairs({ "raid", "dungeon", "solo" }) do
+    local pb = MakeButton(data, pname:sub(1, 1):upper() .. pname:sub(2), 76, function()
+      if X.ApplyPreset(pname) then
+        Print("Preset applied: " .. pname)
+        ApplyGeometry()
+        ApplyAppearance()
+        X.ApplyRowLayout()
+        RefreshConfig()
+        Refresh()
+      end
+    end)
+    pb:SetPoint("TOPLEFT", presetX, -470)
+    presetX = presetX + 84
+  end
+
   ------------------------------------------------------------------
   -- Hover help (the Buffs tab sets its own above)
   ------------------------------------------------------------------
@@ -4308,6 +4696,10 @@ RefreshConfig = function()
   if cfg.syncCheck then cfg.syncCheck:Update() end
   if cfg.requestsCheck then cfg.requestsCheck:Update() end
   if cfg.digestCheck then cfg.digestCheck:Update() end
+  if cfg.pillCheck then cfg.pillCheck:Update() end
+  if cfg.queueCheck then cfg.queueCheck:Update() end
+  if cfg.consCheck then cfg.consCheck:Update() end
+  if cfg.buddyCheck then cfg.buddyCheck:Update() end
 
   -- Ignore list: one removable cell per name, the overflow counted in the summary
   local names = Ignore.Sorted()
@@ -4347,8 +4739,15 @@ RefreshConfig = function()
 
   if cfg.profileText then
     local pnames = X.ProfileNames()
-    cfg.profileText:SetText(#pnames > 0 and ("Saved profiles: " .. table.concat(pnames, ", "))
-      or "No saved profiles yet.")
+    local txt = #pnames > 0 and ("Saved profiles: " .. table.concat(pnames, ", "))
+      or "No saved profiles yet."
+    local autos = {}
+    for ac, an in pairs(db.autoProfile) do autos[#autos + 1] = ac .. " -> " .. an end
+    if #autos > 0 then
+      table_sort(autos)
+      txt = txt .. "\nAuto profiles: " .. table.concat(autos, ", ")
+    end
+    cfg.profileText:SetText(txt)
   end
 
   local items = {}
@@ -4441,20 +4840,65 @@ end
 SLASH_BUFFRADAR1 = "/br"
 SLASH_BUFFRADAR2 = "/buffradar"
 -- /br selftest: one paste-able block for bug reports.
+-- Auto profiles (1.6.0): the context your character is in right now.
+-- Instance types come from the client; "world" is grouped open world.
+function X.Context()
+  local t = InInstanceNow()
+  if t == "raid" then return "raid" end
+  if t == "party" then return "dungeon" end
+  if t == "pvp" or t == "arena" then return "pvp" end
+  if InGroup() then return "world" end
+  return "solo"
+end
+
+-- Load the profile mapped to the current context, if any. Only fires on
+-- a context change, and only once per context+profile pair, so standing
+-- in a dungeon never reloads over your manual changes.
+function X.AutoProfileCheck()
+  if not db or not next(db.autoProfile) then return end
+  local ctx = X.Context()
+  if X.autoCtx == ctx then return end
+  X.autoCtx = ctx
+  local name = db.autoProfile[ctx]
+  if name and db.profiles[name] and X.lastAutoProfile ~= ctx .. ":" .. name then
+    X.lastAutoProfile = ctx .. ":" .. name
+    if X.LoadProfile(name) then
+      Print("Auto profile for " .. ctx .. ": " .. name)
+      ApplyGeometry()
+      ApplyAppearance()
+      X.ApplyRowLayout()
+      if RefreshConfig then RefreshConfig() end
+      Refresh()
+    end
+  end
+end
+
 function X.SelfTest()
   local ver, build, _, iface = GetBuildInfo()
   Print("BuffRadar self-test -- paste this whole block into a bug report:")
   Print(string.format("  version %s · %s edition · interface %s · client %s build %s",
-    "1.5.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
+    "1.6.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
   Print(string.format("  settings dbVersion %s · sort %s · cast mode %s · scale %s",
     tostring(db.dbVersion), tostring(db.sortMode), tostring(db.castMethod), tostring(db.scale)))
   Print(string.format("  sync %s · requests %s · role filter %s · profiles %d · idle fade %s",
     OnOff(db.sync), OnOff(db.requests), tostring(db.roleFilter),
     #X.ProfileNames(), tostring(db.idleFade or 0)))
+  Print(string.format("  pill %s · queue tag %s · consumables %s · custom spells %d · buddy split %s · uptime %s",
+    OnOff(db.pill), OnOff(db.queueTag), OnOff(db.consumables), #(db.customSpells or {}),
+    OnOff(db.buddySplit),
+    X.upTotal > 0 and string.format("%d%%", math.floor(100 * X.upFull / X.upTotal + 0.5)) or "n/a"))
+  local acount, bcount, apcount, pcount = 0, 0, 0, 0
+  for _ in pairs(X.assign) do acount = acount + 1 end
+  for _ in pairs(X.blessPlan) do bcount = bcount + 1 end
+  for _ in pairs(db.autoProfile) do apcount = apcount + 1 end
+  for _ in pairs(X.peers) do pcount = pcount + 1 end
+  Print(string.format("  assignments %d · blessing plan %d · auto profiles %d · peers %d",
+    acount, bcount, apcount, pcount))
   if #myBuffs == 0 then Print("  buffs found: none") end
   for _, b in ipairs(myBuffs) do
     local id
     for _, d in ipairs(BUFF_DEFS) do if d.key == b.key then id = d.id break end end
+    id = id or b.custom
     Print(string.format("  buff %s: %s (spell %s, %s)", b.key, b.name,
       tostring(id), IsOn(b.key, b.default) and "on" or "off"))
   end
@@ -4757,6 +5201,178 @@ local function HandleSlash(msg)
     else
       Print("Usage: /br profile save|load|delete|list <name>")
     end
+  elseif cmd == "preset" then
+    local name = rest:lower()
+    if X.ApplyPreset(name) then
+      Print("Preset applied: " .. name .. " (window and behavior only; buff toggles kept).")
+      ApplyGeometry()
+      ApplyAppearance()
+      X.ApplyRowLayout()
+      if RefreshConfig then RefreshConfig() end
+      Refresh()
+    else
+      Print("Usage: /br preset raid|dungeon|solo")
+    end
+  elseif cmd == "pill" then
+    db.pill = not db.pill
+    Print("All-buffed pill " .. OnOff(db.pill))
+    Refresh()
+  elseif cmd == "consumables" then
+    db.consumables = not db.consumables
+    Print("Consumables on the coverage line " .. OnOff(db.consumables))
+    Refresh()
+  elseif cmd == "custom" then
+    local sub, arg = rest:match("^(%S*)%s*(.-)%s*$")
+    sub = (sub or ""):lower()
+    local id = tonumber(arg)
+    if sub == "add" and id then
+      id = math.floor(id)
+      local have = false
+      for _, x in ipairs(db.customSpells) do if x == id then have = true break end end
+      if have then Print("That spell is already on the custom list.")
+      elseif #db.customSpells >= 20 then Print("The custom list is full (20 spells).")
+      else
+        db.customSpells[#db.customSpells + 1] = id
+        pcall(BuildBuffList)
+        Print("Custom spell added: " .. tostring(SpellName(id, id))
+          .. " -- watched from now on if you know it.")
+        Refresh()
+      end
+    elseif sub == "remove" and id then
+      local gone = false
+      for i = #db.customSpells, 1, -1 do
+        if db.customSpells[i] == id then table.remove(db.customSpells, i); gone = true end
+      end
+      if gone then
+        pcall(BuildBuffList)
+        Print("Custom spell removed.")
+        Refresh()
+      else Print("That spell is not on the custom list.") end
+    elseif sub == "list" or sub == "" then
+      if #db.customSpells == 0 then
+        Print("No custom spells. /br custom add <spell ID> watches one.")
+      else
+        local parts = {}
+        for _, x in ipairs(db.customSpells) do
+          parts[#parts + 1] = tostring(SpellName(x, x)) .. " (" .. x .. ")"
+        end
+        Print("Custom spells: " .. table.concat(parts, ", "))
+      end
+    else
+      Print("Usage: /br custom add|remove|list <spell ID>")
+    end
+  elseif cmd == "assign" then
+    local akey, aname = rest:match("^(%S*)%s*(.-)%s*$")
+    akey = (akey or ""):upper()
+    if akey == "" then
+      local parts = {}
+      for k, v in pairs(X.assign) do parts[#parts + 1] = k .. " -> " .. v end
+      table_sort(parts)
+      Print(#parts > 0 and ("Assignments: " .. table.concat(parts, ", "))
+        or "No buff assignments. /br assign <BUFF> <name> sets one (leader or assistant).")
+    elseif akey == "CLEAR" then
+      wipe(X.assign)
+      Print("Assignments cleared.")
+      Refresh()
+    elseif not InGroup() then
+      Print("Assignments need a group.")
+    elseif not X.AmLead() then
+      Print("Only the group leader or an assistant can set assignments.")
+    elseif aname == "" then
+      Print("Usage: /br assign <BUFF> <name>, or /br assign <BUFF> none to clear one.")
+    else
+      if aname:lower() == "none" then X.assign[akey] = nil else X.assign[akey] = aname end
+      X.Broadcast("ASSIGN;" .. akey .. ";" .. aname)
+      Print("Assignment: " .. akey .. " -> " .. aname)
+      Refresh()
+    end
+  elseif cmd == "buddy" then
+    db.buddySplit = not db.buddySplit
+    Print("Buddy list splitting " .. OnOff(db.buddySplit)
+      .. " (needs cast sync on, and another BuffRadar user in the group)")
+    Refresh()
+  elseif cmd == "bless" then
+    if not CLASSIC_FEATURES then
+      Print("The blessing planner belongs to the Forever edition -- Retail has no blessings.")
+    else
+      local cls, bkey, bname = rest:match("^(%S*)%s*(%S*)%s*(.-)%s*$")
+      cls = (cls or ""):upper()
+      bkey = (bkey or ""):upper()
+      if cls == "" then
+        local parts = {}
+        for c, p in pairs(X.blessPlan) do
+          parts[#parts + 1] = c .. ": " .. p.key .. " (" .. p.name .. ")"
+        end
+        table_sort(parts)
+        Print(#parts > 0 and ("Blessing plan: " .. table.concat(parts, ", "))
+          or "No blessing plan. /br bless <CLASS> <BLESSING> [name] sets one.")
+      elseif bkey == "" then
+        Print("Usage: /br bless <CLASS> <BLESSING> [name], or /br bless <CLASS> none to clear.")
+      else
+        local _, myClass = UnitClass("player")
+        if not X.AmLead() and myClass ~= "PALADIN" then
+          Print("Only the group leader, an assistant or a paladin can set the blessing plan.")
+        elseif bkey == "NONE" then
+          X.blessPlan[cls] = nil
+          X.Broadcast("BLESS;" .. cls .. ";NONE;none")
+          Print("Blessing plan cleared for " .. cls .. ".")
+          Refresh()
+        elseif not BLESSINGS[bkey] then
+          local bkeys = {}
+          for k in pairs(BLESSINGS) do bkeys[#bkeys + 1] = k end
+          table_sort(bkeys)
+          Print("Unknown blessing '" .. bkey .. "'. Known: " .. table.concat(bkeys, ", ") .. ".")
+        else
+          local holder = (bname ~= "") and bname or (Ignore.UnitNames("player") or "me")
+          local me = Ignore.UnitNames("player")
+          X.blessPlan[cls] = { key = bkey, name = holder,
+                               mine = me ~= nil and Ignore.Key(holder) == Ignore.Key(me) }
+          X.Broadcast("BLESS;" .. cls .. ";" .. bkey .. ";" .. holder)
+          Print("Blessing plan: " .. cls .. " gets " .. bkey .. " from " .. holder .. ".")
+          Refresh()
+        end
+      end
+    end
+  elseif cmd == "uptime" then
+    if rest:lower() == "reset" then
+      X.upTotal, X.upFull = 0, 0
+      Print("Coverage uptime reset.")
+    elseif X.upTotal == 0 then
+      Print("Coverage uptime: no grouped scans yet this run.")
+    else
+      Print(string.format("Coverage uptime this run: %d%% (%d of %d scans fully buffed).",
+        math.floor(100 * X.upFull / X.upTotal + 0.5), X.upFull, X.upTotal))
+    end
+  elseif cmd == "autoprofile" then
+    local ctx, pname = rest:match("^(%S*)%s*(.-)%s*$")
+    ctx = (ctx or ""):lower()
+    local CTX = { raid = true, dungeon = true, pvp = true, world = true, solo = true }
+    if ctx == "" then
+      local parts = {}
+      for c in pairs(CTX) do
+        if db.autoProfile[c] then parts[#parts + 1] = c .. " -> " .. db.autoProfile[c] end
+      end
+      table_sort(parts)
+      Print(#parts > 0 and ("Auto profiles: " .. table.concat(parts, ", "))
+        or "No auto profiles. /br autoprofile <raid|dungeon|pvp|world|solo> <profile> sets one.")
+    elseif not CTX[ctx] then
+      Print("Contexts: raid, dungeon, pvp, world (grouped, no instance), solo.")
+    elseif pname == "" then
+      Print("Usage: /br autoprofile " .. ctx .. " <profile name>, or 'clear'.")
+    elseif pname:lower() == "clear" then
+      db.autoProfile[ctx] = nil
+      X.autoCtx, X.lastAutoProfile = nil, nil
+      Print("Auto profile for " .. ctx .. " cleared.")
+      if RefreshConfig then RefreshConfig() end
+    elseif not db.profiles[pname] then
+      Print("No profile named '" .. pname .. "'. /br profile list shows them.")
+    else
+      db.autoProfile[ctx] = pname
+      X.autoCtx, X.lastAutoProfile = nil, nil
+      Print("Auto profile: " .. ctx .. " loads '" .. pname .. "'.")
+      if RefreshConfig then RefreshConfig() end
+      X.AutoProfileCheck()
+    end
   elseif cmd == "ignore" then
     if rest == "" then Print("Usage: /br ignore <name> or <name-realm>  (or right-click a row)"); return end
     if Ignore.Add(rest) then
@@ -4911,6 +5527,19 @@ local function HandleSlash(msg)
     Print("  /br signore <name> | unsignore <name>  - ignore for this session only")
     Print("  /br bg  - pause in battlegrounds   /br minimap  - toggle minimap button")
     Print("  /br stats  - casts by spell (all-time)")
+    Print("  /br sync | requests | digest  - cast sync, chat-request markers, join summary")
+    Print("  /br filter all|tank|healer|dps  - role filter   /br strip  - buff toggle strip")
+    Print("  /br fade <0-90>  - idle fade   /br watch  - drop alert   /br taxi  - flight-path pause")
+    Print("  /br profile save|load|delete|list <name>  - named settings profiles")
+    Print("  /br assign <BUFF> <name>  - leader assigns a buff   /br buddy  - split the list")
+    Print("  /br pill  - all-buffed pill   /br consumables  - flask/food counts")
+    Print("  /br custom add|remove|list <id>  - watch any buff spell you know")
+    Print("  /br uptime  - coverage uptime %   /br preset raid|dungeon|solo")
+    Print("  /br autoprofile <context> <profile>  - load a profile by context")
+    if CLASSIC_FEATURES then
+      Print("  /br bless <CLASS> <BLESSING> [name]  - blessing planner")
+    end
+    Print("  /br resetpos  - reset the window position")
   end
   Refresh()
 end

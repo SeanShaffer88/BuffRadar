@@ -180,9 +180,12 @@ step("fire every settings control", function()
   for _, f in ipairs(env.__frames) do
     -- The main window's strip/chip buttons are not settings controls; firing
     -- them would toggle buffs and set the role filter as a side effect.
+    -- The all-buffed pill is a main-window control too: clicking it starts a
+    -- timed peek at the window, which would poison later timing checks.
     local nm = f.GetName and f:GetName()
     if type(nm) ~= "string" then nm = "" end
     local isBar = nm:sub(1, 14) == "BuffRadarStrip" or nm:sub(1, 13) == "BuffRadarChip"
+      or nm == "BuffRadarPill"
     if f.scripts.OnClick and f ~= driver and not isBar then f.scripts.OnClick(f, "LeftButton", false) end
     if f.scripts.OnEnter then f.scripts.OnEnter(f) end
     if f.scripts.OnLeave then f.scripts.OnLeave(f) end
@@ -545,6 +548,8 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
     rebuffPer = { SKYFURY = 45, BAD = "x" }, stats = { Skyfury = 3 },
     profiles = { RaidNight = "BR1;scale=1.5", Bad = 42 },
     roleFilter = "SIDEWAYS", idleFade = 500,
+    customSpells = { 12345, "x", 0, 99999999, 12345 },
+    autoProfile = { dungeon = "RaidNight", bad = 42, [3] = "x" },
     point = { "LEFT", "LEFT", 10, 20 },
   }
   fire("ADDON_LOADED", "BuffRadar")
@@ -552,7 +557,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 7, "dbVersion not migrated to 7: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 8, "dbVersion not migrated to 8: " .. tostring(d.dbVersion))
   assert(d.scale == 2, "scale not clamped: " .. tostring(d.scale))
   assert(d.width == 210, "mistyped width not repaired: " .. tostring(d.width))
   assert(d.bogusKey == nil, "unknown key survived sanitizing")
@@ -560,13 +565,16 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.rebuffPer.SKYFURY == 45 and d.rebuffPer.BAD == nil, "rebuffPer not cleaned")
   assert(d.profiles.RaidNight == "BR1;scale=1.5" and d.profiles.Bad == nil, "profiles not cleaned")
   assert(d.roleFilter == "ALL", "bad role filter not repaired: " .. tostring(d.roleFilter))
+  assert(#d.customSpells == 1 and d.customSpells[1] == 12345, "custom spells not cleaned")
+  assert(d.autoProfile.dungeon == "RaidNight" and d.autoProfile.bad == nil
+    and d.autoProfile[3] == nil, "auto profiles not cleaned")
   assert(d.idleFade == 90, "idle fade not clamped: " .. tostring(d.idleFade))
   assert(d.stats.Skyfury == 3, "stats lost in migration")
   -- a completely corrupt save (not even a table) becomes clean defaults
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 7 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 8 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
 end)
@@ -907,6 +915,270 @@ step("idle fade lowers the window alpha (1.5.0)", function()
   timerTick()
   assert(env.BuffRadarFrame.alpha == 1, "window stayed faded with fading off")
 end)
+step("all-buffed pill replaces the window (1.6.0)", function()
+  local cleanup = partyOfTwo("P")
+  env.SlashCmdList.BUFFRADAR("pill")
+  assert(env.BuffRadarDB.pill == true, "pill setting not stored")
+  env.__over.Aura = function(u, name) return { expirationTime = env.GetTime() + 600 } end
+  refresh()
+  assert(env.BuffRadarPill and env.BuffRadarPill.shown, "pill not shown while all buffed")
+  assert(not env.BuffRadarFrame.shown, "window still shown in pill mode")
+  env.BuffRadarPill.scripts.OnClick(env.BuffRadarPill)
+  assert(env.BuffRadarFrame.shown, "pill click did not peek the window")
+  refresh()
+  assert(env.BuffRadarFrame.shown, "peek did not survive a refresh inside its window")
+  env.__over.Aura = nil
+  refresh()
+  assert(not env.BuffRadarPill.shown, "pill stuck after buffs went missing")
+  assert(env.BuffRadarFrame.shown, "window did not return when buffs went missing")
+  env.SlashCmdList.BUFFRADAR("pill")
+  cleanup()
+end)
+step("cast queue: next row tagged after a cast lands (1.6.0)", function()
+  local cleanup = partyOfTwo("U")
+  env.IsSpellInRange = function() return 1 end
+  -- You are fully buffed yourself, so the top row is Aaron's, not yours.
+  env.__over.Aura = function(u, name) if u == "player" then return { expirationTime = env.GetTime() + 600 } end end
+  refresh()
+  local row
+  for i = 1, 15 do
+    local r = env["BuffRadarRow" .. i]
+    if r and r.entry and r.entry.unit == "party1" then row = r end
+  end
+  assert(row, "Aaron's row not found")
+  local spell = row.entry.missing[1]
+  row.scripts.PostClick(row, "LeftButton")
+  env.C_Spell = { GetSpellName = function() return spell end }
+  fire("UNIT_SPELLCAST_SUCCEEDED", "player", "castline", 4242)
+  env.C_Spell = nil
+  refresh()
+  local tagged
+  for i = 1, 15 do
+    local r = env["BuffRadarRow" .. i]
+    if r and r.entry and r.entry.queued then tagged = r end
+  end
+  assert(tagged, "no row tagged as up next")
+  assert(tagged == env.BuffRadarRow1, "up-next tag not on the top row")
+  if not env.__german then
+    assert(tagged.tag and tagged.tag.text == "up next",
+      "queue tag text: " .. tostring(tagged.tag and tagged.tag.text))
+  end
+  cleanup()
+end)
+step("shipped presets set window and behavior only (1.6.0)", function()
+  local db = env.BuffRadarDB
+  env.SlashCmdList.BUFFRADAR("preset raid")
+  assert(db.sortMode == "role" and db.groupCast == true and db.showOutOfRange == true,
+    "raid preset not applied")
+  env.SlashCmdList.BUFFRADAR("preset solo")
+  assert(db.sortMode == "name" and db.groupCast == false and db.pauseInCities == false,
+    "solo preset not applied")
+  local n = #chat
+  env.SlashCmdList.BUFFRADAR("preset bogus")
+  assert(chatSince(n, "Usage: /br preset raid|dungeon|solo"), "bad preset not rejected")
+  db.sortMode, db.groupCast, db.groupOnly, db.showOutOfRange = "name", false, false, false
+end)
+step("custom watched spells join the list (1.6.0)", function()
+  local db = env.BuffRadarDB
+  local wasKnown = env.IsPlayerSpell
+  env.IsPlayerSpell = function(id) return id == 12345 or wasKnown(id) end
+  env.GetSpellInfo = function(id) if id == 12345 then return "Test Blessing" end end
+  env.SlashCmdList.BUFFRADAR("custom add 12345")
+  assert(#db.customSpells == 1 and db.customSpells[1] == 12345, "custom spell not stored")
+  local cleanup = partyOfTwo("T")
+  env.IsSpellInRange = function() return 1 end
+  refresh()
+  local found = false
+  for i = 1, 15 do
+    local r = env["BuffRadarRow" .. i]
+    if r and r.entry then
+      for _, m in ipairs(r.entry.missing) do if m == "Test Blessing" then found = true end end
+    end
+  end
+  assert(found, "custom spell not offered on any row")
+  cleanup()
+  env.SlashCmdList.BUFFRADAR("custom remove 12345")
+  assert(#db.customSpells == 0, "custom spell not removed")
+  env.IsPlayerSpell = wasKnown
+  env.GetSpellInfo = nil
+end)
+step("consumables tracked on the coverage line (1.6.0)", function()
+  local cleanup = partyOfTwo("N")
+  env.SlashCmdList.BUFFRADAR("consumables")
+  assert(env.BuffRadarDB.consumables == true, "consumables setting not stored")
+  env.__over.AuraList = function(u)
+    if u == "party2" then
+      return { { name = "Flask of the Titans", expirationTime = env.GetTime() + 600 },
+               { name = "Well Fed", expirationTime = env.GetTime() + 600 } }
+    end
+    return {}
+  end
+  refresh()
+  local cover
+  for _, fs in ipairs(env.__fontstrings) do
+    if type(fs.text) == "string" and fs.text:find("Flask", 1, true) then cover = fs.text end
+  end
+  assert(cover, "no consumables on the coverage line")
+  assert(cover:find("Flask 1/3", 1, true), "flask count wrong: " .. cover)
+  assert(cover:find("Food 1/3", 1, true), "food count wrong: " .. cover)
+  if not env.__forever then
+    assert(cover:find("Rune 0/3", 1, true), "rune count wrong: " .. cover)
+  end
+  env.__over.AuraList = nil
+  env.SlashCmdList.BUFFRADAR("consumables")
+  cleanup()
+end)
+step("buff assignments from the leader tag and sink rows (1.6.0)", function()
+  -- A custom spell gives Zed a different lead buff, so the sink is visible:
+  -- assignments mark rows by their FIRST missing buff.
+  local wasKnown = env.IsPlayerSpell
+  env.IsPlayerSpell = function(id) return id == 12345 or wasKnown(id) end
+  env.GetSpellInfo = function(id) if id == 12345 then return "Test Blessing" end end
+  env.SlashCmdList.BUFFRADAR("custom add 12345")
+  local cleanup = partyOfTwo("A")
+  env.BuffRadarDB.sync = true
+  env.IsSpellInRange = function() return 1 end
+  env.UnitIsGroupLeader = function(u) return u == "party1" end
+  local key = env.__forever and "FORTITUDE" or "SKYFURY"
+  local buffName = env.__forever and "Power Word: Fortitude" or "Skyfury"
+  -- Zed already has the assigned buff, so his row leads with the custom one.
+  env.__over.Aura = function(u, name)
+    if u == "party2" and name == buffName then return { expirationTime = env.GetTime() + 600 } end
+  end
+  refresh()
+  local function rowOf(unit)
+    for i = 1, 15 do
+      local r = env["BuffRadarRow" .. i]
+      if r and r.entry and r.entry.unit == unit then return r, i end
+    end
+  end
+  local _, aIdx0 = rowOf("party1")
+  local _, zIdx0 = rowOf("party2")
+  assert(aIdx0 and zIdx0 and aIdx0 < zIdx0, "baseline order unexpected")
+  -- Zed is not the leader: his assignment is refused.
+  fire("CHAT_MSG_ADDON", "BuffRadar", "ASSIGN;" .. key .. ";Zed", "PARTY", "Zed-TestRealm")
+  refresh()
+  local aRow = rowOf("party1")
+  assert(aRow and not aRow.entry.theirs and not aRow.entry.mine,
+    "untrusted assignment took effect")
+  -- The leader (Aaron) takes the buff himself: on this client it sinks.
+  fire("CHAT_MSG_ADDON", "BuffRadar", "ASSIGN;" .. key .. ";Aaron", "PARTY", "Aaron-TestRealm")
+  refresh()
+  local aRow2, aIdx = rowOf("party1")
+  local _, zIdx = rowOf("party2")
+  assert(aRow2 and aRow2.entry.theirs, "leader assignment not marked")
+  assert(aIdx and zIdx and aIdx > zIdx, "assigned rows did not sink")
+  if not env.__german then
+    assert(aRow2.tag and aRow2.tag.text == "assigned elsewhere",
+      "assign tag text: " .. tostring(aRow2.tag and aRow2.tag.text))
+  end
+  env.UnitIsGroupLeader = nil
+  cleanup()
+  env.SlashCmdList.BUFFRADAR("custom remove 12345")
+  env.IsPlayerSpell = wasKnown
+  env.GetSpellInfo = nil
+end)
+step("buddy split shares the list between users (1.6.0)", function()
+  local cleanup = partyOfTwo("B")
+  local db = env.BuffRadarDB
+  db.sync = true
+  db.buddySplit = true
+  env.IsSpellInRange = function() return 1 end
+  -- Start from a clean peer table: earlier steps' traffic recorded peers,
+  -- and leaving the group wipes them.
+  env.IsInGroup = function() return false end
+  fire("GROUP_ROSTER_UPDATE")
+  env.IsInGroup = function() return true end
+  fire("CHAT_MSG_ADDON", "BuffRadar", "HELLO;Me-TestRealm", "PARTY", "Aaron-TestRealm")
+  refresh()
+  -- Users sorted by key: aaron-testrealm, then me-testrealm (index 2), so
+  -- an entry is mine when (sum of GUID bytes) % 2 == 1.
+  local function expectBuddy(guid)
+    local s = 0
+    for i = 1, #guid do s = s + guid:byte(i) end
+    return s % 2 ~= 1
+  end
+  local seen = 0
+  for i = 1, 15 do
+    local r = env["BuffRadarRow" .. i]
+    if r and r.entry and r.entry.group and not r.entry.isSelf then
+      seen = seen + 1
+      assert((r.entry.buddy ~= nil) == expectBuddy(r.entry.guid),
+        "buddy share wrong for " .. r.entry.guid)
+    end
+  end
+  assert(seen == 2, "expected both party members listed, saw " .. seen)
+  db.buddySplit = false
+  cleanup()
+end)
+step("coverage uptime scores the run (1.6.0)", function()
+  local cleanup = partyOfTwo("V")
+  env.IsSpellInRange = function() return 1 end
+  env.SlashCmdList.BUFFRADAR("uptime reset")
+  refresh()  -- everyone is missing buffs: the full-scan share is 0%
+  local n = #chat
+  env.SlashCmdList.BUFFRADAR("uptime")
+  assert(chatSince(n, "Coverage uptime this run: 0%"), "uptime not 0% while buffs are missing")
+  env.__over.Aura = function(u, name) return { expirationTime = env.GetTime() + 600 } end
+  env.SlashCmdList.BUFFRADAR("uptime reset")
+  for i = 1, 12 do refresh() end
+  local cover
+  for _, fs in ipairs(env.__fontstrings) do
+    if type(fs.text) == "string" and fs.text:find("Uptime 100%%") then cover = fs.text end
+  end
+  assert(cover, "coverage line shows no 100% uptime after full scans")
+  fire("CHALLENGE_MODE_START")  -- a new run resets the score
+  local n2 = #chat
+  env.SlashCmdList.BUFFRADAR("uptime")
+  assert(chatSince(n2, "no grouped scans yet"), "uptime not reset at run start")
+  env.__over.Aura = nil
+  cleanup()
+end)
+
+step("auto profile switches with the context (1.6.0)", function()
+  local db = env.BuffRadarDB
+  env.SlashCmdList.BUFFRADAR("scale 1.5")
+  env.SlashCmdList.BUFFRADAR("profile save dset")
+  env.SlashCmdList.BUFFRADAR("scale 1")
+  assert(db.scale == 1, "scale not back at 1 before the switch")
+  env.SlashCmdList.BUFFRADAR("autoprofile dungeon dset")
+  assert(db.autoProfile and db.autoProfile.dungeon == "dset", "auto profile not saved")
+  env.IsInInstance = function() return true, "party" end
+  local n = #chat
+  fire("ZONE_CHANGED_NEW_AREA")
+  assert(db.scale == 1.5, "dungeon auto profile did not apply (scale " .. tostring(db.scale) .. ")")
+  assert(chatSince(n, "Auto profile for dungeon: dset"), "auto profile load not announced")
+  env.IsInInstance = function() return false, "none" end
+  fire("ZONE_CHANGED_NEW_AREA")  -- solo now: no mapping, scale stays
+  assert(db.scale == 1.5, "solo context unexpectedly changed settings")
+  env.SlashCmdList.BUFFRADAR("autoprofile dungeon clear")
+  assert(db.autoProfile.dungeon == nil, "auto profile not cleared")
+  env.SlashCmdList.BUFFRADAR("profile delete dset")
+  env.SlashCmdList.BUFFRADAR("scale 1")
+end)
+
+step("blessing plan: set, broadcast, receive, list (1.6.0)", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("L")
+  env.BuffRadarDB.sync = true
+  env.UnitIsGroupLeader = function(u) return u == "player" end
+  env.__addonSent = {}
+  env.SlashCmdList.BUFFRADAR("bless WARRIOR MIGHT")
+  assert(chatSince(0, "Blessing plan: WARRIOR gets MIGHT"), "bless plan not set")
+  local sent = env.__addonSent[#env.__addonSent]
+  assert(sent and sent.msg == "BLESS;WARRIOR;MIGHT;Me-TestRealm",
+    "bless broadcast: " .. tostring(sent and sent.msg))
+  env.__over.UnitClass = function(u)
+    if u == "party1" then return "Paladin", "PALADIN" end
+    return "Mage", "MAGE"
+  end
+  fire("CHAT_MSG_ADDON", "BuffRadar", "BLESS;MAGE;WISDOM;Aaron-TestRealm", "PARTY", "Aaron-TestRealm")
+  local n = #chat
+  env.SlashCmdList.BUFFRADAR("bless")
+  assert(chatSince(n, "MAGE: WISDOM (Aaron-TestRealm)"), "received plan not listed")
+  env.UnitIsGroupLeader = nil
+  cleanup()
+end)
 step("named settings profiles save, load, list, delete (1.5.0)", function()
   local db = env.BuffRadarDB
   local keepScale = db.scale
@@ -998,8 +1270,9 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 7"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 8"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
+  assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
   assert(chatSince(n, "buff SKYFURY") or chatSince(n, "buff FORTITUDE"), "self-test lists no buffs")
 end)
 step("German client uses the translation", function()
