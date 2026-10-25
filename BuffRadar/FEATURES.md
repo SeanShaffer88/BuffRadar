@@ -1,14 +1,33 @@
 # BuffRadar — Features (Retail edition)
 
-The full feature list for BuffRadar 1.3.2 for WoW Retail
+The full feature list for BuffRadar 1.4.0 for WoW Retail
 (patch 12.1.5, Interface 120105). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
-Prepared 2026-10-24 from the shipped 1.3.2 README and CHANGELOG.
+Prepared 2026-10-24 from the shipped 1.3.2 README and CHANGELOG;
+updated 2026-10-25 for 1.4.0.
 Since 1.3.2 the Retail and Forever editions are built from one
 source — the addon picks its buff set when it loads — so fixes and
 features land in both at once; differences from the Forever edition
 are called out below.
+
+## New in 1.4.0
+
+- **Rezzed players jump the queue** (below you) with a *recently rezzed*
+  marker — they have lost every buff.
+- **Coverage line** while grouped: members fully buffed plus per-buff
+  coverage; doubles as buffing progress.
+- **Row markers:** *a buff just expired* for buffs that vanish outright,
+  *~4m left* / *~20s left* inside the rebuff window.
+- **Session-only ignore** (Shift-right-click or `/br signore`), **`/br
+  announce`** to party/raid chat, and a local ready-check summary.
+- **Low-mana pause** (`/br mana <0-100>`), **distance sort**, **per-spec
+  profiles** for toggles and rebuff timings.
+- **Settings export/import** as one string, **compact rows**, separate
+  **list text size**, **per-character window position**, a **post-combat
+  border flash**, and **`/br selftest`** for bug reports.
+- Settings-window tabs and main checkboxes are translatable now;
+  German covers all 44 strings.
 
 ## The list
 
@@ -112,7 +131,8 @@ ranked on retail).
 
 ## Verification status
 
-- **1.3.2 is built but UNVERIFIED in a retail client.** Midnight
+- **1.4.0 is built but UNVERIFIED in a retail client** (1.3.2 was
+  never verified either). Midnight
   removed the "load out-of-date addons" option, so this edition
   loads only while its interface version matches the live patch
   (120105 = 12.1.5); a new retail patch needs a new build with the

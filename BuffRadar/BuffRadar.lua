@@ -298,6 +298,12 @@ local DEFAULTS = {
   showMinimap = true,  -- minimap button (the addon compartment works regardless)
   minimapAngle = 215,  -- minimap button position, degrees
   pauseInBG = false,   -- pause listing in battlegrounds and arenas
+  lowMana = 0,         -- pause offering buffs below this mana % (0 = off) (1.4.0)
+  specProfiles = {},   -- per-spec overrides: spec key -> { enabled=, rebuffPer= } (1.4.0)
+  compact = false,     -- half-height rows without portraits (1.4.0)
+  textScale = 1,       -- list text scale, separate from the window scale (1.4.0)
+  charPoint = false,   -- remember the window position per character (1.4.0)
+  pointByChar = {},    -- charPoint positions: "Name-Realm" -> point table (1.4.0)
   stats = {},          -- all-time casts per spell name: name -> count
 }
 local db
@@ -313,12 +319,13 @@ for k in pairs(DEFAULTS) do KNOWN_KEYS[k] = true end
 local ENUMS = {
   castMethod = { target = true, id = true, macro = true, rank = true },
   clickReg = { both = true, down = true, up = true },
-  sortMode = { name = true, role = true },
+  sortMode = { name = true, role = true, distance = true },
   alertSound = { droplet = true, system = true, none = true },
 }
 local RANGES = { bgAlpha = { 0, 1 }, scale = { 0.5, 2 }, cfgScale = { 0.5, 2 },
                  width = { MIN_WIDTH, MAX_WIDTH }, rebuff = { 0, 3600 }, castsTotal = { 0, 1e9 },
-                 groupCastMin = { 2, 40 }, minimapAngle = { 0, 360 } }
+                 groupCastMin = { 2, 40 }, minimapAngle = { 0, 360 },
+                 lowMana = { 0, 100 }, textScale = { 0.8, 1.5 } }
 
 local function IsNumber(v)
   return type(v) == "number" and v == v and v ~= math_huge and v ~= -math_huge
@@ -345,6 +352,38 @@ function SanitizeDB(saved)
         if v then
           for key, on in pairs(v) do
             if type(key) == "string" and type(on) == "boolean" then clean[key] = on end
+          end
+        end
+        v = clean
+      elseif k == "specProfiles" then
+        local clean = {}
+        if v then
+          for sk, prof in pairs(v) do
+            if type(sk) == "string" and type(prof) == "table" then
+              local p = { enabled = {}, rebuffPer = {} }
+              if type(prof.enabled) == "table" then
+                for key, on in pairs(prof.enabled) do
+                  if type(key) == "string" and type(on) == "boolean" then p.enabled[key] = on end
+                end
+              end
+              if type(prof.rebuffPer) == "table" then
+                for key, n in pairs(prof.rebuffPer) do
+                  if type(key) == "string" and IsNumber(n) and n >= 0 then p.rebuffPer[key] = n end
+                end
+              end
+              clean[sk] = p
+            end
+          end
+        end
+        v = clean
+      elseif k == "pointByChar" then
+        local clean = {}
+        if v then
+          for name, p in pairs(v) do
+            if type(name) == "string" and type(p) == "table" and type(p[1]) == "string"
+               and type(p[2]) == "string" and IsNumber(p[3]) and IsNumber(p[4]) then
+              clean[name] = { p[1], p[2], p[3], p[4] }
+            end
           end
         end
         v = clean
@@ -407,6 +446,32 @@ local L = {
   ["Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time"] =
     "Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time",
   ["out of range"] = "out of range",  -- under a greyed row's name
+  ["recently rezzed"] = "recently rezzed",  -- under a rezzed player's name (1.4.0)
+  ["a buff just expired"] = "a buff just expired",  -- under the name (1.4.0)
+  ["Low mana -- buffing paused."] = "Low mana -- buffing paused.",
+  ["~%dm left"] = "~%dm left",  -- on a row whose buff is about to expire
+  ["~%ds left"] = "~%ds left",
+  -- settings window (tabs and the main Window / Alerts / Buffs / Behavior
+  -- checkboxes; the rest of the settings window is English for now)
+  ["Window"] = "Window", ["Alerts"] = "Alerts", ["Buffs"] = "Buffs",
+  ["Behavior"] = "Behavior", ["Ignore & Stats"] = "Ignore & Stats",
+  ["Show BuffRadar title"] = "Show BuffRadar title",
+  ["Show border"] = "Show border",
+  ["Minimap button (drag it around the minimap)"] = "Minimap button (drag it around the minimap)",
+  ["Play a sound when a name appears"] = "Play a sound when a name appears",
+  ["No alert sound in dungeons, raids or battlegrounds"] =
+    "No alert sound in dungeons, raids or battlegrounds",
+  ["Show cast counter in the window"] = "Show cast counter in the window",
+  ["Buff myself first (all buffs that suit me)"] = "Buff myself first (all buffs that suit me)",
+  ["Only show in a party or raid"] = "Only show in a party or raid",
+  ["Pause scanning in major cities"] = "Pause scanning in major cities",
+  ["Pause in battlegrounds and arenas"] = "Pause in battlegrounds and arenas",
+  ["Offer group buffs in a party or raid"] = "Offer group buffs in a party or raid",
+  ["Show out-of-range players (greyed)"] = "Show out-of-range players (greyed)",
+  ["Compact rows (no portraits)"] = "Compact rows (no portraits)",
+  ["Per-character window position"] = "Per-character window position",
+  ["Shift-right-click to ignore for this session only."] =
+    "Shift-right-click to ignore for this session only.",
   -- row tooltip
   ["Out of range — move closer to cast:"] = "Out of range — move closer to cast:",
   ["Click to cast: %s"] = "Click to cast: %s",
@@ -864,12 +929,45 @@ end
 -- keep/drop are scratch lists reused by CollectEntries.
 local Single = { holder = {}, spell = {}, keep = {}, drop = {} }
 
+---------------------------------------------------------------------------
+-- Enhancement state (1.4.0). One table on purpose: the main chunk is near
+-- Lua 5.1's 200-local limit, so new state lives here, not in new locals.
+--   session: session-only ignore set, Ignore.Key(name) -> true (never saved)
+--   dead / rezAt: group members seen dead, and when each was seen alive
+--     again -- a rezzed player has lost every buff and jumps the queue
+--   tally: per-buff coverage over group members from the latest scan,
+--     buff key -> { total = n, miss = n }; tallyUnits = members scanned
+---------------------------------------------------------------------------
+local X = { session = {}, dead = {}, rezAt = {}, tally = {}, tallyUnits = 0,
+            listA = {}, listB = {}, recentlyGone = {}, sessionCasts = 0,
+            missPrev = {}, missNow = {}, expiredAt = {}, rowH = 24 }
+X.listedBefore = X.listA  -- guid -> true for names on the board last refresh
+
+function X.Track(unit)
+  if not UnitExists(unit) then return end
+  local guid = SafeString(UnitGUID(unit))
+  if not guid then return end
+  if UnitIsDeadOrGhost(unit) then
+    X.dead[guid] = true
+  elseif X.dead[guid] then
+    X.dead[guid] = nil
+    X.rezAt[guid] = GetTime()
+  end
+end
+
+function X.TrackDeaths(list, extra)
+  for i = 1, #list do X.Track(list[i]) end
+  if extra then X.Track(extra) end
+end
+
 local function Missing(unit, out, isGroup)
   wipe(out)
   local _, class = UnitClass(unit)
   class = SafeString(class)  -- used as a table key below; protected values can't be
   if not class then return 0 end
   local isSelf = UnitIsUnit(unit, "player")
+  X.remainTmp = nil
+  if isGroup then X.tallyUnits = X.tallyUnits + 1 end
   scanUnit = nil  -- force a fresh index scan (fallback path) for this unit
   local n = 0
   local role, roleRead = nil, false  -- assigned role, read once and only if a buff needs it
@@ -890,17 +988,46 @@ local function Missing(unit, out, isGroup)
         if role and role ~= b.role then applies = false end  -- e.g. a DPS death knight
       end
     end
-    if applies and IsOn(b.key, b.default) and not OnCooldown(b.name)
-       and not HasAny(unit, b.names, (db.rebuffPer and db.rebuffPer[b.key]) or db.rebuff) then
-      n = n + 1
-      out[n] = b.name
+    if applies and IsOn(b.key, b.default) then
+      local t
+      if isGroup then
+        t = X.tally[b.key]
+        if not t then t = { total = 0, miss = 0 }; X.tally[b.key] = t end
+        t.total = t.total + 1
+      end
+      if not OnCooldown(b.name)
+         and not HasAny(unit, b.names, (db.rebuffPer and db.rebuffPer[b.key]) or db.rebuff) then
+        n = n + 1
+        out[n] = b.name
+        if t then t.miss = t.miss + 1 end
+        if n == 1 then  -- still present but inside its rebuff window?
+          for _, nm2 in ipairs(b.names) do
+            local r = Remaining(unit, nm2)
+            if r and r > 0 and r < math_huge then X.remainTmp = r break end
+          end
+        end
+      end
     end
   end
   local bl = myBlessing[class]
-  if bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf)
-     and not HasAny(unit, bl.names) then
-    n = n + 1
-    out[n] = bl.name
+  if bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf) then
+    local t
+    if isGroup then
+      t = X.tally.BLESSINGS
+      if not t then t = { total = 0, miss = 0 }; X.tally.BLESSINGS = t end
+      t.total = t.total + 1
+    end
+    if not HasAny(unit, bl.names) then
+      n = n + 1
+      out[n] = bl.name
+      if t then t.miss = t.miss + 1 end
+      if n == 1 then
+        for _, nm2 in ipairs(bl.names) do
+          local r = Remaining(unit, nm2)
+          if r and r > 0 and r < math_huge then X.remainTmp = r break end
+        end
+      end
+    end
   end
   return n
 end
@@ -927,6 +1054,10 @@ local nEntries = 0
 
 local function EntryOrder(a, b)
   if a.isSelf ~= b.isSelf then return a.isSelf end
+  if (a.rezzed or false) ~= (b.rezzed or false) then return a.rezzed ~= nil end
+  if db.sortMode == "distance" and (a.rangeBucket or 2) ~= (b.rangeBucket or 2) then
+    return (a.rangeBucket or 2) < (b.rangeBucket or 2)
+  end
   if db.sortMode == "role" and (a.role or 3) ~= (b.role or 3) then
     return (a.role or 3) < (b.role or 3)
   end
@@ -1048,6 +1179,12 @@ function Ignore.Sorted()
   return names
 end
 
+-- Session-only ignore (1.4.0): same keying as the saved list, never persisted.
+function X.SessionHas(full, short)
+  if full and X.session[Ignore.Key(full)] then return true end
+  return short ~= nil and X.session[Ignore.Key(short)] ~= nil
+end
+
 local function Consider(unit, isGroup)
   if not Valid(unit) then return end
   -- The GUID is a table key (seen[], the listed sets) and gets compared; a
@@ -1056,6 +1193,7 @@ local function Consider(unit, isGroup)
   if not guid or seen[guid] then return end
   local full, nm = Ignore.UnitNames(unit)
   if next(Ignore.index) and Ignore.Has(full, nm) then return end  -- on the ignore list
+  if next(X.session) and X.SessionHas(full, nm) then return end  -- session-only ignore
   seen[guid] = true
   local slot = nEntries + 1
   local e = entries[slot]
@@ -1065,6 +1203,8 @@ local function Consider(unit, isGroup)
     entries[slot] = e
   end
   local n = Missing(unit, e.missing, isGroup)
+  e.remain1 = X.remainTmp
+  if isGroup and n == 0 then X.missNow[guid] = {} end  -- clean baseline for expiry checks
   local inRange = n > 0 and InRange(e.missing[1], unit)
   if n == 0 or (not inRange and not db.showOutOfRange) then return end  -- slot is reused next time
   nEntries = slot
@@ -1074,6 +1214,31 @@ local function Consider(unit, isGroup)
   e.unit, e.guid, e.name, e.class, e.group = unit, guid, nm or UnitName(unit), SafeString(class), isGroup
   e.fullName, e.sortName = full, nm or ""
   e.isSelf = UnitIsUnit(unit, "player")
+  e.rangeBucket = (not inRange) and ((_G.UnitInRange and _G.UnitInRange(unit)) and 1 or 2) or 0
+  if isGroup then
+    -- Expiry tracking: a buff that was not missing last scan, is missing
+    -- now, and is truly gone (not just inside its rebuff window) expired,
+    -- was dispelled, or went away with a death.
+    local keys, expired = {}, nil
+    for j = 1, #e.missing do
+      local key = X.KeyOfName(e.missing[j])
+      if key then
+        keys[key] = true
+        local prev = X.missPrev[guid]
+        if prev and not prev[key] and not HasAny(unit, { e.missing[j] }, 0) then expired = true end
+      end
+    end
+    X.missNow[guid] = keys
+    -- Sticky for a few seconds: the next scan already sees the buff as
+    -- "missing last time too", so without this the flag would flap off.
+    if expired then X.expiredAt[guid] = GetTime() end
+    local ea = X.expiredAt[guid]
+    e.expired = (expired or (ea and GetTime() - ea < 10)) or nil
+  else
+    e.expired = nil
+  end
+  local rz = X.rezAt[guid]
+  e.rezzed = (rz and GetTime() - rz < 60) or nil
   e.outOfRange = not inRange
   e.groupCast = false
   e.role = RoleOf(unit)
@@ -1081,15 +1246,19 @@ end
 
 -- Last-scan diagnostics for /br debug: how many nameplate units the client
 -- handed us on the latest pass, and how many of them were players.
-local scanPlatesSeen, scanPlayersSeen = 0, 0
 
 local function CollectEntries()
   wipe(seen)
   wipe(cdCache)
   wipe(Single.holder)
+  wipe(X.tally)
+  X.tallyUnits = 0
+  X.missPrev, X.missNow = X.missNow, {}
+  wipe(X.missNow)
   nEntries = 0
-  scanPlatesSeen, scanPlayersSeen = 0, 0
+  X.platesSeen, X.playersSeen = 0, 0
   local list = InRaid() and RAID or PARTY
+  X.TrackDeaths(list, "player")
   for i = 1, #list do Consider(list[i], true) end
   Consider("player", true)
   Consider("target", false)
@@ -1097,8 +1266,8 @@ local function CollectEntries()
   for i = 1, #PLATES do
     local u = PLATES[i]
     if UnitExists(u) then
-      scanPlatesSeen = scanPlatesSeen + 1
-      if UnitIsPlayer(u) then scanPlayersSeen = scanPlayersSeen + 1 end
+      X.platesSeen = X.platesSeen + 1
+      if UnitIsPlayer(u) then X.playersSeen = X.playersSeen + 1 end
     end
     Consider(u, false)
   end
@@ -1131,6 +1300,173 @@ local function CollectEntries()
   end
   if nEntries > 1 then table_sort(entries, EntryOrder) end
   return nEntries
+end
+
+-- Spell name -> buff key, rebuilt when the spellbook changes. Used to tell
+-- "this buff vanished" (expired / dispelled / death) from "never had it".
+function X.KeyOfName(name)
+  if X.nameKeyStamp ~= bookCount then
+    X.nameKeyStamp = bookCount
+    X.nameKey = {}
+    for _, b in ipairs(myBuffs) do X.nameKey[b.name] = b.key end
+    for _, b in pairs(myBlessing) do X.nameKey[b.name] = "BLESSINGS" end
+  end
+  return X.nameKey[name]
+end
+
+-- Per-spec profiles (retail-style specialization API only; clients without
+-- it simply never swap). Only the buff toggles and rebuff timings are
+-- per-spec -- the rest of the settings are about the window, not the spec.
+function X.SpecKey()
+  if not _G.GetSpecialization then return nil end
+  local ok, idx = pcall(_G.GetSpecialization)
+  if ok and type(idx) == "number" and idx > 0 then return "s" .. idx end
+  return nil
+end
+
+function X.SpecSwap()
+  local key = X.SpecKey()
+  if not key or X.spec == key then return end
+  if X.spec then
+    local p = db.specProfiles[X.spec] or {}
+    p.enabled, p.rebuffPer = db.enabled, db.rebuffPer
+    db.specProfiles[X.spec] = p
+  end
+  X.spec = key
+  local p = db.specProfiles[key]
+  if p then
+    db.enabled = p.enabled or {}
+    db.rebuffPer = p.rebuffPer or {}
+  else
+    -- First visit to this spec: it inherits a copy of the current toggles,
+    -- so later edits here can't leak into the previous spec's profile.
+    local e, r = {}, {}
+    for k, v in pairs(db.enabled) do e[k] = v end
+    for k, v in pairs(db.rebuffPer) do r[k] = v end
+    db.enabled, db.rebuffPer = e, r
+  end
+end
+
+-- READY_CHECK: a local summary (the group post is /br announce's job).
+function X.ReadyReport()
+  CollectEntries()
+  local people, casts = 0, 0
+  for i = 1, nEntries do
+    if entries[i].group then people = people + 1; casts = casts + #entries[i].missing end
+  end
+  if people == 0 then
+    Print("Ready check: everyone in your group is buffed.")
+  else
+    Print(string.format("Ready check: %d %s missing buffs (%d casts). /br announce posts the list.",
+      people, people == 1 and "person is" or "people are", casts))
+  end
+end
+
+-- Settings export / import: one copyable string. Covers the window look,
+-- behavior toggles, buff toggles, rebuff timings and both ignore sets --
+-- not positions, cast counts or stats (those belong to one machine / char).
+X.EXPORT_KEYS = { "locked", "includeSelf", "avoidPvP", "autoHide", "rebuff", "scale",
+  "width", "cfgScale", "castMethod", "clickReg", "bgAlpha", "showTitle", "showBorder",
+  "playSound", "showCounter", "groupOnly", "pauseInCities", "groupCast", "groupCastMin",
+  "showOutOfRange", "sortMode", "alertSound", "muteInInstance", "showMinimap", "lowMana" }
+
+local function Esc(v) return (tostring(v):gsub("%%", "%%25"):gsub(";", "%%3B"):gsub("=", "%%3D")) end
+local function Unesc(v) return (v:gsub("%%3D", "="):gsub("%%3B", ";"):gsub("%%25", "%%")) end
+
+function X.Export()
+  local parts = { "BR1" }
+  for _, k in ipairs(X.EXPORT_KEYS) do
+    local v = db[k]
+    if type(v) == "boolean" then parts[#parts + 1] = k .. "=" .. (v and "1" or "0")
+    elseif type(v) == "number" or type(v) == "string" then parts[#parts + 1] = k .. "=" .. Esc(v) end
+  end
+  local c = db.bgColor or DEFAULTS.bgColor
+  parts[#parts + 1] = "bgColor=" .. tostring(c[1]) .. "," .. tostring(c[2]) .. "," .. tostring(c[3])
+  for _, tname in ipairs({ "enabled", "rebuffPer" }) do
+    local keys = {}
+    for k in pairs(db[tname] or {}) do keys[#keys + 1] = k end
+    table_sort(keys)
+    for _, k in ipairs(keys) do
+      local v = db[tname][k]
+      if type(v) == "boolean" then parts[#parts + 1] = tname .. "." .. Esc(k) .. "=" .. (v and "1" or "0")
+      elseif type(v) == "number" then parts[#parts + 1] = tname .. "." .. Esc(k) .. "=" .. tostring(v) end
+    end
+  end
+  local names = {}
+  for name in pairs(db.ignored or {}) do names[#names + 1] = name end
+  table_sort(names)
+  for _, name in ipairs(names) do parts[#parts + 1] = "ignored." .. Esc(name) .. "=1" end
+  return table.concat(parts, ";")
+end
+
+function X.Import(text)
+  if type(text) ~= "string" then return false, "Nothing to import." end
+  local fields = {}
+  for part in (text .. ";"):gmatch("(.-);") do fields[#fields + 1] = part end
+  if fields[1] ~= "BR1" then return false, "That doesn't look like a BuffRadar settings string." end
+  local patch = { enabled = {}, rebuffPer = {}, ignored = {} }
+  for i = 2, #fields do
+    local k, v = fields[i]:match("^(.-)=(.*)$")
+    if k and v then
+      local sub, sk = k:match("^(%a+)%.(.*)$")
+      if sub == "enabled" or sub == "rebuffPer" or sub == "ignored" then
+        local key = Unesc(sk)
+        if sub == "rebuffPer" then patch.rebuffPer[key] = tonumber(v)
+        else patch[sub][key] = (v == "1") end
+      elseif k == "bgColor" then
+        local r, g, b = v:match("^([%d%.]+),([%d%.]+),([%d%.]+)$")
+        if r then patch.bgColor = { tonumber(r), tonumber(g), tonumber(b) } end
+      else
+        local dt = type(DEFAULTS[k])
+        if dt == "boolean" then patch[k] = (v == "1")
+        elseif dt == "number" then patch[k] = tonumber(v)
+        elseif dt == "string" then patch[k] = Unesc(v) end
+      end
+    end
+  end
+  for k, v in pairs(patch) do if v ~= nil then db[k] = v end end
+  SanitizeDB(db)  -- repairs anything out of range or mistyped in the string
+  Ignore.Rebuild()
+  return true, "Settings imported."
+end
+
+-- /br announce: post the group's missing buffs to party/raid chat (or
+-- print them locally when solo). Lives here, not in HandleSlash, to keep
+-- that function's upvalue count down.
+function X.Announce()
+  CollectEntries()
+  local per, order = {}, {}
+  for i = 1, nEntries do
+    local e = entries[i]
+    if e.group then
+      for _, spell in ipairs(e.missing) do
+        if not per[spell] then per[spell] = {}; order[#order + 1] = spell end
+        local nm = SafeString(e.name) or e.sortName
+        per[spell][#per[spell] + 1] = (nm and nm ~= "") and nm or "?"
+      end
+    end
+  end
+  if #order == 0 then
+    Print("Everyone in your group is buffed -- nothing to announce.")
+    return
+  end
+  local segs = {}
+  for _, spell in ipairs(order) do
+    local names = per[spell]
+    local shownNames = {}
+    for i = 1, math_min(3, #names) do shownNames[i] = names[i] end
+    local seg = spell .. ": " .. table.concat(shownNames, ", ")
+    if #names > 3 then seg = seg .. " +" .. (#names - 3) end
+    segs[#segs + 1] = seg
+  end
+  local text = "BuffRadar -- missing buffs: " .. table.concat(segs, " · ")
+  local channel = InRaid() and "RAID" or (InGroup() and "PARTY" or nil)
+  if channel and _G.SendChatMessage then
+    _G.SendChatMessage(text, channel)
+    Print("Announced missing buffs to " .. channel:lower() .. " chat.")
+  else
+    Print(text)
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -1226,16 +1562,13 @@ end -- Bind block
 ---------------------------------------------------------------------------
 -- UI
 ---------------------------------------------------------------------------
-local frame, title, countText, emptyText, overflowText, combatText, nextBtn
+local frame, title, countText, emptyText, overflowText, combatText, nextBtn, coverText
 local OpenConfig, RefreshConfig, MakeMacro  -- defined further down
 local QueueRefresh  -- assigned to the event coalescer further down
 local BuildMinimapButton, RefreshMinimapButton  -- assigned in the minimap section further down
 local footerText
-local sessionCasts = 0
-local pendingCast            -- { spell = name, time = t } set when a BuffRadar button is clicked
-local listedA, listedB = {}, {}  -- double-buffered "who was listed" sets (no per-refresh tables)
-local listedBefore = listedA     -- guid -> true for names on the board last refresh
-local recentlyGone = {}      -- guid -> time they dropped off (stops in/out-of-range flicker dings)
+-- (X.sessionCasts, X.pendingCast, the double-buffered listed sets and
+-- X.recentlyGone live on X since 1.4.0 -- see the enhancement state block.)
 local lastSoundAt = 0
 
 local function InInstanceNow()
@@ -1257,22 +1590,21 @@ local function PlayAlert()
   if PlaySoundFile then pcall(PlaySoundFile, SOUND_FILE, "Master") end
 end
 
-local lastCounterSession, lastCounterTotal
 local function UpdateCounter()
   if not footerText then return end
   local show = db.showCounter and true or false
   if (footerText:IsShown() and true or false) ~= show then footerText:SetShown(show) end
   local total = db.castsTotal or 0
-  if sessionCasts ~= lastCounterSession or total ~= lastCounterTotal then
-    lastCounterSession, lastCounterTotal = sessionCasts, total
+  if X.sessionCasts ~= X.lastCounterSession or total ~= X.lastCounterTotal then
+    X.lastCounterSession, X.lastCounterTotal = X.sessionCasts, total
     footerText:SetText(string_format(L["Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time"],
-      sessionCasts, total))
+      X.sessionCasts, total))
   end
 end
 
 local function NotePendingCast(entry)
   if entry and entry.missing and entry.missing[1] then
-    pendingCast = { spell = entry.missing[1], time = GetTime() }
+    X.pendingCast = { spell = entry.missing[1], time = GetTime() }
   end
 end
 
@@ -1316,6 +1648,10 @@ local function SavePosition()
     local p, _, rp, x, y = frame:GetPoint()
     if p then db.point = { p, rp, x, y } end
   end
+  if db.charPoint then
+    local k = X.CharKey()
+    if k and db.point then db.pointByChar[k] = db.point end
+  end
 end
 
 -- Where a named anchor point sits inside a frame, as fractions of its
@@ -1327,6 +1663,10 @@ local POINT_FRACTION = {
 }
 
 local function RestorePosition()
+  if db.charPoint then
+    local k = X.CharKey()
+    if k and db.pointByChar[k] then db.point = db.pointByChar[k] end
+  end
   frame:ClearAllPoints()
   if not db.point then
     -- Default spot, in top-left form: the pre-1.3.1 default anchored the
@@ -1375,6 +1715,7 @@ local function Row_OnEnter(self)
     GameTooltip:AddLine(L["Group version — one cast buffs the whole party."], 0.4, 0.8, 1)
   end
   GameTooltip:AddLine(L["Right-click to ignore this player."], 0.6, 0.6, 0.6)
+  GameTooltip:AddLine(L["Shift-right-click to ignore for this session only."], 0.6, 0.6, 0.6)
   if #e.missing > 1 then
     local rest = {}
     for i = 2, #e.missing do rest[#rest + 1] = e.missing[i] end
@@ -1441,6 +1782,13 @@ local function CreateRow(i)
   b.far:SetText(L["out of range"])
   b.far:Hide()
 
+  -- Short status tag under the name ("recently rezzed"); shares the slot
+  -- with the out-of-range label, which wins when both would apply.
+  b.tag = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  b.tag:SetPoint("TOPLEFT", b.name, "BOTTOMLEFT", 0, -1)
+  b.tag:SetTextColor(1, 0.85, 0.4)
+  b.tag:Hide()
+
   -- HookScript, never SetScript: SetScript would REPLACE the
   -- SecureActionButtonTemplate's own OnClick (SecureActionButton_OnClick),
   -- which is what actually performs the cast -- with it replaced, clicks run
@@ -1455,6 +1803,18 @@ local function CreateRow(i)
     local short = SafeString(e.name)  -- a protected (secret) name can't be stored
     local who = e.fullName or short   -- Name-Realm: ignores this one player only
     if not who then return end
+    if _G.IsShiftKeyDown and _G.IsShiftKeyDown() then
+      local k = Ignore.Key(who)
+      if X.session[k] then
+        X.session[k] = nil
+        Print("No longer ignoring " .. who .. " for this session.")
+      else
+        X.session[k] = true
+        Print("Ignoring " .. who .. " for this session only (not saved).")
+      end
+      if QueueRefresh then QueueRefresh() end
+      return
+    end
     if Ignore.Has(e.fullName, short) then
       -- (a row still showing an ignored player: it drops off on the next refresh)
       local removed = Ignore.Remove(who)
@@ -1506,6 +1866,115 @@ local function ApplyAppearance()
     combatText:SetPoint("LEFT", title, "RIGHT", 6, 0)
   else
     combatText:SetPoint("TOPLEFT", frame, "TOPLEFT", 9, -8)
+  end
+end
+
+-- One border pulse; restores the normal border shortly after. Assigned
+-- here because frame / ApplyAppearance only exist from this point on.
+function X.Flash()
+  if not frame or not frame.SetBackdropBorderColor or InCombatLockdown() then return end
+  frame:SetBackdropBorderColor(1, 0.35, 0.35, 1)
+  if C_Timer and C_Timer.After then
+    C_Timer.After(0.7, function() if frame then ApplyAppearance() end end)
+  else
+    X.flashPending = true  -- no timer API: Refresh() restores it next pass
+  end
+end
+
+-- Copyable settings string window for /br export and /br import.
+function X.ShowExport(text, forImport)
+  if InCombatLockdown() then Print("Can't open that during combat."); return end
+  local f = X.exportFrame
+  if not f then
+    f = CreateFrame("Frame", "BuffRadarExportFrame", UIParent,
+                    BackdropTemplateMixin and "BackdropTemplate" or nil)
+    X.exportFrame = f
+    f:SetSize(440, 150)
+    f:SetPoint("CENTER")
+    f:SetFrameStrata("DIALOG")
+    if f.SetBackdrop then
+      f:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 12,
+        insets = { left = 3, right = 3, top = 3, bottom = 3 },
+      })
+      f:SetBackdropColor(0.04, 0.05, 0.09, 0.97)
+      f:SetBackdropBorderColor(0.35, 0.55, 0.8, 1)
+    end
+    f:EnableMouse(true)
+    f:SetMovable(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", function(self) self:StartMoving() end)
+    f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.title:SetPoint("TOPLEFT", 12, -10)
+    local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+    close:SetSize(22, 22)
+    close:SetPoint("TOPRIGHT", 0, 0)
+    close:SetScript("OnClick", function() f:Hide() end)
+    local eb = CreateFrame("EditBox", nil, f)
+    eb:SetPoint("TOPLEFT", 12, -34)
+    eb:SetPoint("BOTTOMRIGHT", -12, 36)
+    eb:SetMultiLine(true)
+    if eb.SetAutoFocus then eb:SetAutoFocus(false) end
+    if eb.SetFontObject and ChatFontNormal then eb:SetFontObject(ChatFontNormal) end
+    eb:SetScript("OnEscapePressed", function(self) if self.ClearFocus then self:ClearFocus() end end)
+    f.editBox = eb
+    local acc = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    acc:SetSize(110, 22)
+    acc:SetPoint("BOTTOMRIGHT", -12, 8)
+    acc:SetText("Import")
+    acc:SetScript("OnClick", function()
+      local ok, msg = X.Import(f.editBox:GetText())
+      Print(msg)
+      if ok then
+        f:Hide()
+        ApplyGeometry()
+        ApplyAppearance()
+        if RefreshConfig then RefreshConfig() end
+        if QueueRefresh then QueueRefresh() end
+      end
+    end)
+    f.accept = acc
+    if UISpecialFrames then UISpecialFrames[#UISpecialFrames + 1] = "BuffRadarExportFrame" end
+    f:Hide()
+  end
+  f.title:SetText(forImport and "BuffRadar -- paste a settings string, then Import"
+                             or "BuffRadar -- your settings string (select all, copy)")
+  f.editBox:SetText(text or "")
+  f.accept:SetShown(forImport and true or false)
+  f:Show()
+  if f.editBox.SetFocus then f.editBox:SetFocus() end
+  if f.editBox.HighlightText then f.editBox:HighlightText() end
+end
+
+-- Your own "Name-Realm", for per-character settings.
+function X.CharKey()
+  local full = Ignore.UnitNames("player")
+  return full
+end
+
+-- Compact rows + list text scale (1.4.0). Re-anchors every row; height
+-- changes are not combat-safe on secure buttons, so this no-ops in combat
+-- and lands on the post-combat refresh instead.
+function X.ApplyRowLayout()
+  if not frame or InCombatLockdown() then return end
+  local h = db.compact and 16 or ROW_H
+  X.rowH = h
+  for i = 1, #rows do
+    local row = rows[i]
+    row:SetHeight(h)
+    row:ClearAllPoints()
+    row:SetPoint("TOPLEFT", frame, "TOPLEFT", 6, -HEADER_H - (i - 1) * h)
+    row:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -6, -HEADER_H - (i - 1) * h)
+    if row.portrait then row.portrait:SetShown(not db.compact) end
+    local isz = db.compact and 12 or 16
+    for j = 1, MAX_ICONS do if row.icons[j] then row.icons[j]:SetSize(isz, isz) end end
+    local ts = db.textScale or 1
+    if row.name then row.name:SetScale(ts) end
+    if row.far then row.far:SetScale(ts) end
+    if row.tag then row.tag:SetScale(ts) end
   end
 end
 
@@ -1682,6 +2151,15 @@ local function BuildUI()
   footerText:SetJustifyH("LEFT")
   if footerText.SetWordWrap then footerText:SetWordWrap(false) end
 
+  -- Coverage line (1.4.0): "12/15 fully buffed · Fortitude 13/15 · ...",
+  -- directly above the footer; Refresh() grows the window when it's shown.
+  coverText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  coverText:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 9, FOOTER_H + 3)
+  coverText:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -16, FOOTER_H + 3)
+  coverText:SetJustifyH("LEFT")
+  if coverText.SetWordWrap then coverText:SetWordWrap(false) end
+  coverText:Hide()
+
   -- Resize grip: drag the bottom-right corner to change the width.
   grip = CreateFrame("Button", nil, frame)
   grip:SetSize(12, 12)
@@ -1716,6 +2194,7 @@ local function BuildUI()
   ApplyGeometry()
   RestorePosition()
   ApplyAppearance()
+  X.ApplyRowLayout()
   UpdateCounter()
   BuildMinimapButton()
   built = true
@@ -1848,7 +2327,7 @@ end
 local function InvalidateRows()
   for i = 1, #rows do
     local row = rows[i]
-    row.cGuid, row.cUnit, row.bGuid, row.cFar = nil, nil, nil, nil
+    row.cGuid, row.cUnit, row.bGuid, row.cFar, row.cTag = nil, nil, nil, nil, nil
     wipe(row.cMissing)
   end
   if nextBtn then nextBtn.bGuid, nextBtn.isClear = nil, false end
@@ -1876,6 +2355,31 @@ local function RenderRow(row, e)
     row.name:SetPoint("RIGHT", row, "RIGHT", -(MAX_ICONS * 18 + 4), far and 5 or 0)
     row.far:SetShown(far)
     if far then row.name:SetTextColor(0.55, 0.55, 0.55) else row.name:SetTextColor(ClassColor(e.class)) end
+  end
+  -- Status tag: a rezzed player (lost every buff) is marked under the name;
+  -- the name shifts up for it just like the out-of-range layout, minus grey.
+  local tag = not far and (e.expired and L["a buff just expired"]
+    or (e.rezzed and L["recently rezzed"] or nil)) or nil
+  if not tag and e.remain1 then
+    tag = e.remain1 >= 90 and string_format(L["~%dm left"], math_floor(e.remain1 / 60))
+      or string_format(L["~%ds left"], math_floor(e.remain1))
+  end
+  if row.cTag ~= tag then
+    row.cTag = tag
+    if tag then
+      row.tag:SetText(tag)
+      row.name:ClearAllPoints()
+      row.name:SetPoint("LEFT", row.portrait, "RIGHT", 6, 5)
+      row.name:SetPoint("RIGHT", row, "RIGHT", -(MAX_ICONS * 18 + 4), 5)
+      row.tag:Show()
+    else
+      row.tag:Hide()
+      if not far then
+        row.name:ClearAllPoints()
+        row.name:SetPoint("LEFT", row.portrait, "RIGHT", 6, 0)
+        row.name:SetPoint("RIGHT", row, "RIGHT", -(MAX_ICONS * 18 + 4), 0)
+      end
+    end
   end
   local cm, changed = row.cMissing, false
   for j = 1, MAX_ICONS do
@@ -1914,6 +2418,7 @@ end
 
 -- Shared look for the "nothing to list" states (no buffs known / paused in a city).
 local function ShowStatus(text)
+  SetShownIfChanged(coverText, false)
   SetTextIfChanged(countText, "")
   SetShownIfChanged(overflowText, false)
   SetTextIfChanged(emptyText, text)
@@ -1932,6 +2437,9 @@ local refreshIdle = false
 local function Refresh()
   if not built or InCombatLockdown() then return end
   refreshIdle = false
+  local wasAfterCombat = X.afterCombat
+  X.afterCombat = nil
+  if X.flashPending then X.flashPending = nil; ApplyAppearance() end
 
   if not hasAnyBuff then
     refreshIdle = true
@@ -1951,7 +2459,7 @@ local function Refresh()
   if db.pauseInCities and InMajorCity() then
     refreshIdle = true
     ClearNext()
-    wipe(listedBefore)
+    wipe(X.listedBefore)
     for i = 1, MAX_ROWS do ClearRow(rows[i]) end
     if db.hidden or groupHidden or db.autoHide then
       SetShownIfChanged(frame, false)
@@ -1966,7 +2474,7 @@ local function Refresh()
   if db.pauseInBG and (instType == "pvp" or instType == "arena") then
     refreshIdle = true
     ClearNext()
-    wipe(listedBefore)
+    wipe(X.listedBefore)
     for i = 1, MAX_ROWS do ClearRow(rows[i]) end
     if db.hidden or groupHidden or db.autoHide then
       SetShownIfChanged(frame, false)
@@ -1974,6 +2482,23 @@ local function Refresh()
       ShowStatus(L["Paused in a battleground."])
     end
     return
+  end
+
+  -- Low-mana pause (optional): don't offer buffs you can't afford to cast.
+  if db.lowMana and db.lowMana > 0 then
+    local pow = _G.UnitPower and _G.UnitPower("player")
+    local powMax = _G.UnitPowerMax and _G.UnitPowerMax("player")
+    if pow and powMax and powMax > 0 and (pow / powMax * 100) < db.lowMana then
+      ClearNext()
+      wipe(X.listedBefore)
+      for i = 1, MAX_ROWS do ClearRow(rows[i]) end
+      if db.hidden or groupHidden or db.autoHide then
+        SetShownIfChanged(frame, false)
+      else
+        ShowStatus(L["Low mana -- buffing paused."])
+      end
+      return
+    end
   end
 
   local n = CollectEntries()
@@ -2023,30 +2548,30 @@ local function Refresh()
 
   if db.hidden or groupHidden then
     SetShownIfChanged(frame, false)
-    wipe(listedBefore)
+    wipe(X.listedBefore)
     return
   end
 
   -- Droplet sound when someone new appears on the board
   local now, newName = GetTime(), false
-  local listedNow = (listedBefore == listedA) and listedB or listedA
+  local listedNow = (X.listedBefore == X.listA) and X.listB or X.listA
   wipe(listedNow)
   for i = 1, n do
     local guid = entries[i].guid
     listedNow[guid] = true
     -- (greyed out-of-range rows don't ding: they're not castable yet)
-    if not entries[i].outOfRange and not listedBefore[guid] then
-      local gone = recentlyGone[guid]
+    if not entries[i].outOfRange and not X.listedBefore[guid] then
+      local gone = X.recentlyGone[guid]
       if not gone or now - gone > 10 then newName = true end
     end
   end
-  for guid in pairs(listedBefore) do
-    if not listedNow[guid] then recentlyGone[guid] = now end
+  for guid in pairs(X.listedBefore) do
+    if not listedNow[guid] then X.recentlyGone[guid] = now end
   end
-  for guid, t in pairs(recentlyGone) do
-    if now - t > 60 then recentlyGone[guid] = nil end
+  for guid, t in pairs(X.recentlyGone) do
+    if now - t > 60 then X.recentlyGone[guid] = nil end
   end
-  listedBefore = listedNow
+  X.listedBefore = listedNow
   if newName and db.playSound and now - lastSoundAt > 1 then
     lastSoundAt = now
     PlayAlert()
@@ -2056,6 +2581,9 @@ local function Refresh()
   for i = 1, MAX_ROWS do
     if i <= shown then RenderRow(rows[i], entries[i]) else ClearRow(rows[i]) end
   end
+  -- Post-combat catch-up: one border pulse when the frozen list thaws with
+  -- work waiting, so a pull's-end rebuff round doesn't go unnoticed.
+  if wasAfterCombat and n > 0 and X.Flash then X.Flash() end
 
   SetTextIfChanged(countText, n > 0 and n or "")
   if n == 0 and FriendlyPlatesOn() == false then
@@ -2069,7 +2597,7 @@ local function Refresh()
   if n > MAX_ROWS then
     if not overflowText.cAnchored then
       overflowText:ClearAllPoints()
-      overflowText:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -HEADER_H - MAX_ROWS * ROW_H - 2)
+      overflowText:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -HEADER_H - MAX_ROWS * (X.rowH or ROW_H) - 2)
       overflowText.cAnchored = true
     end
     if overflowText.cCount ~= n then
@@ -2081,7 +2609,32 @@ local function Refresh()
     SetShownIfChanged(overflowText, false)
   end
 
-  local h = HEADER_H + (shown > 0 and shown * ROW_H or 18) + 8
+  -- Coverage / progress line: shown while grouped (even when the list is
+  -- empty -- "15/15 fully buffed" is the good-news form of the same line).
+  local coverShown = false
+  if X.tallyUnits > 1 then
+    local listedGroup = 0
+    for i = 1, n do if entries[i].group then listedGroup = listedGroup + 1 end end
+    local parts = { string_format("%d/%d fully buffed", X.tallyUnits - listedGroup, X.tallyUnits) }
+    for _, b in ipairs(myBuffs) do
+      local t = not b.self and X.tally[b.key] or nil
+      if t and t.total > 0 then
+        local nm = b.key:lower():gsub("_", " ")
+        parts[#parts + 1] = string_format("%s %d/%d", nm:sub(1, 1):upper() .. nm:sub(2),
+          t.total - t.miss, t.total)
+      end
+    end
+    local tb = X.tally.BLESSINGS
+    if tb and tb.total > 0 then
+      parts[#parts + 1] = string_format("Blessings %d/%d", tb.total - tb.miss, tb.total)
+    end
+    SetTextIfChanged(coverText, table.concat(parts, "  ·  "))
+    coverShown = true
+  end
+  SetShownIfChanged(coverText, coverShown)
+
+  local h = HEADER_H + (shown > 0 and shown * (X.rowH or ROW_H) or 18) + 8
+  if coverShown then h = h + 13 end
   if n > MAX_ROWS then h = h + 14 end
   h = h + FOOTER_H  -- bottom row: settings gear + cast counter
   UpdateCounter()
@@ -2210,6 +2763,7 @@ for _, ev in ipairs({
   "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN", "CVAR_UPDATE", "UPDATE_BINDINGS",
   "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS",
   "SPELL_DATA_LOAD_RESULT", "UNIT_PORTRAIT_UPDATE",
+  "READY_CHECK", "PLAYER_TALENT_UPDATE", "ACTIVE_TALENT_GROUP_CHANGED",
 }) do
   pcall(driver.RegisterEvent, driver, ev)
 end
@@ -2246,13 +2800,13 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       Print("|cffaaaaaa" .. event .. ": " .. table.concat(parts, ", ") .. "|r")
     end
     if event ~= "UNIT_SPELLCAST_SUCCEEDED" or arg1 ~= "player" then return end
-    if arg1 == "player" and pendingCast and db then
+    if arg1 == "player" and X.pendingCast and db then
       local spellID = select(2, ...)
       local ok, name = pcall(SpellName, spellID, nil)
       name = ok and SafeString(name) or nil  -- compared and used as a stats key
-      if name and name == pendingCast.spell and GetTime() - pendingCast.time < 3 then
-        pendingCast = nil
-        sessionCasts = sessionCasts + 1
+      if name and name == X.pendingCast.spell and GetTime() - X.pendingCast.time < 3 then
+        X.pendingCast = nil
+        X.sessionCasts = X.sessionCasts + 1
         db.castsTotal = (db.castsTotal or 0) + 1
         db.stats = db.stats or {}
         db.stats[name] = (db.stats[name] or 0) + 1
@@ -2276,6 +2830,12 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       watchedSpells[arg1] = nil
       ScheduleRebuild()
     end
+    return
+  elseif event == "READY_CHECK" then
+    if db then X.ReadyReport() end
+    return
+  elseif event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED" then
+    if db then X.SpecSwap(); Soon() end
     return
   elseif event == "UNIT_PORTRAIT_UPDATE" then
     for i = 1, #rows do
@@ -2307,6 +2867,10 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if (db.dbVersion or 0) < 5 then
       db.dbVersion = 5        -- 1.2.0: new settings take their defaults; nothing to migrate
     end
+    if (db.dbVersion or 0) < 6 then
+      db.dbVersion = 6        -- 1.4.0: specProfiles / lowMana added; nothing to migrate
+    end
+    X.SpecSwap()
   elseif event == "PLAYER_LOGIN" then
     driver:UnregisterEvent("PLAYER_LOGIN")  -- one-off
     if not db then
@@ -2347,9 +2911,11 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     -- just before combat lockdown starts, so the key can be disarmed here.
     if not nextCombatDriver then ClearNext() end
   elseif event == "PLAYER_REGEN_ENABLED" then
+    X.afterCombat = true  -- Refresh() pulses the border if work is waiting
     if combatText then combatText:Hide() end
     BuildUI()
     ApplyGeometry()  -- a scale/width change made during combat lands now
+    X.ApplyRowLayout()
     ApplyNextRegistration()
     Soon()
   elseif event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_TAB" or event == "LEARNED_SPELL_IN_SKILL_LINE" then
@@ -2686,8 +3252,8 @@ local function BuildConfig()
   cfg.panels, cfg.tabBtns = {}, {}
   cfg.nativeTabs = native and PanelTemplates_SetNumTabs and PanelTemplates_SetTab and true or false
   local tabDefs = {
-    { "look", "Window" }, { "alerts", "Alerts" }, { "buffs", "Buffs" },
-    { "behavior", "Behavior" }, { "data", "Ignore & Stats" },
+    { "look", L["Window"] }, { "alerts", L["Alerts"] }, { "buffs", L["Buffs"] },
+    { "behavior", L["Behavior"] }, { "data", L["Ignore & Stats"] },
   }
   local tabList, prevTab = {}, nil
   for i, td in ipairs(tabDefs) do
@@ -2768,15 +3334,31 @@ local function BuildConfig()
     ApplyAppearance()
   end)
 
-  cfg.titleCheck = MakeCheck(look, "Show BuffRadar title",
+  cfg.titleCheck = MakeCheck(look, L["Show BuffRadar title"],
     function() return db.showTitle end,
     function(v) db.showTitle = v; ApplyAppearance() end)
   cfg.titleCheck:SetPoint("TOPLEFT", 10, -116)
 
-  cfg.borderCheck = MakeCheck(look, "Show border",
+  cfg.borderCheck = MakeCheck(look, L["Show border"],
     function() return db.showBorder end,
     function(v) db.showBorder = v; ApplyAppearance() end)
   cfg.borderCheck:SetPoint("TOPLEFT", 10, -142)
+
+  cfg.compactCheck = MakeCheck(look, L["Compact rows (no portraits)"],
+    function() return db.compact end,
+    function(v) db.compact = v; X.ApplyRowLayout(); Refresh() end)
+  cfg.compactCheck:SetPoint("TOPLEFT", 250, -116)
+
+  cfg.charPointCheck = MakeCheck(look, L["Per-character window position"],
+    function() return db.charPoint end,
+    function(v)
+      db.charPoint = v
+      if v then
+        local k = X.CharKey()
+        if k and db.point then db.pointByChar[k] = db.point end
+      end
+    end)
+  cfg.charPointCheck:SetPoint("TOPLEFT", 250, -142)
 
   local scaleLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   scaleLabel:SetPoint("TOPLEFT", 14, -178)
@@ -2805,7 +3387,7 @@ local function BuildConfig()
   end)
   resetLook:SetPoint("TOPLEFT", 14, -232)
 
-  cfg.minimapCheck = MakeCheck(look, "Minimap button (drag it around the minimap)",
+  cfg.minimapCheck = MakeCheck(look, L["Minimap button (drag it around the minimap)"],
     function() return db.showMinimap end,
     function(v) db.showMinimap = v; if RefreshMinimapButton then RefreshMinimapButton() end end)
   cfg.minimapCheck:SetPoint("TOPLEFT", 10, -268)
@@ -2828,7 +3410,7 @@ local function BuildConfig()
   local alerts = cfg.panels.alerts
   section(alerts, "New name alert", 10, -6)
 
-  cfg.soundCheck = MakeCheck(alerts, "Play a sound when a name appears",
+  cfg.soundCheck = MakeCheck(alerts, L["Play a sound when a name appears"],
     function() return db.playSound end,
     function(v) db.playSound = v; if v then PlayAlert() end end)
   cfg.soundCheck:SetPoint("TOPLEFT", 10, -30)
@@ -2846,19 +3428,19 @@ local function BuildConfig()
   local test = MakeButton(alerts, "Test", 60, PlayAlert)
   test:SetPoint("LEFT", cfg.soundBtn, "RIGHT", 10, 0)
 
-  cfg.muteInstCheck = MakeCheck(alerts, "No alert sound in dungeons, raids or battlegrounds",
+  cfg.muteInstCheck = MakeCheck(alerts, L["No alert sound in dungeons, raids or battlegrounds"],
     function() return db.muteInInstance end,
     function(v) db.muteInInstance = v end)
   cfg.muteInstCheck:SetPoint("TOPLEFT", 10, -92)
 
   section(alerts, "Cast counter", 10, -136)
-  cfg.counterCheck = MakeCheck(alerts, "Show cast counter in the window",
+  cfg.counterCheck = MakeCheck(alerts, L["Show cast counter in the window"],
     function() return db.showCounter end,
     function(v) db.showCounter = v; UpdateCounter(); Refresh() end)
   cfg.counterCheck:SetPoint("TOPLEFT", 10, -160)
 
   local resetCount = MakeButton(alerts, "Reset counts", 110, function()
-    sessionCasts, db.castsTotal = 0, 0
+    X.sessionCasts, db.castsTotal = 0, 0
     UpdateCounter()
     Print("Cast counts reset.")
   end)
@@ -2930,7 +3512,7 @@ local function BuildConfig()
   cfg.noBuffs:SetPoint("TOPLEFT", 14, -36)
   cfg.noBuffs:SetText("You don't know any supported buffs yet.")
 
-  cfg.selfCheck = MakeCheck(buffs, "Buff myself first (all buffs that suit me)",
+  cfg.selfCheck = MakeCheck(buffs, L["Buff myself first (all buffs that suit me)"],
     function() return db.includeSelf end,
     function(v) db.includeSelf = v; Refresh() end)
   cfg.selfCheck:SetPoint("TOPLEFT", 10, -252)
@@ -2968,24 +3550,24 @@ local function BuildConfig()
   local beh = cfg.panels.behavior
   section(beh, "When to show & scan", 10, -6)
 
-  cfg.groupCheck = MakeCheck(beh, "Only show in a party or raid",
+  cfg.groupCheck = MakeCheck(beh, L["Only show in a party or raid"],
     function() return db.groupOnly end,
     function(v) db.groupOnly = v; Refresh() end)
   cfg.groupCheck:SetPoint("TOPLEFT", 10, -30)
 
-  cfg.cityCheck = MakeCheck(beh, "Pause scanning in major cities",
+  cfg.cityCheck = MakeCheck(beh, L["Pause scanning in major cities"],
     function() return db.pauseInCities end,
     function(v) db.pauseInCities = v; Refresh() end)
   cfg.cityCheck:SetPoint("TOPLEFT", 10, -56)
 
-  cfg.bgCheck = MakeCheck(beh, "Pause in battlegrounds and arenas",
+  cfg.bgCheck = MakeCheck(beh, L["Pause in battlegrounds and arenas"],
     function() return db.pauseInBG end,
     function(v) db.pauseInBG = v; Refresh() end)
   cfg.bgCheck:SetPoint("TOPLEFT", 10, -82)
 
   section(beh, "Casting & order", 302, -6)
 
-  cfg.groupCastCheck = MakeCheck(beh, "Offer group buffs in a party or raid",
+  cfg.groupCastCheck = MakeCheck(beh, L["Offer group buffs in a party or raid"],
     function() return db.groupCast end,
     function(v) db.groupCast = v; Refresh() end)
   cfg.groupCastCheck:SetPoint("TOPLEFT", 296, -30)
@@ -3012,20 +3594,22 @@ local function BuildConfig()
     castY = 82
   end
 
-  cfg.oorCheck = MakeCheck(beh, "Show out-of-range players (greyed)",
+  cfg.oorCheck = MakeCheck(beh, L["Show out-of-range players (greyed)"],
     function() return db.showOutOfRange end,
     function(v) db.showOutOfRange = v; Refresh() end)
   cfg.oorCheck:SetPoint("TOPLEFT", 296, -112 + castY)
 
   cfg.sortBtn = MakeButton(beh, "Sort: name", 130, function()
-    db.sortMode = (db.sortMode == "role") and "name" or "role"
+    if db.sortMode == "name" then db.sortMode = "role"
+    elseif db.sortMode == "role" then db.sortMode = "distance"
+    else db.sortMode = "name" end
     RefreshConfig()
     Refresh()
   end)
   cfg.sortBtn:SetPoint("TOPLEFT", 320, -140 + castY)
   local sortHint = beh:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   sortHint:SetPoint("LEFT", cfg.sortBtn, "RIGHT", 8, 0)
-  sortHint:SetText("role = tanks & leaders first")
+  sortHint:SetText("role = tanks & leaders · distance = nearest first")
 
   local behHint = beh:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   behHint:SetPoint("TOPLEFT", 14, -140)
@@ -3110,6 +3694,8 @@ local function BuildConfig()
   Tip(cfg.slider, "Background opacity", "0% = fully see-through background (text and icons stay visible). Scroll the mouse wheel to adjust in steps.")
   Tip(cfg.titleCheck, "Show BuffRadar title", "The \"BuffRadar\" name in the window's top-left corner.")
   Tip(cfg.borderCheck, "Show border", "The thin blue edge around the window.")
+  Tip(cfg.compactCheck, "Compact rows", "Half-height rows without portraits, for long raid lists. The list text size is /br text <0.8-1.5>.")
+  Tip(cfg.charPointCheck, "Per-character window position", "Each character keeps its own window spot. Off: one position shared by all characters.")
   Tip(cfg.scaleDrop, "Window scale", "Makes everything in the list window bigger or smaller. Can't be changed during combat. /br scale accepts any value from 0.5 to 2.")
   Tip(resetLook, "Reset look", "Restores the default color, opacity, title, border, scale and width. Your position and other settings are kept.")
   Tip(cfg.minimapCheck, "Minimap button", "Left-click it to show or hide the window, right-click for settings, drag it around the minimap. The addon compartment (minimap menu) works either way.")
@@ -3130,7 +3716,7 @@ local function BuildConfig()
   Tip(cfg.groupCastCheck, "Offer group buffs", "When enough group members need a buff, offer its group version (one cast covers the party).")
   Tip(cfg.gcSlider, "Group buff threshold", "How many group members must need the buff before the group version is offered.")
   Tip(cfg.oorCheck, "Show out-of-range players", "Keep players who are too far away on the list, greyed out and not clickable, so you see who's coming.")
-  Tip(cfg.sortBtn, "List order", "Click to switch: name = alphabetical; role = you, then tanks, then group leaders. After that, players in range come first, then group members, then by name.")
+  Tip(cfg.sortBtn, "List order", "Click to switch: name = alphabetical; role = you, then tanks, then group leaders; distance = nearest first (in range, then in group range, then the rest). After that, players in range come first, then group members, then by name.")
   -- Ignore & Stats
   Tip(clearIgnores, "Clear ignore list", "Stops ignoring everyone on the list.")
   Tip(resetStats, "Reset stats", "Clears the casts-by-spell statistics. The cast counter is kept.")
@@ -3150,6 +3736,8 @@ RefreshConfig = function()
   cfg.cfgScaleDrop:Update()
   cfg.titleCheck:Update()
   cfg.borderCheck:Update()
+  if cfg.compactCheck then cfg.compactCheck:Update() end
+  if cfg.charPointCheck then cfg.charPointCheck:Update() end
   cfg.minimapCheck:Update()
   cfg.soundCheck:Update()
   cfg.soundBtn:SetText("Sound: " .. tostring(db.alertSound))
@@ -3292,6 +3880,29 @@ end
 
 SLASH_BUFFRADAR1 = "/br"
 SLASH_BUFFRADAR2 = "/buffradar"
+-- /br selftest: one paste-able block for bug reports.
+function X.SelfTest()
+  local ver, build, _, iface = GetBuildInfo()
+  Print("BuffRadar self-test -- paste this whole block into a bug report:")
+  Print(string.format("  version %s · %s edition · interface %s · client %s build %s",
+    "1.4.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
+  Print(string.format("  settings dbVersion %s · sort %s · cast mode %s · scale %s",
+    tostring(db.dbVersion), tostring(db.sortMode), tostring(db.castMethod), tostring(db.scale)))
+  if #myBuffs == 0 then Print("  buffs found: none") end
+  for _, b in ipairs(myBuffs) do
+    local id
+    for _, d in ipairs(BUFF_DEFS) do if d.key == b.key then id = d.id break end end
+    Print(string.format("  buff %s: %s (spell %s, %s)", b.key, b.name,
+      tostring(id), IsOn(b.key, b.default) and "on" or "off"))
+  end
+  local plates = FriendlyPlatesOn()
+  Print(string.format("  friendly nameplates: %s · plates seen %d (%d players) · in group %s",
+    plates == nil and "unknown" or (plates and "on" or "off"),
+    X.platesSeen or 0, X.playersSeen or 0, tostring(InGroup())))
+  Print(string.format("  window built %s · spec profile %s · last problem: %s",
+    tostring(built), tostring(X.spec or "none"), tostring(lastError or "none")))
+end
+
 local function HandleSlash(msg)
   local cmd, rest = (msg or ""):match("^%s*(%S*)%s*(.-)%s*$")
   cmd = (cmd or ""):lower()
@@ -3333,9 +3944,9 @@ local function HandleSlash(msg)
     Print("Droplet sound " .. OnOff(db.playSound))
     if db.playSound then PlayAlert() end
   elseif cmd == "count" or cmd == "counts" then
-    Print(string.format("Casts through BuffRadar: %d this session, %d all-time.", sessionCasts, db.castsTotal or 0))
+    Print(string.format("Casts through BuffRadar: %d this session, %d all-time.", X.sessionCasts, db.castsTotal or 0))
   elseif cmd == "resetcount" then
-    sessionCasts, db.castsTotal = 0, 0
+    X.sessionCasts, db.castsTotal = 0, 0
     UpdateCounter()
     Print("Cast counts reset.")
   elseif cmd == "macro" then
@@ -3401,7 +4012,7 @@ local function HandleSlash(msg)
     local platesOn = FriendlyPlatesOn()
     Print(string.format("friendly nameplates: %s, nameplate units seen: %d (%d players)",
       platesOn == nil and "unknown" or (platesOn and "on" or "off"),
-      scanPlatesSeen, scanPlayersSeen))
+      X.platesSeen, X.playersSeen))
     Print("keybind safety: combat driver " .. (nextCombatDriver and "secure" or "fallback") ..
       ", click reset " .. (nextWrapped and "secure" or "fallback"))
     Print("cast mode: " .. tostring(db.castMethod) .. ", clickreg: " .. tostring(db.clickReg) ..
@@ -3473,10 +4084,54 @@ local function HandleSlash(msg)
     Refresh()
   elseif cmd == "sort" then
     local m = rest:lower()
-    if m == "name" or m == "role" then db.sortMode = m
-    else db.sortMode = (db.sortMode == "role") and "name" or "role" end
-    Print("List order: " .. db.sortMode .. (db.sortMode == "role" and " (tanks & leaders first)" or ""))
+    if m == "name" or m == "role" or m == "distance" then db.sortMode = m
+    elseif db.sortMode == "name" then db.sortMode = "role"
+    elseif db.sortMode == "role" then db.sortMode = "distance"
+    else db.sortMode = "name" end
+    Print("List order: " .. db.sortMode ..
+      (db.sortMode == "role" and " (tanks & leaders first)" or
+       db.sortMode == "distance" and " (nearest first)" or ""))
     Refresh()
+  elseif cmd == "mana" then
+    local n = tonumber(rest)
+    if n and n >= 0 and n <= 100 then
+      db.lowMana = math_floor(n)
+      Print(db.lowMana > 0 and
+        string.format("Buffing pauses below %d%% mana.", db.lowMana) or "Low-mana pause off.")
+    else
+      Print(string.format("Usage: /br mana <0-100> (0 = off; currently %s)",
+        tostring(db.lowMana or 0)))
+    end
+    Refresh()
+  elseif cmd == "selftest" then
+    X.SelfTest()
+  elseif cmd == "compact" then
+    db.compact = not db.compact
+    X.ApplyRowLayout()
+    Print("Compact rows " .. OnOff(db.compact))
+    Refresh()
+  elseif cmd == "text" then
+    local n = tonumber(rest)
+    if n and n >= 0.8 and n <= 1.5 then
+      db.textScale = n
+      X.ApplyRowLayout()
+      Print(string.format("List text scale: %s", tostring(n)))
+    else
+      Print("Usage: /br text <0.8 - 1.5>   (currently " .. tostring(db.textScale or 1) .. ")")
+    end
+    Refresh()
+  elseif cmd == "charpoint" then
+    db.charPoint = not db.charPoint
+    if db.charPoint then
+      local k = X.CharKey()
+      if k and db.point then db.pointByChar[k] = db.point end
+    end
+    Print("Per-character window position " .. OnOff(db.charPoint))
+  elseif cmd == "export" then
+    X.ShowExport(X.Export(), false)
+    Print("Settings string shown -- copy it, then use /br import on the other character.")
+  elseif cmd == "import" then
+    X.ShowExport("", true)
   elseif cmd == "ignore" then
     if rest == "" then Print("Usage: /br ignore <name> or <name-realm>  (or right-click a row)"); return end
     if Ignore.Add(rest) then
@@ -3497,6 +4152,12 @@ local function HandleSlash(msg)
   elseif cmd == "ignorelist" or cmd == "ignores" then
     local names = Ignore.Sorted()
     Print(#names == 0 and "Ignore list is empty." or ("Ignored: " .. table.concat(names, ", ")))
+    local sess = {}
+    for k in pairs(X.session) do sess[#sess + 1] = k end
+    if #sess > 0 then
+      table_sort(sess)
+      Print("Session-only: " .. table.concat(sess, ", "))
+    end
   elseif cmd == "bg" then
     db.pauseInBG = not db.pauseInBG
     Print("Pause in battlegrounds " .. OnOff(db.pauseInBG))
@@ -3554,6 +4215,26 @@ local function HandleSlash(msg)
     end
     db.enabled[key] = not IsOn(key, default)
     Print(key .. " " .. OnOff(db.enabled[key]))
+  elseif cmd == "announce" then
+    X.Announce()
+  elseif cmd == "signore" then
+    if rest == "" then Print("Usage: /br signore <name> (ignore for this session only)"); return end
+    local k = Ignore.Key(rest)
+    if X.session[k] then
+      Print(rest .. " is already ignored for this session.")
+    else
+      X.session[k] = true
+      Print("Ignoring " .. rest .. " for this session only (not saved).")
+    end
+  elseif cmd == "unsignore" then
+    if rest == "" then Print("Usage: /br unsignore <name>"); return end
+    local k = Ignore.Key(rest)
+    if X.session[k] then
+      X.session[k] = nil
+      Print("No longer ignoring " .. rest .. " for this session.")
+    else
+      Print(rest .. " isn't ignored for this session.")
+    end
   elseif cmd == "plates" then
     if SetCVar then
       if InCombatLockdown() then Print("Can't change nameplate settings during combat."); return end
@@ -3581,10 +4262,16 @@ local function HandleSlash(msg)
     if CLASSIC_FEATURES then
       Print("  /br groupcast [on|off|<n>]  - offer group buffs when n+ players need one")
     end
-    Print("  /br sort name|role  - list order (role = tanks & leaders first)")
+    Print("  /br sort name|role|distance  - list order (role = tanks & leaders first)")
+    Print("  /br mana <0-100>  - pause buffing below this mana % (0 = off)")
+    Print("  /br export | import  - copy settings between characters as one string")
+    Print("  /br compact  - half-height rows   /br text <0.8-1.5>  - list text size")
+    Print("  /br charpoint  - per-character window position   /br selftest  - bug-report block")
     Print("  /br ignore <name> | unignore <name> | ignorelist")
     Print("  /br rebuff KEY <sec>  - per-buff rebuff timing (see /br buffs for keys)")
     Print("  /br alertsound droplet|system|none  - new-name alert sound")
+    Print("  /br announce  - post missing buffs to party/raid chat")
+    Print("  /br signore <name> | unsignore <name>  - ignore for this session only")
     Print("  /br bg  - pause in battlegrounds   /br minimap  - toggle minimap button")
     Print("  /br stats  - casts by spell (all-time)")
   end

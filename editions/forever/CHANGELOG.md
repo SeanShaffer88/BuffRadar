@@ -2,6 +2,54 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.4.0 — 2026-10-25 — Forever edition
+
+The same twenty enhancements as retail 1.4.0, from the shared
+source:
+
+- **Rezzed players jump the queue.** Someone who just came back from the
+  dead has lost every buff; their row moves to the top (below yours) with
+  a *recently rezzed* marker for a minute.
+- **Coverage line.** While grouped, a line under the list shows how many
+  members are fully buffed plus per-buff coverage ("12/15 fully buffed ·
+  Fortitude 14/15 ...") — it doubles as progress while you work a fresh group.
+- **Expired-buff marker and time left.** A buff that disappears outright
+  (expired, dispelled, death) flags its row *a buff just expired* for a
+  few seconds; a buff inside its rebuff window shows *~4m left* /
+  *~20s left* on the row.
+- **Session-only ignore.** Shift-right-click a row (or `/br signore
+  <name>`) to ignore someone until you log out; nothing is saved.
+  `/br unsignore <name>` undoes it.
+- **`/br announce`** posts the group's missing buffs to party/raid chat,
+  and a ready check now prints a local summary of who is missing what.
+- **Low-mana pause** (`/br mana <0-100>`): above 0, listing pauses with
+  a *Low mana* status while your mana is under that percentage.
+- **Distance sort** (`/br sort distance`, also the Settings sort
+  button): nearest first — in cast range, then in group range, then
+  everyone else.
+- **Per-spec profiles** (uses the client's specialization API where it has one; clients without it are unaffected): buff toggles and rebuff timings are
+  remembered per specialization and swap automatically on a spec change.
+- **Settings export / import** (`/br export`, `/br import`): copy nearly
+  all settings between characters as one string.
+- **Compact rows** (Settings > Window, or `/br compact`): half-height
+  rows without portraits. List text size is separate from window scale
+  (`/br text <0.8-1.5>`).
+- **Per-character window position** (Settings > Window, or
+  `/br charpoint`).
+- **Post-combat flash:** when combat ends with buffs still missing, the
+  window border pulses once.
+- **`/br selftest`** prints one paste-able block for bug reports.
+- **Settings-window translation:** tab titles and the main checkboxes
+  now use the translation table; German covers all 44 strings.
+- Internals: scattered state consolidated into one table (the file sits
+  at 184 of Lua 5.1's 200 top-level locals, peak function 45 of 60
+  upvalues), SavedVariables migration from every old layout is now
+  covered by the trial run, and the trial run checks all of the above
+  (128–129 steps in each of six fake-client setups). Settings dbVersion
+  is now 6; old saves migrate automatically.
+- **Not yet verified in game.** 1.4.0 has passed the full offline check
+  suite only; the in-game check is still owed.
+
 ## 1.3.2 — 2026-10-23 — Forever edition
 
 Built from the same source as retail 1.3.2: BuffRadar now picks the

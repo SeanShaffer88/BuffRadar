@@ -1,13 +1,31 @@
 # BuffRadar — Features (Forever edition)
 
-The full feature list for BuffRadar 1.3.2 (Forever edition) for
+The full feature list for BuffRadar 1.4.0 (Forever edition) for
 WoW: Forever (Interface 16001). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
 Prepared 2026-10-24 from the shipped 1.3.2 Forever README and
-CHANGELOG. Since 1.3.2 both editions are built from one source —
+CHANGELOG; updated 2026-10-25 for 1.4.0. Since 1.3.2 both editions are built from one source —
 the addon picks the Forever buff set when it loads on the Forever
 client — and the Forever buff set itself is unchanged from 1.2.4.
+
+## New in 1.4.0
+
+- **Rezzed players jump the queue** (below you) with a *recently rezzed*
+  marker — they have lost every buff.
+- **Coverage line** while grouped: members fully buffed plus per-buff
+  coverage; doubles as buffing progress.
+- **Row markers:** *a buff just expired* for buffs that vanish outright,
+  *~4m left* / *~20s left* inside the rebuff window.
+- **Session-only ignore** (Shift-right-click or `/br signore`), **`/br
+  announce`** to party/raid chat, and a local ready-check summary.
+- **Low-mana pause** (`/br mana <0-100>`), **distance sort**, **per-spec
+  profiles** for toggles and rebuff timings (where the client exposes specializations).
+- **Settings export/import** as one string, **compact rows**, separate
+  **list text size**, **per-character window position**, a **post-combat
+  border flash**, and **`/br selftest`** for bug reports.
+- Settings-window tabs and main checkboxes are translatable now;
+  German covers all 44 strings.
 
 ## The list
 
@@ -140,7 +158,7 @@ stays hidden on those characters.
 
 - 1.2.2 and earlier were confirmed working live by SEAN on
   2026-10-20. 1.2.4 (the TOPLEFT anchoring fix) was built but
-  unverified in game, and **1.3.2 — the unified-source build — is
-  likewise built but UNVERIFIED in game**. The Retail edition
-  (1.3.2, Interface 120105) is a separate zip from the same source
-  with its own feature list.
+  unverified in game, and **1.3.2 — the unified-source build — and
+  1.4.0 are likewise built but UNVERIFIED in game**. The Retail
+  edition (1.4.0, Interface 120105) is a separate zip from the same
+  source with its own feature list.

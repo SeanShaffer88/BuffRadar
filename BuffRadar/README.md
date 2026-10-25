@@ -9,7 +9,7 @@ buffs — with their portrait, class-colored name and icons of what they still n
 Click a name to buff them. Press one key (or one macro) to buff the next person.
 You always come first.
 
-Version 1.3.2 (Retail edition) · Interface 120105 · For retail patch 12.1.5 (Midnight) · License: GPLv3
+Version 1.4.0 (Retail edition) · Interface 120105 · For retail patch 12.1.5 (Midnight) · License: GPLv3
 
 This is the retail edition of BuffRadar. A Forever edition (interface 16001) exists
 for that client; both are built from the same source and share the same settings
@@ -44,6 +44,26 @@ layout — only the `.toc` differs, and BuffRadar picks the right buff set when 
   see who's coming into range. **Right-click a row** to ignore a player who doesn't
   want buffs.
 - **Role ordering** option: you, tanks (by group role) and leaders first.
+- **Rezzed players first** (after you): someone who just came back from the dead
+  has lost every buff, so their row jumps up with a *recently rezzed* marker.
+- **Row markers:** *a buff just expired* when a buff vanishes outright, and
+  *~4m left* on a buff inside its rebuff window.
+- **Coverage line** while grouped: how many members are fully buffed, and
+  per-buff coverage — also your progress while buffing a fresh group.
+- **Session-only ignore:** Shift-right-click a row to ignore someone until
+  you log out (nothing saved).
+- **`/br announce`** posts the group's missing buffs to party/raid chat, and
+  a ready check prints you a local summary.
+- **Low-mana pause** (optional): listing pauses while your mana is under a
+  percentage you set.
+- **Distance ordering** option: nearest first.
+- **Per-spec profiles:** buff toggles and rebuff timings follow your spec.
+- **Settings export/import:** copy nearly all settings between characters
+  as one string (`/br export`, `/br import`).
+- **Compact rows** without portraits, a separate list text size, and a
+  per-character window position option.
+- **Post-combat flash:** the border pulses once when combat ends with
+  buffs still missing.
 - **Stays out of the way:** pauses in major cities (and, optionally, in
   battlegrounds), can show only while you're in a party or raid, and has a
   show/hide keybind, a minimap button and an addon-compartment entry.
@@ -128,9 +148,15 @@ Hover over a name to see exactly what will be cast and what they still need.
 | `/br cities` | Pause scanning in major cities (on by default) |
 | `/br count` · `/br resetcount` | Show or reset the cast counter |
 | `/br rebuff <seconds>` · `/br rebuff KEY <seconds>` | Re-offer a buff when less than this much time is left (default 30; per-buff override by key; also on Settings > Buffs) |
-| `/br sort name\|role` | List order: name, or tanks & leaders first |
+| `/br sort name\|role\|distance` | List order: name, tanks & leaders first, or nearest first |
 | `/br ignore <name>` · `/br unignore <name>` · `/br ignorelist` | Manage the ignore list (or right-click a row; remove names on the Ignore & Stats tab). Capitals don't matter; `Name-Realm` means that one player, a plain `Name` means that name on every realm |
 | `/br alertsound droplet\|system\|none` | Choose the new-name alert sound |
+| `/br announce` | Post the group's missing buffs to party/raid chat |
+| `/br signore <name>` · `/br unsignore <name>` | Ignore a player for this session only (or Shift-right-click a row) |
+| `/br mana <0-100>` | Pause listing below this mana % (0 = off) |
+| `/br export` · `/br import` | Copy settings between characters as one string |
+| `/br compact` · `/br text <0.8-1.5>` · `/br charpoint` | Half-height rows · list text size · per-character window position |
+| `/br selftest` | Print a paste-able block for bug reports |
 | `/br bg` · `/br minimap` · `/br stats` | Pause in battlegrounds · toggle minimap button · casts by spell |
 | `/br pvp` | Include or skip PvP-flagged players when you aren't flagged (skipped by default) |
 | `/br lock` · `/br scale <n>` · `/br reset` | Lock (moving and resizing), set any scale from 0.5 to 2, or reset the window's position |
@@ -172,7 +198,8 @@ Hover over a name to see exactly what will be cast and what they still need.
   tank, BuffRadar doesn't offer it to anyone else — until it's about to run out, when
   it's offered to that same tank again.
 - **Languages:** the main window, its tooltips and the minimap tooltips are in German
-  on German clients (`Locales\deDE.lua`); the settings window is English for now.
+  on German clients (`Locales\deDE.lua`); since 1.4.0 the settings window's tabs
+  and main checkboxes are translated too (the rest is English for now).
   To add a language, copy that file — it explains how at the top.
 
 ## Credits

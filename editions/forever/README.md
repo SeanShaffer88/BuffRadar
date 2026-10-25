@@ -9,7 +9,7 @@ buffs — with their portrait, class-colored name and icons of what they still n
 Click a name to buff them. Press one key (or one macro) to buff the next person.
 You always come first.
 
-Version 1.3.2 · Interface 16001 · License: GPLv3 (1.2.4 was last verified on Forever beta build 1.60.1.70450)
+Version 1.4.0 · Interface 16001 · License: GPLv3 (1.2.4 was last verified on Forever beta build 1.60.1.70450)
 
 The Forever and retail editions are built from the same source; this zip's `.toc`
 targets the Forever client, and BuffRadar picks the Forever buff set when it loads.
@@ -45,6 +45,25 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
   see who's coming into range. **Right-click a row** to ignore a player who doesn't
   want buffs.
 - **Role ordering** option: you, tanks and leaders first.
+- **Rezzed players first** (after you): someone who just came back from the dead
+  has lost every buff, so their row jumps up with a *recently rezzed* marker.
+- **Row markers:** *a buff just expired* when a buff vanishes outright, and
+  *~4m left* on a buff inside its rebuff window.
+- **Coverage line** while grouped: how many members are fully buffed, and
+  per-buff coverage — also your progress while buffing a fresh group.
+- **Session-only ignore:** Shift-right-click a row to ignore someone until
+  you log out (nothing saved).
+- **`/br announce`** posts the group's missing buffs to party/raid chat, and
+  a ready check prints you a local summary.
+- **Low-mana pause** (optional): listing pauses while your mana is under a
+  percentage you set.
+- **Distance ordering** option: nearest first.
+- **Settings export/import:** copy nearly all settings between characters
+  as one string (`/br export`, `/br import`).
+- **Compact rows** without portraits, a separate list text size, and a
+  per-character window position option.
+- **Post-combat flash:** the border pulses once when combat ends with
+  buffs still missing.
 - **Stays out of the way:** pauses in major cities (and, optionally, in
   battlegrounds), can show only while you're in a party or raid, and has a
   show/hide keybind, a minimap button and an addon-compartment entry.
@@ -124,9 +143,15 @@ Hover over a name to see exactly what will be cast and what they still need.
 | `/br count` · `/br resetcount` | Show or reset the cast counter |
 | `/br rebuff <seconds>` · `/br rebuff KEY <seconds>` | Re-offer a buff when less than this much time is left (default 30; per-buff override by key; also on Settings > Buffs) |
 | `/br groupcast [on\|off\|<n>]` | Offer group buff versions when n+ group members need the same buff |
-| `/br sort name\|role` | List order: name, or tanks & leaders first |
+| `/br sort name\|role\|distance` | List order: name, tanks & leaders first, or nearest first |
 | `/br ignore <name>` · `/br unignore <name>` · `/br ignorelist` | Manage the ignore list (or right-click a row; remove names on the Ignore & Stats tab). Capitals don't matter; `Name-Realm` means that one player, a plain `Name` means that name on every realm |
 | `/br alertsound droplet\|system\|none` | Choose the new-name alert sound |
+| `/br announce` | Post the group's missing buffs to party/raid chat |
+| `/br signore <name>` · `/br unsignore <name>` | Ignore a player for this session only (or Shift-right-click a row) |
+| `/br mana <0-100>` | Pause listing below this mana % (0 = off) |
+| `/br export` · `/br import` | Copy settings between characters as one string |
+| `/br compact` · `/br text <0.8-1.5>` · `/br charpoint` | Half-height rows · list text size · per-character window position |
+| `/br selftest` | Print a paste-able block for bug reports |
 | `/br bg` · `/br minimap` · `/br stats` | Pause in battlegrounds · toggle minimap button · casts by spell |
 | `/br pvp` | Include or skip PvP-flagged players when you aren't flagged (skipped by default) |
 | `/br lock` · `/br scale <n>` · `/br reset` | Lock (moving and resizing), set any scale from 0.5 to 2, or reset the window's position |

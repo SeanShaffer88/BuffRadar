@@ -62,6 +62,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
       return fs
     end
     function methods.SetTextColor(self, r, g, b) self.color = { r, g, b } end
+    function methods.SetBackdropBorderColor(self, r, g, b, a) self.borderColor = { r, g, b, a } end
     function methods.RegisterEvent(self, ev) self.events[ev] = true end
     function methods.UnregisterEvent(self, ev) self.events[ev] = nil end
     -- DropdownButton (modern menu) API
@@ -135,7 +136,9 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
   env.GetNormalizedRealmName = function() return "TestRealm" end
   env.UnitLevel = function() return 80 end
   env.UnitIsPlayer = over("UnitIsPlayer", function(u) return u == "player" end)
-  env.UnitIsDeadOrGhost = function() return false end
+  env.UnitIsDeadOrGhost = over("UnitIsDeadOrGhost", function() return false end)
+  env.__sent = {}
+  env.SendChatMessage = function(msg, chattype) env.__sent[#env.__sent + 1] = { msg = msg, chattype = chattype } end
   env.UnitIsConnected = function() return true end
   env.UnitCanAssist = function() return true end
   env.UnitIsPVP = function() return false end
