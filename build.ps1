@@ -1,8 +1,10 @@
 # Builds both BuffRadar editions from one source.
 #
 #   BuffRadar\            shared addon files (BuffRadar.lua, Bindings.xml, LICENSE,
-#                         Media\) plus the retail edition's .toc / README / CHANGELOG
-#   editions\forever\     the Forever edition's .toc / README / CHANGELOG
+#                         Media\) plus the retail edition's .toc / README /
+#                         CHANGELOG / DESCRIPTION / FEATURES
+#   editions\forever\     the Forever edition's .toc / README / CHANGELOG /
+#                         DESCRIPTION / FEATURES
 #
 # Output: dist\BuffRadar-<version>-Retail.zip and dist\BuffRadar-<version>-Forever.zip,
 # each holding a BuffRadar\ folder ready for Interface\AddOns. The version comes
@@ -20,7 +22,7 @@ $editions = @(
   @{ Name = 'Retail';  Docs = $src },
   @{ Name = 'Forever'; Docs = (Join-Path $here 'editions\forever') }
 )
-$docFiles = 'BuffRadar.toc', 'README.md', 'CHANGELOG.md'
+$docFiles = 'BuffRadar.toc', 'README.md', 'CHANGELOG.md', 'DESCRIPTION.md', 'FEATURES.md'
 
 foreach ($ed in $editions) {
   $toc = Get-Content (Join-Path $ed.Docs 'BuffRadar.toc')
