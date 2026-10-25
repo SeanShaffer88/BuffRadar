@@ -17,6 +17,14 @@ BuffRadar picks the right buff set when it loads. The full player guide — feat
 supported buffs, commands — is in [BuffRadar/README.md](BuffRadar/README.md);
 what changed is in [BuffRadar/CHANGELOG.md](BuffRadar/CHANGELOG.md).
 
+## TL;DR
+
+BuffRadar is a World of Warcraft addon that keeps a small list on your screen
+of everyone nearby who still needs one of your buffs — like a to-do list that
+ticks people off as you buff them. Click a name to cast. It comes in two
+editions (Retail and Forever) built from one source, it's free, and it works
+entirely inside the game: no accounts, no network, nothing leaves your PC.
+
 ## Layout
 
 | Path | What it is |
@@ -26,6 +34,10 @@ what changed is in [BuffRadar/CHANGELOG.md](BuffRadar/CHANGELOG.md).
 | `build.ps1` | Builds `dist/BuffRadar-<version>-Retail.zip` and `-Forever.zip` |
 | `tools/` | Automated checks — see [tools/README.md](tools/README.md) |
 | `.luacheckrc` | luacheck settings used by the checks |
+| `AGENTS.md` | Project rule sheet (prompt in force, frozen foundation, gate) |
+| `QUALITY.md` | Quality scorecard, scored from evidence |
+| `docs/` | `PARITY.md` (capability matrix) and `DECISIONS.md` (decision log) |
+| `SECURITY.md` | How to report a security problem, privately |
 
 ## Making a release
 

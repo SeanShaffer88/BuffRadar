@@ -9,6 +9,15 @@ buffs — with their portrait, class-colored name and icons of what they still n
 Click a name to buff them. Press one key (or one macro) to buff the next person.
 You always come first.
 
+## TL;DR
+
+Think of it as a to-do list for buffing: BuffRadar watches your group and
+shows you exactly who still needs one of your buffs, with a picture of what
+they're missing. Click their name and the buff is cast — most of the time one
+click covers the whole group. When everyone is buffed, the list empties and
+gets out of your way. It costs nothing, asks for nothing, and never talks to
+anything outside the game.
+
 Version 1.6.0 (Retail edition) · Interface 120105 · For retail patch 12.1.5 (Midnight) · License: GPLv3
 
 This is the retail edition of BuffRadar. A Forever edition (interface 16001) exists
