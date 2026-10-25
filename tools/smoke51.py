@@ -557,7 +557,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 8, "dbVersion not migrated to 8: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 9, "dbVersion not migrated to 9: " .. tostring(d.dbVersion))
   assert(d.scale == 2, "scale not clamped: " .. tostring(d.scale))
   assert(d.width == 210, "mistyped width not repaired: " .. tostring(d.width))
   assert(d.bogusKey == nil, "unknown key survived sanitizing")
@@ -574,7 +574,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 8 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 9 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
 end)
@@ -1111,6 +1111,275 @@ step("buddy split shares the list between users (1.6.0)", function()
   db.buddySplit = false
   cleanup()
 end)
+step("cover-me handoff: duties pass while a buddy is away (1.7.0)", function()
+  local cleanup = partyOfTwo("C")
+  local db = env.BuffRadarDB
+  db.sync = true
+  env.IsSpellInRange = function() return 1 end
+  env.UnitIsGroupLeader = function(u) return u == "party1" end
+  local key = env.__forever and "FORTITUDE" or "SKYFURY"
+  -- Aaron (the leader) takes the buff; on my list it sinks as theirs.
+  fire("CHAT_MSG_ADDON", "BuffRadar", "ASSIGN;" .. key .. ";Aaron", "PARTY", "Aaron-TestRealm")
+  refresh()
+  local function aaronRow()
+    for i = 1, 15 do
+      local r = env["BuffRadarRow" .. i]
+      if r and r.entry and r.entry.unit == "party1" then return r end
+    end
+  end
+  local r0 = aaronRow()
+  assert(r0 and r0.entry.theirs and not r0.entry.mine, "baseline: assignment not theirs")
+  -- Aaron goes down: his assignment becomes mine (the handoff).
+  fire("CHAT_MSG_ADDON", "BuffRadar", "COVER;Aaron-TestRealm", "PARTY", "Aaron-TestRealm")
+  refresh()
+  local r1 = aaronRow()
+  assert(r1 and r1.entry.mine, "covered assignment did not hand off")
+  -- He is back: the assignment returns to him.
+  fire("CHAT_MSG_ADDON", "BuffRadar", "BACK;Aaron-TestRealm", "PARTY", "Aaron-TestRealm")
+  refresh()
+  local r2 = aaronRow()
+  assert(r2 and r2.entry.theirs and not r2.entry.mine, "returned assignment not restored")
+  -- My own death announces a cover; standing back up announces my return.
+  local sent0 = #env.__addonSent
+  env.__over.UnitIsDeadOrGhost = function(u) return u == "player" end
+  fire("PLAYER_DEAD")
+  local coverMsg
+  for i = sent0 + 1, #env.__addonSent do
+    if env.__addonSent[i].msg:find("COVER;", 1, true) then coverMsg = true end
+  end
+  assert(coverMsg, "my death did not announce a cover")
+  env.__over.UnitIsDeadOrGhost = function() return false end
+  fire("PLAYER_ALIVE")
+  local backMsg
+  for i = sent0 + 1, #env.__addonSent do
+    if env.__addonSent[i].msg:find("BACK;", 1, true) then backMsg = true end
+  end
+  assert(backMsg, "my return was not announced")
+  env.__over.UnitIsDeadOrGhost = nil
+  env.UnitIsGroupLeader = nil
+  cleanup()
+end)
+
+step("ready-check summary auto-posts for leaders (1.7.0)", function()
+  local cleanup = partyOfTwo("R")
+  env.BuffRadarDB.readyPost = true
+  env.UnitIsGroupLeader = function(u) return u == "player" end
+  local s0 = #env.__sent
+  fire("READY_CHECK")
+  local posted
+  for i = s0 + 1, #env.__sent do
+    if env.__sent[i].msg:find("BuffRadar ready check:", 1, true) then posted = env.__sent[i] end
+  end
+  assert(posted, "ready-check summary not posted to group chat")
+  assert(posted.chattype == "PARTY", "posted to wrong channel: " .. tostring(posted.chattype))
+  env.UnitIsGroupLeader = nil
+  cleanup()
+end)
+
+step("coverage line lists the BuffRadar users on duty (1.7.0)", function()
+  local cleanup = partyOfTwo("D")
+  env.BuffRadarDB.sync = true
+  env.IsSpellInRange = function() return 1 end
+  -- Clean peer table first (earlier steps left peers behind).
+  env.IsInGroup = function() return false end
+  fire("GROUP_ROSTER_UPDATE")
+  env.IsInGroup = function() return true end
+  fire("CHAT_MSG_ADDON", "BuffRadar", "HELLO;Me-TestRealm", "PARTY", "Aaron-TestRealm")
+  refresh()
+  local cover
+  for _, fs in ipairs(env.__fontstrings) do
+    if type(fs.text) == "string" and fs.text:find("Radar: Me, Aaron", 1, true) then cover = fs.text end
+  end
+  assert(cover, "coverage line has no roster segment")
+  cleanup()
+end)
+
+step("pinned player stays on top of the list (1.7.0)", function()
+  -- twoTanks() provides two nameplate players, Tank1 and Tank2.
+  local cleanup = twoTanks()
+  local db = env.BuffRadarDB
+  db.sortMode = "name"
+  env.IsSpellInRange = function() return 1 end
+  local function order()
+    local out = {}
+    for i = 1, 15 do
+      local r = env["BuffRadarRow" .. i]
+      if r and r.entry and r.shown
+         and (r.entry.unit == "player" or r.entry.unit == "nameplate1" or r.entry.unit == "nameplate2") then
+        out[#out + 1] = r.entry.unit
+      end
+    end
+    return table.concat(out, ",")
+  end
+  refresh()
+  assert(order() == "player,nameplate1,nameplate2", "baseline order: " .. order())
+  env.SlashCmdList.BUFFRADAR("pin Tank2")
+  refresh()
+  assert(order() == "player,nameplate2,nameplate1", "pinned order: " .. order())
+  local pinFlag = false
+  for i = 1, 15 do
+    local r = env["BuffRadarRow" .. i]
+    if r and r.entry and r.entry.unit == "nameplate2" then pinFlag = r.entry.pinned end
+  end
+  assert(pinFlag, "Tank2's entry is not flagged pinned")
+  env.SlashCmdList.BUFFRADAR("pin none")
+  refresh()
+  assert(order() == "player,nameplate1,nameplate2", "unpinned order: " .. order())
+  assert(db.pinned == "", "pin not cleared")
+  cleanup()
+end)
+
+step("row tooltip shows remaining times (1.7.0)", function()
+  local db = env.BuffRadarDB
+  -- Aaron HAS my main buff (10 minutes left) but misses a custom one,
+  -- so his row exists and the tooltip can show both halves.
+  local main = env.__forever and "Power Word: Fortitude" or "Skyfury"
+  local wasKnown = env.IsPlayerSpell
+  env.IsPlayerSpell = function(id) return id == 12345 or wasKnown(id) end
+  env.GetSpellInfo = function(id) if id == 12345 then return "Test Blessing" end end
+  env.SlashCmdList.BUFFRADAR("custom add 12345")
+  local cleanup = partyOfTwo("T")
+  env.IsSpellInRange = function() return 1 end
+  -- Aaron has every buff of mine (10 minutes left) except the custom
+  -- one: whichever name the scan asks by, the answer is the same table.
+  -- (Set after partyOfTwo — it clears aura hooks on purpose.)
+  env.__over.Aura = function(u, name)
+    if u == "party1" and name ~= "Test Blessing" then
+      return { expirationTime = env.GetTime() + 600 }
+    end
+  end
+  refresh()
+  local row
+  for i = 1, 15 do
+    local r = env["BuffRadarRow" .. i]
+    if r and r.entry and r.entry.unit == "party1" then row = r end
+  end
+  assert(row, "Aaron has no row")
+  local lines = {}
+  local realTip = env.GameTooltip
+  env.GameTooltip = { SetOwner = function() end, Show = function() end,
+    SetUnit = function() end, Hide = function() end,
+    AddLine = function(_, t) lines[#lines + 1] = t end }
+  row.scripts.OnEnter(row)
+  env.GameTooltip = realTip
+  local castLine, haveLine
+  for _, t in ipairs(lines) do
+    if type(t) == "string" and t:find("Test Blessing", 1, true) then castLine = t end
+    if type(t) == "string" and t:find(main, 1, true) and t:find("—", 1, true) then haveLine = t end
+  end
+  assert(castLine, "tooltip does not name the missing custom buff")
+  assert(haveLine, "tooltip lacks the remaining-time line for " .. main)
+  env.__over.Aura = nil
+  env.SlashCmdList.BUFFRADAR("custom remove 12345")
+  env.IsPlayerSpell = wasKnown
+  env.GetSpellInfo = nil
+  cleanup()
+end)
+
+step("weapon enchant watch flags your own row (1.7.0)", function()
+  local cleanup = partyOfTwo("W")
+  local db = env.BuffRadarDB
+  db.weaponWatch = true
+  env.IsSpellInRange = function() return 1 end
+  env.GetWeaponEnchantInfo = function() return false, 0, 0, 0, false, 0, 0, 0 end
+  env.GetInventoryItemID = function() return 12345 end
+  refresh()
+  local function selfEntry()
+    for i = 1, 15 do
+      local r = env["BuffRadarRow" .. i]
+      if r and r.entry and r.entry.isSelf then return r.entry end
+    end
+  end
+  local e1 = selfEntry()
+  assert(e1 and e1.weapon, "self row not flagged for a missing weapon enchant")
+  -- Both hands enchanted: the flag clears.
+  env.GetWeaponEnchantInfo = function() return true, 900, 0, 1, true, 900, 0, 2 end
+  refresh()
+  local e2 = selfEntry()
+  assert(e2 and not e2.weapon, "weapon flag stuck after enchanting")
+  env.GetWeaponEnchantInfo = nil
+  env.GetInventoryItemID = nil
+  cleanup()
+end)
+
+step("instance-entry reminder fires once per entry (1.7.0)", function()
+  local cleanup = partyOfTwo("I")
+  env.IsSpellInRange = function() return 1 end
+  -- Start provably outside, then step in.
+  env.IsInInstance = function() return false, "none" end
+  fire("ZONE_CHANGED_NEW_AREA")
+  local n0 = #chat
+  env.IsInInstance = function() return true, "party" end
+  fire("ZONE_CHANGED_NEW_AREA")
+  assert(chatSince(n0, "Entered the dungeon with buffs missing"), "no entry reminder")
+  local n1 = #chat
+  fire("ZONE_CHANGED_NEW_AREA")
+  assert(not chatSince(n1, "Entered the dungeon"), "entry reminder repeated while inside")
+  env.IsInInstance = function() return false, "none" end
+  fire("ZONE_CHANGED_NEW_AREA")
+  cleanup()
+end)
+
+step("group expiry warning counts holders inside five minutes (1.7.0)", function()
+  local cleanup = partyOfTwo("E")
+  env.IsSpellInRange = function() return 1 end
+  -- Everyone HAS the main buff, but only about four minutes of it.
+  local main = env.__forever and "Power Word: Fortitude" or "Skyfury"
+  env.__over.Aura = function(u, name)
+    if name == main then return { expirationTime = env.GetTime() + 240 } end
+  end
+  refresh()
+  local line
+  for _, fs in ipairs(env.__fontstrings) do
+    if type(fs.text) == "string" and fs.text:find("<5m on 3/", 1, true) then line = fs.text end
+  end
+  assert(line, "coverage line has no expiry warning")
+  env.__over.Aura = nil
+  cleanup()
+end)
+
+step("cast history records your casts (1.7.0)", function()
+  local cleanup = partyOfTwo("H")
+  local db = env.BuffRadarDB
+  db.history = {}
+  env.IsSpellInRange = function() return 1 end
+  refresh()
+  local row
+  for i = 1, 15 do
+    local r = env["BuffRadarRow" .. i]
+    if r and r.entry and r.entry.unit == "party1" then row = r end
+  end
+  assert(row, "Aaron's row not found")
+  row.scripts.PostClick(row, "LeftButton")  -- primes the pending cast
+  local main = env.__forever and "Power Word: Fortitude" or "Skyfury"
+  env.C_Spell = { GetSpellName = function() return main end }
+  fire("UNIT_SPELLCAST_SUCCEEDED", "player", "castline", 4242)
+  env.C_Spell = nil
+  assert(#db.history == 1, "cast not recorded in history")
+  assert(db.history[1].spell == main, "history spell: " .. tostring(db.history[1].spell))
+  assert(db.history[1].who == "Aaron", "history target: " .. tostring(db.history[1].who))
+  env.SlashCmdList.BUFFRADAR("resetcount")
+  assert(#db.history == 0, "history not cleared by resetcount")
+  cleanup()
+end)
+
+step("scan throttle halves the big-group rescan (1.7.0)", function()
+  local db = env.BuffRadarDB
+  env.SlashCmdList.BUFFRADAR("throttle")
+  assert(db.scanThrottle == true, "throttle setting not stored")
+  -- A 25-player raid: ticks must not error, refreshes still land.
+  env.IsInRaid = function() return true end
+  env.IsInGroup = function() return true end
+  env.GetNumGroupMembers = function() return 25 end
+  timerTick(); timerTick(); timerTick()
+  refresh()
+  env.IsInRaid = function() return false end
+  env.IsInGroup = function() return false end
+  env.GetNumGroupMembers = nil
+  env.SlashCmdList.BUFFRADAR("throttle")
+  assert(db.scanThrottle == false, "throttle not toggled off")
+end)
+
 step("coverage uptime scores the run (1.6.0)", function()
   local cleanup = partyOfTwo("V")
   env.IsSpellInRange = function() return 1 end
@@ -1270,9 +1539,10 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 8"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 9"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
   assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
+  assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")
   assert(chatSince(n, "buff SKYFURY") or chatSince(n, "buff FORTITUDE"), "self-test lists no buffs")
 end)
 step("German client uses the translation", function()

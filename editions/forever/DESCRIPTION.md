@@ -64,6 +64,6 @@ BuffRadar is by Malikor, GPLv3. Casting approach and buff coverage
 were informed by BuffYou by datdata (MIT). Since 1.3.2 the Forever
 and Retail editions are built from the same source.
 
-**Status note:** 1.6.0 is built but not yet verified in game (1.5.0,
-1.4.0 and 1.3.2 are likewise unverified); 1.2.2
+**Status note:** 1.7.0 is built but not yet verified in game (1.6.0,
+1.5.0, 1.4.0 and 1.3.2 are likewise unverified); 1.2.2
 was the last version confirmed live (by SEAN, 2026-10-20).

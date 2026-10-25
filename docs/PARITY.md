@@ -1,24 +1,24 @@
 # Parity / Capability Matrix — BuffRadar
 
 Updated: 2026-10-25 · Overall readiness: the core product is complete and
-shipped at 1.6.0; the approved 50-item enhancement program stands at 10 of 50
-shipped, 10 planned for 1.7.0, 3 under investigation, 26 deferred to later
-batches. Every "Complete" below names its test evidence. Nothing here is
-scored from in-game behaviour — both editions are **Unverified in game**
-since 1.3.2 (see the Gap column and `QUALITY.md`).
+shipped at 1.7.0; the approved 50-item enhancement program stands at 20 of 50
+shipped (1.6.0 + 1.7.0), 1 resolved as a duplicate, 3 under investigation,
+26 deferred to later batches. Every "Complete" below names its test
+evidence. Nothing here is scored from in-game behaviour — both editions are
+**Unverified in game** since 1.3.2 (see the Gap column and `QUALITY.md`).
 
 | Area | Target | State | Evidence (test / corpus) | Gap |
 |---|---|---|---|---|
 | Core list & casting | Missing-buff list for group + nearby players; click / keybind / macro casting; you first | Complete | Trial run: list building, click-cast paths (target/id/macro/rank), BuffRadarNextButton + macro sync, in all 6 setups | In-game click-cast on both clients Unverified |
 | Retail buff set | All 13 classes, patch 12.1.5 set | Complete | Edition + per-class steps in the Retail setups | Unverified in a live retail client |
 | Forever buff set | Classic set incl. blessings, ranks, group variants | Complete | Forever setups incl. rank-table and Kings-first steps | Unverified in a live Forever client since 1.2.2 |
-| Coordination (1.5.0–1.6.0) | Cast sync, chat requests, assignments, buddy split, blessing plan, peer hello | Complete (batch 1) | Trial steps: sync handled-marks, request tags, leader-trust assignment sink/float, buddy hash split, blessing plan set/broadcast/receive — 6 setups | #3 cover-me handoff, #7 coverage roster line → 1.7.0. All multi-user behaviour Unverified in game (needs a second BuffRadar user) |
-| List & window | Sorts (name/role/distance/need), filters, strip, chips, pill, idle fade, rescue | Complete | Trial steps per feature, incl. pill show/hide/peek and off-screen rescue via `/br resetpos` | #9 search, #12 pin, #13 two-column, #14 grow-up deferred; window load-rescue branch itself is not smoke-covered (harness limit) |
-| Rows & interaction | Tags (expired/rezzed/asked/handled/queued/assigned/buddy), portraits, compact rows, text scale | Complete | Tag-priority steps incl. the 1.6.0 queue tag | #20 tooltips → 1.7.0; #10 icons, #11 duration bars, #21 markers, #22 range text deferred |
-| Coverage expansion | Built-in buffs + consumables + custom spells + uptime | Complete (batch 1) | Consumable tally, custom add/remove/list, uptime scoring steps | #26 weapon reminder → 1.7.0 (scoped: shaman/rogue weapon enchants); #27 pets, #29 aura/form, #30 per-buff context, #31 world buffs, #32 resistance context deferred |
-| Alerts | New-name alert, drop alert, post-combat flash | Complete | Alert + flash steps | #34 instance-entry and #35 group-expiry → 1.7.0; #33, #36, #37, #38 deferred |
-| Stats & reporting | Cast stats, announce, ready-check report, join digest, selftest | Complete | Announce/ready/digest/selftest steps | #5 auto-post ready report and #41 cast history → 1.7.0; #40, #42, #43, #44 deferred |
-| Settings & QoL | Tabs UI, export/import, named profiles, per-spec profiles, presets, auto profiles | Complete (batch 1) | Settings-fire-every-control step, export/import round-trip, profile + preset + auto-profile steps | #46 settings search, #48 share-one-profile, #50 setup wizard deferred; #49 scan throttle → 1.7.0 |
+| Coordination (1.5.0–1.7.0) | Cast sync, chat requests, assignments, buddy split, blessing plan, peer hello, cover-me handoff, coverage roster | Complete (batches 1–2) | Trial steps: sync handled-marks, request tags, leader-trust assignment sink/float, buddy hash split, blessing plan set/broadcast/receive, cover handoff + return, roster line — 6 setups | All multi-user behaviour Unverified in game (needs a second BuffRadar user) |
+| List & window | Sorts (name/role/distance/need), filters, strip, chips, pill, idle fade, rescue, pin | Complete | Trial steps per feature, incl. pill show/hide/peek, off-screen rescue via `/br resetpos`, pin order under name sort | #9 search, #13 two-column, #14 grow-up deferred; window load-rescue branch itself is not smoke-covered (harness limit) |
+| Rows & interaction | Tags (expired/rezzed/asked/handled/queued/assigned/buddy/pinned/weapon), portraits, compact rows, text scale, tooltips | Complete | Tag-priority steps incl. queue + pinned + weapon tags; tooltip step (recorder GameTooltip: missing + remaining-time lines) | #10 icons, #11 duration bars, #21 markers, #22 range text deferred |
+| Coverage expansion | Built-in buffs + consumables + custom spells + uptime + weapon watch | Complete (batches 1–2) | Consumable tally, custom add/remove/list, uptime scoring, weapon flag on/off steps | Weapon watch reads temporary weapon enchants only (GetWeaponEnchantInfo); solo with no other row, the reminder waits for a row or a group. #27 pets, #29 aura/form, #30 per-buff context, #31 world buffs, #32 resistance context deferred |
+| Alerts | New-name alert, drop alert, post-combat flash, instance-entry reminder, group expiry warning | Complete | Alert + flash steps; entry reminder fires-once step; expiry tally step (3 holders < 5 min) | #33 under investigation (overlaps new-name alert); #36, #37, #38 deferred |
+| Stats & reporting | Cast stats, cast history, announce, ready-check report + auto-post, join digest, selftest | Complete | Announce/ready/digest/selftest steps; auto-post step (leader posts to PARTY); history record + resetcount-clear step | #40, #42, #43, #44 deferred |
+| Settings & QoL | Tabs UI, export/import, named profiles, per-spec profiles, presets, auto profiles, scan throttle | Complete (batches 1–2) | Settings-fire-every-control step, export/import round-trip, profile + preset + auto-profile steps, throttle toggle + 25-player tick step | #46 settings search, #48 share-one-profile, #50 setup wizard deferred |
 | Settings data safety | Versioned SavedVariables, migrations, corrupt-data repair | Complete | Migration fixture: legacy v2 save → v8, corrupt save replaced, corrupt customSpells/autoProfile repaired | — |
 | Localisation | deDE complete for every user-facing string | Complete | `tools/localecheck.py`: 62/62 strings; German setup runs the full trial run (175 steps) | Other locales: none planned |
 
@@ -29,10 +29,14 @@ since 1.3.2 (see the Gap column and `QUALITY.md`).
   #28 custom spells, #39 coverage uptime, #45 shipped presets, #47 auto
   profiles. **#23 (buff-next keybind) was a duplicate** of the long-shipped
   *Cast next buff* keybind and was replaced by #45 — recorded, not hidden.
-- **Planned for 1.7.0 (10):** #3 cover-me handoff, #5 auto-post ready-check
-  report, #7 coverage roster line, #12 pin a player, #20 row tooltips,
-  #26 weapon buff reminder (scoped), #34 instance-entry reminder, #35 group
-  expiry warning, #41 cast history log, #49 scan throttle.
+- **Shipped in 1.7.0 (10):** #3 cover-me handoff, #5 auto-post ready-check
+  report, #7 coverage roster line, #12 pin a player, #20 row tooltips
+  (**completed, not duplicated** — rows already had tooltips; 1.7.0 added
+  the remaining-times half), #26 weapon buff reminder (temporary weapon
+  enchants), #34 instance-entry reminder, #35 group expiry warning,
+  #41 cast history log, #49 scan throttle. 1.7.0 also fixed a 1.6.0 bug
+  its new tests exposed: assignments/plans set by short name sank on the
+  named player's own list (identity now goes through `X.SameUser`).
 - **Under investigation (3):** #8 pull-timer flash — no verified source for
   pull timers exists in the target clients' documented API; needs in-game
   research before it can be built honestly. #19 modifier clicks — Ctrl/Shift

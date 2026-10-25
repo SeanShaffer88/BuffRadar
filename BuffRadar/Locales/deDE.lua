@@ -42,6 +42,12 @@ BuffRadarLocales.deDE = {
   ["Tag the next row after a cast"] = "Nächste Zeile nach einem Zauber markieren",
   ["Track flasks, food and runes (coverage line)"] = "Fläschchen, Essen und Runen verfolgen (Abdeckungszeile)",
   ["Split the list with other BuffRadar users"] = "Liste mit anderen BuffRadar-Nutzern aufteilen",
+  ["Post the ready-check summary to group chat"] = "Bereitschafts-Zusammenfassung in den Gruppenchat posten",
+  ["pinned"] = "angepinnt",
+  ["weapon enchant missing"] = "Waffenzauber fehlt",
+  ["Watch my weapon enchant"] = "Waffenzauber überwachen",
+  ["Halve the rescan rate in big groups"] = "Aktualisierung in großen Gruppen halbieren",
+  ["Remind me when entering an instance unbuffed"] = "Beim Betreten einer Instanz an fehlende Buffs erinnern",
   ["Low mana -- buffing paused."] = "Wenig Mana -- Buffen pausiert.",
   ["Shift-right-click to ignore for this session only."] =
     "Umschalt-Rechtsklick: nur für diese Sitzung ignorieren.",

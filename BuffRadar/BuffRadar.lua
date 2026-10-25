@@ -317,6 +317,12 @@ local DEFAULTS = {
   queueTag = true,     -- tag the top row "up next" right after a cast lands (1.6.0)
   consumables = false, -- coverage line also tracks flasks, food and runes (1.6.0)
   buddySplit = false,  -- share the list with other BuffRadar users present (1.6.0)
+  readyPost = false,   -- post the ready-check summary to group chat (leader/assistant) (1.7.0)
+  pinned = "",         -- full or short name of the player pinned to the top (1.7.0)
+  weaponWatch = false, -- remind me when my weapon has no temporary enchant (1.7.0)
+  enterFlash = true,   -- print a reminder when entering an instance unbuffed (1.7.0)
+  scanThrottle = false, -- halve the steady rescan rate in groups over 20 (1.7.0)
+  history = {},        -- last 50 casts through BuffRadar: { t, spell, who } (1.7.0)
   autoProfile = {},    -- load a named profile per context: raid/dungeon/pvp/world/solo -> name (1.6.0)
   customSpells = {},   -- extra spell IDs to watch, added with /br custom (1.6.0)
   stats = {},          -- all-time casts per spell name: name -> count
@@ -423,6 +429,18 @@ function SanitizeDB(saved)
           end
         end
         v = clean
+      elseif k == "history" then
+        local clean = {}
+        if v then
+          for _, e in ipairs(v) do
+            if type(e) == "table" and type(e.spell) == "string" and type(e.who) == "string" then
+              clean[#clean + 1] = { t = IsNumber(e.t) and math_floor(e.t) or 0,
+                                    spell = e.spell, who = e.who }
+            end
+          end
+        end
+        while #clean > 50 do table.remove(clean, 1) end
+        v = clean
       elseif k == "customSpells" then
         local clean, seenIds = {}, {}
         if v then
@@ -507,6 +525,12 @@ local L = {
   ["Tag the next row after a cast"] = "Tag the next row after a cast",
   ["Track flasks, food and runes (coverage line)"] = "Track flasks, food and runes (coverage line)",
   ["Split the list with other BuffRadar users"] = "Split the list with other BuffRadar users",
+  ["Post the ready-check summary to group chat"] = "Post the ready-check summary to group chat",
+  ["pinned"] = "pinned",  -- row tag for the pinned player (1.7.0)
+  ["weapon enchant missing"] = "weapon enchant missing",  -- row tag (1.7.0)
+  ["Watch my weapon enchant"] = "Watch my weapon enchant",
+  ["Remind me when entering an instance unbuffed"] = "Remind me when entering an instance unbuffed",
+  ["Halve the rescan rate in big groups"] = "Halve the rescan rate in big groups",
   ["Low mana -- buffing paused."] = "Low mana -- buffing paused.",
   ["~%dm left"] = "~%dm left",  -- on a row whose buff is about to expire
   ["~%ds left"] = "~%ds left",
@@ -1056,8 +1080,8 @@ local X = { session = {}, dead = {}, rezAt = {}, tally = {}, tallyUnits = 0,
             missPrev = {}, missNow = {}, expiredAt = {}, rowH = 24,
             handled = {}, asked = {}, applyFilter = true,
             prevHolder = {}, queueAt = 0, consTally = {},
-            assign = {}, blessPlan = {}, peers = {},
-            upTotal = 0, upFull = 0 }
+            assign = {}, blessPlan = {}, peers = {}, cover = {}, myCover = false,
+            expiryTally = {}, upTotal = 0, upFull = 0 }
 
 -- Consumables watch (1.6.0): not castable, so these never make rows --
 -- they only feed the coverage line. Matched by aura name: exact names, or
@@ -1145,15 +1169,28 @@ local function Missing(unit, out, isGroup)
         if not t then t = { total = 0, miss = 0 }; X.tally[b.key] = t end
         t.total = t.total + 1
       end
-      if not OnCooldown(b.name)
-         and not HasAny(unit, b.names, (db.rebuffPer and db.rebuffPer[b.key]) or db.rebuff) then
-        n = n + 1
-        out[n] = b.name
-        if t then t.miss = t.miss + 1 end
-        if n == 1 then  -- still present but inside its rebuff window?
+      if not OnCooldown(b.name) then
+        local thr = (db.rebuffPer and db.rebuffPer[b.key]) or db.rebuff
+        if not HasAny(unit, b.names, thr) then
+          n = n + 1
+          out[n] = b.name
+          if t then t.miss = t.miss + 1 end
+          if n == 1 then  -- still present but inside its rebuff window?
+            for _, nm2 in ipairs(b.names) do
+              local r = Remaining(unit, nm2)
+              if r and r > 0 and r < math_huge then X.remainTmp = r break end
+            end
+          end
+        elseif isGroup then
+          -- Group expiry watch (1.7.0): the buff is up, but inside its
+          -- last five minutes — count it toward the coverage warning.
+          local soonest = math_huge
           for _, nm2 in ipairs(b.names) do
             local r = Remaining(unit, nm2)
-            if r and r > 0 and r < math_huge then X.remainTmp = r break end
+            if r and r < soonest then soonest = r end
+          end
+          if soonest <= 300 then
+            X.expiryTally[b.key] = (X.expiryTally[b.key] or 0) + 1
           end
         end
       end
@@ -1186,6 +1223,16 @@ local function Missing(unit, out, isGroup)
           if r and r > 0 and r < math_huge then X.remainTmp = r break end
         end
       end
+    elseif isGroup then
+      -- Blessings count toward the group expiry watch too (1.7.0).
+      local soonest = math_huge
+      for _, nm2 in ipairs(bl.names) do
+        local r = Remaining(unit, nm2)
+        if r and r < soonest then soonest = r end
+      end
+      if soonest <= 300 then
+        X.expiryTally.BLESSINGS = (X.expiryTally.BLESSINGS or 0) + 1
+      end
     end
   end
   return n
@@ -1217,6 +1264,7 @@ local nEntries = 0
 
 local function EntryOrder(a, b)
   if a.isSelf ~= b.isSelf then return a.isSelf end
+  if (a.pinned or false) ~= (b.pinned or false) then return a.pinned ~= nil end
   if (a.rezzed or false) ~= (b.rezzed or false) then return a.rezzed ~= nil end
   if (a.mine or false) ~= (b.mine or false) then return a.mine ~= nil end
   if (a.theirs or false) ~= (b.theirs or false) then return not a.theirs end
@@ -1426,6 +1474,7 @@ local function CollectEntries()
   wipe(Single.holder)
   wipe(X.tally)
   wipe(X.consTally)
+  wipe(X.expiryTally)
   X.tallyUnits = 0
   X.missPrev, X.missNow = X.missNow, {}
   wipe(X.missNow)
@@ -1483,6 +1532,13 @@ local function CollectEntries()
     local ak = X.asked[e.guid]
     e.asked = (ak and nowT - ak < 120) or nil
     e.queued = nil  -- set after the sort, on the new top row only
+    e.weapon = nil  -- set below, on your own row only (pooled entries)
+  end
+  -- Weapon watch (1.7.0): your own row carries the reminder tag.
+  if db and db.weaponWatch and X.WeaponEnchantMissing() then
+    for i = 1, nEntries do
+      if entries[i].isSelf then entries[i].weapon = true end
+    end
   end
   for guid, h in pairs(X.handled) do if nowT - h.t > 60 then X.handled[guid] = nil end end
   for guid, t in pairs(X.asked) do if nowT - t > 180 then X.asked[guid] = nil end end
@@ -1496,7 +1552,15 @@ local function CollectEntries()
   if db and db.buddySplit and InGroup() and myKey then
     local keys = { myKey }
     for k, p in pairs(X.peers) do
-      if nowT - p.t < 90 and k ~= myKey then keys[#keys + 1] = k end
+      -- A covered (dead/AFK) buddy leaves the rotation: their share is
+      -- redistributed among the users who are actually here (1.7.0).
+      local away = false
+      for cname, exp in pairs(X.cover) do
+        if exp > nowT and X.SameUser(p.name, cname) then away = true break end
+      end
+      if nowT - p.t < 90 and k ~= myKey and not away then
+        keys[#keys + 1] = k
+      end
     end
     if #keys >= 2 then
       table_sort(keys)
@@ -1508,8 +1572,24 @@ local function CollectEntries()
     local e = entries[i]
     local k = X.KeyOfName(e.missing[1])
     local who = k and X.assign[k]
-    e.mine = (who and myKey and Ignore.Key(who) == myKey) or nil
+    -- Holder identity goes through SameUser: assignments carry the
+    -- name as typed (often short), my identity is the full name.
+    -- An assignment held by a covered (dead/AFK) user counts as mine:
+    -- that's the handoff doing its job (1.7.0).
+    e.mine = nil
+    if who then
+      if meFull and X.SameUser(who, meFull) then
+        e.mine = true
+      else
+        for cname, exp in pairs(X.cover) do
+          if exp > nowT and X.SameUser(who, cname) then e.mine = true break end
+        end
+      end
+    end
     e.theirs = (who and not e.mine) or nil
+    -- Pin (1.7.0): one named player floats above every sort.
+    e.pinned = (db and db.pinned ~= ""
+      and X.SameUser(db.pinned, e.fullName or "")) or nil
     e.buddy = nil
     if users and not e.isSelf and not e.rezzed then
       local s = 0
@@ -1586,6 +1666,16 @@ function X.ReadyReport()
   else
     Print(string.format("Ready check: %d %s missing buffs (%d casts). /br announce posts the list.",
       people, people == 1 and "person is" or "people are", casts))
+    -- Auto-post (1.7.0): the leader or an assistant can have the summary
+    -- posted to group chat too, so the group sees it without asking.
+    if db.readyPost and X.AmLead() then
+      local channel = InRaid() and "RAID" or (InGroup() and "PARTY" or nil)
+      if channel and _G.SendChatMessage then
+        _G.SendChatMessage(string.format(
+          "BuffRadar ready check: %d %s missing buffs (%d casts).",
+          people, people == 1 and "person is" or "people are", casts), channel)
+      end
+    end
   end
 end
 
@@ -1597,7 +1687,8 @@ X.EXPORT_KEYS = { "locked", "includeSelf", "avoidPvP", "autoHide", "rebuff", "sc
   "playSound", "showCounter", "groupOnly", "pauseInCities", "groupCast", "groupCastMin",
   "showOutOfRange", "sortMode", "alertSound", "muteInInstance", "showMinimap", "lowMana",
   "sync", "requests", "joinDigest", "roleFilter", "showStrip", "idleFade",
-  "pill", "queueTag", "consumables", "buddySplit" }
+  "pill", "queueTag", "consumables", "buddySplit", "readyPost", "weaponWatch", "enterFlash",
+  "scanThrottle" }
 
 local function Esc(v) return (tostring(v):gsub("%%", "%%25"):gsub(";", "%%3B"):gsub("=", "%%3D")) end
 local function Unesc(v) return (v:gsub("%%3D", "="):gsub("%%3B", ";"):gsub("%%25", "%%")) end
@@ -1888,7 +1979,8 @@ end
 local function NotePendingCast(entry)
   if entry and entry.missing and entry.missing[1] then
     X.pendingCast = { spell = entry.missing[1], time = GetTime(),
-                      guid = entry.guid, key = X.KeyOfName(entry.missing[1]) }
+                      guid = entry.guid, key = X.KeyOfName(entry.missing[1]),
+                      who = entry.sortName }
   end
 end
 
@@ -1924,6 +2016,23 @@ function X.SyncSend(key, guid)
   X.Broadcast("CAST;" .. key .. ";" .. guid)
 end
 
+-- Cover-me handoff (1.7.0): while you're dead or AFK, tell the other
+-- BuffRadar users so your duties pass to them; tell them when you're
+-- back. Broadcasts on state change, and re-sends every couple of
+-- minutes while you're still away so their cover doesn't lapse.
+function X.SendCover()
+  if not db then return end
+  local me = Ignore.UnitNames("player")
+  if not me then return end
+  local covered = (UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") and true)
+    or (_G.UnitIsAFK and _G.UnitIsAFK("player") and true) or false
+  if X.myCover == covered and not covered then return end
+  if X.myCover == covered and GetTime() - (X.coverSentAt or 0) < 120 then return end
+  X.myCover = covered
+  X.coverSentAt = GetTime()
+  X.Broadcast((covered and "COVER;" or "BACK;") .. me)
+end
+
 -- The unit a message sender is playing, or nil when they're not in the
 -- group right now. Sender names arrive as "Name-Realm".
 function X.SenderUnit(sender)
@@ -1937,6 +2046,22 @@ function X.SenderUnit(sender)
   local list = InRaid() and RAID or PARTY
   for i = 1, #list do if hit(list[i]) then return list[i] end end
   return nil
+end
+
+-- Do two player names refer to the same user? Names ride the wire as
+-- typed (often the bare short name), while identity checks use full
+-- "Name-Realm" strings. Same when the full names match, or the short
+-- names match and neither side names a conflicting realm — the same
+-- rule the ignore list has always used for bare names.
+function X.SameUser(a, b)
+  if not a or not b then return false end
+  if Ignore.Key(a) == Ignore.Key(b) then return true end
+  local as, ar = a:match("^([^%-]+)%-?(.*)$")
+  local bs, br = b:match("^([^%-]+)%-?(.*)$")
+  if Ignore.Key(as or "") ~= Ignore.Key(bs or "") then return false end
+  if ar and ar ~= "" and br and br ~= ""
+     and Ignore.Key(ar) ~= Ignore.Key(br) then return false end
+  return true
 end
 
 -- May this sender set group-wide plans? The leader and assistants may;
@@ -2003,10 +2128,25 @@ function X.OnAddonMsg(prefix, msg, sender)
         X.blessPlan[bc] = nil
       else
         X.blessPlan[bc] = { key = bk, name = bn,
-                            mine = me ~= nil and Ignore.Key(bn) == Ignore.Key(me) }
+                            mine = me ~= nil and X.SameUser(bn, me) }
       end
       if QueueRefresh then QueueRefresh() end
     end
+    return
+  end
+  -- Cover-me handoff (1.7.0): a dead or AFK user's duties pass to the
+  -- rest of us until they're back. No trust gate — covering is a favour,
+  -- and its effect is local (their share stops sinking on my list).
+  if msg:match("^COVER;") then
+    X.cover[sender] = GetTime() + 300
+    if QueueRefresh then QueueRefresh() end
+    return
+  end
+  if msg:match("^BACK;") then
+    for cname in pairs(X.cover) do
+      if X.SameUser(cname, sender) then X.cover[cname] = nil end
+    end
+    if QueueRefresh then QueueRefresh() end
     return
   end
   -- Presence ping: answer once so the sender knows a buddy is here.
@@ -2038,6 +2178,52 @@ function X.OnChatAsk(text, author)
   end
 end
 
+-- Does one of my equipped weapons lack a temporary enchant (a shaman
+-- imbue, a rogue poison, an oil or a sharpening stone)? (1.7.0)
+-- GetWeaponEnchantInfo is the game's own answer; a hand only counts
+-- when a weapon is actually equipped in it.
+function X.WeaponEnchantMissing()
+  local fn = _G.GetWeaponEnchantInfo
+  if not fn then return false end
+  local ok, hasMH, _, _, _, hasOH = pcall(fn)
+  if not ok then return false end
+  local function equipped(slot)
+    if not _G.GetInventoryItemID then return true end
+    local okI, id = pcall(_G.GetInventoryItemID, "player", slot)
+    return okI and id ~= nil
+  end
+  if not hasMH and equipped(16) then return true end
+  if not hasOH and equipped(17) then return true end
+  return false
+end
+
+-- Instance-entry reminder (1.7.0): stepping into a dungeon, raid or
+-- battleground with buffs still missing gets one clear line, once per
+-- entry — the run-start counterpart of the join digest.
+function X.InstanceCheck()
+  if not db then return end
+  local ctx = X.Context()
+  local inside = ctx == "dungeon" or ctx == "raid" or ctx == "pvp"
+  if inside and not X.wasInside and db.enterFlash and InGroup() and hasAnyBuff then
+    local keep = X.applyFilter
+    X.applyFilter = false
+    CollectEntries()
+    X.applyFilter = keep
+    local people, casts = 0, 0
+    for i = 1, nEntries do
+      if entries[i].group then
+        people = people + 1; casts = casts + #entries[i].missing
+      end
+    end
+    if people > 0 then
+      Print(string.format("Entered the %s with buffs missing: %d %s still need buffs (%d casts).",
+        ctx == "dungeon" and "dungeon" or (ctx == "raid" and "raid" or "battleground"),
+        people, people == 1 and "person" or "people", casts))
+    end
+  end
+  X.wasInside = inside
+end
+
 -- One line in chat: how much buffing the group (or the run) still needs.
 -- Counts everyone, ignoring the window's role filter.
 function X.JoinDigest(why)
@@ -2060,6 +2246,7 @@ end
 -- summary, not every roster shuffle afterwards.
 function X.OnRoster()
   local g = InGroup()
+  if db then X.SendCover() end  -- roster changes refresh a live cover (1.7.0)
   if X.inGroupPrev == false and g and db and db.joinDigest and hasAnyBuff then
     if C_Timer and C_Timer.After then
       C_Timer.After(1.5, function() X.JoinDigest("join") end)
@@ -2078,6 +2265,7 @@ function X.OnRoster()
     wipe(X.assign)
     wipe(X.blessPlan)
     wipe(X.peers)
+    wipe(X.cover)
     X.upTotal, X.upFull = 0, 0  -- the run is over (1.6.0)
   end
   X.inGroupPrev = g
@@ -2220,6 +2408,31 @@ local function Row_OnEnter(self)
     local rest = {}
     for i = 2, #e.missing do rest[#rest + 1] = e.missing[i] end
     GameTooltip:AddLine(string_format(L["Still needs: %s"], table.concat(rest, ", ")), 0.8, 0.8, 0.8, true)
+  end
+  -- The full picture (1.7.0): buffs this player HAS from your set, with
+  -- the time left on each, soonest first — so a hover answers "what do
+  -- they still need, and what's about to run out?" in one look.
+  if UnitExists(e.unit) then
+    local missSet = {}
+    for _, m in ipairs(e.missing) do missSet[m] = true end
+    local have, seenHave = {}, {}
+    for _, def in ipairs(myBuffs) do
+      local nm = def.name
+      if nm and not seenHave[nm] and not missSet[nm] then
+        seenHave[nm] = true
+        local left = Remaining(e.unit, nm)
+        if left and left < math_huge and left > 0 then
+          have[#have + 1] = { name = nm, left = left }
+        end
+      end
+    end
+    table_sort(have, function(x, y) return x.left < y.left end)
+    for i = 1, math_min(6, #have) do
+      local h = have[i]
+      local t = h.left >= 90 and string_format(L["~%dm left"], math_floor(h.left / 60))
+        or string_format(L["~%ds left"], math_floor(h.left))
+      GameTooltip:AddLine(h.name .. " — " .. t, 0.55, 0.85, 0.55)
+    end
   end
   GameTooltip:Show()
 end
@@ -2408,7 +2621,26 @@ function X.CheckDrops()
 end
 
 -- Copyable settings string window for /br export and /br import.
-function X.ShowExport(text, forImport)
+-- The recent-casts list for /br history, newest first (1.7.0).
+function X.HistoryText()
+  local h = db.history or {}
+  if #h == 0 then
+    return "No casts recorded yet. Buffs you cast through BuffRadar will be listed here."
+  end
+  local lines = {}
+  for i = #h, 1, -1 do
+    local e = h[i]
+    local when = ""
+    if e.t and e.t > 0 and date then
+      local okd, s = pcall(date, "%H:%M", e.t)
+      if okd and s then when = s .. "  " end
+    end
+    lines[#lines + 1] = when .. (e.spell or "?") .. "  ->  " .. (e.who or "?")
+  end
+  return table.concat(lines, "\n")
+end
+
+function X.ShowExport(text, forImport, titleText)
   if InCombatLockdown() then Print("Can't open that during combat."); return end
   local f = X.exportFrame
   if not f then
@@ -2466,8 +2698,8 @@ function X.ShowExport(text, forImport)
     if UISpecialFrames then UISpecialFrames[#UISpecialFrames + 1] = "BuffRadarExportFrame" end
     f:Hide()
   end
-  f.title:SetText(forImport and "BuffRadar -- paste a settings string, then Import"
-                             or "BuffRadar -- your settings string (select all, copy)")
+  f.title:SetText(titleText or (forImport and "BuffRadar -- paste a settings string, then Import"
+                             or "BuffRadar -- your settings string (select all, copy)"))
   f.editBox:SetText(text or "")
   f.accept:SetShown(forImport and true or false)
   f:Show()
@@ -3047,6 +3279,8 @@ local function RenderRow(row, e)
     elseif e.mine then tag = L["your assignment"]
     elseif e.theirs then tag = L["assigned elsewhere"]
     elseif e.buddy then tag = L["buddy's watch"]
+    elseif e.pinned then tag = L["pinned"]
+    elseif e.weapon then tag = L["weapon enchant missing"]
     elseif e.asked then tag = L["asked for a buff"] end
   end
   if not tag and e.remain1 then
@@ -3368,6 +3602,76 @@ local function Refresh()
       parts[#parts + 1] = string_format("Uptime %d%%",
         math_floor(100 * X.upFull / X.upTotal + 0.5))
     end
+    -- Coverage roster (1.7.0): which BuffRadar users are on duty, how
+    -- many assignments each holds, and who is covered (dead/AFK) —
+    -- so a group can see the buffing is staffed at a glance.
+    if db.sync then
+      local nowC = GetTime()
+      -- Assignment counts keyed by short name: holders are recorded as
+      -- typed (often short), users are known by full name.
+      local held = {}
+      for _, who in pairs(X.assign) do
+        local wk = Ignore.Key(who:match("^[^%-]+") or who)
+        held[wk] = (held[wk] or 0) + 1
+      end
+      local duty = {}
+      local meF = Ignore.UnitNames("player")
+      if meF then
+        local mk = Ignore.Key(meF:match("^[^%-]+") or meF)
+        duty[#duty + 1] = (meF:match("^[^%-]+") or meF)
+          .. (held[mk] and (" (" .. held[mk] .. ")") or "")
+      end
+      local peerNames = {}
+      for k, p in pairs(X.peers) do
+        if nowC - p.t < 90 then peerNames[#peerNames + 1] = k end
+      end
+      table_sort(peerNames)
+      for _, k in ipairs(peerNames) do
+        local p = X.peers[k]
+        local short = (p.name:match("^[^%-]+") or p.name)
+        for cname, exp in pairs(X.cover) do
+          if exp > nowC and X.SameUser(p.name, cname) then
+            short = short .. " (away)" break
+          end
+        end
+        local hk = Ignore.Key(p.name:match("^[^%-]+") or p.name)
+        if held[hk] then short = short .. " (" .. held[hk] .. ")" end
+        duty[#duty + 1] = short
+      end
+      if #duty > 1 then
+        parts[#parts + 1] = "Radar: " .. table.concat(duty, ", ")
+      end
+    end
+    -- Group expiry warning (1.7.0): a group buff inside its last five
+    -- minutes on at least half its holders is about to become the
+    -- whole list — say so while there's time to refresh it calmly.
+    local worstKey, worstSoon, worstTotal = nil, 0, 0
+    for key, soon in pairs(X.expiryTally) do
+      local t = X.tally[key]
+      if t and soon >= 3 and soon * 2 >= t.total and soon > worstSoon then
+        worstKey, worstSoon, worstTotal = key, soon, t.total
+      end
+    end
+    if worstKey then
+      local nm = worstKey == "BLESSINGS" and "Blessings" or worstKey
+      if worstKey ~= "BLESSINGS" then
+        for _, def in ipairs(myBuffs) do
+          if def.key == worstKey then nm = def.name break end
+        end
+      end
+      parts[#parts + 1] = string_format("%s <5m on %d/%d", nm, worstSoon, worstTotal)
+    end
+    -- Weapon watch (1.7.0): when your own row isn't on the list to
+    -- carry the tag, the coverage line carries the reminder instead.
+    if db.weaponWatch and X.WeaponEnchantMissing() then
+      local selfListed = false
+      for i = 1, nEntries do
+        if entries[i].isSelf then selfListed = true break end
+      end
+      if not selfListed then
+        parts[#parts + 1] = "your weapon has no enchant"
+      end
+    end
     SetTextIfChanged(coverText, table.concat(parts, "  ·  "))
     X.coverFrac = string_format("%d/%d", X.tallyUnits - listedGroup, X.tallyUnits)
     coverShown = true
@@ -3414,6 +3718,29 @@ end
 
 -- Steady refresh every UPDATE_INTERVAL via C_Timer; bursts of events (UNIT_AURA storms in
 -- raids, nameplates popping in) collapse into a single refresh SOON_DELAY later.
+-- How many players are in my group, me included (0 when solo)?
+local function GroupSize()
+  if GetNumGroupMembers then
+    local ok, n = pcall(GetNumGroupMembers)
+    if ok and type(n) == "number" then return n end
+  end
+  if GetNumRaidMembers then
+    local ok, n = pcall(GetNumRaidMembers)
+    if ok and type(n) == "number" and n > 0 then return n end
+  end
+  if GetNumPartyMembers then
+    local ok, n = pcall(GetNumPartyMembers)
+    if ok and type(n) == "number" then return n > 0 and n + 1 or 0 end
+  end
+  return 0
+end
+
+-- Scan throttle (1.7.0): in very large groups the steady rescan runs at
+-- half rate. Event-driven refreshes are never throttled.
+local function ScanThrottled()
+  return db and db.scanThrottle and GroupSize() > 20
+end
+
 local Soon, StartTicker
 if C_Timer and C_Timer.NewTicker and C_Timer.After then
   -- Only the queued callback clears its own flag, so ticker refreshes can't spawn
@@ -3433,6 +3760,10 @@ if C_Timer and C_Timer.NewTicker and C_Timer.After then
   local function TickRefresh()
     X.UpdateFade()
     if refreshIdle or InCombatLockdown() then return end
+    if ScanThrottled() then
+      X.tickSkip = not X.tickSkip
+      if X.tickSkip then return end
+    end
     SafeRefresh()
   end
   StartTicker = function()
@@ -3445,7 +3776,7 @@ else
   StartTicker = function()
     driver:SetScript("OnUpdate", function(_, dt)
       elapsed = elapsed + dt
-      if elapsed >= UPDATE_INTERVAL then
+      if elapsed >= (ScanThrottled() and UPDATE_INTERVAL * 2 or UPDATE_INTERVAL) then
         elapsed = 0
         X.UpdateFade()
         if soonPending or not refreshIdle then
@@ -3522,6 +3853,7 @@ for _, ev in ipairs({
   "SPELL_DATA_LOAD_RESULT", "UNIT_PORTRAIT_UPDATE",
   "READY_CHECK", "PLAYER_TALENT_UPDATE", "ACTIVE_TALENT_GROUP_CHANGED",
   "CHAT_MSG_ADDON", "CHAT_MSG_WHISPER", "CHAT_MSG_SAY", "CHALLENGE_MODE_START",
+  "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST", "PLAYER_FLAGS_CHANGED",
 }) do
   pcall(driver.RegisterEvent, driver, ev)
 end
@@ -3563,12 +3895,17 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       local ok, name = pcall(SpellName, spellID, nil)
       name = ok and SafeString(name) or nil  -- compared and used as a stats key
       if name and name == X.pendingCast.spell and GetTime() - X.pendingCast.time < 3 then
-        local pk, pg = X.pendingCast.key, X.pendingCast.guid
+        local pk, pg, pw = X.pendingCast.key, X.pendingCast.guid, X.pendingCast.who
         X.pendingCast = nil
         X.sessionCasts = X.sessionCasts + 1
         db.castsTotal = (db.castsTotal or 0) + 1
         db.stats = db.stats or {}
         db.stats[name] = (db.stats[name] or 0) + 1
+        -- Cast history (1.7.0): the last 50 casts through BuffRadar.
+        db.history = db.history or {}
+        db.history[#db.history + 1] = { t = (time and time()) or 0, spell = name,
+                                        who = (pw and pw ~= "") and pw or "?" }
+        while #db.history > 50 do table.remove(db.history, 1) end
         UpdateCounter()
         if pk and pg then X.SyncSend(pk, pg) end
         X.queueAt = GetTime()  -- the new top row is "up next" for a moment (1.6.0)
@@ -3611,6 +3948,11 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   end
   if event == "CHAT_MSG_WHISPER" or event == "CHAT_MSG_SAY" then
     if db then X.OnChatAsk(arg1, (select(1, ...))) end
+    return
+  end
+  if event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST"
+     or event == "PLAYER_FLAGS_CHANGED" then
+    if db then X.SendCover() end  -- cover-me handoff state may have changed (1.7.0)
     return
   end
   if event == "GROUP_ROSTER_UPDATE" then
@@ -3656,8 +3998,8 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if (db.dbVersion or 0) < 7 then
       db.dbVersion = 7        -- 1.5.0: profiles / sync / role filter added; nothing to migrate
     end
-    if (db.dbVersion or 0) < 8 then
-      db.dbVersion = 8        -- 1.6.0: consumables / customSpells / buddySplit / autoProfile added; nothing to migrate
+    if (db.dbVersion or 0) < 9 then
+      db.dbVersion = 9        -- 1.7.0: readyPost / pinned / weaponWatch / enterFlash / scanThrottle / history added; nothing to migrate
     end
     X.SpecSwap()
   elseif event == "PLAYER_LOGIN" then
@@ -3714,8 +4056,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   else
     if (event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE") and db then X.OnRoster() end
     if (event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED"
-        or event == "ZONE_CHANGED_INDOORS") and db and X.AutoProfileCheck then
-      X.AutoProfileCheck()
+        or event == "ZONE_CHANGED_INDOORS") and db then
+      if X.AutoProfileCheck then X.AutoProfileCheck() end
+      if event == "ZONE_CHANGED_NEW_AREA" then X.InstanceCheck() end
     end
     Soon()
   end
@@ -4266,6 +4609,7 @@ local function BuildConfig()
 
   local resetCount = MakeButton(alerts, "Reset counts", 110, function()
     X.sessionCasts, db.castsTotal = 0, 0
+    db.history = {}
     UpdateCounter()
     Print("Cast counts reset.")
   end)
@@ -4474,6 +4818,26 @@ local function BuildConfig()
     function(v) db.buddySplit = v; Refresh() end)
   cfg.buddyCheck:SetPoint("TOPLEFT", 296, -304 + castY)
 
+  cfg.readyPostCheck = MakeCheck(beh, L["Post the ready-check summary to group chat"],
+    function() return db.readyPost end,
+    function(v) db.readyPost = v end)
+  cfg.readyPostCheck:SetPoint("TOPLEFT", 296, -330 + castY)
+
+  cfg.weaponCheck = MakeCheck(beh, L["Watch my weapon enchant"],
+    function() return db.weaponWatch end,
+    function(v) db.weaponWatch = v; Refresh() end)
+  cfg.weaponCheck:SetPoint("TOPLEFT", 296, -356 + castY)
+
+  cfg.enterCheck = MakeCheck(beh, L["Remind me when entering an instance unbuffed"],
+    function() return db.enterFlash end,
+    function(v) db.enterFlash = v end)
+  cfg.enterCheck:SetPoint("TOPLEFT", 296, -382 + castY)
+
+  cfg.throttleCheck = MakeCheck(beh, L["Halve the rescan rate in big groups"],
+    function() return db.scanThrottle end,
+    function(v) db.scanThrottle = v end)
+  cfg.throttleCheck:SetPoint("TOPLEFT", 10, -215)
+
   local behHint = beh:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   behHint:SetPoint("TOPLEFT", 14, -140)
   behHint:SetWidth(270)
@@ -4649,6 +5013,10 @@ local function BuildConfig()
   Tip(cfg.syncCheck, "Cast sync", "When you or another BuffRadar user in your group casts a buff, everyone's list marks that player as being buffed for a few seconds, so two of you don't cast the same buff on the same player.")
   Tip(cfg.requestsCheck, "Chat buff requests", "A player on your list who whispers you (or says nearby) asking for a buff gets an 'asked for a buff' marker on their row.")
   Tip(cfg.digestCheck, "Group join summary", "One line in chat when you join a group: how many people are missing buffs and how many casts that is. Also prints when a Mythic+ run starts.")
+  Tip(cfg.readyPostCheck, "Ready-check auto-post", "When a ready check runs, the summary is also posted to group chat — only when you're the leader or an assistant. Off: it only prints for you. Dead or AFK BuffRadar users hand their duties to the others automatically (cover-me, no setting).")
+  Tip(cfg.weaponCheck, "Weapon enchant watch", "Your own row gets a 'weapon enchant missing' tag when an equipped weapon has no temporary enchant — a shaman imbue, a rogue poison, an oil or a sharpening stone. When your row isn't on the list, the coverage line says it instead.")
+  Tip(cfg.enterCheck, "Instance-entry reminder", "One chat line when you step into a dungeon, raid or battleground while buffs are still missing: how many people still need buffs, and how many casts that is.")
+  Tip(cfg.throttleCheck, "Scan throttle", "In groups of more than 20 players, the steady background rescan runs half as often. Refreshes caused by events — a buff landing, someone joining — always happen immediately. For very large raids on slower machines.")
   -- Ignore & Stats
   Tip(clearIgnores, "Clear ignore list", "Stops ignoring everyone on the list.")
   Tip(resetStats, "Reset stats", "Clears the casts-by-spell statistics. The cast counter is kept.")
@@ -4700,6 +5068,10 @@ RefreshConfig = function()
   if cfg.queueCheck then cfg.queueCheck:Update() end
   if cfg.consCheck then cfg.consCheck:Update() end
   if cfg.buddyCheck then cfg.buddyCheck:Update() end
+  if cfg.readyPostCheck then cfg.readyPostCheck:Update() end
+  if cfg.weaponCheck then cfg.weaponCheck:Update() end
+  if cfg.enterCheck then cfg.enterCheck:Update() end
+  if cfg.throttleCheck then cfg.throttleCheck:Update() end
 
   -- Ignore list: one removable cell per name, the overflow counted in the summary
   local names = Ignore.Sorted()
@@ -4877,7 +5249,7 @@ function X.SelfTest()
   local ver, build, _, iface = GetBuildInfo()
   Print("BuffRadar self-test -- paste this whole block into a bug report:")
   Print(string.format("  version %s · %s edition · interface %s · client %s build %s",
-    "1.6.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
+    "1.7.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
   Print(string.format("  settings dbVersion %s · sort %s · cast mode %s · scale %s",
     tostring(db.dbVersion), tostring(db.sortMode), tostring(db.castMethod), tostring(db.scale)))
   Print(string.format("  sync %s · requests %s · role filter %s · profiles %d · idle fade %s",
@@ -4894,6 +5266,12 @@ function X.SelfTest()
   for _ in pairs(X.peers) do pcount = pcount + 1 end
   Print(string.format("  assignments %d · blessing plan %d · auto profiles %d · peers %d",
     acount, bcount, apcount, pcount))
+  local ccount = 0
+  for _ in pairs(X.cover) do ccount = ccount + 1 end
+  Print(string.format("  readypost %s · pinned %s · weapon watch %s · entry reminder %s · throttle %s · covering %d · history %d",
+    OnOff(db.readyPost), (db.pinned ~= "" and db.pinned) or "none",
+    OnOff(db.weaponWatch), OnOff(db.enterFlash), OnOff(db.scanThrottle),
+    ccount, #(db.history or {})))
   if #myBuffs == 0 then Print("  buffs found: none") end
   for _, b in ipairs(myBuffs) do
     local id
@@ -4963,6 +5341,7 @@ local function HandleSlash(msg)
     Print(string.format("Casts through BuffRadar: %d this session, %d all-time.", X.sessionCasts, db.castsTotal or 0))
   elseif cmd == "resetcount" then
     X.sessionCasts, db.castsTotal = 0, 0
+    db.history = {}
     UpdateCounter()
     Print("Cast counts reset.")
   elseif cmd == "macro" then
@@ -5286,6 +5665,40 @@ local function HandleSlash(msg)
       Print("Assignment: " .. akey .. " -> " .. aname)
       Refresh()
     end
+  elseif cmd == "pin" then
+    if rest == "" then
+      Print(db.pinned ~= "" and ("Pinned: " .. db.pinned .. "  (/br pin none clears it)")
+        or "No one is pinned. /br pin <name> keeps a player at the top of the list.")
+    elseif rest:lower() == "none" then
+      db.pinned = ""
+      Print("Pin cleared.")
+      Refresh()
+    else
+      db.pinned = rest
+      Print("Pinned " .. rest .. " — their row stays at the top while they need a buff.")
+      Refresh()
+    end
+  elseif cmd == "history" then
+    if #(db.history or {}) == 0 then
+      Print("No casts recorded yet — buffs you cast through BuffRadar will be listed here.")
+    else
+      X.ShowExport(X.HistoryText(), false, "BuffRadar -- your recent casts (newest first)")
+    end
+  elseif cmd == "throttle" then
+    db.scanThrottle = not db.scanThrottle
+    Print("Scan throttle " .. OnOff(db.scanThrottle)
+      .. " — in groups over 20, the steady rescan runs half as often (event refreshes stay instant).")
+  elseif cmd == "weapon" then
+    db.weaponWatch = not db.weaponWatch
+    Print("Weapon enchant watch " .. OnOff(db.weaponWatch)
+      .. " — your row (or the coverage line) will flag a weapon with no imbue, poison or oil.")
+    Refresh()
+  elseif cmd == "enterflash" then
+    db.enterFlash = not db.enterFlash
+    Print("Instance-entry buff reminder " .. OnOff(db.enterFlash))
+  elseif cmd == "readypost" then
+    db.readyPost = not db.readyPost
+    Print("Ready-check summary also posted to group chat (leader/assistant) " .. OnOff(db.readyPost))
   elseif cmd == "buddy" then
     db.buddySplit = not db.buddySplit
     Print("Buddy list splitting " .. OnOff(db.buddySplit)
@@ -5532,6 +5945,10 @@ local function HandleSlash(msg)
     Print("  /br fade <0-90>  - idle fade   /br watch  - drop alert   /br taxi  - flight-path pause")
     Print("  /br profile save|load|delete|list <name>  - named settings profiles")
     Print("  /br assign <BUFF> <name>  - leader assigns a buff   /br buddy  - split the list")
+    Print("  /br readypost  - also post the ready-check summary to group chat")
+    Print("  /br pin <name>  - keep a player at the top   /br pin none  - clear the pin")
+    Print("  /br weapon  - watch your weapon enchant   /br enterflash  - instance-entry reminder")
+    Print("  /br history  - your recent casts   /br throttle  - halve the rescan rate in big groups")
     Print("  /br pill  - all-buffed pill   /br consumables  - flask/food counts")
     Print("  /br custom add|remove|list <id>  - watch any buff spell you know")
     Print("  /br uptime  - coverage uptime %   /br preset raid|dungeon|solo")

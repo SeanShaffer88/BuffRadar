@@ -2,6 +2,59 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.7.0 — 2026-10-25 — Forever edition
+
+The same ten enhancements as retail 1.7.0, from the shared source.
+(One item on the list, row tooltips, was half-built already — rows
+had tooltips without remaining times — so this release completes
+them; see the retail changelog. The short-name fix below matters
+doubly here, where the blessing planner rides on the same names.)
+
+- **Cover-me handoff.** When a BuffRadar user in your group dies or
+  goes AFK, their buff duties pass to the rest of you automatically:
+  their buddy-split share is redistributed, and any buff assigned to
+  them counts as yours until they're back. Travels over the sync
+  channel (`/br sync`); no setting.
+- **Ready-check auto-post** (`/br readypost`, Settings > Behavior):
+  as leader or assistant, the ready-check summary is also posted to
+  group chat.
+- **Coverage roster line.** The coverage line now shows which
+  BuffRadar users are on duty, how many assignments each holds, and
+  who is away (dead/AFK) — e.g. `Radar: Me (1), Aaron, Zed (away)`.
+- **Pin a player** (`/br pin <name>`, `/br pin none`): one player's
+  row stays at the top of the list, tagged *pinned*, whatever the
+  sort says.
+- **Row tooltips, completed.** Hovering a row now also lists the
+  buffs that player HAS from your set, with the time left on each,
+  soonest first.
+- **Weapon enchant watch** (`/br weapon`, Settings > Behavior):
+  your own row gets a *weapon enchant missing* tag when an equipped
+  weapon has no temporary enchant — imbue, poison, oil or stone. If
+  your row isn't on the list, the coverage line says it instead.
+- **Instance-entry reminder** (`/br enterflash`, on by default):
+  one chat line when you step into a dungeon, raid or battleground
+  with buffs still missing — how many people, and how many casts.
+- **Group expiry warning.** The coverage line warns when a group
+  buff is inside its last five minutes on at least half its
+  holders: `Blessings <5m on 18/30`.
+- **Cast history** (`/br history`): the last 50 buffs you cast
+  through BuffRadar — spell, target, time — in a copyable window.
+  Cleared by `/br resetcount`.
+- **Scan throttle** (`/br throttle`, Settings > Behavior): in
+  groups over 20, the steady rescan runs half as often;
+  event-driven refreshes stay instant.
+
+**Fixed (from 1.6.0):** an assignment or blessing plan set with a
+player's short name now floats correctly on that player's own list
+— it sank as "someone else's" before. Name matching now treats a
+bare name and the same name with a realm as the same person, unless
+the realms actually differ.
+
+Settings format is now dbVersion 9; older saves migrate
+automatically, as before. German translation covers all 68 strings;
+`/br selftest` also reports the 1.7.0 state (ready-post, pin,
+weapon watch, entry reminder, throttle, cover count, history).
+
 ## 1.6.0 — 2026-10-25 — Forever edition
 
 The same ten enhancements as retail 1.6.0, from the shared source —

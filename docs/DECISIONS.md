@@ -52,12 +52,31 @@ character and are deliberately not carried by settings export or named
 profiles: a profile must never imply a spell another character doesn't know.
 Both are documented in the user docs, not just here.
 
+## 2026-10-25 — Identity matching goes through X.SameUser (bug fix)
+The 1.7.0 cover-me tests exposed a latent 1.6.0 defect: assignments and
+blessing plans carry the holder's name **as typed** (often the bare short
+name), while identity checks compared full `Name-Realm` keys — so on the
+assignee's own client their assignment sank as "someone else's". Rule now:
+all holder/peer identity comparisons go through `X.SameUser` (full match,
+or short-name match with no conflicting realm — the ignore list's
+longstanding rule). Fixed in 1.7.0 and noted in both changelogs.
+
+## 2026-10-25 — #20 (row tooltips) completed, not rebuilt
+Rows already had tooltips (missing buff, cast line, ignore hints); the
+listed item's missing half was remaining times for buffs the player HAS.
+1.7.0 added exactly that half. Recorded here and in the changelogs so
+the item is not later "re-shipped" as new.
+
 ## 2026-10-25 — Elite Software Master Prompt adopted (v1.1)
 Artefacts created: this log, `QUALITY.md`, `docs/PARITY.md`, `SECURITY.md`,
 and the rule sheet in `AGENTS.md`. BuffRadar scores **69/100** at adoption,
 with two major waivers recorded in `QUALITY.md` (no numeric performance
 budget for this product class; the in-game field test outstanding since
 1.3.2 — the owner's own action). Releases below the §17 bar proceed only
-under the owner's standing waiver, recorded in `QUALITY.md`. Annex D does
+under the owner's standing waiver, recorded in `QUALITY.md`. **SEAN
+approved both major waivers on 2026-10-25**, and 1.7.0 (batch 2 of the
+50-item program) was built and shipped under that approval the same day;
+QUALITY.md was re-checked at its close with scores unchanged (the new
+code is Unverified in game, so no dimension may honestly move). Annex D does
 not apply (no AI features); Annex B applies in its Storytold Tier 2 adapted
 form (single integrator, slash-command registry, corpus-scored parity).

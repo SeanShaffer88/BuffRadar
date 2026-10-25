@@ -18,7 +18,7 @@ click covers the whole group. When everyone is buffed, the list empties and
 gets out of your way. It costs nothing, asks for nothing, and never talks to
 anything outside the game.
 
-Version 1.6.0 (Retail edition) · Interface 120105 · For retail patch 12.1.5 (Midnight) · License: GPLv3
+Version 1.7.0 (Retail edition) · Interface 120105 · For retail patch 12.1.5 (Midnight) · License: GPLv3
 
 This is the retail edition of BuffRadar. A Forever edition (interface 16001) exists
 for that client; both are built from the same source and share the same settings
@@ -100,6 +100,11 @@ layout — only the `.toc` differs, and BuffRadar picks the right buff set when 
   (*assigned elsewhere*), so groups with several buffers coordinate.
 - **Buddy split:** two or more BuffRadar users in a group can split the
   list between them by a stable hash; your share floats, the rest sink.
+- **Cover-me handoff:** when a BuffRadar user dies or goes AFK, their
+  duties pass to the others automatically (sync channel, no setting).
+- **Pin, weapon watch, cast history:** keep one player on top
+  (`/br pin`), get flagged when your weapon has no enchant, and review
+  your last 50 casts (`/br history`).
 - **All-buffed pill:** when everyone is fully buffed the window
   collapses to a small pill with the coverage count; click to peek.
 - **Cast queue tag:** the next row is tagged *up next* for a few
@@ -209,6 +214,9 @@ Hover over a name to see exactly what will be cast and what they still need.
 | `/br watch` · `/br taxi` | Alert when your single-target buff drops · pause on flight paths |
 | `/br assign <BUFF> <name\|none>` | Leader assigns a buff to one player (rows float/sink by owner) |
 | `/br buddy` · `/br pill` | Split the list with other BuffRadar users · all-buffed pill |
+| `/br pin <name\|none>` · `/br readypost` | Pin a player to the top · post ready-check summaries |
+| `/br weapon` · `/br enterflash` · `/br throttle` | Weapon enchant watch · instance-entry reminder · big-group scan throttle |
+| `/br history` | Your last 50 casts through BuffRadar |
 | `/br consumables` · `/br uptime` | Flask/food/rune counts on the coverage line · coverage uptime % |
 | `/br custom add\|remove\|list <spell ID>` | Watch any buff spell you know |
 | `/br preset raid\|dungeon\|solo` · `/br autoprofile <context> <profile>` | Shipped presets · load a profile by context |

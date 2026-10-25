@@ -1,13 +1,45 @@
 # BuffRadar — Features (Forever edition)
 
-The full feature list for BuffRadar 1.6.0 (Forever edition) for
+The full feature list for BuffRadar 1.7.0 (Forever edition) for
 WoW: Forever (Interface 16001). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
 Prepared 2026-10-24 from the shipped 1.3.2 Forever README and
-CHANGELOG; updated 2026-10-25 for 1.6.0. Since 1.3.2 both editions are built from one source —
+CHANGELOG; updated 2026-10-25 for 1.7.0. Since 1.3.2 both editions are built from one source —
 the addon picks the Forever buff set when it loads on the Forever
 client — and the Forever buff set itself is unchanged from 1.2.4.
+
+## New in 1.7.0
+
+- **Cover-me handoff:** a BuffRadar user who dies or goes AFK hands
+  their duties to the other users automatically — their buddy-split
+  share is redistributed and buffs assigned to them count as yours
+  until they're back. Rides the sync channel; no setting.
+- **Ready-check auto-post** (`/br readypost`): as leader or
+  assistant, the ready-check summary is also posted to group chat.
+- **Coverage roster line:** the coverage line lists the BuffRadar
+  users on duty, the assignments each holds, and who is away.
+- **Pin a player** (`/br pin <name|none>`): one row glued to the
+  top of the list, tagged *pinned*, under every sort.
+- **Row tooltips, completed:** hover a row to see the buffs the
+  player has from your set, with the time left on each.
+- **Weapon enchant watch** (`/br weapon`): your row (or the
+  coverage line) flags an equipped weapon with no temporary
+  enchant — imbue, poison, oil or stone.
+- **Instance-entry reminder** (`/br enterflash`, on by default):
+  one line on entering a dungeon, raid or battleground unbuffed.
+- **Group expiry warning:** the coverage line names a group buff
+  inside its last five minutes on at least half its holders.
+- **Cast history** (`/br history`): the last 50 casts through
+  BuffRadar — spell, target, time — in a copyable window.
+- **Scan throttle** (`/br throttle`): groups over 20 rescan at
+  half rate; event-driven refreshes stay instant.
+- **Fixed:** assignments and blessing plans set by short name now
+  float on the named player's own list (1.6.0 sank them) — this
+  matters doubly here, where the planner rides on those names.
+- German translation covers all 68 strings; `/br selftest` also
+  reports the 1.7.0 state (ready-post, pin, weapon watch, entry
+  reminder, throttle, cover count, history).
 
 ## New in 1.6.0
 
