@@ -563,7 +563,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 11, "dbVersion not migrated to 11: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 12, "dbVersion not migrated to 12: " .. tostring(d.dbVersion))
   assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
   if env.__forever then  -- 1.8.0 (#32): shadow protection defaults to instances
     assert(d.buffContext.SHADOW_PROT == "instance",
@@ -585,7 +585,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 11 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 12 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
   -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
@@ -593,7 +593,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = { dbVersion = 9 }
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 11 and d.wizardSeen == true,
+  assert(d.dbVersion == 12 and d.wizardSeen == true,
     "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
   d.wizardSeen = false  -- leave the save as the rest of the suite expects
 end)
@@ -1841,6 +1841,248 @@ step("post-wipe report fires after a real wipe (1.9.0)", function()
   cleanup()
 end)
 
+step("saved themes, row spacing, icon size, window layer (1.10.0)", function()
+  local db = env.BuffRadarDB
+  -- Save the current custom colors as a theme, apply another, come back.
+  db.bgColor = { 0.1, 0.2, 0.3 }
+  db.theme = "custom"
+  env.SlashCmdList.BUFFRADAR("theme save ocean")
+  assert(#db.customThemes == 1 and db.customThemes[1].name == "ocean",
+    "theme not saved: " .. tostring(db.customThemes[1] and db.customThemes[1].name))
+  assert(db.theme == "ocean", "saved theme not applied after saving")
+  env.SlashCmdList.BUFFRADAR("theme midnight")
+  assert(db.theme == "midnight", "built-in theme not applied")
+  env.SlashCmdList.BUFFRADAR("theme ocean")
+  assert(db.theme == "ocean" and db.bgColor[2] == 0.2,
+    "saved theme colors not restored: " .. tostring(db.bgColor[2]))
+  env.SlashCmdList.BUFFRADAR("theme delete ocean")
+  assert(#db.customThemes == 0 and db.theme == "custom",
+    "theme delete did not fall back to custom")
+  -- Sanitizer keeps a well-formed saved theme, drops the broken ones.
+  env.BuffRadarDB.customThemes = {
+    { name = "Good", bg = { 0, 0, 0 }, border = { 1, 1, 1 } },
+    { name = "Broken" }, "junk",
+  }
+  fire("ADDON_LOADED", "BuffRadar")
+  db = env.BuffRadarDB
+  assert(#db.customThemes == 1 and db.customThemes[1].name == "Good",
+    "sanitizer mishandled saved themes")
+  db.customThemes = {}
+  -- Row spacing + icon size move the row anchors and icon sizes.
+  local cleanup = partyOfTwo("GG")
+  db = env.BuffRadarDB
+  refresh()
+  local r1, r2 = env.BuffRadarRow1, env.BuffRadarRow2
+  local y1 = r2.points[1][5] - r1.points[1][5]
+  env.SlashCmdList.BUFFRADAR("rowgap 6")
+  assert(db.rowGap == 6, "row gap not stored")
+  local y2 = r2.points[1][5] - r1.points[1][5]
+  assert(y2 == y1 - 6, "row gap did not widen the pitch: " .. tostring(y1) .. " -> " .. tostring(y2))
+  env.SlashCmdList.BUFFRADAR("rowgap 0")
+  env.SlashCmdList.BUFFRADAR("iconsize 20")
+  assert(db.iconSize == 20, "icon size not stored")
+  assert(r1.icons[1].size and r1.icons[1].size[1] == 20,
+    "icon size not applied: " .. tostring(r1.icons[1].size and r1.icons[1].size[1]))
+  env.SlashCmdList.BUFFRADAR("iconsize 0")
+  -- Window layer.
+  env.SlashCmdList.BUFFRADAR("strata high")
+  assert(db.strata == "HIGH", "strata not stored")
+  assert(env.BuffRadarFrame.strata == "HIGH",
+    "frame strata not applied: " .. tostring(env.BuffRadarFrame.strata))
+  env.SlashCmdList.BUFFRADAR("strata medium")
+  cleanup()
+end)
+
+step("coverage parts, tooltip levels, names, row colors (1.10.0)", function()
+  local cleanup = partyOfTwo("TT")
+  local db = env.BuffRadarDB
+  refresh()
+  -- Coverage line: the progress part switches off and back on.
+  local function coverHas(text)
+    for _, fs in ipairs(env.__fontstrings) do
+      if type(fs.text) == "string" and fs.text:find(text, 1, true) then return true end
+    end
+    return false
+  end
+  assert(coverHas("0/3 fully buffed"), "coverage progress not shown")
+  env.SlashCmdList.BUFFRADAR("cover progress off")
+  assert(db.coverParts.progress == false, "cover part not stored")
+  refresh()
+  assert(not coverHas("0/3 fully buffed"), "coverage progress still shown after off")
+  env.SlashCmdList.BUFFRADAR("cover progress on")
+  refresh()
+  assert(coverHas("0/3 fully buffed"), "coverage progress did not come back")
+  -- Tooltip levels on Aaron's row.
+  local function findRow()
+    for i = 1, 15 do
+      local r = env["BuffRadarRow" .. i]
+      if r and r.entry and r.entry.unit == "party1" then return r end
+    end
+  end
+  local arow = findRow()
+  assert(arow, "Aaron has no row")
+  local function tipLines()
+    local lines = {}
+    local realTip = env.GameTooltip
+    env.GameTooltip = { SetOwner = function() end, Show = function() end,
+      SetUnit = function() end, Hide = function() end,
+      AddLine = function(_, t) lines[#lines + 1] = t end }
+    arow.scripts.OnEnter(arow)
+    env.GameTooltip = realTip
+    return lines
+  end
+  local function anyLine(lines, text)
+    for _, t in ipairs(lines) do
+      if type(t) == "string" and t:find(text, 1, true) then return true end
+    end
+    return false
+  end
+  env.SlashCmdList.BUFFRADAR("tooltip minimal")
+  assert(not anyLine(tipLines(), "Right-click"),
+    "minimal tooltip still shows the hint lines")
+  env.SlashCmdList.BUFFRADAR("tooltip full")
+  assert(anyLine(tipLines(), "In your group"),
+    "full tooltip lacks the group line")
+  env.SlashCmdList.BUFFRADAR("tooltip standard")
+  -- (Row names are re-rendered only for a new player on the row, so the
+  -- name-format checks below use fresh scenes, like the config's own
+  -- invalidate path would produce in the game.)
+  -- Row color mark: tank rows get a sky edge strip.
+  env.UnitGroupRolesAssigned = function(u) return u == "party2" and "TANK" or "DAMAGER" end
+  env.SlashCmdList.BUFFRADAR("rowcolor tank sky")
+  assert(db.rowColors.tank and db.rowColors.tank[2] == 0.7, "row color not stored")
+  refresh()
+  local zrow
+  for i = 1, 15 do
+    local r = env["BuffRadarRow" .. i]
+    if r and r.entry and r.entry.unit == "party2" then zrow = r end
+  end
+  assert(zrow, "Zed has no row")
+  assert(zrow.tint.shown and zrow.tint.vcolor and zrow.tint.vcolor[2] == 0.7,
+    "tank row has no sky mark")
+  env.SlashCmdList.BUFFRADAR("rowcolor tank off")
+  env.UnitGroupRolesAssigned = nil
+  refresh()
+  cleanup()
+  -- Row names: realm shown and the name shortened. (A row re-renders its
+  -- name when a different player lands on it, so the settings are set
+  -- between two scenes — the same moment the settings window's own
+  -- invalidate produces in the game.)
+  local cleanup2 = partyOfTwo("UU")
+  local db2 = env.BuffRadarDB
+  local O2 = env.__over
+  O2.UnitFullName = function(u) if u == "party1" then return "Aaron", "OtherRealm" end end
+  db2.showRealm = true
+  db2.nameTrim = 4
+  cleanup2 = partyOfTwo("U2")
+  O2.UnitFullName = function(u) if u == "party1" then return "Aaron", "OtherRealm" end end
+  refresh()
+  local arow2 = findRow()
+  assert(arow2 and arow2.name.text == "Aaro…",
+    "realm + shortened name wrong: " .. tostring(arow2 and arow2.name.text))
+  db2.showRealm = false
+  db2.nameTrim = 0
+  cleanup2()
+  -- Class colors off: the name renders in plain light grey. (Aaron must
+  -- be in range for this: out of range greys the name either way.)
+  local cleanup3 = partyOfTwo("VV")
+  local db3 = env.BuffRadarDB
+  db3.classColors = false
+  cleanup3 = partyOfTwo("V2")
+  env.IsSpellInRange = function() return 1 end
+  refresh()
+  local arow3 = findRow()
+  assert(arow3 and arow3.name.color and arow3.name.color[1] == 0.92,
+    "class colors off did not switch the name color")
+  db3.classColors = true
+  cleanup3()
+end)
+
+step("per-kind sounds, buff priority, click-through (1.10.0)", function()
+  local db = env.BuffRadarDB
+  -- a sound per kind of alert
+  env.SlashCmdList.BUFFRADAR("soundfor drop none")
+  assert(db.alertSounds.drop == "none", "per-kind sound not saved")
+  env.SlashCmdList.BUFFRADAR("soundfor drop droplet")
+  assert(db.alertSounds.drop == "droplet", "per-kind sound not changed")
+  env.SlashCmdList.BUFFRADAR("soundfor master system")
+  assert(db.alertSound == "system", "master sound not changed")
+  env.SlashCmdList.BUFFRADAR("soundfor master droplet")
+  assert(db.alertSound == "droplet", "master sound not restored")
+  -- click-through only bites while the window is locked
+  local row = env.BuffRadarRow1
+  env.SlashCmdList.BUFFRADAR("clickthrough")
+  assert(db.clickThrough == true, "click-through not on")
+  assert(row.mouseEnabled ~= false, "click-through bit while unlocked")
+  env.SlashCmdList.BUFFRADAR("lock")
+  assert(db.locked == true, "window not locked")
+  assert(row.mouseEnabled == false, "rows still catch clicks while locked")
+  assert(env.BuffRadarFrame.mouseEnabled == false, "frame still catches clicks while locked")
+  env.SlashCmdList.BUFFRADAR("lock")
+  assert(row.mouseEnabled == true, "rows did not get their clicks back on unlock")
+  env.SlashCmdList.BUFFRADAR("clickthrough")
+  assert(db.clickThrough == false, "click-through not off")
+  -- buff priority: the Forever priest offers Fortitude then Spirit by
+  -- default; putting Spirit first makes it the row's cast target
+  if env.__forever then
+    local cleanup = partyOfTwo("PP")
+    refresh()
+    local arow
+    for i = 1, 15 do
+      local r = env["BuffRadarRow" .. i]
+      if r and r.entry and r.entry.unit == "party1" then arow = r; break end
+    end
+    assert(arow and arow.cMissing and arow.cMissing[1] == "Power Word: Fortitude",
+      "default first offer is not Fortitude: " .. tostring(arow and arow.cMissing and arow.cMissing[1]))
+    env.SlashCmdList.BUFFRADAR("prio DIVINE_SPIRIT 1")
+    assert(db.buffPrio[1] == "DIVINE_SPIRIT", "priority not saved")
+    refresh()
+    assert(arow.cMissing[1] == "Divine Spirit",
+      "row did not offer Spirit first: " .. tostring(arow.cMissing[1]))
+    env.SlashCmdList.BUFFRADAR("prio reset")
+    assert(#db.buffPrio == 0, "priority not reset")
+    refresh()
+    assert(arow.cMissing[1] == "Power Word: Fortitude", "priority reset did not restore the order")
+    cleanup()
+  end
+end)
+
+step("group-by-buff view (1.10.0)", function()
+  local db = env.BuffRadarDB
+  local cleanup = partyOfTwo("BB")
+  refresh()
+  env.SlashCmdList.BUFFRADAR("view buffs")
+  assert(db.viewMode == "buffs", "view mode not saved")
+  refresh()
+  local r1, r2 = env.BuffRadarRow1, env.BuffRadarRow2
+  assert(r1.entry and r1.entry.guid and r1.entry.guid:sub(1, 5) == "buff:",
+    "first row is not a buff row")
+  -- counts decide first: on Forever, Fortitude is missing by all three
+  -- (Spirit by two), so Fortitude leads; on Retail, Skyfury leads.
+  local firstBuff = env.__forever and "Power Word: Fortitude" or "Skyfury"
+  local secondBuff = env.__forever and "Divine Spirit" or nil
+  assert(r1.name.text and r1.name.text:find(firstBuff, 1, true),
+    "first buff row should be " .. firstBuff .. ": " .. tostring(r1.name.text))
+  if secondBuff then
+    assert(r2.name.text and r2.name.text:find(secondBuff, 1, true),
+      "second buff row should be Spirit: " .. tostring(r2.name.text))
+  end
+  assert(r1.entry.unit == "player" or r1.entry.unit == "party1" or r1.entry.unit == "party2",
+    "buff row has no cast target")
+  assert(r1.entry.missing and r1.entry.missing[1] == firstBuff,
+    "buff row would not cast its own spell")
+  env.SlashCmdList.BUFFRADAR("view people")
+  assert(db.viewMode == "people", "view mode not restored")
+  refresh()
+  local found = false
+  for i = 1, 15 do
+    local r = env["BuffRadarRow" .. i]
+    if r and r.entry and r.entry.unit == "party1" then found = true break end
+  end
+  assert(found, "people view did not come back")
+  cleanup()
+end)
+
 step("setup wizard walks a new user through (1.9.0)", function()
   local db = env.BuffRadarDB
   assert(db.wizardSeen == false, "wizard should start unseen on a fresh save")
@@ -2078,12 +2320,13 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 11"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 12"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
   assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
   assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")
   assert(chatSince(n, "grow up"), "self-test missing the 1.8.0 state line")
   assert(chatSince(n, "two columns"), "self-test missing the 1.9.0 state line")
+  assert(chatSince(n, "saved themes"), "self-test missing the 1.10.0 state line")
   assert(chatSince(n, "buff SKYFURY") or chatSince(n, "buff FORTITUDE"), "self-test lists no buffs")
 end)
 step("German client uses the translation", function()

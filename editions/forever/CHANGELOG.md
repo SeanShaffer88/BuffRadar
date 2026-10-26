@@ -2,6 +2,59 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.10.0 — 2026-10-25 — Forever edition
+
+A customization release: ten player-requested options — five
+improvements to things already there, five new additions — all about
+making the window look, sound and behave the way you want. Every one
+is a `/br` command as well as a settings control where it has one.
+
+Improvements:
+
+- **Your own themes** (`/br theme save <name>`, `/br theme delete
+  <name>`, Settings > Window): save the window colors you have set as
+  a named theme — up to four — and switch between them like the
+  built-in themes.
+- **Row spacing and icon size** (`/br rowgap <0-8>`, `/br iconsize
+  <0|10-24>`, Settings > Window): pad the rows out vertically, and
+  make the missing-buff icons bigger — or leave the size automatic.
+- **Coverage line, your pick** (`/br cover <part> on|off`, Settings >
+  Window > More display options): each of the line's seven parts —
+  progress, your buffs, uptime, group, expiry, world buffs, healer
+  drinking — can be switched off on its own.
+- **A sound per alert** (`/br soundfor`, Settings > Alerts): the
+  new-name, buff-drop and buff-request alerts each get their own
+  sound choice; any kind without one uses the main sound.
+- **Tooltip detail levels** (`/br tooltip`, Settings > Window > More
+  display options): minimal (the cast line only), standard, or full —
+  full adds where the player is and who else could cast the buff.
+
+Additions:
+
+- **Row color marks** (`/br rowcolor`, Settings > Window > More
+  display options): a thin color bar on the left edge of rows that
+  are your assignments, tanks, about to expire, or your buddy's half
+  of a split list — pick a color per kind, or turn each off.
+- **Group-by-buff view** (`/br view buffs`, Settings > Window > More
+  display options): one row per buff still needed, with the number
+  of players who need it; click a row to cast that buff on an
+  in-range player who needs it.
+- **Your buff order** (`/br prio`, Settings > Buffs): rows offer
+  your buffs in the order you choose — the first one is the click
+  target and first icon — and "need" sorting prefers rows whose top
+  buff sits highest in your order.
+- **Window layer and click-through** (`/br strata`, `/br
+  clickthrough`, Settings > Window / Behavior): put the window on a
+  higher or lower layer, and — while it is locked — let clicks pass
+  through it to the game world behind.
+- **Name formats** (Settings > Window > More display options):
+  class-colored names on or off, realm names shown or hidden, and a
+  longest-name length after which names shorten with dots.
+
+Also fixed: a settings layout overlap on the Window tab — the
+two-column and duration-bars checkboxes, and the setup-wizard
+button and the range-words checkbox, could sit on top of each other.
+
 ## 1.9.0 — 2026-10-25 — Forever edition
 
 The final batch of the 50-item enhancement program: the last four

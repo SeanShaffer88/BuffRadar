@@ -1,15 +1,45 @@
 # BuffRadar — Features (Forever edition)
 
-The full feature list for BuffRadar 1.9.0 (Forever edition) for
+The full feature list for BuffRadar 1.10.0 (Forever edition) for
 WoW: Forever (Interface 16001). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
 Prepared 2026-10-24 from the shipped 1.3.2 Forever README and
-CHANGELOG; updated 2026-10-25 for 1.9.0. Since 1.3.2 both editions are built from one source —
+CHANGELOG; updated 2026-10-25 for 1.10.0. Since 1.3.2 both editions are built from one source —
 the addon picks the Forever buff set when it loads on the Forever
 client — and the Forever buff set itself is unchanged from 1.2.4.
 **From 1.8.0 BuffRadar is Forever-only**: Retail support was dropped
 2026-10-25, and 1.7.0 is the last Retail release.
+
+## New in 1.10.0
+
+A customization batch (all ten also exist as `/br` commands):
+
+- **Saved themes** — name and keep up to four of your own color
+  themes (`/br theme save <name>`), alongside the built-ins.
+- **Row spacing + icon size** — vertical padding between rows, and
+  missing-buff icons at a size you pick (`/br rowgap`, `/br iconsize`).
+- **Coverage-line part toggles** — each of the line's seven parts
+  (progress, your buffs, uptime, group, expiry, world buffs, healer
+  drinking) can be hidden on its own (`/br cover`).
+- **A sound per alert kind** — new-name, buff-drop and buff-request
+  alerts each pick their own sound (`/br soundfor`).
+- **Tooltip detail levels** — minimal, standard, or full tooltips;
+  full adds the player's situation and who else could cast the buff
+  (`/br tooltip`).
+- **Row color marks** — a thin color bar marks rows that are your
+  assignments, tanks, expiring soon, or your buddy's half (`/br
+  rowcolor`).
+- **Group-by-buff view** — one row per buff still needed, with a
+  count; clicking casts that buff on an in-range player who needs
+  it (`/br view buffs`).
+- **Your buff order** — rows offer your buffs in your order; the
+  first is the click target (`/br prio`).
+- **Window layer + click-through** — window strata, and clicks pass
+  through the window while it is locked (`/br strata`, `/br
+  clickthrough`).
+- **Name formats** — class-colored names on/off, realm names
+  shown/hidden, and a longest-name length.
 
 ## New in 1.9.0
 
@@ -331,6 +361,6 @@ stays hidden on those characters.
 - 1.2.2 and earlier were confirmed working live by SEAN on
   2026-10-20. 1.2.4 (the TOPLEFT anchoring fix) was built but
   unverified in game, and **1.3.2 — the unified-source build — 1.4.0,
-  1.5.0, 1.6.0, 1.7.0 and 1.8.0 are likewise built but UNVERIFIED in
-  game**. The Retail edition ended at 1.7.0 (Interface 120105), a
+  1.5.0, 1.6.0, 1.7.0, 1.8.0, 1.9.0 and 1.10.0 are likewise built but
+  UNVERIFIED in game**. The Retail edition ended at 1.7.0 (Interface 120105), a
   separate zip from the same source with its own feature list.

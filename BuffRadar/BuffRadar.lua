@@ -309,6 +309,9 @@ local DEFAULTS = {
   ignored = {},        -- player names BuffRadar never lists (right-click a row)
   rebuffPer = {},      -- per-buff rebuff thresholds in seconds: buff key -> seconds
   alertSound = "droplet", -- alert sound: "droplet", "system" or "none"
+  alertSounds = {},     -- per-alert-kind sound: new/drop/ask -> a sound name (empty = use alertSound)
+  buffPrio = {},        -- your buff order: buff keys, first offered first (empty = normal order)
+  clickThrough = false, -- while locked, let clicks pass through the window to the game
   muteInInstance = false, -- no alert sound while in a dungeon, raid or battleground
   showMinimap = true,  -- minimap button (the addon compartment works regardless)
   minimapAngle = 215,  -- minimap button position, degrees
@@ -336,6 +339,17 @@ local DEFAULTS = {
   deathRecap = true,   -- print who was missing buffs when you died (1.9.0)
   wipeReport = false,  -- print a rebuff report after a wipe (1.9.0)
   wizardSeen = false,  -- the setup wizard has been run or dismissed (1.9.0)
+  customThemes = {},   -- your saved themes: { name, bg, border } (1.10.0)
+  rowGap = 0,          -- extra space between rows, 0-8 (1.10.0)
+  iconSize = 0,        -- buff icon size 10-24; 0 = automatic (1.10.0)
+  strata = "MEDIUM",   -- the window's screen layer (1.10.0)
+  coverParts = {},     -- coverage-line parts switched OFF (absent = on) (1.10.0)
+  tooltipLevel = "standard", -- row tooltips: minimal | standard | full (1.10.0)
+  viewMode = "people",  -- list view: "people" (one row per player) or "buffs" (one row per buff still needed)
+  classColors = true,  -- row names in class colors (1.10.0)
+  showRealm = false,   -- show -Realm after row names (1.10.0)
+  nameTrim = 0,        -- shorten row names past this many letters, 0 = off (1.10.0)
+  rowColors = {},      -- colored edge marks on rows: mine|tank|expiring|buddy (1.10.0)
   pinned = "",         -- full or short name of the player pinned to the top (1.7.0)
   weaponWatch = false, -- remind me when my weapon has no temporary enchant (1.7.0)
   enterFlash = true,   -- print a reminder when entering an instance unbuffed (1.7.0)
@@ -377,11 +391,15 @@ local ENUMS = {
   roleFilter = { ALL = true, TANK = true, HEALER = true, DAMAGER = true },
   alertSound = { droplet = true, system = true, none = true },
   theme = { midnight = true, crimson = true, forest = true, parchment = true, custom = true },
+  strata = { LOW = true, MEDIUM = true, HIGH = true, DIALOG = true },
+  tooltipLevel = { minimal = true, standard = true, full = true },
+  viewMode = { people = true, buffs = true },
 }
 local RANGES = { bgAlpha = { 0, 1 }, scale = { 0.5, 2 }, cfgScale = { 0.5, 2 },
                  width = { MIN_WIDTH, MAX_WIDTH }, rebuff = { 0, 3600 }, castsTotal = { 0, 1e9 },
                  groupCastMin = { 2, 40 }, minimapAngle = { 0, 360 },
-                 lowMana = { 0, 100 }, textScale = { 0.8, 1.5 }, idleFade = { 0, 90 } }
+                 lowMana = { 0, 100 }, textScale = { 0.8, 1.5 }, idleFade = { 0, 90 },
+                 rowGap = { 0, 8 }, iconSize = { 0, 24 }, nameTrim = { 0, 24 } }
 
 local function IsNumber(v)
   return type(v) == "number" and v == v and v ~= math_huge and v ~= -math_huge
@@ -403,7 +421,30 @@ function SanitizeDB(saved)
         else
           v = { def[1], def[2], def[3] }
         end
-      elseif k == "enabled" or k == "ignored" then
+      elseif k == "alertSounds" then
+        local clean = {}
+        if v then
+          for kind, choice in pairs(v) do
+            if (kind == "new" or kind == "drop" or kind == "ask")
+               and (choice == "droplet" or choice == "system" or choice == "none") then
+              clean[kind] = choice
+            end
+          end
+        end
+        v = clean
+      elseif k == "buffPrio" then
+        local clean, seenKeys = {}, {}
+        if v then
+          for _, key in ipairs(v) do
+            if type(key) == "string" and #key <= 40 and not seenKeys[key] then
+              seenKeys[key] = true
+              clean[#clean + 1] = key
+              if #clean >= 24 then break end
+            end
+          end
+        end
+        v = clean
+      elseif k == "enabled" or k == "ignored" or k == "coverParts" then
         local clean = {}
         if v then
           for key, on in pairs(v) do
@@ -487,6 +528,37 @@ function SanitizeDB(saved)
           end
         end
         v = clean
+      elseif k == "customThemes" then
+        local clean, seenNames = {}, {}
+        if v then
+          for _, t in ipairs(v) do
+            if type(t) == "table" and type(t.name) == "string" and #t.name >= 1 and #t.name <= 24
+               and type(t.bg) == "table" and type(t.border) == "table"
+               and IsNumber(t.bg[1]) and IsNumber(t.bg[2]) and IsNumber(t.bg[3])
+               and IsNumber(t.border[1]) and IsNumber(t.border[2]) and IsNumber(t.border[3])
+               and not seenNames[t.name:lower()] then
+              seenNames[t.name:lower()] = true
+              clean[#clean + 1] = {
+                name = t.name,
+                bg = { Clamp(t.bg[1], 0, 1), Clamp(t.bg[2], 0, 1), Clamp(t.bg[3], 0, 1) },
+                border = { Clamp(t.border[1], 0, 1), Clamp(t.border[2], 0, 1), Clamp(t.border[3], 0, 1) },
+              }
+              if #clean >= 4 then break end
+            end
+          end
+        end
+        v = clean
+      elseif k == "rowColors" then
+        local clean = {}
+        if v then
+          for rule, c in pairs(v) do
+            if (rule == "mine" or rule == "tank" or rule == "expiring" or rule == "buddy")
+               and type(c) == "table" and IsNumber(c[1]) and IsNumber(c[2]) and IsNumber(c[3]) then
+              clean[rule] = { Clamp(c[1], 0, 1), Clamp(c[2], 0, 1), Clamp(c[3], 0, 1) }
+            end
+          end
+        end
+        v = clean
       elseif k == "buffContext" then
         local clean = {}
         if v then
@@ -517,9 +589,19 @@ function SanitizeDB(saved)
     elseif dt == "boolean" then
       if type(v) ~= "boolean" then v = def end
     elseif dt == "string" then
-      if type(v) ~= "string" or (ENUMS[k] and not ENUMS[k][v]) then v = def end
+      -- theme is exempt from its enum: a saved theme's name is valid too
+      -- (checked properly after the loop, once customThemes is clean).
+      if type(v) ~= "string" or (ENUMS[k] and k ~= "theme" and not ENUMS[k][v]) then v = def end
+      if k == "theme" and type(v) == "string" and #v > 24 then v = def end
     end
     saved[k] = v
+  end
+  if type(saved.theme) == "string" and not ENUMS.theme[saved.theme] then
+    local found = false
+    for _, t in ipairs(saved.customThemes or {}) do
+      if t.name == saved.theme then found = true; break end
+    end
+    if not found then saved.theme = "custom" end
   end
   local p = saved.point
   if p ~= nil and not (type(p) == "table" and type(p[1]) == "string" and type(p[2]) == "string"
@@ -1375,6 +1457,22 @@ local function Valid(unit)
   return true
 end
 
+-- Your buff priority (1.10.0): db.buffPrio holds buff keys in the
+-- order you want them offered. The map (display name -> position) is
+-- rebuilt lazily whenever the spellbook or the saved order changed.
+X.prioDirty = true
+function X.RebuildPrio()
+  X.prioDirty = false
+  X.prioIdx = {}
+  if not db or not db.buffPrio then return end
+  local byKey = {}
+  for _, b in ipairs(myBuffs) do byKey[b.key] = b.name end
+  for i, key in ipairs(db.buffPrio) do
+    local nm = byKey[key]
+    if nm and not X.prioIdx[nm] then X.prioIdx[nm] = i end
+  end
+end
+
 -- Entry tables are pooled and reused every refresh (no per-refresh garbage).
 local entries, entryPool, seen = {}, {}, {}
 local nEntries = 0
@@ -1388,6 +1486,9 @@ local function EntryOrder(a, b)
   if (a.buddy or false) ~= (b.buddy or false) then return not a.buddy end
   if (a.handled or false) ~= (b.handled or false) then return not a.handled end
   if (a.pet or false) ~= (b.pet or false) then return not a.pet end
+  if db.sortMode == "need" and (a.prio1 or 999) ~= (b.prio1 or 999) then
+    return (a.prio1 or 999) < (b.prio1 or 999)
+  end
   if db.sortMode == "need" and #a.missing ~= #b.missing then return #a.missing > #b.missing end
   if db.sortMode == "distance" and (a.rangeBucket or 2) ~= (b.rangeBucket or 2) then
     return (a.rangeBucket or 2) < (b.rangeBucket or 2)
@@ -1831,6 +1932,26 @@ local function CollectEntries()
       if s % #users ~= myIdx - 1 then e.buddy = true end
     end
   end
+  -- your buff priority: each row offers its buffs in your order (the
+  -- first one is the click target and the first icon), and each row
+  -- remembers its best position for the "need" sort tiebreak
+  if X.prioDirty then X.RebuildPrio() end
+  if X.prioIdx and next(X.prioIdx) then
+    for i = 1, nEntries do
+      local e = entries[i]
+      local m = e.missing
+      for a = 2, #m do
+        local v, av = m[a], X.prioIdx[m[a]] or 999
+        local bI = a - 1
+        while bI >= 1 and (X.prioIdx[m[bI]] or 999) > av do
+          m[bI + 1] = m[bI]
+          bI = bI - 1
+        end
+        m[bI + 1] = v
+      end
+      e.prio1 = X.prioIdx[m[1]] or 999
+    end
+  end
   if nEntries > 1 then table_sort(entries, EntryOrder) end
   -- Cast queue highlight (1.6.0): right after one of your casts lands, the
   -- new top row is where the next cast should go.
@@ -2003,12 +2124,13 @@ end
 X.EXPORT_KEYS = { "locked", "includeSelf", "avoidPvP", "autoHide", "rebuff", "scale",
   "width", "cfgScale", "castMethod", "clickReg", "bgAlpha", "showTitle", "showBorder",
   "playSound", "showCounter", "groupOnly", "pauseInCities", "groupCast", "groupCastMin",
-  "showOutOfRange", "sortMode", "alertSound", "muteInInstance", "showMinimap", "lowMana",
+  "showOutOfRange", "sortMode", "alertSound", "alertSounds", "buffPrio", "clickThrough", "muteInInstance", "showMinimap", "lowMana",
   "sync", "requests", "joinDigest", "roleFilter", "showStrip", "idleFade",
   "pill", "queueTag", "consumables", "buddySplit", "readyPost", "weaponWatch", "enterFlash",
   "scanThrottle", "growUp", "hideInCombat", "theme", "findBox", "durationBars", "raidMarkers",
   "rangeText", "focusWatch", "pets", "auraWatch", "worldWatch", "drinkWatch", "twoCol",
-  "deathRecap", "wipeReport" }
+  "deathRecap", "wipeReport", "rowGap", "iconSize", "strata",
+  "tooltipLevel", "viewMode", "classColors", "showRealm", "nameTrim" }
 
 local function Esc(v) return (tostring(v):gsub("%%", "%%25"):gsub(";", "%%3B"):gsub("=", "%%3D")) end
 local function Unesc(v) return (v:gsub("%%3D", "="):gsub("%%3B", ";"):gsub("%%25", "%%")) end
@@ -2377,11 +2499,13 @@ local function InInstanceNow()
   return nil
 end
 
-local function PlayAlert()
+local function PlayAlert(kind)
   if not db or not db.playSound then return end
-  if db.alertSound == "none" then return end
+  -- a sound chosen for this kind of alert wins; otherwise the main choice
+  local choice = (kind and db.alertSounds and db.alertSounds[kind]) or db.alertSound
+  if choice == "none" then return end
   if db.muteInInstance and InInstanceNow() then return end
-  if db.alertSound == "system" and PlaySound then
+  if choice == "system" and PlaySound then
     local id = (SOUNDKIT and SOUNDKIT.RAID_WARNING) or 8959
     if pcall(PlaySound, id, "Master") then return end
   end
@@ -2593,7 +2717,7 @@ function X.OnChatAsk(text, author)
       if (not X.asked[e.guid] or GetTime() - X.asked[e.guid] > 30)
          and db.playSound and GetTime() - lastSoundAt > 1 then
         lastSoundAt = GetTime()
-        PlayAlert()
+        PlayAlert("ask")
       end
       X.asked[e.guid] = GetTime()
       if QueueRefresh then QueueRefresh() end
@@ -2872,6 +2996,8 @@ local function Row_OnEnter(self)
   if e.groupCast then
     GameTooltip:AddLine(L["Group version — one cast buffs the whole party."], 0.4, 0.8, 1)
   end
+  -- Tooltip detail (1.10.0): minimal stops at the cast line.
+  if db.tooltipLevel == "minimal" then GameTooltip:Show() return end
   GameTooltip:AddLine(L["Right-click to ignore this player."], 0.6, 0.6, 0.6)
   GameTooltip:AddLine(L["Shift-right-click to ignore for this session only."], 0.6, 0.6, 0.6)
   if #e.missing > 1 then
@@ -2904,7 +3030,45 @@ local function Row_OnEnter(self)
       GameTooltip:AddLine(h.name .. " — " .. t, 0.55, 0.85, 0.55)
     end
   end
+  -- Full tooltips (1.10.0) add the context lines: class and group, the
+  -- range in words, and which other classes could cast the first buff.
+  if db.tooltipLevel == "full" then
+    local bits = {}
+    if e.class then bits[#bits + 1] = e.class:sub(1, 1) .. e.class:sub(2):lower() end
+    bits[#bits + 1] = e.group and "In your group" or "Nearby, not in your group"
+    if not e.outOfRange then bits[#bits + 1] = "in cast range"
+    elseif e.rangeBucket == 1 then bits[#bits + 1] = "near — just out of range" end
+    GameTooltip:AddLine(table.concat(bits, " · "), 0.7, 0.7, 0.7)
+    -- Which other classes could cast the first missing buff: scanned
+    -- from the definitions on the spot (a hover is rare; no state kept).
+    local _, myClass = UnitClass("player")
+    local names, seenCls = {}, {}
+    for _, d in ipairs(BUFF_DEFS) do
+      local dn
+      if d.choices then dn = SpellName(d.choices[1][1], d.choices[1][2])
+      else dn = SpellName(d.id, d.name) end
+      if dn == e.missing[1] then
+        for c in pairs(d.classes or ALL) do
+          if c ~= myClass and not seenCls[c] then
+            seenCls[c] = true
+            names[#names + 1] = c:sub(1, 1) .. c:sub(2):lower()
+          end
+        end
+      end
+    end
+    table_sort(names)
+    if #names > 0 then
+      GameTooltip:AddLine("Also castable by: " .. table.concat(names, ", "), 0.7, 0.7, 0.7, true)
+    end
+  end
   GameTooltip:Show()
+end
+
+-- The name field stops this far short of the row's right edge to leave
+-- room for the buff icons; it follows the icon size (1.10.0).
+local function IconInset()
+  local isz = (db.iconSize or 0) > 0 and db.iconSize or (db.compact and 12 or 16)
+  return MAX_ICONS * (isz + 2) + 4
 end
 
 local function CreateRow(i)
@@ -2955,7 +3119,7 @@ local function CreateRow(i)
 
   b.name = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   b.name:SetPoint("LEFT", b.portrait, "RIGHT", 6, 0)
-  b.name:SetPoint("RIGHT", b, "RIGHT", -(MAX_ICONS * 18 + 4), 0)
+  b.name:SetPoint("RIGHT", b, "RIGHT", -(IconInset()), 0)
   b.name:SetJustifyH("LEFT")
   if b.name.SetWordWrap then b.name:SetWordWrap(false) end
   -- "out of range" under the name of a greyed row, so the state doesn't rest
@@ -2967,6 +3131,12 @@ local function CreateRow(i)
 
   -- Duration bar (1.8.0): a thin bar along the row's bottom edge showing
   -- how much of a 30-minute span the expiring buff has left.
+  b.tint = b:CreateTexture(nil, "OVERLAY")
+  b.tint:SetTexture("Interface\\Buttons\\WHITE8X8")
+  b.tint:SetPoint("TOPLEFT", b, "TOPLEFT", 0, -1)
+  b.tint:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 0, 1)
+  b.tint:SetWidth(3)
+  b.tint:Hide()
   b.bar = b:CreateTexture(nil, "ARTWORK")
   b.bar:SetTexture("Interface\\Buttons\\WHITE8X8")
   b.bar:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 2, 1)
@@ -3053,8 +3223,35 @@ X.THEMES = {
 }
 X.THEME_ORDER = { "midnight", "crimson", "forest", "parchment" }
 
+-- Saved themes (1.10.0): your own background + border pairs, kept in
+-- db.customThemes, usable anywhere a built-in theme is.
+function X.SavedTheme(name)
+  if not db or not name then return nil end
+  for _, t in ipairs(db.customThemes or {}) do
+    if t.name:lower() == name:lower() then
+      return { label = t.name, bg = t.bg, border = t.border }
+    end
+  end
+  return nil
+end
+
+function X.ThemeDef(name)
+  if not name then return nil end
+  return X.THEMES[name] or X.SavedTheme(name)
+end
+
+-- The cycle order: the four built-ins, then your saved themes.
+function X.ThemeOrder()
+  local order = {}
+  for _, k in ipairs(X.THEME_ORDER) do order[#order + 1] = k end
+  if db then
+    for _, t in ipairs(db.customThemes or {}) do order[#order + 1] = t.name end
+  end
+  return order
+end
+
 function X.ThemeBorder()
-  local t = db and X.THEMES[db.theme]
+  local t = db and X.ThemeDef(db.theme)
   if t then return t.border end
   return { 0.35, 0.55, 0.8 }
 end
@@ -3099,6 +3296,9 @@ end
 
 local function ApplyAppearance()
   if not frame then return end
+  -- Window layer (1.10.0): the main frame and the pill share a strata.
+  if frame.SetFrameStrata then frame:SetFrameStrata(db.strata or "MEDIUM") end
+  if X.pill and X.pill.SetFrameStrata then X.pill:SetFrameStrata(db.strata or "MEDIUM") end
   local c = db.bgColor or DEFAULTS.bgColor
   local bc = X.ThemeBorder()
   if frame.SetBackdropColor then
@@ -3165,9 +3365,10 @@ function X.WizardPage(n)
     end
     b:SetText(themeLabel())
     b:SetScript("OnClick", function()
+      local order = X.ThemeOrder()
       local cur = 1
-      for i, k in ipairs(X.THEME_ORDER) do if db.theme == k then cur = i end end
-      X.ApplyTheme(X.THEME_ORDER[cur % #X.THEME_ORDER + 1])
+      for i, k in ipairs(order) do if k:lower() == (db.theme or ""):lower() then cur = i end end
+      X.ApplyTheme(order[cur % #order + 1])
       if RefreshConfig then RefreshConfig() end
       b:SetText(themeLabel())
     end)
@@ -3262,13 +3463,52 @@ end
 -- Apply a color theme (1.8.0). Defined here because it needs
 -- ApplyAppearance, which only exists from this point on.
 function X.ApplyTheme(name)
-  local t = X.THEMES[name]
+  local t = X.ThemeDef(name)
   if not t then return false end
+  if X.SavedTheme(name) then name = t.label end  -- keep the saved spelling
   db.theme = name
   db.bgColor = { t.bg[1], t.bg[2], t.bg[3] }
   ApplyAppearance()
   if RefreshConfig then RefreshConfig() end
   return true
+end
+
+-- Save the current look (background + the border now in effect) as one
+-- of your themes (1.10.0). Returns the name, or nil plus a reason.
+function X.SaveTheme(name)
+  name = (name or ""):match("^%s*(.-)%s*$")
+  if not name:match("^[%w%-]+$") or #name > 24 then return nil, "name" end
+  if X.THEMES[name:lower()] or name:lower() == "custom" then return nil, "taken" end
+  local b = X.ThemeBorder()
+  local entry = { name = name,
+    bg = { db.bgColor[1], db.bgColor[2], db.bgColor[3] },
+    border = { b[1], b[2], b[3] } }
+  db.customThemes = db.customThemes or {}
+  for i, t in ipairs(db.customThemes) do
+    if t.name:lower() == name:lower() then
+      db.customThemes[i] = entry
+      return name
+    end
+  end
+  if #db.customThemes >= 4 then return nil, "full" end
+  db.customThemes[#db.customThemes + 1] = entry
+  return name
+end
+
+function X.DeleteTheme(name)
+  if not db or not name then return false end
+  for i, t in ipairs(db.customThemes or {}) do
+    if t.name:lower() == name:lower() then
+      table.remove(db.customThemes, i)
+      if (db.theme or ""):lower() == t.name:lower() then
+        db.theme = "custom"
+        ApplyAppearance()
+        if RefreshConfig then RefreshConfig() end
+      end
+      return true
+    end
+  end
+  return false
 end
 
 -- One border pulse; restores the normal border shortly after. Assigned
@@ -3294,7 +3534,7 @@ function X.CheckDrops()
     for key, prev in pairs(X.prevHolder) do
       if not Single.holder[key] and prev.unit and UnitExists(prev.unit) then
         Print(string_format("%s dropped off %s.", Single.spell[key] or key, prev.name))
-        PlayAlert()
+        PlayAlert("drop")
         X.Flash()
       end
     end
@@ -3467,6 +3707,23 @@ end
 -- Compact rows + list text scale (1.4.0). Re-anchors every row; height
 -- changes are not combat-safe on secure buttons, so this no-ops in combat
 -- and lands on the post-combat refresh instead.
+-- Click-through (1.10.0): while the window is locked AND the player
+-- asked for it, the window and its rows stop eating mouse clicks, so
+-- clicks land on the game world behind them. Never changed in combat
+-- (secure buttons refuse it there); re-applied when combat ends and
+-- whenever the lock or the setting changes.
+function X.ApplyClickThrough()
+  if not frame or not db then return end
+  if InCombatLockdown and InCombatLockdown() then return end
+  local mouse = not (db.clickThrough and db.locked)
+  if frame.EnableMouse then frame:EnableMouse(mouse) end
+  for i = 1, MAX_ROWS do
+    local row = rows[i]
+    if row and row.EnableMouse then row:EnableMouse(mouse) end
+  end
+  if nextBtn and nextBtn.EnableMouse then nextBtn:EnableMouse(mouse) end
+end
+
 function X.ApplyRowLayout()
   if not frame or InCombatLockdown() then return end
   local h = db.compact and 16 or ROW_H
@@ -3492,10 +3749,10 @@ function X.ApplyRowLayout()
     local idx = (i - 1) % per
     row:SetHeight(h)
     row:ClearAllPoints()
-    row:SetPoint("TOPLEFT", frame, "TOPLEFT", 6 + col * cellW, -top - idx * h)
-    row:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -(6 + (cols - 1 - col) * cellW), -top - idx * h)
+    row:SetPoint("TOPLEFT", frame, "TOPLEFT", 6 + col * cellW, -top - idx * (h + (db.rowGap or 0)))
+    row:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -(6 + (cols - 1 - col) * cellW), -top - idx * (h + (db.rowGap or 0)))
     if row.portrait then row.portrait:SetShown(not db.compact) end
-    local isz = db.compact and 12 or 16
+    local isz = (db.iconSize or 0) > 0 and db.iconSize or (db.compact and 12 or 16)
     for j = 1, MAX_ICONS do if row.icons[j] then row.icons[j]:SetSize(isz, isz) end end
     local ts = db.textScale or 1
     if row.name then row.name:SetScale(ts) end
@@ -4041,9 +4298,19 @@ local function InvalidateRows()
     local row = rows[i]
     row.cGuid, row.cUnit, row.bGuid, row.cFar, row.cTag = nil, nil, nil, nil, nil
     row.cBar, row.cMarker, row.cFarTxt = nil, nil, nil
+    row.cTint = nil
     wipe(row.cMissing)
   end
   if nextBtn then nextBtn.bGuid, nextBtn.isClear = nil, false end
+end
+
+-- The name shown on a row (1.10.0): optionally with the realm, and
+-- optionally shortened.
+local function DispName(e)
+  local nm = (db.showRealm and e.fullName) or e.name or ""
+  local trim = db.nameTrim or 0
+  if trim > 0 and #nm > trim then nm = nm:sub(1, trim) .. "…" end
+  return nm
 end
 
 local function RenderRow(row, e)
@@ -4053,7 +4320,7 @@ local function RenderRow(row, e)
     -- 3D portrait render: only for a new player/token. Guarded like the rest of
     -- this file: if a build renames or restricts it, the row still renders.
     if SetPortraitTexture then pcall(SetPortraitTexture, row.portrait, e.unit) end
-    row.name:SetText(e.name)
+    row.name:SetText(DispName(e))
     row.cGuid, row.cUnit = e.guid, e.unit
     row.cFar = nil  -- new player on this row: set color and layout below
   end
@@ -4065,9 +4332,11 @@ local function RenderRow(row, e)
     row.cFar = far
     row.name:ClearAllPoints()
     row.name:SetPoint("LEFT", row.portrait, "RIGHT", 6, far and 5 or 0)
-    row.name:SetPoint("RIGHT", row, "RIGHT", -(MAX_ICONS * 18 + 4), far and 5 or 0)
+    row.name:SetPoint("RIGHT", row, "RIGHT", -(IconInset()), far and 5 or 0)
     row.far:SetShown(far)
-    if far then row.name:SetTextColor(0.55, 0.55, 0.55) else row.name:SetTextColor(ClassColor(e.class)) end
+    if far then row.name:SetTextColor(0.55, 0.55, 0.55)
+    elseif db.classColors then row.name:SetTextColor(ClassColor(e.class))
+    else row.name:SetTextColor(0.92, 0.92, 0.92) end
   end
   -- Status tag: a rezzed player (lost every buff) is marked under the name;
   -- the name shifts up for it just like the out-of-range layout, minus grey.
@@ -4096,14 +4365,14 @@ local function RenderRow(row, e)
       row.tag:SetText(tag)
       row.name:ClearAllPoints()
       row.name:SetPoint("LEFT", row.portrait, "RIGHT", 6, 5)
-      row.name:SetPoint("RIGHT", row, "RIGHT", -(MAX_ICONS * 18 + 4), 5)
+      row.name:SetPoint("RIGHT", row, "RIGHT", -(IconInset()), 5)
       row.tag:Show()
     else
       row.tag:Hide()
       if not far then
         row.name:ClearAllPoints()
         row.name:SetPoint("LEFT", row.portrait, "RIGHT", 6, 0)
-        row.name:SetPoint("RIGHT", row, "RIGHT", -(MAX_ICONS * 18 + 4), 0)
+        row.name:SetPoint("RIGHT", row, "RIGHT", -(IconInset()), 0)
       end
     end
   end
@@ -4148,6 +4417,27 @@ local function RenderRow(row, e)
     end
   end
   if not mk then row.marker:Hide() end
+  -- Row color mark (1.10.0): a colored strip on the row's left edge for
+  -- the first matching rule you switched on — yours, tanks, expiring
+  -- soon, your split partner's half.
+  local tint
+  local rc = db.rowColors
+  if rc then
+    if rc.mine and e.mine then tint = rc.mine
+    elseif rc.tank and e.role == 1 then tint = rc.tank
+    elseif rc.expiring and (e.expired or (e.remain1 and e.remain1 < 300)) then tint = rc.expiring
+    elseif rc.buddy and e.buddy then tint = rc.buddy end
+  end
+  if row.cTint ~= tint then
+    row.cTint = tint
+    if tint then
+      row.tint:SetVertexColor(tint[1], tint[2], tint[3])
+      row.tint:Show()
+    else
+      row.tint:Hide()
+    end
+  end
+  if not tint then row.tint:Hide() end
   local cm, changed = row.cMissing, false
   for j = 1, MAX_ICONS do
     if cm[j] ~= m[j] then changed = true; break end
@@ -4183,6 +4473,29 @@ local function RenderRow(row, e)
   if not row:IsShown() then row:Show() end
 end
 
+-- Row color marks (1.10.0): named colors for the row edge strip.
+X.ROW_PALETTE = {
+  gold = { 1, 0.8, 0.2 }, sky = { 0.4, 0.7, 1 }, red = { 1, 0.35, 0.35 },
+  green = { 0.45, 0.95, 0.45 }, violet = { 0.75, 0.5, 1 },
+}
+X.ROW_PALETTE_ORDER = { "gold", "sky", "red", "green", "violet" }
+
+function X.RowColorName(rule)
+  local c = db.rowColors and db.rowColors[rule]
+  if not c then return "off" end
+  for name, rgb in pairs(X.ROW_PALETTE) do
+    if rgb[1] == c[1] and rgb[2] == c[2] and rgb[3] == c[3] then return name end
+  end
+  return "custom"
+end
+
+function X.SetRowColor(rule, c)
+  db.rowColors = db.rowColors or {}
+  db.rowColors[rule] = c and { c[1], c[2], c[3] } or nil
+  InvalidateRows()
+  if QueueRefresh then QueueRefresh() end
+end
+
 -- Shared look for the "nothing to list" states (no buffs known / paused in a city).
 local function ShowStatus(text)
   if X.pill then SetShownIfChanged(X.pill, false) end
@@ -4202,6 +4515,54 @@ end
 -- timer skips its refreshes then; events (zone changes, learning a spell,
 -- settings changes) still refresh right away and clear it.
 local refreshIdle = false
+
+-- Coverage-line parts (1.10.0): the line is assembled from parts, each
+-- with its own switch in db.coverParts; absent means on.
+local function CoverOn(part)
+  local cp = db and db.coverParts
+  return not cp or cp[part] ~= false
+end
+
+-- Group-by-buff view (1.10.0): fold the people entries into one row
+-- per buff still needed. Each folded row stands for the buff itself:
+-- its name carries the count, and it borrows an in-range holder (if
+-- any) as its cast target, so clicking the row buffs that player with
+-- exactly that spell. Only the render stage uses the folded list --
+-- coverage, sounds and reports keep working on people.
+function X.BuildBuffView(list, n)
+  local bySpell, order = {}, {}
+  for i = 1, n do
+    local e = list[i]
+    if not e.header then
+      for j = 1, #(e.missing or {}) do
+        local spell = e.missing[j]
+        local g = bySpell[spell]
+        if not g then
+          g = { spell = spell, count = 0, missing = { spell }, group = true }
+          bySpell[spell] = g
+          order[#order + 1] = g
+        end
+        g.count = g.count + 1
+        if (not e.outOfRange and (g.unit == nil or g.outOfRange)) or g.unit == nil then
+          g.unit, g.class = e.unit, e.class
+          g.outOfRange = e.outOfRange and true or false
+          g.rangeBucket = e.rangeBucket
+        end
+      end
+    end
+  end
+  table_sort(order, function(a, b)
+    if a.count ~= b.count then return a.count > b.count end
+    return a.spell < b.spell
+  end)
+  for i = 1, #order do
+    local g = order[i]
+    g.name = g.count > 1 and (g.spell .. " x" .. g.count) or g.spell
+    g.sortName = g.spell
+    g.guid = "buff:" .. g.spell .. "#" .. g.count
+  end
+  return order, #order
+end
 
 local function Refresh()
   if not built or InCombatLockdown() then return end
@@ -4366,10 +4727,14 @@ local function Refresh()
   X.listedBefore = listedNow
   if newName and db.playSound and now - lastSoundAt > 1 then
     lastSoundAt = now
-    PlayAlert()
+    PlayAlert("new")
   end
 
-  local shown = math_min(n, MAX_ROWS)
+  -- group-by-buff view folds the render list; everything above this
+  -- point (coverage, sounds, counts) still works on people
+  local viewEntries, viewN = entries, n
+  if db.viewMode == "buffs" then viewEntries, viewN = X.BuildBuffView(entries, n) end
+  local shown = math_min(viewN, MAX_ROWS)
   -- Two-column layout (1.9.0): with the setting on and a long list, the
   -- rows split into two columns and the frame widens to match. The
   -- column state lives on X so ApplyRowLayout anchors consistently.
@@ -4382,7 +4747,7 @@ local function Refresh()
     ApplyGeometry()
   end
   for i = 1, MAX_ROWS do
-    if i <= shown then RenderRow(rows[i], entries[i]) else ClearRow(rows[i]) end
+    if i <= shown then RenderRow(rows[i], viewEntries[i]) else ClearRow(rows[i]) end
   end
   -- Post-combat catch-up: one border pulse when the frozen list thaws with
   -- work waiting, so a pull's-end rebuff round doesn't go unnoticed.
@@ -4397,15 +4762,15 @@ local function Refresh()
     SetTextIfChanged(emptyText, L["Everyone nearby is buffed."])
   end
   SetShownIfChanged(emptyText, n == 0)
-  if n > MAX_ROWS then
+  if viewN > MAX_ROWS then
     if overflowText.cTall ~= rowsTall then  -- re-anchor when the column split changes (1.9.0)
       overflowText.cTall = rowsTall
       overflowText:ClearAllPoints()
-      overflowText:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -(X.topH or HEADER_H) - rowsTall * (X.rowH or ROW_H) - 2)
+      overflowText:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -(X.topH or HEADER_H) - rowsTall * (X.rowH or ROW_H) - math_max(0, rowsTall - 1) * (db.rowGap or 0) - 2)
     end
-    if overflowText.cCount ~= n then
-      overflowText.cCount = n
-      overflowText:SetText(string_format(L["+%d more"], n - MAX_ROWS))
+    if overflowText.cCount ~= viewN then
+      overflowText.cCount = viewN
+      overflowText:SetText(string_format(L["+%d more"], viewN - MAX_ROWS))
     end
     SetShownIfChanged(overflowText, true)
   else
@@ -4418,7 +4783,11 @@ local function Refresh()
   if X.tallyUnits > 1 then
     local listedGroup = 0
     for i = 1, n do if entries[i].group and not entries[i].pet then listedGroup = listedGroup + 1 end end
-    local parts = { string_format("%d/%d fully buffed", X.tallyUnits - listedGroup, X.tallyUnits) }
+    local parts = {}
+    if CoverOn("progress") then
+      parts[#parts + 1] = string_format("%d/%d fully buffed", X.tallyUnits - listedGroup, X.tallyUnits)
+    end
+    if CoverOn("buffs") then
     for _, b in ipairs(myBuffs) do
       local t = not b.self and X.tally[b.key] or nil
       if t and t.total > 0 then
@@ -4441,6 +4810,7 @@ local function Refresh()
     if tb and tb.total > 0 then
       parts[#parts + 1] = string_format("Blessings %d/%d", tb.total - tb.miss, tb.total)
     end
+    end
     if db.consumables then
       for _, cd in ipairs(X.CONS_DEFS) do
         local t = X.consTally[cd.key]
@@ -4454,7 +4824,7 @@ local function Refresh()
     -- Mythic+ run starts and when the group ends.
     X.upTotal = X.upTotal + 1
     if listedGroup == 0 then X.upFull = X.upFull + 1 end
-    if X.upTotal >= 10 then
+    if X.upTotal >= 10 and CoverOn("uptime") then
       parts[#parts + 1] = string_format("Uptime %d%%",
         math_floor(100 * X.upFull / X.upTotal + 0.5))
     end
@@ -4494,7 +4864,7 @@ local function Refresh()
         if held[hk] then short = short .. " (" .. held[hk] .. ")" end
         duty[#duty + 1] = short
       end
-      if #duty > 1 then
+      if #duty > 1 and CoverOn("roster") then
         parts[#parts + 1] = "Radar: " .. table.concat(duty, ", ")
       end
     end
@@ -4508,7 +4878,7 @@ local function Refresh()
         worstKey, worstSoon, worstTotal = key, soon, t.total
       end
     end
-    if worstKey then
+    if worstKey and CoverOn("expiry") then
       local nm = worstKey == "BLESSINGS" and "Blessings" or worstKey
       if worstKey ~= "BLESSINGS" then
         for _, def in ipairs(myBuffs) do
@@ -4529,19 +4899,19 @@ local function Refresh()
       end
     end
     -- World-buff watch (1.8.0): your active world buffs, with time left.
-    if db.worldWatch then
+    if db.worldWatch and CoverOn("world") then
       local wb = X.WorldBuffsText()
       if wb then parts[#parts + 1] = wb end
     end
     -- Healer drinking (1.8.0): healers sitting down to drink between
     -- pulls — the group waits for them, not the other way round.
-    if db.drinkWatch and (X.drinkHealers or 0) > 0 then
+    if db.drinkWatch and CoverOn("drink") and (X.drinkHealers or 0) > 0 then
       parts[#parts + 1] = X.drinkHealers == 1 and "Healer drinking"
         or string_format("%d healers drinking", X.drinkHealers)
     end
     SetTextIfChanged(coverText, table.concat(parts, "  ·  "))
     X.coverFrac = string_format("%d/%d", X.tallyUnits - listedGroup, X.tallyUnits)
-    coverShown = true
+    coverShown = #parts > 0
   end
   SetShownIfChanged(coverText, coverShown)
 
@@ -4566,7 +4936,7 @@ local function Refresh()
   end
   if X.focusText then SetShownIfChanged(X.focusText, focusShown) end
 
-  local h = (X.topH or HEADER_H) + (shown > 0 and rowsTall * (X.rowH or ROW_H) or 18) + 8
+  local h = (X.topH or HEADER_H) + (shown > 0 and rowsTall * (X.rowH or ROW_H) + math_max(0, rowsTall - 1) * (db.rowGap or 0) or 18) + 8
   if coverShown then h = h + 13 end
   if focusShown then h = h + 13 end
   if n > MAX_ROWS then h = h + 14 end
@@ -4691,6 +5061,7 @@ local function RebuildNow()
   wipe(iconCache)
   local ok, err = pcall(BuildBuffList)
   if not ok then Print("|cffff4040error reading spellbook:|r " .. tostring(err)) end
+  X.prioDirty = true
   if built then InvalidateRows() end
   if built then X.ApplyRowLayout() end
   Soon()
@@ -4908,6 +5279,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       -- user: don't nag them with the first-run wizard hint.
       if preVersion >= 5 then db.wizardSeen = true end
     end
+    if (db.dbVersion or 0) < 12 then
+      db.dbVersion = 12       -- 1.10.0: customization settings take their defaults
+    end
     X.SpecSwap()
   elseif event == "PLAYER_LOGIN" then
     driver:UnregisterEvent("PLAYER_LOGIN")  -- one-off
@@ -4921,8 +5295,10 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     RequestSpellData()
     local ok, err = pcall(BuildBuffList)
     if not ok then Print("|cffff4040error reading spellbook:|r " .. tostring(err)) end
+    X.prioDirty = true
     ok, err = pcall(BuildUI)
     if not ok then Print("|cffff4040error building window:|r " .. tostring(err)) end
+    X.ApplyClickThrough()
     Print("loaded. Type /br to show the window.")
     if not db.wizardSeen then
       Print("New to BuffRadar? /br wizard runs a one-minute setup.")
@@ -4969,6 +5345,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     BuildUI()
     ApplyGeometry()  -- a scale/width change made during combat lands now
     X.ApplyRowLayout()
+    X.ApplyClickThrough()
     ApplyNextRegistration()
     if db then X.WipeCheck() end  -- post-wipe report (1.9.0)
     Soon()
@@ -5428,7 +5805,7 @@ local function BuildConfig()
   cfg.compactCheck = MakeCheck(look, L["Compact rows (no portraits)"],
     function() return db.compact end,
     function(v) db.compact = v; X.ApplyRowLayout(); Refresh() end)
-  cfg.compactCheck:SetPoint("TOPLEFT", 250, -116)
+  cfg.compactCheck:SetPoint("TOPLEFT", 250, -124)
 
   cfg.charPointCheck = MakeCheck(look, L["Per-character window position"],
     function() return db.charPoint end,
@@ -5439,20 +5816,49 @@ local function BuildConfig()
         if k and db.point then db.pointByChar[k] = db.point end
       end
     end)
-  cfg.charPointCheck:SetPoint("TOPLEFT", 250, -142)
+  cfg.charPointCheck:SetPoint("TOPLEFT", 250, -150)
 
   cfg.stripCheck = MakeCheck(look, L["Buff toggle strip on the window"],
     function() return db.showStrip end,
     function(v) db.showStrip = v; X.ApplyRowLayout(); Refresh() end)
-  cfg.stripCheck:SetPoint("TOPLEFT", 250, -178)
+  cfg.stripCheck:SetPoint("TOPLEFT", 250, -186)
+
+  local gapLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  gapLabel:SetPoint("TOPLEFT", 274, -24)
+  gapLabel:SetText("Row spacing")
+  local gapValue = look:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  gapValue:SetPoint("LEFT", gapLabel, "RIGHT", 8, 0)
+  cfg.gapValue = gapValue
+  cfg.gapSlider = MakeSlider(look, 276, -46, 200, 0, 8, 1, function(v)
+    v = math.floor(v + 0.5)
+    db.rowGap = v
+    gapValue:SetText(tostring(v))
+    X.ApplyRowLayout()
+    Refresh()
+  end)
+
+  local iconLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  iconLabel:SetPoint("TOPLEFT", 274, -82)
+  iconLabel:SetText("Buff icon size")
+  local iconValue = look:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  iconValue:SetPoint("LEFT", iconLabel, "RIGHT", 8, 0)
+  cfg.iconValue = iconValue
+  cfg.iconSlider = MakeSlider(look, 276, -104, 200, 0, 24, 1, function(v)
+    v = math.floor(v + 0.5)
+    db.iconSize = v
+    iconValue:SetText(v == 0 and "auto" or tostring(v))
+    X.ApplyRowLayout()
+    InvalidateRows()
+    Refresh()
+  end)
 
   local fadeLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  fadeLabel:SetPoint("TOPLEFT", 254, -214)
+  fadeLabel:SetPoint("TOPLEFT", 304, -214)
   fadeLabel:SetText("Idle fade (mouse away)")
   local fadeValue = look:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   fadeValue:SetPoint("LEFT", fadeLabel, "RIGHT", 8, 0)
   cfg.fadeValue = fadeValue
-  cfg.fadeSlider = MakeSlider(look, 256, -234, 220, 0, 90, 5, function(v)
+  cfg.fadeSlider = MakeSlider(look, 306, -234, 170, 0, 90, 5, function(v)
     v = math.floor(v + 0.5)
     db.idleFade = v
     fadeValue:SetText(v .. "%")
@@ -5506,17 +5912,31 @@ local function BuildConfig()
     function(v) db.twoCol = v; X.cols = nil; Refresh() end)
   cfg.twoColCheck:SetPoint("TOPLEFT", 10, -370)
 
-  cfg.wizardBtn = MakeButton(look, "Run the setup wizard", 170, function()
+  cfg.wizardBtn = MakeButton(look, "Run the setup wizard", 150, function()
     X.OpenWizard()
   end)
-  cfg.wizardBtn:SetPoint("TOPLEFT", 10, -398)
+  cfg.wizardBtn:SetPoint("TOPLEFT", 134, -232)
 
   cfg.themeBtn = MakeButton(look, "Theme: Midnight", 170, function()
+    local order = X.ThemeOrder()
     local cur = 1
-    for i, k in ipairs(X.THEME_ORDER) do if db.theme == k then cur = i end end
-    X.ApplyTheme(X.THEME_ORDER[cur % #X.THEME_ORDER + 1])
+    for i, k in ipairs(order) do if k:lower() == (db.theme or ""):lower() then cur = i end end
+    X.ApplyTheme(order[cur % #order + 1])
   end)
   cfg.themeBtn:SetPoint("TOPLEFT", 250, -330)
+
+  cfg.saveThemeBtn = MakeButton(look, "Save as theme", 150, function()
+    local n = 1
+    while X.SavedTheme("Custom " .. n) do n = n + 1 end
+    local saved = X.SaveTheme("Custom " .. n)
+    if saved then
+      X.ApplyTheme(saved)
+      Print("Theme saved as '" .. saved .. "'. Give it a better name any time: /br theme save <name> (saves the current look under it).")
+    else
+      Print("You already have 4 saved themes — /br theme delete <name> one first.")
+    end
+  end)
+  cfg.saveThemeBtn:SetPoint("TOPLEFT", 428, -330)
 
   cfg.findCheck = MakeCheck(look, L["Show a name finder on the window"],
     function() return db.findBox end,
@@ -5526,7 +5946,7 @@ local function BuildConfig()
   cfg.barsCheck = MakeCheck(look, "Duration bars on rows",
     function() return db.durationBars end,
     function(v) db.durationBars = v; InvalidateRows(); Refresh() end)
-  cfg.barsCheck:SetPoint("TOPLEFT", 10, -374)
+  cfg.barsCheck:SetPoint("TOPLEFT", 10, -396)
 
   cfg.markersCheck = MakeCheck(look, "Raid markers on rows",
     function() return db.raidMarkers end,
@@ -5536,12 +5956,29 @@ local function BuildConfig()
   cfg.rangeCheck = MakeCheck(look, "Range words on greyed rows",
     function() return db.rangeText end,
     function(v) db.rangeText = v; InvalidateRows(); Refresh() end)
-  cfg.rangeCheck:SetPoint("TOPLEFT", 10, -400)
+  cfg.rangeCheck:SetPoint("TOPLEFT", 10, -422)
 
   cfg.focusCheck = MakeCheck(look, "Focus target watch line",
     function() return db.focusWatch end,
     function(v) db.focusWatch = v; Refresh() end)
   cfg.focusCheck:SetPoint("TOPLEFT", 250, -408)
+
+  cfg.displayBtn = MakeButton(look, "More display options…", 170, function()
+    local p = cfg.displayPanel
+    if not p then return end
+    if p:IsShown() then p:Hide() return end
+    for _, chk in pairs(cfg.coverChecks or {}) do chk:Update() end
+    for rule, b in pairs(cfg.colorBtns or {}) do b:SetText(X.RowColorName(rule)) end
+    if cfg.tooltipBtn then
+      cfg.tooltipBtn:SetText(db.tooltipLevel:sub(1, 1):upper() .. db.tooltipLevel:sub(2))
+    end
+    if cfg.trimBtn then
+      cfg.trimBtn:SetText((db.nameTrim or 0) == 0 and "full length" or ("max " .. db.nameTrim))
+    if cfg.viewCheck then cfg.viewCheck:Update() end
+    end
+    p:Show()
+  end)
+  cfg.displayBtn:SetPoint("TOPLEFT", 250, -434)
 
   cfg.minimapCheck = MakeCheck(look, L["Minimap button (drag it around the minimap)"],
     function() return db.showMinimap end,
@@ -5559,6 +5996,16 @@ local function BuildConfig()
       RefreshConfig()
     end)
   cfg.cfgScaleDrop:SetPoint("LEFT", cfgScaleLabel, "RIGHT", 12, 0)
+
+  cfg.strataBtn = MakeButton(look, "Layer: Medium", 150, function()
+    local order = { "LOW", "MEDIUM", "HIGH", "DIALOG" }
+    local cur = 2
+    for i, k in ipairs(order) do if db.strata == k then cur = i end end
+    db.strata = order[cur % #order + 1]
+    ApplyAppearance()
+    RefreshConfig()
+  end)
+  cfg.strataBtn:SetPoint("TOPLEFT", 334, -306)
 
   ------------------------------------------------------------------
   -- Tab: Alerts
@@ -5583,6 +6030,28 @@ local function BuildConfig()
 
   local test = MakeButton(alerts, "Test", 60, PlayAlert)
   test:SetPoint("LEFT", cfg.soundBtn, "RIGHT", 10, 0)
+
+  -- a sound per kind of alert (1.10.0); a kind without its own uses the
+  -- main Sound choice above
+  cfg.soundBtns = {}
+  local kindNames = { new = "New name", drop = "Buff drop", ask = "Buff request" }
+  local kindY = { new = -58, drop = -84, ask = -110 }
+  for _, kind in ipairs({ "new", "drop", "ask" }) do
+    local k = kind
+    local kb = MakeButton(alerts, kindNames[k] .. ": droplet", 170, function()
+      local order = { "droplet", "system", "none" }
+      local cur = db.alertSounds[k] or db.alertSound
+      local idx = 1
+      for i, sv in ipairs(order) do if cur == sv then idx = i end end
+      db.alertSounds[k] = order[idx % #order + 1]
+      RefreshConfig()
+      PlayAlert(k)
+    end)
+    kb:SetPoint("TOPLEFT", 296, kindY[k])
+    cfg.soundBtns[k] = kb
+    Tip(kb, kindNames[k] .. " sound",
+      "The sound for this kind of alert only. Click to switch between the water droplet, the game's raid warning sound and no sound. Any kind without its own uses the main Sound choice.")
+  end
 
   cfg.muteInstCheck = MakeCheck(alerts, L["No alert sound in dungeons, raids or battlegrounds"],
     function() return db.muteInInstance end,
@@ -5663,6 +6132,19 @@ local function BuildConfig()
     cb.rebuffBox:Hide()
     cfg.buffChecks[i] = cb
   end
+  local prioReset = MakeButton(buffs, "Reset buff order", 150, function()
+    db.buffPrio = {}
+    X.prioDirty = true
+    Print("Buff order reset - your buffs are back in their normal order.")
+    Refresh()
+  end)
+  prioReset:SetPoint("BOTTOMLEFT", buffs, "BOTTOMLEFT", 10, 10)
+  Tip(prioReset, "Buff order",
+    "Rows offer your buffs in the addon's normal order until you set your own: /br prio lists your buffs, /br prio <short name> <place> moves one. This button clears your order.")
+  local prioHint = buffs:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  prioHint:SetPoint("LEFT", prioReset, "RIGHT", 8, 0)
+  prioHint:SetText("Your own buff order: /br prio")
+
   cfg.rebuffHeads = {}
   for c = 1, 2 do
     local head = buffs:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -5826,6 +6308,13 @@ local function BuildConfig()
     function() return db.enterFlash end,
     function(v) db.enterFlash = v end)
   cfg.enterCheck:SetPoint("TOPLEFT", 296, -382 + castY)
+
+  cfg.clickThroughCheck = MakeCheck(beh, "Clicks pass through while locked",
+    function() return db.clickThrough end,
+    function(v) db.clickThrough = v; X.ApplyClickThrough() end)
+  cfg.clickThroughCheck:SetPoint("TOPLEFT", 296, -408 + castY)
+  Tip(cfg.clickThroughCheck, "Click-through while locked",
+    "While the window is locked, it and its rows stop catching mouse clicks, so clicks land on the game world behind them. Unlock with /br lock to move or use the window again.")
 
   cfg.throttleCheck = MakeCheck(beh, L["Halve the rescan rate in big groups"],
     function() return db.scanThrottle end,
@@ -6037,7 +6526,13 @@ local function BuildConfig()
   Tip(cfg.growCheck, "Grow the list upward", "The window stands on its bottom edge and the list grows upward instead of down — handy when the window sits low on the screen. The saved position remembers the form. Same as /br growup.")
   Tip(cfg.combatCheck, "Hide the window in combat", "The window (and the pill) hide when combat starts and come back when it ends. Same as /br combat.")
   Tip(cfg.twoColCheck, "Two columns when the list is long", "With more than 8 people on the list, the rows split into two side-by-side columns and the window widens, instead of growing one tall column. Same as /br twocol.")
-  Tip(cfg.themeBtn, "Color theme", "Click to cycle the window's color themes: Midnight, Crimson, Forest, Parchment. Picking a custom background color afterwards switches back to a custom theme. Same as /br theme <name>.")
+  Tip(cfg.themeBtn, "Color theme", "Click to cycle the window's color themes: Midnight, Crimson, Forest, Parchment — plus any themes you saved yourself. Picking a custom background color afterwards switches back to a custom theme. Same as /br theme <name>.")
+  Tip(cfg.saveThemeBtn, "Save as theme", "Saves the window's current background and border colors as your own theme, so it joins the theme cycle. It is named automatically; /br theme save <name> saves under your own name, /br theme delete <name> removes one. Up to 4 saved themes.")
+  Tip(cfg.strataBtn, "Window layer", "Which screen layer the window sits on: Low, Medium, High or Dialog. Raise it if other addons draw over BuffRadar; lower it if BuffRadar covers something it shouldn't. Same as /br strata <name>.")
+  Tip(cfg.gapSlider, "Row spacing", "Extra empty space between the rows, 0 to 8. The window grows to fit. Same as /br rowgap <0-8>.")
+  Tip(cfg.iconSlider, "Buff icon size", "How big the missing-buff icons on each row are, 10 to 24. At 0 the size is automatic (16, or 12 in compact rows). Same as /br iconsize <0|10-24>.")
+  Tip(cfg.displayBtn, "More display options", "Opens a panel with the finer display choices: which parts the coverage line shows, colored edge marks on rows (your assignments, tanks, expiring soon, your buddy's rows), how much detail row tooltips carry, class-colored names, realm names and shortened names.")
+  Tip(cfg.wizardBtn, "Setup wizard", "Runs the three-page first-run setup again: how you play, the window theme, and your buffs. Same as /br wizard.")
   Tip(cfg.findCheck, "Name finder", "A small Find box on the window: while it holds text, only players whose name matches are listed. Same as /br findbox; /br find <text> sets the text without the box.")
   Tip(cfg.barsCheck, "Duration bars", "A thin bar along each row's bottom edge: how much of a 30-minute span the expiring buff has left. Green over 15 minutes, yellow under it, red under 5. Same as /br bars.")
   Tip(cfg.markersCheck, "Raid markers", "Show each player's raid target icon (star, circle, ...) on their row, over the portrait. Same as /br markers.")
@@ -6079,6 +6574,113 @@ local function BuildConfig()
   -- Ignore & Stats
   Tip(clearIgnores, "Clear ignore list", "Stops ignoring everyone on the list.")
   Tip(resetStats, "Reset stats", "Clears the casts-by-spell statistics. The cast counter is kept.")
+
+  -- More display options (1.10.0): a small panel of its own — the tabs
+  -- are full. Coverage-line parts, row color marks, tooltip detail and
+  -- the row-name options live here.
+  local dpanel = CreateFrame("Frame", nil, cfg, BackdropTemplateMixin and "BackdropTemplate" or nil)
+  dpanel:SetSize(470, 424)
+  dpanel:SetPoint("CENTER", cfg, "CENTER", 0, 0)
+  if dpanel.SetBackdrop then
+    dpanel:SetBackdrop({
+      bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+      edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+      tile = true, tileSize = 32, edgeSize = 24,
+      insets = { left = 8, right = 8, top = 8, bottom = 8 },
+    })
+    local bc = X.ThemeBorder()
+    dpanel:SetBackdropBorderColor(bc[1], bc[2], bc[3])
+  end
+  dpanel:EnableMouse(true)
+  dpanel:Hide()
+  cfg.displayPanel = dpanel
+  local dtitle = dpanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  dtitle:SetPoint("TOPLEFT", 18, -14)
+  dtitle:SetText("Display options")
+  local dclose = MakeButton(dpanel, "Close", 70, function() dpanel:Hide() end)
+  dclose:SetPoint("TOPRIGHT", -14, -10)
+  section(dpanel, "Coverage line shows", 16, -44)
+  cfg.coverChecks = {}
+  local coverDefs = {
+    { "progress", "Buffed count (15/15)" }, { "buffs", "Per-buff counts" },
+    { "uptime", "Coverage uptime %" }, { "roster", "Radar roster" },
+    { "expiry", "Expiry warnings" }, { "world", "World buffs" },
+    { "drink", "Healers drinking" },
+  }
+  for i, cd in ipairs(coverDefs) do
+    local part = cd[1]
+    local chk = MakeCheck(dpanel, cd[2],
+      function() return (db.coverParts or {})[part] ~= false end,
+      function(v)
+        db.coverParts = db.coverParts or {}
+        if v then db.coverParts[part] = nil else db.coverParts[part] = false end
+        Refresh()
+      end)
+    chk:SetPoint("TOPLEFT", 16 + ((i - 1) % 2) * 230, -68 - math.floor((i - 1) / 2) * 26)
+    cfg.coverChecks[part] = chk
+  end
+  section(dpanel, "Row color marks", 16, -182)
+  cfg.colorBtns = {}
+  local ruleDefs = {
+    { "mine", "Your assignments" }, { "tank", "Tanks" },
+    { "expiring", "Expiring soon" }, { "buddy", "Buddy's rows" },
+  }
+  for i, rd in ipairs(ruleDefs) do
+    local rule = rd[1]
+    local lab = dpanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    lab:SetPoint("TOPLEFT", 18, -210 - (i - 1) * 26)
+    lab:SetText(rd[2])
+    local btn
+    btn = MakeButton(dpanel, "off", 130, function()
+      local order = { "off", "gold", "sky", "red", "green", "violet" }
+      local idx = 1
+      for j, nm in ipairs(order) do if nm == X.RowColorName(rule) then idx = j end end
+      local nxt = order[idx % #order + 1]
+      if nxt == "off" then X.SetRowColor(rule, nil)
+      else X.SetRowColor(rule, X.ROW_PALETTE[nxt]) end
+      btn:SetText(X.RowColorName(rule))
+    end)
+    btn:SetPoint("TOPLEFT", 170, -208 - (i - 1) * 26)
+    cfg.colorBtns[rule] = btn
+  end
+  cfg.classColorCheck = MakeCheck(dpanel, "Class-colored names",
+    function() return db.classColors end,
+    function(v) db.classColors = v; InvalidateRows(); Refresh() end)
+  cfg.classColorCheck:SetPoint("TOPLEFT", 16, -352)
+  cfg.realmCheck = MakeCheck(dpanel, "Show realm names",
+    function() return db.showRealm end,
+    function(v) db.showRealm = v; InvalidateRows(); Refresh() end)
+  cfg.realmCheck:SetPoint("TOPLEFT", 246, -352)
+  cfg.viewCheck = MakeCheck(dpanel, "Group rows by buff (one row per buff still needed)",
+    function() return db.viewMode == "buffs" end,
+    function(v) db.viewMode = v and "buffs" or "people"; Refresh() end)
+  cfg.viewCheck:SetPoint("TOPLEFT", 16, -318)
+  Tip(cfg.viewCheck, "List view",
+    "Unticked: one row per player, the classic list. Ticked: one row per buff still needed, showing how many players need it; click a row to cast that buff on an in-range player who needs it.")
+  local tipLab = dpanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  tipLab:SetPoint("TOPLEFT", 18, -390)
+  tipLab:SetText("Row tooltips")
+  cfg.tooltipBtn = MakeButton(dpanel, "Standard", 120, function()
+    local order = { "minimal", "standard", "full" }
+    local idx = 2
+    for j, nm in ipairs(order) do if nm == db.tooltipLevel then idx = j end end
+    db.tooltipLevel = order[idx % #order + 1]
+    cfg.tooltipBtn:SetText(db.tooltipLevel:sub(1, 1):upper() .. db.tooltipLevel:sub(2))
+  end)
+  cfg.tooltipBtn:SetPoint("TOPLEFT", 110, -386)
+  local trimLab = dpanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  trimLab:SetPoint("TOPLEFT", 250, -390)
+  trimLab:SetText("Name length")
+  cfg.trimBtn = MakeButton(dpanel, "full length", 110, function()
+    local order = { 0, 8, 10, 12, 14, 18 }
+    local idx = 1
+    for j, nm in ipairs(order) do if nm == (db.nameTrim or 0) then idx = j end end
+    db.nameTrim = order[idx % #order + 1]
+    cfg.trimBtn:SetText(db.nameTrim == 0 and "full length" or ("max " .. db.nameTrim))
+    InvalidateRows()
+    Refresh()
+  end)
+  cfg.trimBtn:SetPoint("TOPLEFT", 336, -386)
 
   -- Settings search (1.8.0): a find box along the window's bottom edge;
   -- typing dims every control that doesn't match (see X.CfgFilter).
@@ -6124,6 +6726,27 @@ RefreshConfig = function()
   if cfg.compactCheck then cfg.compactCheck:Update() end
   if cfg.charPointCheck then cfg.charPointCheck:Update() end
   if cfg.stripCheck then cfg.stripCheck:Update() end
+  if cfg.clickThroughCheck then cfg.clickThroughCheck:Update() end
+  for _, chk in pairs(cfg.coverChecks or {}) do chk:Update() end
+  for rule, b in pairs(cfg.colorBtns or {}) do b:SetText(X.RowColorName(rule)) end
+  if cfg.tooltipBtn then
+    cfg.tooltipBtn:SetText(db.tooltipLevel:sub(1, 1):upper() .. db.tooltipLevel:sub(2))
+  end
+  if cfg.trimBtn then
+    cfg.trimBtn:SetText((db.nameTrim or 0) == 0 and "full length" or ("max " .. db.nameTrim))
+  end
+  if cfg.gapSlider then
+    cfg.gapSlider:SetValue(db.rowGap or 0)
+    cfg.gapValue:SetText(tostring(db.rowGap or 0))
+  end
+  if cfg.iconSlider then
+    cfg.iconSlider:SetValue(db.iconSize or 0)
+    cfg.iconValue:SetText((db.iconSize or 0) == 0 and "auto" or tostring(db.iconSize))
+  end
+  if cfg.strataBtn then
+    local st = db.strata or "MEDIUM"
+    cfg.strataBtn:SetText("Layer: " .. st:sub(1, 1) .. st:sub(2):lower())
+  end
   if cfg.fadeSlider then
     cfg.fadeSlider:SetValue(db.idleFade or 0)
     cfg.fadeValue:SetText((db.idleFade or 0) .. "%")
@@ -6131,6 +6754,10 @@ RefreshConfig = function()
   cfg.minimapCheck:Update()
   cfg.soundCheck:Update()
   cfg.soundBtn:SetText("Sound: " .. tostring(db.alertSound))
+  for k, b in pairs(cfg.soundBtns or {}) do
+    local nm = ({ new = "New name", drop = "Buff drop", ask = "Buff request" })[k] or k
+    b:SetText(nm .. ": " .. tostring(db.alertSounds[k] or db.alertSound))
+  end
   cfg.muteInstCheck:Update()
   if cfg.watchCheck then cfg.watchCheck:Update() end
   cfg.counterCheck:Update()
@@ -6161,7 +6788,7 @@ RefreshConfig = function()
   if cfg.twoColCheck then cfg.twoColCheck:Update() end
   if cfg.combatCheck then cfg.combatCheck:Update() end
   if cfg.themeBtn then
-    local th = X.THEMES[db.theme]
+    local th = X.ThemeDef(db.theme)
     cfg.themeBtn:SetText("Theme: " .. (th and th.label or "Custom"))
   end
   if cfg.petsCheck then cfg.petsCheck:Update() end
@@ -6356,7 +6983,7 @@ function X.SelfTest()
   local ver, build, _, iface = GetBuildInfo()
   Print("BuffRadar self-test -- paste this whole block into a bug report:")
   Print(string.format("  version %s · %s edition · interface %s · client %s build %s",
-    "1.9.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
+    "1.10.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
   Print(string.format("  settings dbVersion %s · sort %s · cast mode %s · scale %s",
     tostring(db.dbVersion), tostring(db.sortMode), tostring(db.castMethod), tostring(db.scale)))
   Print(string.format("  sync %s · requests %s · role filter %s · profiles %d · idle fade %s",
@@ -6387,6 +7014,10 @@ function X.SelfTest()
     OnOff(db.auraWatch), OnOff(db.worldWatch), OnOff(db.drinkWatch), ocount))
   Print(string.format("  two columns %s · death recap %s · wipe report %s · wizard seen %s",
     OnOff(db.twoCol), OnOff(db.deathRecap), OnOff(db.wipeReport), OnOff(db.wizardSeen)))
+  Print(string.format("  view %s · saved themes %d · row gap %d · icons %s · layer %s · tooltips %s · buff order %d · click-through %s",
+    tostring(db.viewMode), #(db.customThemes or {}), db.rowGap or 0,
+    (db.iconSize or 0) > 0 and tostring(db.iconSize) or "auto", tostring(db.strata),
+    tostring(db.tooltipLevel), #(db.buffPrio or {}), OnOff(db.clickThrough)))
   if #myBuffs == 0 then Print("  buffs found: none") end
   for _, b in ipairs(myBuffs) do
     local id
@@ -6452,6 +7083,78 @@ local function HandleSlash(msg)
     db.playSound = not db.playSound
     Print("Droplet sound " .. OnOff(db.playSound))
     if db.playSound then PlayAlert() end
+  elseif cmd == "soundfor" then
+    local kind, choice = rest:match("^(%S+)%s*(%S*)$")
+    local choices = { droplet = true, system = true, none = true }
+    if kind == "master" and choices[choice] then
+      db.alertSound = choice
+      Print("Alert sound (used for every alert without its own): " .. choice)
+      if db.playSound then PlayAlert() end
+    elseif (kind == "new" or kind == "drop" or kind == "ask") and choices[choice] then
+      db.alertSounds[kind] = choice
+      Print("Sound for " .. kind .. " alerts: " .. choice)
+      PlayAlert(kind)
+    else
+      Print("Alert sound (default): " .. db.alertSound
+        .. " - new name: " .. (db.alertSounds.new or db.alertSound)
+        .. " - buff drop: " .. (db.alertSounds.drop or db.alertSound)
+        .. " - buff request: " .. (db.alertSounds.ask or db.alertSound))
+      Print("Change one: /br soundfor master|new|drop|ask droplet|system|none")
+    end
+  elseif cmd == "prio" then
+    if rest == "reset" then
+      db.buffPrio = {}
+      X.prioDirty = true
+      Print("Buff order reset - your buffs are back in their normal order.")
+      Refresh()
+    else
+      local key, posText = rest:match("^(%S+)%s+(%d+)$")
+      -- the full current order: your saved order first, then the rest
+      -- of your buffs in their normal order
+      local order, seenK, byKey = {}, {}, {}
+      for _, k in ipairs(db.buffPrio) do order[#order + 1] = k; seenK[k] = true end
+      for _, b in ipairs(myBuffs) do
+        byKey[b.key] = b.name
+        if not seenK[b.key] then order[#order + 1] = b.key; seenK[b.key] = true end
+      end
+      if key then
+        key = key:upper()
+        local at
+        for i, k in ipairs(order) do if k == key then at = i; break end end
+        if not at then
+          Print("You don't have a buff with the short name " .. key .. " - /br prio lists them.")
+        else
+          table.remove(order, at)
+          local pos = tonumber(posText) or 1
+          if pos < 1 then pos = 1 end
+          if pos > #order + 1 then pos = #order + 1 end
+          table.insert(order, pos, key)
+          db.buffPrio = order
+          X.prioDirty = true
+          Print("Buff order: " .. (byKey[key] or key) .. " is now offered number " .. pos .. ".")
+          Refresh()
+        end
+      else
+        Print("Your buffs, first offered first (move one with /br prio <short name> <place>):")
+        for i, k in ipairs(order) do
+          Print("  " .. i .. ". " .. (byKey[k] or k) .. " (" .. k .. ")")
+        end
+      end
+    end
+  elseif cmd == "view" then
+    if rest == "people" or rest == "buffs" then
+      db.viewMode = rest
+      Print("List view: " .. (rest == "buffs"
+        and "one row per buff still needed (click a row to cast it on someone who needs it)"
+        or "one row per player"))
+      Refresh()
+    else
+      Print("List view is " .. db.viewMode .. " - change it with /br view people|buffs")
+    end
+  elseif cmd == "clickthrough" then
+    db.clickThrough = not db.clickThrough
+    X.ApplyClickThrough()
+    Print("Click-through while the window is locked " .. OnOff(db.clickThrough))
   elseif cmd == "count" or cmd == "counts" then
     Print(string.format("Casts through BuffRadar: %d this session, %d all-time.", X.sessionCasts, db.castsTotal or 0))
   elseif cmd == "resetcount" then
@@ -6537,6 +7240,7 @@ local function HandleSlash(msg)
   elseif cmd == "lock" then
     db.locked = not db.locked
     ApplyAppearance()  -- the resize grip hides while locked
+    X.ApplyClickThrough()
     Print("Window lock (moving and resizing) " .. OnOff(db.locked))
   elseif cmd == "self" then
     db.includeSelf = not db.includeSelf
@@ -6854,6 +7558,98 @@ local function HandleSlash(msg)
     Print("Grow the list upward " .. OnOff(db.growUp)
       .. " — on: the window's bottom edge stays put and the list grows up.")
     Refresh()
+  elseif cmd == "cover" then
+    local parts = { "progress", "buffs", "uptime", "roster", "expiry", "world", "drink" }
+    local valid = {}
+    for _, k in ipairs(parts) do valid[k] = true end
+    local part, mode = rest:match("^(%S+)%s*(%S*)$")
+    if part and valid[part] and (mode == "on" or mode == "off") then
+      if mode == "off" then db.coverParts[part] = false else db.coverParts[part] = nil end
+      Print("Coverage line part '" .. part .. "' " .. mode .. ".")
+      Refresh()
+    elseif part then
+      Print("Usage: /br cover <part> on|off — parts: " .. table.concat(parts, ", ") .. ".")
+    else
+      local states = {}
+      for _, k in ipairs(parts) do
+        states[#states + 1] = k .. ((db.coverParts or {})[k] == false and " off" or " on")
+      end
+      Print("Coverage line parts: " .. table.concat(states, ", ") .. ".")
+    end
+  elseif cmd == "rowcolor" then
+    local rules = { "mine", "tank", "expiring", "buddy" }
+    local isRule = { mine = true, tank = true, expiring = true, buddy = true }
+    local rule, val = rest:match("^(%S+)%s*(%S*)$")
+    if rule and isRule[rule] then
+      val = (val or ""):lower()
+      if val == "" then
+        Print("Row color for '" .. rule .. "': " .. X.RowColorName(rule)
+          .. ". /br rowcolor " .. rule .. " <color|off> — colors: gold, sky, red, green, violet, or #rrggbb.")
+      elseif val == "off" then
+        X.SetRowColor(rule, nil)
+        Print("Row color for '" .. rule .. "' off.")
+      elseif X.ROW_PALETTE[val] then
+        X.SetRowColor(rule, X.ROW_PALETTE[val])
+        Print("Row color for '" .. rule .. "': " .. val .. ".")
+      else
+        local hex = val:gsub("^#", "")
+        local r, g, b = hex:match("^(%x%x)(%x%x)(%x%x)$")
+        if r then
+          X.SetRowColor(rule, { tonumber(r, 16) / 255, tonumber(g, 16) / 255, tonumber(b, 16) / 255 })
+          Print("Row color for '" .. rule .. "' set to #" .. hex .. ".")
+        else
+          Print("Unknown color '" .. val .. "'. Use gold, sky, red, green, violet, #rrggbb — or off.")
+        end
+      end
+    elseif rule then
+      Print("Usage: /br rowcolor <rule> <color|off> — rules: " .. table.concat(rules, ", ") .. ".")
+    else
+      local states = {}
+      for _, r in ipairs(rules) do states[#states + 1] = r .. " " .. X.RowColorName(r) end
+      Print("Row colors: " .. table.concat(states, ", ") .. ". /br rowcolor <rule> <color|off> changes one.")
+    end
+  elseif cmd == "tooltip" then
+    local m = rest:lower()
+    if m == "minimal" or m == "standard" or m == "full" then
+      db.tooltipLevel = m
+      Print("Row tooltips: " .. m .. ".")
+      if RefreshConfig then RefreshConfig() end
+    else
+      Print("Usage: /br tooltip minimal|standard|full (now " .. (db.tooltipLevel or "standard") .. ").")
+    end
+  elseif cmd == "rowgap" then
+    local v = tonumber(rest)
+    if v and v >= 0 and v <= 8 then
+      db.rowGap = math.floor(v + 0.5)
+      X.ApplyRowLayout()
+      Print("Row spacing set to " .. db.rowGap .. ".")
+      Refresh()
+      if RefreshConfig then RefreshConfig() end
+    else
+      Print("Usage: /br rowgap <0-8> — extra space between the rows (now " .. (db.rowGap or 0) .. ").")
+    end
+  elseif cmd == "iconsize" then
+    local v = tonumber(rest)
+    if v and (v == 0 or (v >= 10 and v <= 24)) then
+      db.iconSize = math.floor(v + 0.5)
+      X.ApplyRowLayout()
+      InvalidateRows()
+      Print(db.iconSize == 0 and "Buff icon size: automatic." or ("Buff icon size set to " .. db.iconSize .. "."))
+      Refresh()
+      if RefreshConfig then RefreshConfig() end
+    else
+      Print("Usage: /br iconsize <0|10-24> — 0 is automatic (now " .. (db.iconSize or 0) .. ").")
+    end
+  elseif cmd == "strata" then
+    local m = rest:upper()
+    if m == "LOW" or m == "MEDIUM" or m == "HIGH" or m == "DIALOG" then
+      db.strata = m
+      ApplyAppearance()
+      Print("Window layer set to " .. m .. ".")
+      if RefreshConfig then RefreshConfig() end
+    else
+      Print("Usage: /br strata low|medium|high|dialog (now " .. (db.strata or "MEDIUM") .. ").")
+    end
   elseif cmd == "twocol" then
     db.twoCol = not db.twoCol
     X.cols = nil  -- force the column split to re-decide on the next refresh
@@ -6966,12 +7762,33 @@ local function HandleSlash(msg)
     local m = rest:lower()
     if m == "" or m == "list" then
       local parts = {}
-      for _, k in ipairs(X.THEME_ORDER) do
-        parts[#parts + 1] = k .. (db.theme == k and " (current)" or "")
+      for _, k in ipairs(X.ThemeOrder()) do
+        parts[#parts + 1] = k
+          .. ((db.theme or ""):lower() == k:lower() and " (current)" or "")
       end
-      Print("Themes: " .. table.concat(parts, ", ") .. ". /br theme <name> applies one.")
+      Print("Themes: " .. table.concat(parts, ", ")
+        .. ". /br theme <name> applies one; /br theme save <name> saves your current look (up to 4).")
+    elseif m:sub(1, 5) == "save " then
+      local saved, why = X.SaveTheme(rest:sub(6))
+      if saved then
+        X.ApplyTheme(saved)
+        Print("Theme saved as '" .. saved .. "' — it's in the theme cycle now. /br theme delete " .. saved .. " removes it.")
+      elseif why == "full" then
+        Print("You already have 4 saved themes — /br theme delete <name> one first.")
+      elseif why == "taken" then
+        Print("That name is taken by a built-in theme. Pick another.")
+      else
+        Print("Theme names are one word (letters, numbers, dashes), up to 24 characters.")
+      end
+    elseif m:sub(1, 7) == "delete " then
+      local name = rest:sub(8)
+      if X.DeleteTheme(name) then
+        Print("Saved theme '" .. name .. "' deleted.")
+      else
+        Print("No saved theme named '" .. name .. "'.")
+      end
     elseif X.ApplyTheme(m) then
-      Print("Theme: " .. X.THEMES[m].label)
+      Print("Theme: " .. X.ThemeDef(m).label)
     else
       Print("Unknown theme '" .. m .. "'. /br theme lists them.")
     end
@@ -7285,6 +8102,11 @@ local function HandleSlash(msg)
     Print("  /br custom add|remove|list <id>  - watch any buff spell you know")
     Print("  /br uptime  - coverage uptime %   /br preset raid|dungeon|solo")
     Print("  /br wizard  - run the one-minute setup wizard")
+    Print("  /br theme save <name>  - save your current colors as a theme")
+    Print("  /br rowgap <0-8> | iconsize <0|10-24> | strata <layer>")
+    Print("  /br cover <part> on|off  - pick what the coverage line shows")
+    Print("  /br rowcolor <rule> <color|off>  - colored marks on rows")
+    Print("  /br tooltip minimal|standard|full  - row tooltip detail")
     Print("  /br autoprofile <context> <profile>  - load a profile by context")
     if CLASSIC_FEATURES then
       Print("  /br bless <CLASS> <BLESSING> [name]  - blessing planner")

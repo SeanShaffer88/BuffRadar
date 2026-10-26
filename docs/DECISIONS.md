@@ -116,3 +116,22 @@ stay parked under investigation for the reasons in `docs/PARITY.md`
 — they need in-game evidence or a sharper definition, not guesses.
 Building further is closed off; the outstanding action is SEAN's
 Forever field test (everything since 1.3.2 is Unverified in game).
+
+## 2026-10-25 — Customization batch shipped as 1.10.0
+SEAN asked for 5 enhancements and 5 additions that give players more
+customization, then directed "Build all 10 as 1.10.0". Shipped:
+saved themes, row spacing + icon size sliders, coverage-line part
+toggles, a sound per alert kind, tooltip detail levels (enhancements);
+row color marks, group-by-buff view, buff priority order, window
+strata + click-through, name formats (additions). Two build notes
+worth keeping: the shared registry table `X` is declared partway
+through the main file, so code above it must never reference it — a
+stored cross-reference table for the full tooltip died on exactly
+that and was replaced by an on-hover scan; and the settings
+"fire every control" trial step flips toggle-style controls for the
+rest of a test run, so the group-by-buff switch is a checkbox, not a
+cycle button. The batch also fixed a real Window-tab layout overlap
+found while adding the new controls (the two-column and
+duration-bars checkboxes, and the wizard button and range-words
+checkbox, overlapped). Everything remains Unverified in game;
+SEAN's Forever field test is still the outstanding action.

@@ -13,7 +13,7 @@ editions; editions differ only in their `.toc` and bundled docs
 (`BuffRadar/` = Retail docs, `editions/forever/` = Forever docs). Every feature
 is reachable as a `/br` slash command — the slash surface is the operation
 registry — as well as through its settings control where it has one.
-SavedVariables are versioned (`dbVersion`, currently 8) with a tested migration
+SavedVariables are versioned (`dbVersion`, currently 12) with a tested migration
 chain; adding or changing a setting is a format change and updates the migration
 smoke fixtures in the same change.
 
@@ -30,8 +30,8 @@ lands with steps in every setup it applies to.
 
 Budgets: the host's per-frame budget governs — scanning is event-driven plus a
 throttled ticker; no per-frame polling. Lua 5.1 hard limits enforced by
-`tools/lualimits.py`: ≤200 top-level locals (currently 188), ≤60 upvalues per
-function (currently 49 peak). New state goes in the `X` table or methods, never
+`tools/lualimits.py`: ≤200 top-level locals (currently 194), ≤60 upvalues per
+function (currently 59 peak). New state goes in the `X` table or methods, never
 new file-scope locals, unless the budget is re-checked in the same change.
 
 Coverage floors: every user-visible capability has smoke evidence before it is

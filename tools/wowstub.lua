@@ -71,6 +71,10 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     end
     function methods.ClearAllPoints(self) self.points = {} end
     function methods.SetWidth(self, w) self.width = w end
+    function methods.SetSize(self, w, h) self.size = { w, h } end
+    function methods.SetFrameStrata(self, s) self.strata = s end
+    function methods.SetVertexColor(self, r, g, b) self.vcolor = { r, g, b } end
+    function methods.EnableMouse(self, v) self.mouseEnabled = v end
     function methods.SetTextColor(self, r, g, b) self.color = { r, g, b } end
     function methods.SetBackdropBorderColor(self, r, g, b, a) self.borderColor = { r, g, b, a } end
     function methods.RegisterEvent(self, ev) self.events[ev] = true end
