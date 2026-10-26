@@ -2,6 +2,37 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.9.0 — 2026-10-25 — Forever edition
+
+The final batch of the 50-item enhancement program: the last four
+buildable items. With this release the program is complete — 44 of
+50 shipped, 3 duplicates resolved along the way, and 3 items parked
+under investigation (#8 pull-timer flash, #19 modifier clicks,
+#33 newly-unbuffed sound; each needs in-game evidence or a sharper
+definition — see `../../docs/PARITY.md`).
+
+- **Two-column layout** (`/br twocol`, Settings > Window): with more
+  than 8 people on the list, the rows split into two side-by-side
+  columns and the window widens — each column keeps your chosen width
+  — instead of growing one tall column.
+- **Death recap** (`/br death`, Settings > Behavior): the moment you
+  die, BuffRadar prints who in your group was missing which buffs —
+  the rebuff list for after the rez. `/br death show` reprints the
+  last recap. On by default.
+- **Post-wipe report** (`/br wipe`, Settings > Behavior): when a
+  fight of 8 seconds or more ends with at least 3 group members dead
+  (2 in a small party), BuffRadar prints who still needs buffs; if
+  you lead or assist, a one-line summary also goes to group chat.
+  `/br wipe show` reprints the last report. Off by default.
+- **Setup wizard** (`/br wizard`, Settings > Window): a three-page
+  walkthrough for new users — how you play (applies the matching
+  preset), the window theme, and your buff list. First-time users
+  get a one-line hint about it at login; players upgrading from an
+  older version are marked as already set up and never see the hint.
+
+Settings storage moves to version 11; older saves upgrade themselves
+on load, as always.
+
 ## 1.8.0 — 2026-10-25 — Forever edition
 
 **BuffRadar is Forever-only from this release.** Retail support was

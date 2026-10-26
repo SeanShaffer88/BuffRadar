@@ -99,3 +99,20 @@ tab's background-opacity slider). Following the #23 → #45 precedent,
 each was replaced inside the same batch rather than silently dropped or
 re-shipped: #10 → #43 (Discord summary), #15 → #37 (focus watch). Both
 are marked † in the Forever changelog and recorded in `docs/PARITY.md`.
+
+## 2026-10-25 — Final batch shipped as 1.9.0; the 50-item program is complete
+SEAN directed "Build the final 4 as 1.9.0". Shipped: #13 two-column
+layout (the list splits into two columns past 8 rows and the window
+widens per column), #38 death recap (dying prints who was missing
+what; `/br death show` reprints), #44 post-wipe report (a fight of
+8+ seconds ending with 3+ dead — or 2 in a small party — prints the
+rebuff list and, as leader/assistant, posts a one-line summary),
+#50 setup wizard (three pages: preset, theme, your buffs; a first-run
+hint points new users at it, and the dbVersion 11 migration marks
+existing users as already seen). With this batch the program stands
+at 44 of 50 shipped and 3 duplicates resolved; the last 3 items
+(#8 pull-timer flash, #19 modifier clicks, #33 newly-unbuffed sound)
+stay parked under investigation for the reasons in `docs/PARITY.md`
+— they need in-game evidence or a sharper definition, not guesses.
+Building further is closed off; the outstanding action is SEAN's
+Forever field test (everything since 1.3.2 is Unverified in game).

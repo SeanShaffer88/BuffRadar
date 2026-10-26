@@ -333,6 +333,9 @@ local DEFAULTS = {
   consumables = false, -- coverage line also tracks flasks, food and runes (1.6.0)
   buddySplit = false,  -- share the list with other BuffRadar users present (1.6.0)
   readyPost = false,   -- post the ready-check summary to group chat (leader/assistant) (1.7.0)
+  deathRecap = true,   -- print who was missing buffs when you died (1.9.0)
+  wipeReport = false,  -- print a rebuff report after a wipe (1.9.0)
+  wizardSeen = false,  -- the setup wizard has been run or dismissed (1.9.0)
   pinned = "",         -- full or short name of the player pinned to the top (1.7.0)
   weaponWatch = false, -- remind me when my weapon has no temporary enchant (1.7.0)
   enterFlash = true,   -- print a reminder when entering an instance unbuffed (1.7.0)
@@ -340,6 +343,7 @@ local DEFAULTS = {
   history = {},        -- last 50 casts through BuffRadar: { t, spell, who } (1.7.0)
   growUp = false,      -- the list grows upward from a fixed bottom edge (1.8.0)
   hideInCombat = false, -- hide the window while you are in combat (1.8.0)
+  twoCol = false,      -- two columns when the list is long (1.9.0)
   theme = "midnight",  -- window color theme: midnight/crimson/forest/parchment/custom (1.8.0)
   findBox = false,     -- name finder box on the window (1.8.0)
   durationBars = false, -- thin bar per row: time left on the expiring buff (1.8.0)
@@ -570,6 +574,9 @@ local L = {
   ["weapon enchant missing"] = "weapon enchant missing",  -- row tag (1.7.0)
   ["Watch my weapon enchant"] = "Watch my weapon enchant",
   ["Grow the list upward"] = "Grow the list upward",
+  ["Two columns when the list is long"] = "Two columns when the list is long",
+  ["Print a recap when I die"] = "Print a recap when I die",
+  ["Print a report after a wipe"] = "Print a report after a wipe",
   ["Hide the window in combat"] = "Hide the window in combat",
   ["pet"] = "pet",  -- row tag for a group pet (1.8.0)
   ["drinking"] = "drinking",  -- row tag for a drinking healer (1.8.0)
@@ -1879,6 +1886,90 @@ function X.SpecSwap()
 end
 
 -- READY_CHECK: a local summary (the group post is /br announce's job).
+-- Death recap (1.9.0): when you die, snapshot who was missing what —
+-- the rebuff list for after the rez. Always recorded; printed at
+-- death when the setting is on. /br death reprints the last one.
+function X.DeathRecap(show)
+  local keep = X.applyFilter
+  X.applyFilter = false
+  CollectEntries()
+  X.applyFilter = keep
+  local lines = {}
+  local people, casts = 0, 0
+  for i = 1, nEntries do
+    local e = entries[i]
+    if (e.group or e.unit == "player") and not e.pet then
+      people = people + 1
+      casts = casts + #e.missing
+      lines[#lines + 1] = "  " .. (SafeString(e.name) or e.sortName or "?")
+        .. ": " .. table.concat(e.missing, ", ")
+    end
+  end
+  X.lastDeath = lines
+  if not show then return end
+  if people == 0 then
+    Print("Death recap: nobody in your group was missing a buff when you died.")
+  else
+    Print(string.format("Death recap: %d %s missing buffs (%d casts) when you died:",
+      people, people == 1 and "person is" or "people are", casts))
+    for i = 1, math_min(#lines, 12) do Print(lines[i]) end
+    if #lines > 12 then Print(string.format("  +%d more", #lines - 12)) end
+  end
+end
+
+-- Post-wipe report (1.9.0): when a real fight (8+ seconds) ends with
+-- several group members dead, that's a wipe — print who still needs
+-- buffs (the run-back rebuff list) and, as leader or assistant, post
+-- a one-line summary to group chat, like the ready-check auto-post.
+function X.WipeCheck()
+  if not db or not db.wipeReport or not InGroup() then return end
+  if X.combatStart and GetTime() - X.combatStart < 8 then return end
+  local total, dead = 0, 0
+  local function scan(unit)
+    if UnitExists(unit) then
+      total = total + 1
+      if UnitIsDeadOrGhost(unit) then dead = dead + 1 end
+    end
+  end
+  scan("player")
+  if InRaid() then
+    for i = 1, 40 do scan("raid" .. i) end
+  else
+    for i = 1, 4 do scan("party" .. i) end
+  end
+  if not (dead >= 3 or (total <= 5 and dead >= 2)) then return end
+  local keep = X.applyFilter
+  X.applyFilter = false
+  CollectEntries()
+  X.applyFilter = keep
+  local lines = {}
+  local people, casts = 0, 0
+  for i = 1, nEntries do
+    local e = entries[i]
+    if e.group and not e.pet then
+      people = people + 1
+      casts = casts + #e.missing
+      lines[#lines + 1] = "  " .. (SafeString(e.name) or e.sortName or "?")
+        .. ": " .. table.concat(e.missing, ", ")
+    end
+  end
+  X.lastWipe = lines
+  Print(string.format("Wipe report: %d of %d died. %s", dead, total,
+    people == 0 and "Everyone still standing is buffed."
+      or string.format("%d %s missing buffs (%d casts):", people,
+        people == 1 and "person is" or "people are", casts)))
+  for i = 1, math_min(#lines, 12) do Print(lines[i]) end
+  if #lines > 12 then Print(string.format("  +%d more", #lines - 12)) end
+  if people > 0 and X.AmLead() then
+    local channel = InRaid() and "RAID" or "PARTY"
+    if _G.SendChatMessage then
+      _G.SendChatMessage(string.format(
+        "BuffRadar wipe report: %d of %d died; %d %s missing buffs (%d casts).",
+        dead, total, people, people == 1 and "person is" or "people are", casts), channel)
+    end
+  end
+end
+
 function X.ReadyReport()
   local keep = X.applyFilter
   X.applyFilter = false
@@ -1916,7 +2007,8 @@ X.EXPORT_KEYS = { "locked", "includeSelf", "avoidPvP", "autoHide", "rebuff", "sc
   "sync", "requests", "joinDigest", "roleFilter", "showStrip", "idleFade",
   "pill", "queueTag", "consumables", "buddySplit", "readyPost", "weaponWatch", "enterFlash",
   "scanThrottle", "growUp", "hideInCombat", "theme", "findBox", "durationBars", "raidMarkers",
-  "rangeText", "focusWatch", "pets", "auraWatch", "worldWatch", "drinkWatch" }
+  "rangeText", "focusWatch", "pets", "auraWatch", "worldWatch", "drinkWatch", "twoCol",
+  "deathRecap", "wipeReport" }
 
 local function Esc(v) return (tostring(v):gsub("%%", "%%25"):gsub(";", "%%3B"):gsub("=", "%%3D")) end
 local function Unesc(v) return (v:gsub("%%3D", "="):gsub("%%3B", ";"):gsub("%%25", "%%")) end
@@ -2998,7 +3090,10 @@ end
 -- change in combat; callers retry after combat (PLAYER_REGEN_ENABLED).
 local function ApplyGeometry()
   if not frame or InCombatLockdown() then return end
-  frame:SetWidth(db.width or WIDTH)
+  -- Two-column layout (1.9.0): each column keeps the chosen width, with
+  -- a small gap between the columns.
+  local cols = X.cols or 1
+  frame:SetWidth((db.width or WIDTH) * cols + (cols - 1) * 6)
   frame:SetScale(db.scale or 1)
 end
 
@@ -3022,6 +3117,146 @@ local function ApplyAppearance()
   else
     combatText:SetPoint("TOPLEFT", frame, "TOPLEFT", 9, -8)
   end
+end
+
+---------------------------------------------------------------------------
+-- Setup wizard (1.9.0): a three-page first-run walkthrough — play
+-- style (a shipped preset), window look, and your buff list — so a
+-- new user lands on sane settings without facing the full settings
+-- window cold. /br wizard runs it again at any time. Defined here:
+-- it needs ApplyGeometry / ApplyAppearance, which exist from here on.
+---------------------------------------------------------------------------
+function X.WizardPage(n)
+  local w = X.wizardFrame
+  if not w then return end
+  w.page = n
+  for i = 1, 3 do w.choice[i]:Hide() end
+  w.back:SetShown(n > 1)
+  if n == 1 then
+    w.title:SetText("BuffRadar setup — step 1 of 3")
+    w.body:SetText("How do you mostly play? Each answer applies a starting preset; every setting can be changed later in Settings.")
+    local styles = {
+      { "Mostly solo", "solo" }, { "In a party", "dungeon" }, { "In raids", "raid" },
+    }
+    for i, s in ipairs(styles) do
+      local b = w.choice[i]
+      b:SetText(s[1])
+      b:SetScript("OnClick", function()
+        if X.ApplyPreset(s[2]) then
+          ApplyGeometry()
+          ApplyAppearance()
+          X.ApplyRowLayout()
+          if RefreshConfig then RefreshConfig() end
+          if QueueRefresh then QueueRefresh() end
+          Print("Setup wizard: the " .. s[2] .. " preset is applied.")
+        end
+        X.WizardPage(2)
+      end)
+      b:Show()
+    end
+    w.next:Hide()
+  elseif n == 2 then
+    w.title:SetText("BuffRadar setup — step 2 of 3")
+    w.body:SetText("The window's look. Click the theme button to cycle the color schemes; scale, width and more live in Settings > Window.")
+    local b = w.choice[1]
+    local function themeLabel()
+      local t = db.theme or "custom"
+      return "Theme: " .. t:sub(1, 1):upper() .. t:sub(2)
+    end
+    b:SetText(themeLabel())
+    b:SetScript("OnClick", function()
+      local cur = 1
+      for i, k in ipairs(X.THEME_ORDER) do if db.theme == k then cur = i end end
+      X.ApplyTheme(X.THEME_ORDER[cur % #X.THEME_ORDER + 1])
+      if RefreshConfig then RefreshConfig() end
+      b:SetText(themeLabel())
+    end)
+    b:Show()
+    w.next:SetText("Next")
+    w.next:Show()
+  else
+    w.title:SetText("BuffRadar setup — step 3 of 3")
+    local names = {}
+    for _, bf in ipairs(myBuffs) do names[#names + 1] = bf.name end
+    w.body:SetText(#names > 0
+      and ("You can cast: " .. table.concat(names, ", ")
+        .. ". Toggle any of them in Settings > Buffs, or with /br toggle <KEY>."
+        .. " Press Finish — then just click a name on the list to buff them.")
+      or "You don't know any buffs BuffRadar handles yet; the list appears once you learn one. Press Finish to close.")
+    local b = w.choice[1]
+    b:SetText("Open settings")
+    b:SetScript("OnClick", function() OpenConfig() end)
+    b:Show()
+    w.next:SetText("Finish")
+    w.next:Show()
+  end
+  w.pageText:SetText("Step " .. n .. " of 3")
+end
+
+function X.OpenWizard()
+  if not db then return end
+  if InCombatLockdown() then
+    Print("The setup wizard can't open during combat — try again when it ends.")
+    return
+  end
+  local w = X.wizardFrame
+  if not w then
+    w = CreateFrame("Frame", "BuffRadarWizard", UIParent, "BackdropTemplate")
+    X.wizardFrame = w
+    w:SetSize(370, 260)
+    w:SetPoint("CENTER")
+    w:SetFrameStrata("DIALOG")
+    if w.SetBackdrop then
+      w:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 24,
+        insets = { left = 8, right = 8, top = 8, bottom = 8 } })
+    end
+    if w.SetBackdropColor then w:SetBackdropColor(0, 0, 0, 0.9) end
+    w.title = w:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    w.title:SetPoint("TOP", 0, -16)
+    w.body = w:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    w.body:SetPoint("TOPLEFT", 20, -48)
+    w.body:SetPoint("TOPRIGHT", -20, -48)
+    w.body:SetJustifyH("LEFT")
+    w.body:SetWordWrap(true)
+    w.pageText = w:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    w.pageText:SetPoint("BOTTOM", 0, 16)
+    w.choice = {}
+    for i = 1, 3 do
+      local b = CreateFrame("Button", nil, w, "UIPanelButtonTemplate")
+      b:SetSize(210, 24)
+      b:SetPoint("TOP", w, "TOP", 0, -104 - (i - 1) * 32)
+      w.choice[i] = b
+    end
+    w.back = CreateFrame("Button", nil, w, "UIPanelButtonTemplate")
+    w.back:SetSize(90, 22)
+    w.back:SetPoint("BOTTOMLEFT", 16, 12)
+    w.back:SetText("Back")
+    w.back:SetScript("OnClick", function() X.WizardPage(math_max(1, (w.page or 1) - 1)) end)
+    w.next = CreateFrame("Button", nil, w, "UIPanelButtonTemplate")
+    w.next:SetSize(110, 22)
+    w.next:SetPoint("BOTTOMRIGHT", -16, 12)
+    w.next:SetScript("OnClick", function()
+      if (w.page or 1) >= 3 then
+        db.wizardSeen = true
+        w:Hide()
+        Print("Setup done — /br wizard runs it again, /br config opens all settings.")
+      else
+        X.WizardPage((w.page or 1) + 1)
+      end
+    end)
+    local close = CreateFrame("Button", nil, w, "UIPanelButtonTemplate")
+    close:SetSize(24, 24)
+    close:SetText("X")
+    close:SetPoint("TOPRIGHT", -10, -10)
+    close:SetScript("OnClick", function()
+      db.wizardSeen = true
+      w:Hide()
+    end)
+  end
+  X.WizardPage(1)
+  w:Show()
 end
 
 -- Apply a color theme (1.8.0). Defined here because it needs
@@ -3245,12 +3480,20 @@ function X.ApplyRowLayout()
   local top = HEADER_H + X.BarHeight() + (db.findBox and 16 or 0)
   X.topH = top
   if X.bar then X.bar:SetShown(X.BarHeight() > 0) end
+  -- Two-column layout (1.9.0): rows fill the first column top to
+  -- bottom, then the second. X.cols / X.rowsPerCol are kept current by
+  -- Refresh; with one column this is exactly the old anchoring.
+  local per = X.rowsPerCol or MAX_ROWS
+  local cols = X.cols or 1
+  local cellW = (db.width or WIDTH) + 6  -- column width + the gap
   for i = 1, #rows do
     local row = rows[i]
+    local col = math_floor((i - 1) / per)
+    local idx = (i - 1) % per
     row:SetHeight(h)
     row:ClearAllPoints()
-    row:SetPoint("TOPLEFT", frame, "TOPLEFT", 6, -top - (i - 1) * h)
-    row:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -6, -top - (i - 1) * h)
+    row:SetPoint("TOPLEFT", frame, "TOPLEFT", 6 + col * cellW, -top - idx * h)
+    row:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -(6 + (cols - 1 - col) * cellW), -top - idx * h)
     if row.portrait then row.portrait:SetShown(not db.compact) end
     local isz = db.compact and 12 or 16
     for j = 1, MAX_ICONS do if row.icons[j] then row.icons[j]:SetSize(isz, isz) end end
@@ -4127,6 +4370,17 @@ local function Refresh()
   end
 
   local shown = math_min(n, MAX_ROWS)
+  -- Two-column layout (1.9.0): with the setting on and a long list, the
+  -- rows split into two columns and the frame widens to match. The
+  -- column state lives on X so ApplyRowLayout anchors consistently.
+  local wantCols = (db.twoCol and shown > 8) and 2 or 1
+  local rowsTall = wantCols == 2 and math_floor((shown + 1) / 2) or shown
+  if wantCols ~= (X.cols or 1) or rowsTall ~= (X.rowsTall or shown) then
+    X.cols, X.rowsTall = wantCols, rowsTall
+    X.rowsPerCol = wantCols == 2 and rowsTall or MAX_ROWS
+    X.ApplyRowLayout()
+    ApplyGeometry()
+  end
   for i = 1, MAX_ROWS do
     if i <= shown then RenderRow(rows[i], entries[i]) else ClearRow(rows[i]) end
   end
@@ -4144,10 +4398,10 @@ local function Refresh()
   end
   SetShownIfChanged(emptyText, n == 0)
   if n > MAX_ROWS then
-    if not overflowText.cAnchored then
+    if overflowText.cTall ~= rowsTall then  -- re-anchor when the column split changes (1.9.0)
+      overflowText.cTall = rowsTall
       overflowText:ClearAllPoints()
-      overflowText:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -(X.topH or HEADER_H) - MAX_ROWS * (X.rowH or ROW_H) - 2)
-      overflowText.cAnchored = true
+      overflowText:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -(X.topH or HEADER_H) - rowsTall * (X.rowH or ROW_H) - 2)
     end
     if overflowText.cCount ~= n then
       overflowText.cCount = n
@@ -4312,7 +4566,7 @@ local function Refresh()
   end
   if X.focusText then SetShownIfChanged(X.focusText, focusShown) end
 
-  local h = (X.topH or HEADER_H) + (shown > 0 and shown * (X.rowH or ROW_H) or 18) + 8
+  local h = (X.topH or HEADER_H) + (shown > 0 and rowsTall * (X.rowH or ROW_H) or 18) + 8
   if coverShown then h = h + 13 end
   if focusShown then h = h + 13 end
   if n > MAX_ROWS then h = h + 14 end
@@ -4589,6 +4843,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   if event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST"
      or event == "PLAYER_FLAGS_CHANGED" then
     if db then X.SendCover() end  -- cover-me handoff state may have changed (1.7.0)
+    if event == "PLAYER_DEAD" and db then X.DeathRecap(db.deathRecap) end  -- (1.9.0)
     return
   end
   if event == "GROUP_ROSTER_UPDATE" then
@@ -4610,6 +4865,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     driver:UnregisterEvent("ADDON_LOADED")  -- one-off
     BuffRadarDB = SanitizeDB(BuffRadarDB)
     db = BuffRadarDB
+    local preVersion = db.dbVersion or 0  -- the version the save came from (1.9.0 wizard gate)
     Ignore.Rebuild()
     -- Settings shared with the Forever edition: Classic-only choices fall back
     -- to the defaults here (their controls are hidden on this edition).
@@ -4646,6 +4902,12 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
         db.buffContext.SHADOW_PROT = "instance"
       end
     end
+    if (db.dbVersion or 0) < 11 then
+      db.dbVersion = 11       -- 1.9.0: twoCol / deathRecap / wipeReport / wizardSeen added
+      -- Anyone with a real save history (1.2.0 or later) is not a new
+      -- user: don't nag them with the first-run wizard hint.
+      if preVersion >= 5 then db.wizardSeen = true end
+    end
     X.SpecSwap()
   elseif event == "PLAYER_LOGIN" then
     driver:UnregisterEvent("PLAYER_LOGIN")  -- one-off
@@ -4662,6 +4924,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     ok, err = pcall(BuildUI)
     if not ok then Print("|cffff4040error building window:|r " .. tostring(err)) end
     Print("loaded. Type /br to show the window.")
+    if not db.wizardSeen then
+      Print("New to BuffRadar? /br wizard runs a one-minute setup.")
+    end
     if FriendlyPlatesOn() == false then
       Print("friendly nameplates are |cffff4040off|r - nearby players outside your group can't be listed until they're on. Type /br plates to turn them on (or press Shift+V).")
     end
@@ -4671,6 +4936,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     StartTicker()
     Soon()
   elseif event == "PLAYER_REGEN_DISABLED" then
+    X.combatStart = GetTime()  -- the wipe report times the fight from here (1.9.0)
     if combatText then combatText:Show() end
     -- Lockdown hasn't started yet inside this handler: finish any window drag now.
     if frame and frame.isMoving then
@@ -4704,6 +4970,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     ApplyGeometry()  -- a scale/width change made during combat lands now
     X.ApplyRowLayout()
     ApplyNextRegistration()
+    if db then X.WipeCheck() end  -- post-wipe report (1.9.0)
     Soon()
   elseif event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_TAB" or event == "LEARNED_SPELL_IN_SKILL_LINE" then
     if db then ScheduleRebuild() end
@@ -5234,6 +5501,16 @@ local function BuildConfig()
     function(v) db.hideInCombat = v end)
   cfg.combatCheck:SetPoint("TOPLEFT", 250, -294)
 
+  cfg.twoColCheck = MakeCheck(look, L["Two columns when the list is long"],
+    function() return db.twoCol end,
+    function(v) db.twoCol = v; X.cols = nil; Refresh() end)
+  cfg.twoColCheck:SetPoint("TOPLEFT", 10, -370)
+
+  cfg.wizardBtn = MakeButton(look, "Run the setup wizard", 170, function()
+    X.OpenWizard()
+  end)
+  cfg.wizardBtn:SetPoint("TOPLEFT", 10, -398)
+
   cfg.themeBtn = MakeButton(look, "Theme: Midnight", 170, function()
     local cur = 1
     for i, k in ipairs(X.THEME_ORDER) do if db.theme == k then cur = i end end
@@ -5577,6 +5854,16 @@ local function BuildConfig()
     function(v) db.drinkWatch = v; Refresh() end)
   cfg.drinkCheck:SetPoint("TOPLEFT", 10, -350)
 
+  cfg.deathCheck = MakeCheck(beh, L["Print a recap when I die"],
+    function() return db.deathRecap end,
+    function(v) db.deathRecap = v end)
+  cfg.deathCheck:SetPoint("TOPLEFT", 10, -376)
+
+  cfg.wipeCheck = MakeCheck(beh, L["Print a report after a wipe"],
+    function() return db.wipeReport end,
+    function(v) db.wipeReport = v end)
+  cfg.wipeCheck:SetPoint("TOPLEFT", 10, -402)
+
   if not CLASSIC_FEATURES then
     -- Aura, world-buff and drinking watches are Forever-only concepts.
     cfg.auraCheck:Hide()
@@ -5749,6 +6036,7 @@ local function BuildConfig()
   Tip(cfg.minimapCheck, "Minimap button", "Left-click it to show or hide the window, right-click for settings, drag it around the minimap. The addon compartment (minimap menu) works either way.")
   Tip(cfg.growCheck, "Grow the list upward", "The window stands on its bottom edge and the list grows upward instead of down — handy when the window sits low on the screen. The saved position remembers the form. Same as /br growup.")
   Tip(cfg.combatCheck, "Hide the window in combat", "The window (and the pill) hide when combat starts and come back when it ends. Same as /br combat.")
+  Tip(cfg.twoColCheck, "Two columns when the list is long", "With more than 8 people on the list, the rows split into two side-by-side columns and the window widens, instead of growing one tall column. Same as /br twocol.")
   Tip(cfg.themeBtn, "Color theme", "Click to cycle the window's color themes: Midnight, Crimson, Forest, Parchment. Picking a custom background color afterwards switches back to a custom theme. Same as /br theme <name>.")
   Tip(cfg.findCheck, "Name finder", "A small Find box on the window: while it holds text, only players whose name matches are listed. Same as /br findbox; /br find <text> sets the text without the box.")
   Tip(cfg.barsCheck, "Duration bars", "A thin bar along each row's bottom edge: how much of a 30-minute span the expiring buff has left. Green over 15 minutes, yellow under it, red under 5. Same as /br bars.")
@@ -5786,6 +6074,8 @@ local function BuildConfig()
   Tip(cfg.auraCheck, "Aura / aspect watch", "Forever only: your own row flags it when no hunter aspect or paladin aura is up. Same as /br aura.")
   Tip(cfg.worldCheck, "World-buff watch", "Forever only: the coverage line lists your active world buffs (Dragonslayer, Warchief's Blessing, Songflower, ...) with the time left. Same as /br worldbuff.")
   Tip(cfg.drinkCheck, "Drinking healers", "Forever only: a player who is drinking gets a 'drinking' tag on their row, and healers who are drinking are counted on the coverage line. Same as /br drink.")
+  Tip(cfg.deathCheck, "Death recap", "When you die, BuffRadar prints who in your group was missing which buffs at that moment — the rebuff list for after the rez. /br death shows the last recap again. Same as /br death.")
+  Tip(cfg.wipeCheck, "Post-wipe report", "When a fight of 8 seconds or more ends with at least 3 dead (or 2 in a small party), BuffRadar prints who still needs buffs, and posts a one-line summary to group chat if you lead or assist. Same as /br wipe.")
   -- Ignore & Stats
   Tip(clearIgnores, "Clear ignore list", "Stops ignoring everyone on the list.")
   Tip(resetStats, "Reset stats", "Clears the casts-by-spell statistics. The cast counter is kept.")
@@ -5868,6 +6158,7 @@ RefreshConfig = function()
   if cfg.enterCheck then cfg.enterCheck:Update() end
   if cfg.throttleCheck then cfg.throttleCheck:Update() end
   if cfg.growCheck then cfg.growCheck:Update() end
+  if cfg.twoColCheck then cfg.twoColCheck:Update() end
   if cfg.combatCheck then cfg.combatCheck:Update() end
   if cfg.themeBtn then
     local th = X.THEMES[db.theme]
@@ -5877,6 +6168,8 @@ RefreshConfig = function()
   if cfg.auraCheck then cfg.auraCheck:Update() end
   if cfg.worldCheck then cfg.worldCheck:Update() end
   if cfg.drinkCheck then cfg.drinkCheck:Update() end
+  if cfg.deathCheck then cfg.deathCheck:Update() end
+  if cfg.wipeCheck then cfg.wipeCheck:Update() end
   if cfg.findCheck then cfg.findCheck:Update() end
   if cfg.barsCheck then cfg.barsCheck:Update() end
   if cfg.markersCheck then cfg.markersCheck:Update() end
@@ -6063,7 +6356,7 @@ function X.SelfTest()
   local ver, build, _, iface = GetBuildInfo()
   Print("BuffRadar self-test -- paste this whole block into a bug report:")
   Print(string.format("  version %s · %s edition · interface %s · client %s build %s",
-    "1.8.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
+    "1.9.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
   Print(string.format("  settings dbVersion %s · sort %s · cast mode %s · scale %s",
     tostring(db.dbVersion), tostring(db.sortMode), tostring(db.castMethod), tostring(db.scale)))
   Print(string.format("  sync %s · requests %s · role filter %s · profiles %d · idle fade %s",
@@ -6092,6 +6385,8 @@ function X.SelfTest()
     OnOff(db.growUp), OnOff(db.hideInCombat), tostring(db.theme), OnOff(db.findBox),
     OnOff(db.durationBars), OnOff(db.raidMarkers), OnOff(db.focusWatch), OnOff(db.pets),
     OnOff(db.auraWatch), OnOff(db.worldWatch), OnOff(db.drinkWatch), ocount))
+  Print(string.format("  two columns %s · death recap %s · wipe report %s · wizard seen %s",
+    OnOff(db.twoCol), OnOff(db.deathRecap), OnOff(db.wipeReport), OnOff(db.wizardSeen)))
   if #myBuffs == 0 then Print("  buffs found: none") end
   for _, b in ipairs(myBuffs) do
     local id
@@ -6455,6 +6750,8 @@ local function HandleSlash(msg)
     else
       Print("Usage: /br preset raid|dungeon|solo")
     end
+  elseif cmd == "wizard" then
+    X.OpenWizard()
   elseif cmd == "pill" then
     db.pill = not db.pill
     Print("All-buffed pill " .. OnOff(db.pill))
@@ -6556,6 +6853,12 @@ local function HandleSlash(msg)
     X.ApplyAnchor()
     Print("Grow the list upward " .. OnOff(db.growUp)
       .. " — on: the window's bottom edge stays put and the list grows up.")
+    Refresh()
+  elseif cmd == "twocol" then
+    db.twoCol = not db.twoCol
+    X.cols = nil  -- force the column split to re-decide on the next refresh
+    Print("Two columns when the list is long " .. OnOff(db.twoCol)
+      .. " — on: past 8 rows the list splits into two columns.")
     Refresh()
   elseif cmd == "combat" then
     db.hideInCombat = not db.hideInCombat
@@ -6683,6 +6986,34 @@ local function HandleSlash(msg)
   elseif cmd == "readypost" then
     db.readyPost = not db.readyPost
     Print("Ready-check summary also posted to group chat (leader/assistant) " .. OnOff(db.readyPost))
+  elseif cmd == "death" then
+    if rest:lower() == "show" then
+      if X.lastDeath then
+        Print("Death recap from your last death:")
+        for i = 1, math_min(#X.lastDeath, 12) do Print(X.lastDeath[i]) end
+        if #X.lastDeath > 12 then Print(string.format("  +%d more", #X.lastDeath - 12)) end
+      else
+        Print("No death recap yet — one is recorded when you die.")
+      end
+    else
+      db.deathRecap = not db.deathRecap
+      Print("Death recap " .. OnOff(db.deathRecap)
+        .. " — on: dying prints who was missing buffs. /br death show reprints the last one.")
+    end
+  elseif cmd == "wipe" then
+    if rest:lower() == "show" then
+      if X.lastWipe then
+        Print("Wipe report from the last wipe:")
+        for i = 1, math_min(#X.lastWipe, 12) do Print(X.lastWipe[i]) end
+        if #X.lastWipe > 12 then Print(string.format("  +%d more", #X.lastWipe - 12)) end
+      else
+        Print("No wipe report yet — one is recorded when a fight ends as a wipe.")
+      end
+    else
+      db.wipeReport = not db.wipeReport
+      Print("Post-wipe report " .. OnOff(db.wipeReport)
+        .. " — on: a fight ending with several dead prints the rebuff list. /br wipe show reprints the last one.")
+    end
   elseif cmd == "buddy" then
     db.buddySplit = not db.buddySplit
     Print("Buddy list splitting " .. OnOff(db.buddySplit)
@@ -6938,6 +7269,8 @@ local function HandleSlash(msg)
     Print("  /br offenders  - repeat offenders across sessions   /br context KEY raid|instance|always")
     Print("  /br assign <BUFF> <name>  - leader assigns a buff   /br buddy  - split the list")
     Print("  /br readypost  - also post the ready-check summary to group chat")
+    Print("  /br death [show]  - recap of who was missing buffs when you died")
+    Print("  /br wipe [show]  - rebuff report after a wipe")
     Print("  /br pin <name>  - keep a player at the top   /br pin none  - clear the pin")
     Print("  /br weapon  - watch your weapon enchant   /br enterflash  - instance-entry reminder")
     Print("  /br history  - your recent casts   /br throttle  - halve the rescan rate in big groups")
@@ -6951,6 +7284,7 @@ local function HandleSlash(msg)
     Print("  /br pill  - all-buffed pill   /br consumables  - flask/food counts")
     Print("  /br custom add|remove|list <id>  - watch any buff spell you know")
     Print("  /br uptime  - coverage uptime %   /br preset raid|dungeon|solo")
+    Print("  /br wizard  - run the one-minute setup wizard")
     Print("  /br autoprofile <context> <profile>  - load a profile by context")
     if CLASSIC_FEATURES then
       Print("  /br bless <CLASS> <BLESSING> [name]  - blessing planner")

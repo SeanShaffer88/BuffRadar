@@ -1,15 +1,40 @@
 # BuffRadar — Features (Forever edition)
 
-The full feature list for BuffRadar 1.8.0 (Forever edition) for
+The full feature list for BuffRadar 1.9.0 (Forever edition) for
 WoW: Forever (Interface 16001). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
 Prepared 2026-10-24 from the shipped 1.3.2 Forever README and
-CHANGELOG; updated 2026-10-25 for 1.8.0. Since 1.3.2 both editions are built from one source —
+CHANGELOG; updated 2026-10-25 for 1.9.0. Since 1.3.2 both editions are built from one source —
 the addon picks the Forever buff set when it loads on the Forever
 client — and the Forever buff set itself is unchanged from 1.2.4.
 **From 1.8.0 BuffRadar is Forever-only**: Retail support was dropped
 2026-10-25, and 1.7.0 is the last Retail release.
+
+## New in 1.9.0
+
+- **Two-column layout** (`/br twocol`, Settings > Window): past 8
+  rows, the list splits into two side-by-side columns and the window
+  widens, instead of growing one tall column.
+- **Death recap** (`/br death`, `/br death show`, Settings >
+  Behavior): when you die, BuffRadar prints who in your group was
+  missing which buffs at that moment — the rebuff list for after the
+  rez. On by default; the last recap can be reprinted any time.
+- **Post-wipe report** (`/br wipe`, `/br wipe show`, Settings >
+  Behavior): when a fight of 8 seconds or more ends with at least 3
+  group members dead (2 in a small party), BuffRadar prints who still
+  needs buffs, and — if you lead or assist — posts a one-line summary
+  to group chat. Off by default.
+- **Setup wizard** (`/br wizard`, Settings > Window): a three-page
+  first-run walkthrough — how you play (applies a preset), the window
+  theme, and your buff list. New users get a one-line hint pointing
+  at it on their first login; existing users are never nagged.
+
+These four finish the 50-item enhancement program: 44 items shipped,
+3 duplicates resolved in-batch, and 3 parked under investigation
+(#8 pull-timer flash, #19 modifier clicks, #33 newly-unbuffed sound —
+each needs in-game evidence or a sharper definition, recorded in
+`../../docs/PARITY.md`).
 
 ## New in 1.8.0
 

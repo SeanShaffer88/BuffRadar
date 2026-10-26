@@ -563,7 +563,8 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 10, "dbVersion not migrated to 10: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 11, "dbVersion not migrated to 11: " .. tostring(d.dbVersion))
+  assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
   if env.__forever then  -- 1.8.0 (#32): shadow protection defaults to instances
     assert(d.buffContext.SHADOW_PROT == "instance",
       "shadow protection context default missing: " .. tostring(d.buffContext.SHADOW_PROT))
@@ -584,9 +585,17 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 10 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 11 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
+  -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
+  -- counts as already seen, so no first-run hint nags them (1.9.0)
+  env.BuffRadarDB = { dbVersion = 9 }
+  fire("ADDON_LOADED", "BuffRadar")
+  d = env.BuffRadarDB
+  assert(d.dbVersion == 11 and d.wizardSeen == true,
+    "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
+  d.wizardSeen = false  -- leave the save as the rest of the suite expects
 end)
 step("ready check reports who is missing buffs (1.4.0)", function()
   if env.__forever then return end
@@ -1775,6 +1784,141 @@ step("settings search dims what does not match (1.8.0)", function()
   assert(cfg.soundCheck.alpha == 1, "clearing the search did not restore the controls")
 end)
 
+step("death recap snapshots the group when you die (1.9.0)", function()
+  local cleanup = partyOfTwo("DD")
+  local db = env.BuffRadarDB
+  env.IsSpellInRange = function() return 1 end
+  refresh()
+  local n = #chat
+  fire("PLAYER_DEAD")
+  assert(chatSince(n, "Death recap:"), "no death recap printed")
+  assert(chatSince(n, "Aaron"), "death recap does not name Aaron")
+  local n2 = #chat
+  env.SlashCmdList.BUFFRADAR("death show")
+  assert(chatSince(n2, "Death recap from your last death:"), "last recap not reprinted")
+  env.SlashCmdList.BUFFRADAR("death")
+  assert(db.deathRecap == false, "death recap not toggled off")
+  env.SlashCmdList.BUFFRADAR("death")
+  assert(db.deathRecap == true, "death recap not toggled back on")
+  cleanup()
+end)
+
+step("post-wipe report fires after a real wipe (1.9.0)", function()
+  local cleanup = partyOfTwo("WW")
+  local db = env.BuffRadarDB
+  local O = env.__over
+  env.SlashCmdList.BUFFRADAR("wipe")
+  assert(db.wipeReport == true, "wipe report not enabled")
+  -- A controllable clock: the wipe gate needs an 8+ second fight.
+  local t = 1000
+  O.GetTime = function() return t end
+  local dead = { party1 = true }
+  O.UnitIsDeadOrGhost = function(u) return dead[u] or false end
+  env.IsSpellInRange = function() return 1 end
+  refresh()
+  -- One dead in a party of three is not a wipe: no report.
+  fire("PLAYER_REGEN_DISABLED")
+  t = t + 20
+  local n = #chat
+  fire("PLAYER_REGEN_ENABLED")
+  assert(not chatSince(n, "Wipe report"), "report fired for a single death")
+  -- Both party members dead after a long fight: a wipe.
+  dead.party2 = true
+  fire("PLAYER_REGEN_DISABLED")
+  t = t + 20
+  local n2 = #chat
+  fire("PLAYER_REGEN_ENABLED")
+  assert(chatSince(n2, "Wipe report: 2 of 3 died."), "no wipe report after the wipe")
+  assert(chatSince(n2, "1 person is missing buffs"),
+    "wipe report should list the survivor's missing buffs")
+  local n3 = #chat
+  env.SlashCmdList.BUFFRADAR("wipe show")
+  assert(chatSince(n3, "Wipe report from the last wipe:"), "last wipe report not reprinted")
+  O.GetTime = nil
+  O.UnitIsDeadOrGhost = nil
+  env.SlashCmdList.BUFFRADAR("wipe")
+  assert(db.wipeReport == false, "wipe report not toggled off")
+  cleanup()
+end)
+
+step("setup wizard walks a new user through (1.9.0)", function()
+  local db = env.BuffRadarDB
+  assert(db.wizardSeen == false, "wizard should start unseen on a fresh save")
+  env.SlashCmdList.BUFFRADAR("wizard")
+  local w = env.BuffRadarWizard
+  assert(w and w.shown, "wizard did not open")
+  -- Page 1: dirty the sort mode, then pick "In a party" (dungeon preset).
+  db.sortMode = "role"
+  w.choice[2].scripts.OnClick(w.choice[2])
+  assert(db.sortMode == "need", "party preset not applied by the wizard: " .. tostring(db.sortMode))
+  assert(db.groupOnly == true, "party preset did not set groupOnly")
+  assert(w.page == 2, "wizard did not advance to page 2")
+  -- Page 2: the theme button cycles the theme.
+  local before = db.theme
+  w.choice[1].scripts.OnClick(w.choice[1])
+  assert(db.theme ~= before, "theme not cycled on page 2")
+  w.next.scripts.OnClick(w.next)
+  assert(w.page == 3, "wizard did not advance to page 3")
+  -- Page 3: Finish closes it and marks it seen.
+  w.next.scripts.OnClick(w.next)
+  assert(db.wizardSeen == true, "finishing did not mark the wizard seen")
+  assert(not w.shown, "wizard did not close on Finish")
+end)
+
+step("two-column layout splits a long list (1.9.0)", function()
+  local db = env.BuffRadarDB
+  -- An 11-member raid plus the player: 12 people, all missing a buff.
+  local units = {}
+  local classes = { "MAGE", "WARRIOR", "PRIEST", "DRUID", "ROGUE" }
+  for i = 1, 11 do
+    units["raid" .. i] = { name = string.format("Raider%02d", i), class = classes[(i % 5) + 1] }
+  end
+  local O = env.__over
+  O.UnitExists = function(u) return u == "player" or units[u] ~= nil end
+  O.UnitIsPlayer = O.UnitExists
+  O.UnitGUID = function(u)
+    if units[u] then return "Player-1-R" .. u:sub(5) end
+    if u == "player" then return "Player-1-0001" end
+  end
+  O.UnitName = function(u) if units[u] then return units[u].name end if u == "player" then return "Me" end end
+  O.UnitFullName = function(u)
+    if units[u] then return units[u].name, "TestRealm" end
+    if u == "player" then return "Me", "TestRealm" end
+  end
+  O.UnitClass = function(u)
+    if units[u] then return units[u].class, units[u].class end
+    if u == "player" then return env.__forever and "PRIEST" or "SHAMAN", env.__forever and "PRIEST" or "SHAMAN" end
+  end
+  O.Aura = nil
+  env.IsInRaid = function() return true end
+  env.IsInGroup = function() return true end
+  env.GetNumGroupMembers = function() return 12 end
+  db.showOutOfRange, db.pauseInCities, db.hidden, db.groupOnly, db.autoHide = true, false, false, false, false
+  env.IsSpellInRange = function() return 1 end
+  refresh()
+  local frame = env.BuffRadarFrame
+  local w1 = frame.width
+  local row7 = env.BuffRadarRow7  -- 12 rows: single column row 7; two columns start at row 7
+  assert(row7 and row7.shown, "row 7 not shown in the raid")
+  assert(row7.points[1][4] == 6, "single column: row 7 starts at x=6, got " .. tostring(row7.points[1][4]))
+  env.SlashCmdList.BUFFRADAR("twocol")
+  assert(db.twoCol == true, "twoCol setting not stored")
+  refresh()
+  assert(frame.width > w1, "frame did not widen for two columns: " .. tostring(frame.width))
+  local p1, p7 = env.BuffRadarRow1.points[1], row7.points[1]
+  assert(p7[4] > p1[4], "row 7 did not move into the second column")
+  assert(p7[5] == p1[5], "row 7 is not at the top of the second column")
+  env.SlashCmdList.BUFFRADAR("twocol")
+  refresh()
+  assert(frame.width == w1, "frame did not narrow back: " .. tostring(frame.width))
+  assert(row7.points[1][4] == 6, "row 7 did not return to the single column")
+  for k in pairs(O) do O[k] = nil end
+  env.IsInRaid = function() return false end
+  env.IsInGroup = function() return false end
+  env.GetNumGroupMembers = nil
+  env.IsSpellInRange = nil
+end)
+
 step("coverage uptime scores the run (1.6.0)", function()
   local cleanup = partyOfTwo("V")
   env.IsSpellInRange = function() return 1 end
@@ -1934,11 +2078,12 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 10"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 11"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
   assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
   assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")
   assert(chatSince(n, "grow up"), "self-test missing the 1.8.0 state line")
+  assert(chatSince(n, "two columns"), "self-test missing the 1.9.0 state line")
   assert(chatSince(n, "buff SKYFURY") or chatSince(n, "buff FORTITUDE"), "self-test lists no buffs")
 end)
 step("German client uses the translation", function()

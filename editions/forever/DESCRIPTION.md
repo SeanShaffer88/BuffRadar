@@ -65,6 +65,6 @@ were informed by BuffYou by datdata (MIT). Since 1.3.2 the Forever
 and Retail editions are built from the same source; **from 1.8.0
 BuffRadar is Forever-only** — Retail support ended at 1.7.0.
 
-**Status note:** 1.8.0 is built but not yet verified in game (1.7.0,
-1.6.0, 1.5.0, 1.4.0 and 1.3.2 are likewise unverified); 1.2.2
+**Status note:** 1.9.0 is built but not yet verified in game (1.8.0,
+1.7.0, 1.6.0, 1.5.0, 1.4.0 and 1.3.2 are likewise unverified); 1.2.2
 was the last version confirmed live (by SEAN, 2026-10-20).

@@ -12,7 +12,7 @@ built from the same source:
 
 | Edition | Client | Interface | Status |
 |---|---|---|---|
-| **Forever** | World of Warcraft Forever | 16001 | Current — 1.8.0 |
+| **Forever** | World of Warcraft Forever | 16001 | Current — 1.9.0 |
 | **Retail** | World of Warcraft (Midnight, patch 12.1.5) | 120105 | Ended at 1.7.0 |
 
 BuffRadar picks the right buff set when it loads. The full player guide — features,

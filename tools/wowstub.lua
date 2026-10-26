@@ -65,6 +65,12 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
       env.__fontstrings[#env.__fontstrings + 1] = fs
       return fs
     end
+    function methods.SetPoint(self, ...)
+      self.points = self.points or {}
+      self.points[#self.points + 1] = { ... }
+    end
+    function methods.ClearAllPoints(self) self.points = {} end
+    function methods.SetWidth(self, w) self.width = w end
     function methods.SetTextColor(self, r, g, b) self.color = { r, g, b } end
     function methods.SetBackdropBorderColor(self, r, g, b, a) self.borderColor = { r, g, b, a } end
     function methods.RegisterEvent(self, ev) self.events[ev] = true end
@@ -133,7 +139,11 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     return nil
   end
   env.GetBuildInfo = function() return "12.1.5", "99999", "Oct 2026", 120105 end
-  env.GetTime = function() return os.clock() end
+  env.GetTime = function()
+    local f = env.__over and env.__over.GetTime
+    if f then return f() end
+    return os.clock()
+  end
   env.__combat = false
   env.InCombatLockdown = function() return env.__combat end
   -- The addon caches these functions at load, so tests change unit data

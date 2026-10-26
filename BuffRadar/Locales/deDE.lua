@@ -90,6 +90,9 @@ BuffRadarLocales.deDE = {
   ["~%ds left"] = "~%d Sek. übrig",
   -- 1.8.0
   ["Grow the list upward"] = "Liste nach oben wachsen lassen",
+  ["Two columns when the list is long"] = "Zwei Spalten, wenn die Liste lang ist",
+  ["Print a recap when I die"] = "Zusammenfassung drucken, wenn ich sterbe",
+  ["Print a report after a wipe"] = "Bericht nach einem Wipe drucken",
   ["Hide the window in combat"] = "Fenster im Kampf verstecken",
   ["pet"] = "Begleiter",
   ["drinking"] = "trinkt gerade",
