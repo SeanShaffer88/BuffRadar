@@ -138,7 +138,13 @@ local cmds = { "", "", "show", "config", "config", "debug", "help", "buffs", "to
   "text 1.25", "text 9", "text", "charpoint", "charpoint",
   "sync", "sync", "requests", "requests", "digest", "digest",
   "filter tank", "filter all", "strip", "strip", "fade 50", "fade 0", "sort need", "sort name",
-  "taxi", "taxi", "watch", "watch", "profile", "profile list", "profile save", "resetpos" }
+  "taxi", "taxi", "watch", "watch", "profile", "profile list", "profile save", "resetpos",
+  "growup", "growup", "combat", "combat", "theme crimson", "theme midnight", "theme",
+  "find zzz", "find off", "findbox", "findbox", "bars", "bars", "markers", "markers",
+  "range", "range", "focus", "focus",
+  "pets", "pets", "aura", "aura", "worldbuff", "worldbuff", "drink", "drink",
+  "context FORTITUDE instance", "context FORTITUDE always", "context",
+  "plan", "plan export", "discord", "offenders", "stats export" }
 for _, c in ipairs(cmds) do
   step("/br " .. c, function() env.SlashCmdList.BUFFRADAR(c) end)
 end
@@ -557,7 +563,11 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 9, "dbVersion not migrated to 9: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 10, "dbVersion not migrated to 10: " .. tostring(d.dbVersion))
+  if env.__forever then  -- 1.8.0 (#32): shadow protection defaults to instances
+    assert(d.buffContext.SHADOW_PROT == "instance",
+      "shadow protection context default missing: " .. tostring(d.buffContext.SHADOW_PROT))
+  end
   assert(d.scale == 2, "scale not clamped: " .. tostring(d.scale))
   assert(d.width == 210, "mistyped width not repaired: " .. tostring(d.width))
   assert(d.bogusKey == nil, "unknown key survived sanitizing")
@@ -574,7 +584,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 9 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 10 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
 end)
@@ -1380,6 +1390,391 @@ step("scan throttle halves the big-group rescan (1.7.0)", function()
   assert(db.scanThrottle == false, "throttle not toggled off")
 end)
 
+step("grow-up window anchors by its bottom edge (1.8.0)", function()
+  local db = env.BuffRadarDB
+  env.SlashCmdList.BUFFRADAR("growup")
+  assert(db.growUp == true, "growUp setting not stored")
+  assert(db.point and db.point[1] == "BOTTOMLEFT",
+    "saved point not in bottom form: " .. tostring(db.point and db.point[1]))
+  env.SlashCmdList.BUFFRADAR("growup")
+  assert(db.growUp == false, "growUp not toggled off")
+  assert(db.point and db.point[1] == "TOPLEFT", "saved point not back in top form")
+end)
+
+step("color themes set the window colors (1.8.0)", function()
+  local db = env.BuffRadarDB
+  env.SlashCmdList.BUFFRADAR("theme midnight")
+  local n = #chat
+  env.SlashCmdList.BUFFRADAR("theme crimson")
+  assert(db.theme == "crimson", "theme not stored")
+  assert(db.bgColor[1] == 0.08 and db.bgColor[2] == 0.02 and db.bgColor[3] == 0.02,
+    "theme background not applied")
+  assert(chatSince(n, "Theme: Crimson"), "no theme message")
+  local frame = env.BuffRadarFrame
+  assert(frame.borderColor and frame.borderColor[1] == 0.75,
+    "theme border not applied to the window")
+  env.SlashCmdList.BUFFRADAR("theme")
+  assert(chatSince(n, "crimson (current)"), "theme list does not mark the current theme")
+  env.SlashCmdList.BUFFRADAR("theme bogus")
+  assert(db.theme == "crimson", "a bogus theme changed the setting")
+  env.SlashCmdList.BUFFRADAR("theme midnight")
+  assert(db.theme == "midnight", "theme not restored")
+end)
+
+step("hide in combat steps aside for the fight (1.8.0)", function()
+  local db = env.BuffRadarDB
+  env.SlashCmdList.BUFFRADAR("combat")
+  assert(db.hideInCombat == true, "hideInCombat setting not stored")
+  local frame = env.BuffRadarFrame
+  frame:Show()
+  fire("PLAYER_REGEN_DISABLED")
+  assert(not frame:IsShown(), "window still shown after combat started")
+  fire("PLAYER_REGEN_ENABLED")
+  timerTick()
+  env.SlashCmdList.BUFFRADAR("combat")
+  assert(db.hideInCombat == false, "hideInCombat not toggled off")
+end)
+
+step("name finder filters the list (1.8.0)", function()
+  local cleanup = partyOfTwo("F")
+  local db = env.BuffRadarDB
+  env.IsSpellInRange = function() return 1 end
+  refresh()
+  assert(shownRows().party1 and shownRows().party2, "both players listed before the search")
+  env.SlashCmdList.BUFFRADAR("find aar")
+  refresh()
+  local rows = shownRows()
+  assert(rows.party1 and not rows.party2, "search did not narrow the list to Aaron")
+  env.SlashCmdList.BUFFRADAR("findbox")
+  assert(db.findBox == true, "find box setting not stored")
+  env.SlashCmdList.BUFFRADAR("findbox")
+  assert(db.findBox == false, "find box not toggled off")
+  env.SlashCmdList.BUFFRADAR("find off")
+  refresh()
+  assert(shownRows().party2, "clearing the search did not restore the list")
+  cleanup()
+end)
+
+step("duration bar follows the expiring buff (1.8.0)", function()
+  local cleanup = partyOfTwo("D")
+  local O = env.__over
+  env.IsSpellInRange = function() return 1 end
+  -- Aaron's Fortitude is up but inside the rebuff window: it stays his
+  -- first missing buff, with ~20 seconds left on it.
+  local first = env.__forever and "Power Word: Fortitude" or "Skyfury"
+  O.Aura = function(u, name)
+    if u == "party1" and name == first then return { expirationTime = env.GetTime() + 20 } end
+  end
+  env.SlashCmdList.BUFFRADAR("bars")
+  refresh()
+  local row = shownRows().party1 and shownRows().party1.row
+  assert(row, "Aaron not listed")
+  assert(row.bar and row.bar.shown, "duration bar not shown for the expiring buff")
+  env.SlashCmdList.BUFFRADAR("bars")
+  refresh()
+  assert(not row.bar.shown, "duration bar stayed after the setting went off")
+  O.Aura = nil
+  cleanup()
+end)
+
+step("raid marker badge shows on the row (1.8.0)", function()
+  local cleanup = partyOfTwo("M")
+  local O = env.__over
+  env.IsSpellInRange = function() return 1 end
+  env.GetRaidTargetIndex = function(u) if u == "party1" then return 3 end end
+  env.SlashCmdList.BUFFRADAR("markers")
+  refresh()
+  local row = shownRows().party1 and shownRows().party1.row
+  assert(row, "Aaron not listed")
+  assert(row.marker and row.marker.shown, "raid marker badge not shown")
+  env.SlashCmdList.BUFFRADAR("markers")
+  refresh()
+  assert(not row.marker.shown, "raid marker stayed after the setting went off")
+  env.GetRaidTargetIndex = nil
+  cleanup()
+end)
+
+step("range band text calls a near player near (1.8.0)", function()
+  local cleanup = partyOfTwo("R")
+  local O = env.__over
+  env.IsSpellInRange = function(_, u) if u == "party2" then return 0 end return 1 end
+  env.UnitInRange = function(u) if u == "party2" then return true, true end end
+  env.SlashCmdList.BUFFRADAR("range")
+  refresh()
+  local row = shownRows().party2 and shownRows().party2.row
+  assert(row, "Zed not listed as a greyed row")
+  assert(row.far.text == "near" or row.far.text == "in der Nähe",
+    "greyed row does not read 'near': " .. tostring(row.far.text))
+  env.SlashCmdList.BUFFRADAR("range")
+  refresh()
+  assert(row.far.text == "out of range" or row.far.text == "außer Reichweite",
+    "greyed row label not restored: " .. tostring(row.far.text))
+  env.UnitInRange = nil
+  cleanup()
+end)
+
+step("focus watch line reports the focus target (1.8.0)", function()
+  local cleanup = partyOfTwo("W")
+  local O = env.__over
+  local prevExists, prevPlayer = O.UnitExists, O.UnitIsPlayer
+  O.UnitExists = function(u) if u == "focus" then return true end return prevExists(u) end
+  O.UnitIsPlayer = function(u) if u == "focus" then return true end return prevPlayer(u) end
+  O.UnitName = function(u) if u == "focus" then return "Focusdude" end
+    if u == "player" then return "Me" end return u == "party1" and "Aaron" or "Zed" end
+  O.UnitClass = function(u) if u == "focus" then return "Mage", "MAGE" end
+    if u == "player" then return env.__forever and "PRIEST" or "SHAMAN", env.__forever and "PRIEST" or "SHAMAN" end
+    return u == "party1" and "MAGE" or "WARRIOR", u == "party1" and "MAGE" or "WARRIOR" end
+  env.SlashCmdList.BUFFRADAR("focus")
+  refresh()
+  local found
+  for _, fs in ipairs(env.__fontstrings) do
+    if type(fs.text) == "string" and fs.text:find("Focus Focusdude: needs", 1, true) then found = fs.text end
+  end
+  assert(found, "focus line not shown for an unbuffed focus")
+  env.SlashCmdList.BUFFRADAR("focus")
+  refresh()
+  local still
+  for _, fs in ipairs(env.__fontstrings) do
+    if fs.shown and type(fs.text) == "string" and fs.text:find("Focus Focusdude", 1, true) then still = fs.text end
+  end
+  assert(not still, "focus line stayed after the setting went off")
+  cleanup()
+end)
+
+step("group pets get their own rows (1.8.0)", function()
+  if not env.__forever then return end  -- the harness priest knows pet buffs; the shaman knows none
+  local cleanup = partyOfTwo("P")
+  local O = env.__over
+  local prevExists, prevPlayer = O.UnitExists, O.UnitIsPlayer
+  O.UnitExists = function(u) if u == "partypet1" then return true end return prevExists(u) end
+  O.UnitIsPlayer = function(u) if u == "partypet1" then return false end return prevPlayer(u) end
+  O.UnitGUID = function(u) if u == "partypet1" then return "Pet-1-1P" end
+    if u == "player" then return "Player-1-0001" end
+    return "Player-1-P" .. u:sub(-1) .. "P" end
+  O.UnitName = function(u) if u == "partypet1" then return "Fluffy" end
+    if u == "player" then return "Me" end return u == "party1" and "Aaron" or "Zed" end
+  env.IsSpellInRange = function() return 1 end
+  env.SlashCmdList.BUFFRADAR("pets")
+  refresh()
+  local set = shownRows().partypet1
+  assert(set, "Aaron's pet not listed")
+  assert(set["Power Word: Fortitude"], "pet not offered Fortitude")
+  assert(set.row.tag.text == "pet" or set.row.tag.text == "Begleiter",
+    "pet row not tagged: " .. tostring(set.row.tag.text))
+  env.SlashCmdList.BUFFRADAR("pets")
+  refresh()
+  assert(not shownRows().partypet1, "pet stayed after the setting went off")
+  cleanup()
+end)
+
+step("aura and aspect watch toggles (1.8.0)", function()
+  local db = env.BuffRadarDB
+  local n = #chat
+  env.SlashCmdList.BUFFRADAR("aura")
+  if not env.__forever then
+    assert(chatSince(n, "Forever edition"), "aura watch not refused on retail")
+    assert(not db.auraWatch, "aura watch stored on retail")
+    return
+  end
+  assert(db.auraWatch == true, "aura watch not stored")
+  refresh()  -- a priest knows no aspects or auras: the list is unchanged, no error
+  env.SlashCmdList.BUFFRADAR("aura")
+  assert(db.auraWatch == false, "aura watch not toggled off")
+end)
+
+step("world-buff watch names your world buffs (1.8.0)", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("B")
+  local O = env.__over
+  O.AuraList = function(u)
+    if u == "player" then
+      return { { name = "Rallying Cry of the Dragonslayer", expirationTime = env.GetTime() + 7500 } }
+    end
+    return {}
+  end
+  O.Aura = function(u, name)
+    if u == "player" and name == "Rallying Cry of the Dragonslayer" then
+      return { expirationTime = env.GetTime() + 7500 }
+    end
+  end
+  local n = #chat
+  env.SlashCmdList.BUFFRADAR("worldbuff")
+  assert(chatSince(n, "World: Rallying Cry of the Dragonslayer ~2h"),
+    "world buff not reported by the toggle")
+  refresh()
+  local line
+  for _, fs in ipairs(env.__fontstrings) do
+    if type(fs.text) == "string" and fs.text:find("World: Rallying Cry", 1, true) then line = fs.text end
+  end
+  assert(line, "coverage line carries no world-buff segment")
+  env.SlashCmdList.BUFFRADAR("worldbuff")
+  O.AuraList = nil
+  O.Aura = nil
+  cleanup()
+end)
+
+step("drinking healers are tagged and counted (1.8.0)", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("K")
+  local O = env.__over
+  local prevClass = O.UnitClass
+  O.UnitClass = function(u)
+    if u == "party1" then return "Priest", "PRIEST" end
+    return prevClass(u)
+  end
+  O.Aura = function(u, name)
+    if u == "party1" and name == "Drink" then return { expirationTime = env.GetTime() + 60 } end
+  end
+  env.IsSpellInRange = function() return 1 end
+  env.SlashCmdList.BUFFRADAR("drink")
+  refresh()
+  local set = shownRows().party1
+  assert(set, "the drinking priest is not listed")
+  assert(set.row.tag.text == "drinking" or set.row.tag.text == "trinkt gerade",
+    "drinking tag missing: " .. tostring(set.row.tag.text))
+  local line
+  for _, fs in ipairs(env.__fontstrings) do
+    if type(fs.text) == "string" and fs.text:find("Healer drinking", 1, true) then line = fs.text end
+  end
+  assert(line, "coverage line does not count the drinking healer")
+  env.SlashCmdList.BUFFRADAR("drink")
+  O.Aura = nil
+  cleanup()
+end)
+
+step("per-buff context limits where a buff is offered (1.8.0)", function()
+  local cleanup = partyOfTwo("T")
+  local db = env.BuffRadarDB
+  env.IsSpellInRange = function() return 1 end
+  local key = env.__forever and "FORTITUDE" or "SKYFURY"
+  local spell = env.__forever and "Power Word: Fortitude" or "Skyfury"
+  refresh()
+  assert(shownRows().party1 and shownRows().party1[spell], "buff offered before the context is set")
+  env.SlashCmdList.BUFFRADAR("context " .. key .. " instance")
+  assert(db.buffContext[key] == "instance", "context not stored")
+  local n = #chat
+  env.SlashCmdList.BUFFRADAR("buffs")
+  assert(chatSince(n, "[instance only]"), "buff list does not show the context")
+  refresh()  -- the party is in the open world, not an instance
+  local set = shownRows().party1
+  assert(not set or not set[spell], "buff still offered outside its context")
+  env.SlashCmdList.BUFFRADAR("context " .. key .. " always")
+  assert(db.buffContext[key] == nil, "context not cleared")
+  refresh()
+  assert(shownRows().party1 and shownRows().party1[spell], "buff not offered again after clearing")
+  cleanup()
+end)
+
+step("plan strings carry the group plan to another user (1.8.0)", function()
+  local cleanup = partyOfTwo("Q")
+  local db = env.BuffRadarDB
+  env.UnitIsGroupLeader = function(u) return u == "player" end
+  local key = env.__forever and "FORTITUDE" or "SKYFURY"
+  env.SlashCmdList.BUFFRADAR("assign " .. key .. " Aaron")
+  env.SlashCmdList.BUFFRADAR("profile save pset")
+  env.SlashCmdList.BUFFRADAR("autoprofile dungeon pset")
+  env.SlashCmdList.BUFFRADAR("plan export")
+  local text = env.BuffRadarExportFrame.editBox.text
+  assert(type(text) == "string" and text:sub(1, 7) == "BRPLAN1",
+    "plan string not produced: " .. tostring(text))
+  env.SlashCmdList.BUFFRADAR("assign clear")
+  env.SlashCmdList.BUFFRADAR("autoprofile dungeon clear")
+  assert(db.autoProfile.dungeon == nil, "auto profile not cleared before import")
+  env.SlashCmdList.BUFFRADAR("plan import")
+  env.BuffRadarExportFrame.editBox:SetText(text)
+  local n = #chat
+  env.BuffRadarExportFrame.accept.scripts.OnClick(env.BuffRadarExportFrame.accept)
+  assert(chatSince(n, "Plan imported: 1 assignments, 0 blessings, 1 auto profiles"),
+    "plan import did not report the parts")
+  assert(db.autoProfile.dungeon == "pset", "auto profile not restored by the plan")
+  local n2 = #chat
+  env.SlashCmdList.BUFFRADAR("assign")
+  assert(chatSince(n2, key .. " -> Aaron"), "assignment not restored by the plan")
+  env.SlashCmdList.BUFFRADAR("assign clear")
+  env.SlashCmdList.BUFFRADAR("autoprofile dungeon clear")
+  env.SlashCmdList.BUFFRADAR("profile delete pset")
+  env.UnitIsGroupLeader = nil
+  cleanup()
+end)
+
+step("a single profile can be shared and imported (1.8.0)", function()
+  local db = env.BuffRadarDB
+  env.SlashCmdList.BUFFRADAR("profile save shareme")
+  env.SlashCmdList.BUFFRADAR("profile share shareme")
+  local text = env.BuffRadarExportFrame.editBox.text
+  assert(type(text) == "string" and text:find("BuffRadar profile: shareme", 1, true),
+    "share text has no header: " .. tostring(text))
+  assert(text:find("\nBR1;", 1, true), "share text carries no settings string")
+  env.SlashCmdList.BUFFRADAR("profile delete shareme")
+  assert(db.profiles.shareme == nil, "profile not deleted before import")
+  env.SlashCmdList.BUFFRADAR("profile import")
+  env.BuffRadarExportFrame.editBox:SetText(text)
+  local n = #chat
+  env.BuffRadarExportFrame.accept.scripts.OnClick(env.BuffRadarExportFrame.accept)
+  assert(chatSince(n, "Profile imported: shareme"), "profile import not reported")
+  assert(type(db.profiles.shareme) == "string", "profile not stored by the import")
+  env.SlashCmdList.BUFFRADAR("profile delete shareme")
+end)
+
+step("stats export and Discord summary render (1.8.0)", function()
+  local cleanup = partyOfTwo("S")
+  local db = env.BuffRadarDB
+  local spell = env.__forever and "Power Word: Fortitude" or "Skyfury"
+  db.stats[spell] = 5
+  env.SlashCmdList.BUFFRADAR("stats export")
+  local text = env.BuffRadarExportFrame.editBox.text
+  assert(type(text) == "string" and text:find("BuffRadar cast statistics", 1, true),
+    "stats export has no header")
+  assert(text:find(spell .. ": 5", 1, true), "stats export missing the spell count")
+  env.IsSpellInRange = function() return 1 end
+  refresh()
+  env.SlashCmdList.BUFFRADAR("discord")
+  local dtext = env.BuffRadarExportFrame.editBox.text
+  assert(type(dtext) == "string" and dtext:find("**BuffRadar", 1, true),
+    "discord summary has no header")
+  assert(dtext:find("Aaron", 1, true), "discord summary does not name who needs buffs")
+  db.stats[spell] = nil
+  cleanup()
+end)
+
+step("repeat offenders are counted when a group ends (1.8.0)", function()
+  local cleanup = partyOfTwo("G")
+  local db = env.BuffRadarDB
+  env.IsSpellInRange = function() return 1 end
+  -- Earlier sessions in this setup may already have counted these two;
+  -- this step asserts exactly one more fold for its own session.
+  local beforeA = db.offenders["Aaron"] or 0
+  local beforeZ = db.offenders["Zed"] or 0
+  refresh()  -- Aaron and Zed are both seen unbuffed this session
+  env.IsInGroup = function() return false end
+  fire("GROUP_ROSTER_UPDATE")  -- the group ends: the session folds
+  assert(db.offenders["Aaron"] == beforeA + 1,
+    "Aaron not counted once more: " .. tostring(db.offenders["Aaron"]))
+  assert(db.offenders["Zed"] == beforeZ + 1, "Zed not counted once more")
+  local n = #chat
+  env.SlashCmdList.BUFFRADAR("offenders")
+  assert(chatSince(n, "Aaron: " .. (beforeA + 1)), "offender list does not name Aaron")
+  env.SlashCmdList.BUFFRADAR("offenders clear")
+  assert(next(db.offenders) == nil, "offender history not cleared")
+  cleanup()
+end)
+
+step("settings search dims what does not match (1.8.0)", function()
+  if not (env.BuffRadarConfig and env.BuffRadarConfig.shown) then
+    env.SlashCmdList.BUFFRADAR("config")
+  end
+  local cfg = env.BuffRadarConfig
+  local sb = cfg.searchBox
+  assert(sb, "no settings search box")
+  sb:SetText("opacity")
+  sb.scripts.OnTextChanged(sb)
+  assert(cfg.slider.alpha == 1, "the opacity slider was dimmed by its own search")
+  assert(cfg.soundCheck.alpha == 0.25, "an unrelated control was not dimmed")
+  sb:SetText("")
+  sb.scripts.OnTextChanged(sb)
+  assert(cfg.soundCheck.alpha == 1, "clearing the search did not restore the controls")
+end)
+
 step("coverage uptime scores the run (1.6.0)", function()
   local cleanup = partyOfTwo("V")
   env.IsSpellInRange = function() return 1 end
@@ -1539,10 +1934,11 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 9"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 10"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
   assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
   assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")
+  assert(chatSince(n, "grow up"), "self-test missing the 1.8.0 state line")
   assert(chatSince(n, "buff SKYFURY") or chatSince(n, "buff FORTITUDE"), "self-test lists no buffs")
 end)
 step("German client uses the translation", function()

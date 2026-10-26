@@ -6,23 +6,26 @@ A click-to-buff list for World of Warcraft: a small window listing every nearby
 player who is missing one of *your* buffs. Click a name, press one key or use one
 macro to buff them. You always come first.
 
-Two editions are built from the same source:
+**From 1.8.0 (2026-10-25) BuffRadar is Forever-only** — SEAN dropped
+Retail support; 1.7.0 is the last Retail release. Both editions were
+built from the same source:
 
-| Edition | Client | Interface |
-|---|---|---|
-| **Retail** | World of Warcraft (Midnight, patch 12.1.5) | 120105 |
-| **Forever** | World of Warcraft Forever | 16001 |
+| Edition | Client | Interface | Status |
+|---|---|---|---|
+| **Forever** | World of Warcraft Forever | 16001 | Current — 1.8.0 |
+| **Retail** | World of Warcraft (Midnight, patch 12.1.5) | 120105 | Ended at 1.7.0 |
 
 BuffRadar picks the right buff set when it loads. The full player guide — features,
-supported buffs, commands — is in [BuffRadar/README.md](BuffRadar/README.md);
-what changed is in [BuffRadar/CHANGELOG.md](BuffRadar/CHANGELOG.md).
+supported buffs, commands — is in [editions/forever/README.md](editions/forever/README.md);
+what changed is in [editions/forever/CHANGELOG.md](editions/forever/CHANGELOG.md).
+(The Retail guide stays at [BuffRadar/README.md](BuffRadar/README.md), frozen at 1.7.0.)
 
 ## TL;DR
 
 BuffRadar is a World of Warcraft addon that keeps a small list on your screen
 of everyone nearby who still needs one of your buffs — like a to-do list that
-ticks people off as you buff them. Click a name to cast. It comes in two
-editions (Retail and Forever) built from one source, it's free, and it works
+ticks people off as you buff them. Click a name to cast. It is now a
+Forever-only addon (the Retail edition ended at 1.7.0), it's free, and it works
 entirely inside the game: no accounts, no network, nothing leaves your PC.
 
 ## Layout
@@ -44,10 +47,10 @@ entirely inside the game: no accounts, no network, nothing leaves your PC.
 ```powershell
 .\tools\check.ps1 -Setup   # first time only
 .\tools\check.ps1          # luacheck, Lua 5.1 compile and limits, translations, trial run
-.\build.ps1                # both zips into dist\
+.\build.ps1                # both zips into dist\ (only the Forever zip ships, from 1.8.0)
 ```
 
-Then test both zips in the game. Each zip holds a `BuffRadar` folder that goes in
+Then test the Forever zip in the game. The zip holds a `BuffRadar` folder that goes in
 `Interface\AddOns`.
 
 ## License

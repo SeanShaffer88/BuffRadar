@@ -88,4 +88,15 @@ BuffRadarLocales.deDE = {
   ["Per-character window position"] = "Fensterposition pro Charakter",
   ["~%dm left"] = "~%d Min. übrig",
   ["~%ds left"] = "~%d Sek. übrig",
+  -- 1.8.0
+  ["Grow the list upward"] = "Liste nach oben wachsen lassen",
+  ["Hide the window in combat"] = "Fenster im Kampf verstecken",
+  ["pet"] = "Begleiter",
+  ["drinking"] = "trinkt gerade",
+  ["near"] = "in der Nähe",
+  ["Watch group pets"] = "Gruppenbegleiter beobachten",
+  ["Watch my aura or aspect"] = "Meine Aura / meinen Aspekt beobachten",
+  ["Watch my world buffs"] = "Welt-Buffs auf mir beobachten",
+  ["Mark healers who are drinking"] = "Heiler markieren, die gerade trinken",
+  ["Show a name finder on the window"] = "Namenssuche im Fenster anzeigen",
 }

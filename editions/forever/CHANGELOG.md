@@ -2,6 +2,85 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.8.0 — 2026-10-25 — Forever edition
+
+**BuffRadar is Forever-only from this release.** Retail support was
+dropped by SEAN on 2026-10-25: releases from 1.8.0 ship only the
+Forever zip. Retail 1.7.0 remains available as the last Retail
+release, and the Retail docs in this repo stay frozen at 1.7.0. The
+shared source still carries the Retail spell tables, untouched.
+
+Twenty more items from the 50-item enhancement program. Two items on
+the original list turned out to be already shipped and are marked † —
+each was replaced in the same batch, not silently dropped.
+
+- **Buff plan strings** (`/br plan export|import`): the whole group
+  plan — assignments, the blessing plan and your auto-profile map —
+  as one copyable string you can hand to another BuffRadar user.
+  Importing applies it locally and shares it onward.
+- **Name finder** (`/br find <text>`, `/br findbox`, Settings >
+  Window): a search box on the window filters the list to matching
+  names; reports and announcements are never filtered.
+- **Duration bars** (`/br bars`, Settings > Window): a thin bar
+  under each row shows the shortest time left on that player's
+  buffs from your set — green, yellow under 15 minutes, red under 5.
+- **Grow upward** (`/br growup`, Settings > Window): the list can
+  grow up from a bottom anchor instead of down.
+- **Hide in combat** (`/br combat`, Settings > Window): the window
+  and the all-buffed pill hide while you're in combat and return
+  when it ends.
+- **Color themes** (`/br theme`, Settings > Window): Midnight,
+  Crimson, Forest and Parchment window color schemes; picking a
+  custom background color switches the theme to Custom.
+- **Raid target markers** (`/br markers`, Settings > Window): a row
+  shows the raid marker (skull, cross, …) currently on that player.
+- **Range in words** (`/br range`, Settings > Window): rows that
+  are only just out of range say *near* instead of out of range.
+- **Group pets** (`/br pets`, Settings > Behavior): party and raid
+  pets get their own rows when they're missing Fortitude, Mark of
+  the Wild or Arcane Intellect. Pets never appear in reports,
+  announcements or offender counts.
+- **Aura / aspect watch** (`/br aura`, Settings > Behavior):
+  hunters are reminded to keep an aspect up, paladins an aura.
+- **Per-buff context** (`/br context KEY raid|instance|always`): a
+  buff can matter only in raids, only in instances (dungeons and
+  battlegrounds count), or always. Bare `/br context` lists them.
+- **World-buff watch** (`/br worldbuff`, Settings > Behavior): the
+  coverage line lists the world buffs on you with time left —
+  Rallying Cry of the Dragonslayer, Warchief's Blessing,
+  Songflower Serenade, Spirit of Zandalar and friends.
+- **Resistance context**: on Forever, Shadow Protection now starts
+  in *instance* context — it's a pre-pull buff, not an always-on
+  need. Change it any time with `/br context SHADOW_PROT always`.
+- **Healer drinking** (`/br drink`, Settings > Behavior): healers
+  sitting down to drink are tagged *drinking*, and the coverage
+  line counts them, so pulls can wait for mana.
+- **Focus watch** † (`/br focus`, Settings > Window): your focus
+  target's missing buffs show as one line above the coverage line.
+  († replaces #15 "opacity slider" — the background-opacity slider
+  already shipped in the Window tab long ago.)
+- **Repeat offenders** (`/br offenders`): when a group session
+  ends, everyone seen unbuffed during it gains a count; the command
+  lists the worst repeat offenders across sessions.
+- **Stats export** (`/br stats export`): the cast statistics as
+  copyable text.
+- **Discord summary** † (`/br discord`): the group's buff state as
+  a small markdown block, ready to paste into Discord.
+  († replaces #10 "missing-buff icons" — rows have always shown
+  icons of exactly what each player is missing.)
+- **Settings search** (Settings window, bottom left): type to dim
+  every setting that doesn't match, with a match count.
+- **Share one profile** (`/br profile share <name>`,
+  `/br profile import`, and a Share button on the Data tab): send a
+  single named profile to another player as one text; importing
+  stores it under its name, unapplied.
+
+Settings format is now dbVersion 10; older saves migrate
+automatically, as before. German translation covers all 78 strings;
+`/br selftest` also reports the 1.8.0 state (grow up, combat hide,
+theme, find, bars, markers, focus, pets, aura, world, drink,
+offender count).
+
 ## 1.7.0 — 2026-10-25 — Forever edition
 
 The same ten enhancements as retail 1.7.0, from the shared source.

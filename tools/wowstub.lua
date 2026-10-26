@@ -45,6 +45,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     function methods.GetHeight() return 120 end
     function methods.GetLeft() return 40 end
     function methods.GetTop() return 600 end
+    function methods.GetBottom() return 480 end
     function methods.GetCenter() return 500, 400 end
     function methods.GetEffectiveScale() return 1 end
     function methods.GetPoint() return "TOPLEFT", env.UIParent, "BOTTOMLEFT", 40, 600 end

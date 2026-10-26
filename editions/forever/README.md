@@ -19,9 +19,10 @@ as the situation calls for. When everyone is buffed, the list empties and
 gets out of your way. It costs nothing, asks for nothing, and never talks to
 anything outside the game.
 
-Version 1.7.0 · Interface 16001 · License: GPLv3 (1.2.4 was last verified on Forever beta build 1.60.1.70450)
+Version 1.8.0 · Interface 16001 · License: GPLv3 (1.2.4 was last verified on Forever beta build 1.60.1.70450)
 
-The Forever and retail editions are built from the same source; this zip's `.toc`
+**Forever-only from 1.8.0:** the Retail edition ended at 1.7.0 (dropped
+2026-10-25). Both editions were built from the same source; this zip's `.toc`
 targets the Forever client, and BuffRadar picks the Forever buff set when it loads.
 
 ---

@@ -105,7 +105,7 @@ end
 --            Shield): while it's on someone, nobody else is listed for it
 --   who      short label for the settings window
 --   on       enabled by default
-local ALL, MANA, MELEE, TANKS, BUFF_DEFS  -- who benefits / what you can cast (per edition)
+local ALL, MANA, MELEE, TANKS, BUFF_DEFS, AURA_DEFS  -- who benefits / what you can cast (per edition)
 if not CLASSIC_FEATURES then
   -- Retail edition: all thirteen classes. (The Forever edition lists nine.)
   ALL  = { WARRIOR=true, PALADIN=true, HUNTER=true, ROGUE=true, PRIEST=true,
@@ -138,16 +138,16 @@ if not CLASSIC_FEATURES then
   BUFF_DEFS = {
     -- Mage
     { key="ARCANE_INTELLECT", id=1459,  name="Arcane Intellect",
-      also={}, classes=MANA, who="mana users", on=true },
+      also={}, classes=MANA, pets=true, who="mana users", on=true },
     -- Warrior (new in the retail edition: warriors have no buffs in Forever)
     { key="BATTLE_SHOUT",     id=6673,  name="Battle Shout",
       also={}, classes=ALL, groupOnly=true, who="you & your group", on=true },
     -- Priest
     { key="FORTITUDE",        id=1243,  name="Power Word: Fortitude",
-      also={}, classes=ALL, who="everyone", on=true },
+      also={}, classes=ALL, pets=true, who="everyone", on=true },
     -- Druid
     { key="MARK_OF_THE_WILD", id=1126,  name="Mark of the Wild",
-      also={}, classes=ALL, who="everyone", on=true },
+      also={}, classes=ALL, pets=true, who="everyone", on=true },
     { key="THORNS",           id=467,   name="Thorns",
       also={}, classes=MELEE, who="melee classes (PvP talent)", on=false },
     -- Shaman. Skyfury is NOT groupOnly: it's cast on a target ally, and only
@@ -183,7 +183,7 @@ else
     -- Mage
     { key="ARCANE_INTELLECT", id=1459,  name="Arcane Intellect",
       also={ {23028, "Arcane Brilliance"} }, groupCast={ 23028, "Arcane Brilliance" },
-      classes=MANA, who="mana users", on=true },
+      classes=MANA, pets=true, who="mana users", on=true },
     { key="MAGE_ARMOR", self=true, who="you", on=true,
       choices={ {30482, "Molten Armor"}, {6117, "Mage Armor"}, {7302, "Ice Armor"}, {168, "Frost Armor"} } },
     { key="DAMPEN_MAGIC",     id=604,   name="Dampen Magic",
@@ -193,7 +193,7 @@ else
     -- Priest
     { key="FORTITUDE",        id=1243,  name="Power Word: Fortitude",
       also={ {21562, "Prayer of Fortitude"} }, groupCast={ 21562, "Prayer of Fortitude" },
-      classes=ALL, who="everyone", on=true },
+      classes=ALL, pets=true, who="everyone", on=true },
     { key="DIVINE_SPIRIT",    id=14752, name="Divine Spirit",
       also={ {27681, "Prayer of Spirit"} }, groupCast={ 27681, "Prayer of Spirit" },
       classes=MANA, who="mana users", on=true },
@@ -207,7 +207,7 @@ else
     -- Druid
     { key="MARK_OF_THE_WILD", id=1126,  name="Mark of the Wild",
       also={ {21849, "Gift of the Wild"} }, groupCast={ 21849, "Gift of the Wild" },
-      classes=ALL, who="everyone", on=true },
+      classes=ALL, pets=true, who="everyone", on=true },
     { key="THORNS",           id=467,   name="Thorns",
       also={}, classes=MELEE, who="melee classes", on=true },
     -- Shaman
@@ -225,6 +225,21 @@ else
     { key="DETECT_INVIS", classes=ALL, who="everyone (situational)", on=false,
       choices={ {11743, "Detect Greater Invisibility"}, {2970, "Detect Invisibility"},
                 {132, "Detect Lesser Invisibility"} } },
+  }
+
+  -- Aura / aspect watch (1.8.0): self-only stances that work like the
+  -- self buffs above, but live apart because they're a watch you turn on
+  -- separately (/br aura). Any one of the choices counts as "it's up".
+  AURA_DEFS = {
+    { key = "HUNTER_ASPECT", who = "you (aspect)",
+      choices = { {13165, "Aspect of the Hawk"}, {13163, "Aspect of the Monkey"},
+                  {5118, "Aspect of the Cheetah"}, {13159, "Aspect of the Pack"},
+                  {20043, "Aspect of the Wild"}, {13161, "Aspect of the Beast"} } },
+    { key = "PALADIN_AURA", who = "you (aura)",
+      choices = { {465, "Devotion Aura"}, {7294, "Retribution Aura"},
+                  {19746, "Concentration Aura"}, {20218, "Sanctity Aura"},
+                  {19876, "Shadow Resistance Aura"}, {19888, "Frost Resistance Aura"},
+                  {19891, "Fire Resistance Aura"} } },
   }
 end
 
@@ -323,6 +338,20 @@ local DEFAULTS = {
   enterFlash = true,   -- print a reminder when entering an instance unbuffed (1.7.0)
   scanThrottle = false, -- halve the steady rescan rate in groups over 20 (1.7.0)
   history = {},        -- last 50 casts through BuffRadar: { t, spell, who } (1.7.0)
+  growUp = false,      -- the list grows upward from a fixed bottom edge (1.8.0)
+  hideInCombat = false, -- hide the window while you are in combat (1.8.0)
+  theme = "midnight",  -- window color theme: midnight/crimson/forest/parchment/custom (1.8.0)
+  findBox = false,     -- name finder box on the window (1.8.0)
+  durationBars = false, -- thin bar per row: time left on the expiring buff (1.8.0)
+  raidMarkers = false, -- show raid target markers on rows (1.8.0)
+  rangeText = false,   -- word band ("near") on out-of-range rows (1.8.0)
+  focusWatch = false,  -- a line about your focus target's buffs (1.8.0)
+  pets = false,        -- list group pets that need buffs (1.8.0)
+  auraWatch = false,   -- watch your own aura / aspect (Forever) (1.8.0)
+  worldWatch = false,  -- show your active world buffs on the coverage line (Forever) (1.8.0)
+  drinkWatch = false,  -- mark healers who are drinking (Forever) (1.8.0)
+  buffContext = {},    -- per-buff context: buff key -> "raid" | "instance" (1.8.0)
+  offenders = {},      -- group sessions where a player was seen unbuffed: name -> count (1.8.0)
   autoProfile = {},    -- load a named profile per context: raid/dungeon/pvp/world/solo -> name (1.6.0)
   customSpells = {},   -- extra spell IDs to watch, added with /br custom (1.6.0)
   stats = {},          -- all-time casts per spell name: name -> count
@@ -343,6 +372,7 @@ local ENUMS = {
   sortMode = { name = true, role = true, distance = true, need = true },
   roleFilter = { ALL = true, TANK = true, HEALER = true, DAMAGER = true },
   alertSound = { droplet = true, system = true, none = true },
+  theme = { midnight = true, crimson = true, forest = true, parchment = true, custom = true },
 }
 local RANGES = { bgAlpha = { 0, 1 }, scale = { 0.5, 2 }, cfgScale = { 0.5, 2 },
                  width = { MIN_WIDTH, MAX_WIDTH }, rebuff = { 0, 3600 }, castsTotal = { 0, 1e9 },
@@ -453,7 +483,17 @@ function SanitizeDB(saved)
           end
         end
         v = clean
-      elseif k == "rebuffPer" or k == "stats" then
+      elseif k == "buffContext" then
+        local clean = {}
+        if v then
+          for key, ctx in pairs(v) do
+            if type(key) == "string" and (ctx == "raid" or ctx == "instance") then
+              clean[key] = ctx
+            end
+          end
+        end
+        v = clean
+      elseif k == "rebuffPer" or k == "stats" or k == "offenders" then
         local clean = {}
         if v then
           for key, n in pairs(v) do
@@ -529,6 +569,16 @@ local L = {
   ["pinned"] = "pinned",  -- row tag for the pinned player (1.7.0)
   ["weapon enchant missing"] = "weapon enchant missing",  -- row tag (1.7.0)
   ["Watch my weapon enchant"] = "Watch my weapon enchant",
+  ["Grow the list upward"] = "Grow the list upward",
+  ["Hide the window in combat"] = "Hide the window in combat",
+  ["pet"] = "pet",  -- row tag for a group pet (1.8.0)
+  ["drinking"] = "drinking",  -- row tag for a drinking healer (1.8.0)
+  ["near"] = "near",  -- range band word for a greyed row (1.8.0)
+  ["Watch group pets"] = "Watch group pets",
+  ["Watch my aura or aspect"] = "Watch my aura or aspect",
+  ["Watch my world buffs"] = "Watch my world buffs",
+  ["Mark healers who are drinking"] = "Mark healers who are drinking",
+  ["Show a name finder on the window"] = "Show a name finder on the window",
   ["Remind me when entering an instance unbuffed"] = "Remind me when entering an instance unbuffed",
   ["Halve the rescan rate in big groups"] = "Halve the rescan rate in big groups",
   ["Low mana -- buffing paused."] = "Low mana -- buffing paused.",
@@ -953,7 +1003,7 @@ function BuildBuffList()
       end
       myBuffs[#myBuffs + 1] = { key = d.key, name = castName, names = names,
                                 classes = d.classes or ALL, self = d.self,
-                                groupOnly = d.groupOnly, role = d.role, single = d.single, who = d.who, default = d.on, groupName = groupName }
+                                groupOnly = d.groupOnly, role = d.role, single = d.single, who = d.who, default = d.on, groupName = groupName, pets = d.pets }
     end
   end
 
@@ -968,6 +1018,28 @@ function BuildBuffList()
       if not dup then
         myBuffs[#myBuffs + 1] = { key = "CUSTOM" .. id, name = n, names = { n },
                                   classes = ALL, default = true, custom = id }
+      end
+    end
+  end
+
+  -- Aura / aspect watch (1.8.0, Forever): self-only stances join the
+  -- buff list while the watch is on, like the custom spells above.
+  if CLASSIC_FEATURES and db and db.auraWatch then
+    for _, d in ipairs(AURA_DEFS) do
+      local castName, names = nil, {}
+      for _, c in ipairs(d.choices) do
+        local n = SpellName(c[1], c[2])
+        names[#names + 1] = n
+        if not castName and KnowsSpell(c[1], n) then castName = n end
+      end
+      if castName then
+        local dup = false
+        for _, b in ipairs(myBuffs) do if b.name == castName then dup = true break end end
+        if not dup then
+          myBuffs[#myBuffs + 1] = { key = d.key, name = castName, names = names,
+                                    classes = ALL, self = true, aura = true,
+                                    who = d.who, default = true }
+        end
       end
     end
   end
@@ -1081,7 +1153,8 @@ local X = { session = {}, dead = {}, rezAt = {}, tally = {}, tallyUnits = 0,
             handled = {}, asked = {}, applyFilter = true,
             prevHolder = {}, queueAt = 0, consTally = {},
             assign = {}, blessPlan = {}, peers = {}, cover = {}, myCover = false,
-            expiryTally = {}, upTotal = 0, upFull = 0 }
+            expiryTally = {}, upTotal = 0, upFull = 0,
+            search = "", offNow = {}, drinkSet = {}, focusMiss = {}, cfgReg = {} }
 
 -- Consumables watch (1.6.0): not castable, so these never make rows --
 -- they only feed the coverage line. Matched by aura name: exact names, or
@@ -1092,6 +1165,42 @@ X.CONS_DEFS = {
 }
 if not CLASSIC_FEATURES then
   X.CONS_DEFS[#X.CONS_DEFS + 1] = { key = "RUNE", label = "Rune", sub = "Augment Rune" }
+end
+
+-- World-buff watch (1.8.0, Forever): the famous world buffs on YOU,
+-- matched by aura name like the consumables above. Feeds one segment of
+-- the coverage line, so a raid can see whose Dragonslayer is ticking.
+X.WORLD_BUFFS = {
+  { name = "Rallying Cry of the Dragonslayer" }, { name = "Warchief's Blessing" },
+  { name = "Songflower Serenade" }, { name = "Spirit of Zandalar" },
+  { sub = "Sayge's Dark Fortune" }, { name = "Fengus' Ferocity" },
+  { name = "Mol'dar's Moxie" }, { name = "Slip'kik's Savvy" },
+  { name = "Traces of Silithid" },
+}
+
+function X.WorldBuffsText()
+  if not CLASSIC_FEATURES then return nil end
+  local found = {}
+  for i = 1, 40 do
+    local done, name = ReadBuff("player", i)
+    if done then break end
+    if name then
+      for _, w in ipairs(X.WORLD_BUFFS) do
+        if (w.name and name == w.name) or (w.sub and name:find(w.sub, 1, true)) then
+          local left = Remaining("player", name)
+          local when = ""
+          if left and left < math_huge then
+            when = left >= 3600 and string_format(" ~%dh", math_floor(left / 3600))
+              or string_format(" ~%dm", math_floor(left / 60))
+          end
+          found[#found + 1] = name .. when
+          break
+        end
+      end
+    end
+  end
+  if #found == 0 then return nil end
+  return "World: " .. table.concat(found, ", ")
 end
 
 function X.ConsHas(unit, def)
@@ -1162,7 +1271,7 @@ local function Missing(unit, out, isGroup)
         if role and role ~= b.role then applies = false end  -- e.g. a DPS death knight
       end
     end
-    if applies and IsOn(b.key, b.default) then
+    if applies and IsOn(b.key, b.default) and X.ContextOK(b.key) then
       local t
       if isGroup then
         t = X.tally[b.key]
@@ -1206,7 +1315,8 @@ local function Missing(unit, out, isGroup)
     if not plan.mine then bl = nil
     elseif blessKnown[plan.key] then bl = blessKnown[plan.key] end
   end
-  if bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf) then
+  if bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf)
+     and X.ContextOK("BLESSINGS") then
     local t
     if isGroup then
       t = X.tally.BLESSINGS
@@ -1270,6 +1380,7 @@ local function EntryOrder(a, b)
   if (a.theirs or false) ~= (b.theirs or false) then return not a.theirs end
   if (a.buddy or false) ~= (b.buddy or false) then return not a.buddy end
   if (a.handled or false) ~= (b.handled or false) then return not a.handled end
+  if (a.pet or false) ~= (b.pet or false) then return not a.pet end
   if db.sortMode == "need" and #a.missing ~= #b.missing then return #a.missing > #b.missing end
   if db.sortMode == "distance" and (a.rangeBucket or 2) ~= (b.rangeBucket or 2) then
     return (a.rangeBucket or 2) < (b.rangeBucket or 2)
@@ -1415,6 +1526,18 @@ local function Consider(unit, isGroup)
      and not UnitIsUnit(unit, "player")
      and AssignedRole(unit) ~= db.roleFilter then return end  -- role filter (window only)
   seen[guid] = true
+  -- Healer drinking (1.8.0, Forever): anyone in the group with a Drink
+  -- aura is marked; healing classes also feed the coverage line count.
+  if isGroup and db.drinkWatch and CLASSIC_FEATURES
+     and Remaining(unit, "Drink") ~= nil then
+    X.drinkSet[guid] = true
+    local _, dclass = UnitClass(unit)
+    dclass = SafeString(dclass)
+    if dclass == "PRIEST" or dclass == "PALADIN" or dclass == "SHAMAN"
+       or dclass == "DRUID" then
+      X.drinkHealers = (X.drinkHealers or 0) + 1
+    end
+  end
   local slot = nEntries + 1
   local e = entries[slot]
   if not e then
@@ -1435,6 +1558,11 @@ local function Consider(unit, isGroup)
   e.fullName, e.sortName = full, nm or ""
   e.isSelf = UnitIsUnit(unit, "player")
   e.rangeBucket = (not inRange) and ((_G.UnitInRange and _G.UnitInRange(unit)) and 1 or 2) or 0
+  e.marker = nil
+  if _G.GetRaidTargetIndex then
+    local okM, mi = pcall(_G.GetRaidTargetIndex, unit)
+    if okM and type(mi) == "number" and mi > 0 then e.marker = mi end
+  end
   if isGroup then
     -- Expiry tracking: a buff that was not missing last scan, is missing
     -- now, and is truly gone (not just inside its rebuff window) expired,
@@ -1462,6 +1590,70 @@ local function Consider(unit, isGroup)
   e.outOfRange = not inRange
   e.groupCast = false
   e.role = RoleOf(unit)
+  e.pet = nil
+end
+
+-- What a pet still needs (1.8.0): only the buffs whose definitions say
+-- they land on pets (Fortitude, Mark of the Wild, Arcane Intellect).
+-- Pets have no class list to check against, and they never feed the
+-- coverage tallies -- this writes only the entry's missing list.
+function X.PetMissing(unit, out)
+  wipe(out)
+  local n = 0
+  for i = 1, #myBuffs do
+    local b = myBuffs[i]
+    if b.pets and not b.self and IsOn(b.key, b.default) and X.ContextOK(b.key)
+       and not OnCooldown(b.name) then
+      local thr = (db.rebuffPer and db.rebuffPer[b.key]) or db.rebuff
+      if not HasAny(unit, b.names, thr) then
+        n = n + 1
+        out[n] = b.name
+      end
+    end
+  end
+  return n
+end
+
+-- A group pet joins the list as its own row (1.8.0): the row targets the
+-- pet unit, shows the pet's name and portrait, and sorts just after the
+-- players. Pooled-entry hygiene mirrors Consider, plus pet=true.
+function X.ConsiderPet(petUnit, ownerUnit)
+  if not UnitExists(petUnit) or UnitIsDeadOrGhost(petUnit) then return end
+  if not UnitCanAssist("player", petUnit) then return end
+  local guid = SafeString(UnitGUID(petUnit))
+  if not guid or seen[guid] then return end
+  seen[guid] = true
+  local pname = SafeString(UnitName(petUnit))
+  if not pname then return end
+  local slot = nEntries + 1
+  local e = entries[slot]
+  if not e then
+    local p = #entryPool
+    if p > 0 then e = entryPool[p]; entryPool[p] = nil else e = { missing = {} } end
+    entries[slot] = e
+  end
+  local n = X.PetMissing(petUnit, e.missing)
+  if n == 0 then return end
+  local inRange = InRange(e.missing[1], petUnit)
+  if not inRange and not db.showOutOfRange then return end
+  nEntries = slot
+  local _, oclass = UnitClass(ownerUnit)
+  e.unit, e.guid, e.name = petUnit, guid, pname
+  e.sortName = (SafeString(UnitName(ownerUnit)) or "") .. " " .. pname
+  e.fullName = nil
+  e.class = SafeString(oclass)
+  e.group, e.isSelf, e.pet = true, false, true
+  e.rangeBucket = (not inRange) and ((_G.UnitInRange and _G.UnitInRange(petUnit)) and 1 or 2) or 0
+  e.marker = nil
+  if _G.GetRaidTargetIndex then
+    local okM, mi = pcall(_G.GetRaidTargetIndex, petUnit)
+    if okM and type(mi) == "number" and mi > 0 then e.marker = mi end
+  end
+  e.remain1 = nil
+  e.expired, e.rezzed = nil, nil
+  e.outOfRange = not inRange
+  e.groupCast = false
+  e.role = 3
 end
 
 -- Last-scan diagnostics for /br debug: how many nameplate units the client
@@ -1475,6 +1667,8 @@ local function CollectEntries()
   wipe(X.tally)
   wipe(X.consTally)
   wipe(X.expiryTally)
+  wipe(X.drinkSet)
+  X.drinkHealers = 0
   X.tallyUnits = 0
   X.missPrev, X.missNow = X.missNow, {}
   wipe(X.missNow)
@@ -1484,6 +1678,15 @@ local function CollectEntries()
   X.TrackDeaths(list, "player")
   for i = 1, #list do Consider(list[i], true) end
   Consider("player", true)
+  -- Group pets (1.8.0): your pet and your group members' pets, as rows.
+  if db and db.pets then
+    X.ConsiderPet("pet", "player")
+    if InRaid() then
+      for i = 1, 40 do X.ConsiderPet("raidpet" .. i, RAID[i]) end
+    else
+      for i = 1, 4 do X.ConsiderPet("partypet" .. i, PARTY[i]) end
+    end
+  end
   Consider("target", false)
   Consider("mouseover", false)
   for i = 1, #PLATES do
@@ -1493,6 +1696,24 @@ local function CollectEntries()
       if UnitIsPlayer(u) then X.playersSeen = X.playersSeen + 1 end
     end
     Consider(u, false)
+  end
+  -- Name finder (1.8.0): with a search text set, the window lists only
+  -- matching names. Reports (announce, digests) turn it off together with
+  -- the role filter, so their counts stay honest.
+  if X.applyFilter and X.search and X.search ~= "" then
+    local keep, drop = Single.keep, Single.drop
+    wipe(keep); wipe(drop)
+    for i = 1, nEntries do
+      local e = entries[i]
+      if (e.sortName or ""):lower():find(X.search, 1, true) then
+        keep[#keep + 1] = e
+      else
+        drop[#drop + 1] = e
+      end
+    end
+    for i = 1, #keep do entries[i] = keep[i] end
+    for i = 1, #drop do entries[#keep + i] = drop[i] end
+    nEntries = #keep
   end
   -- Single-target buffs whose holder was found: only the holder's row may
   -- still offer it (when it's about to run out). Rows left with nothing to
@@ -1531,6 +1752,12 @@ local function CollectEntries()
     e.handled = (h and nowT - h.t < 5 and h.key == X.KeyOfName(e.missing[1])) or nil
     local ak = X.asked[e.guid]
     e.asked = (ak and nowT - ak < 120) or nil
+    e.drinking = X.drinkSet[e.guid] or nil
+    -- Repeat-offender history (1.8.0): remember who was seen unbuffed
+    -- this group session; the count lands when the group ends.
+    if e.group and not e.pet and e.sortName and e.sortName ~= "" then
+      X.offNow[e.sortName] = true
+    end
     e.queued = nil  -- set after the sort, on the new top row only
     e.weapon = nil  -- set below, on your own row only (pooled entries)
   end
@@ -1659,7 +1886,7 @@ function X.ReadyReport()
   X.applyFilter = keep
   local people, casts = 0, 0
   for i = 1, nEntries do
-    if entries[i].group then people = people + 1; casts = casts + #entries[i].missing end
+    if entries[i].group and not entries[i].pet then people = people + 1; casts = casts + #entries[i].missing end
   end
   if people == 0 then
     Print("Ready check: everyone in your group is buffed.")
@@ -1688,7 +1915,8 @@ X.EXPORT_KEYS = { "locked", "includeSelf", "avoidPvP", "autoHide", "rebuff", "sc
   "showOutOfRange", "sortMode", "alertSound", "muteInInstance", "showMinimap", "lowMana",
   "sync", "requests", "joinDigest", "roleFilter", "showStrip", "idleFade",
   "pill", "queueTag", "consumables", "buddySplit", "readyPost", "weaponWatch", "enterFlash",
-  "scanThrottle" }
+  "scanThrottle", "growUp", "hideInCombat", "theme", "findBox", "durationBars", "raidMarkers",
+  "rangeText", "focusWatch", "pets", "auraWatch", "worldWatch", "drinkWatch" }
 
 local function Esc(v) return (tostring(v):gsub("%%", "%%25"):gsub(";", "%%3B"):gsub("=", "%%3D")) end
 local function Unesc(v) return (v:gsub("%%3D", "="):gsub("%%3B", ";"):gsub("%%25", "%%")) end
@@ -1748,6 +1976,110 @@ function X.Import(text)
   SanitizeDB(db)  -- repairs anything out of range or mistyped in the string
   Ignore.Rebuild()
   return true, "Settings imported."
+end
+
+-- Buff plan strings (1.8.0): the group's plan — assignments, the
+-- blessing plan and the auto-profile map — as one copyable string, so a
+-- plan built on one character can be handed to another BuffRadar user.
+-- Personal settings are NOT part of it; use profiles for those.
+function X.PlanExport()
+  local parts = { "BRPLAN1" }
+  local keys = {}
+  for k in pairs(X.assign) do keys[#keys + 1] = k end
+  table_sort(keys)
+  for _, k in ipairs(keys) do
+    parts[#parts + 1] = "A;" .. Esc(k) .. ";" .. Esc(X.assign[k])
+  end
+  local classes = {}
+  for c in pairs(X.blessPlan) do classes[#classes + 1] = c end
+  table_sort(classes)
+  for _, c in ipairs(classes) do
+    local p = X.blessPlan[c]
+    parts[#parts + 1] = "B;" .. Esc(c) .. ";" .. Esc(p.key) .. ";" .. Esc(p.name)
+  end
+  local ctxs = {}
+  for c in pairs(db.autoProfile) do ctxs[#ctxs + 1] = c end
+  table_sort(ctxs)
+  for _, c in ipairs(ctxs) do
+    parts[#parts + 1] = "P;" .. Esc(c) .. ";" .. Esc(db.autoProfile[c])
+  end
+  return table.concat(parts, ";")
+end
+
+function X.PlanImport(text)
+  if type(text) ~= "string" then return false, "Nothing to import." end
+  local fields = {}
+  for part in (text .. ";"):gmatch("(.-);") do fields[#fields + 1] = part end
+  if fields[1] ~= "BRPLAN1" then
+    return false, "That doesn't look like a BuffRadar plan string."
+  end
+  local nA, nB, nP = 0, 0, 0
+  local i = 2
+  while i <= #fields do
+    local tag = fields[i]
+    if tag == "A" and fields[i + 2] then
+      X.assign[Unesc(fields[i + 1])] = Unesc(fields[i + 2])
+      nA = nA + 1
+      i = i + 3
+    elseif tag == "B" and fields[i + 3] then
+      local cls, bkey, holder = Unesc(fields[i + 1]), Unesc(fields[i + 2]),
+        Unesc(fields[i + 3])
+      if BLESSINGS[bkey] then
+        local me = Ignore.UnitNames("player")
+        X.blessPlan[cls] = { key = bkey, name = holder,
+          mine = me ~= nil and Ignore.Key(holder) == Ignore.Key(me) }
+        nB = nB + 1
+      end
+      i = i + 4
+    elseif tag == "P" and fields[i + 2] then
+      db.autoProfile[Unesc(fields[i + 1])] = Unesc(fields[i + 2])
+      nP = nP + 1
+      i = i + 3
+    else
+      i = i + 1
+    end
+  end
+  -- Share the plan onward, so the group converges on the same plan.
+  if nA > 0 and X.AmLead() then
+    for k, v in pairs(X.assign) do X.Broadcast("ASSIGN;" .. k .. ";" .. v) end
+  end
+  if nB > 0 then
+    local _, myClass = UnitClass("player")
+    if X.AmLead() or myClass == "PALADIN" then
+      for c, p in pairs(X.blessPlan) do
+        X.Broadcast("BLESS;" .. c .. ";" .. p.key .. ";" .. p.name)
+      end
+    end
+  end
+  -- (No repaint here: the import window's accept button repaints on OK.)
+  if RefreshConfig then RefreshConfig() end
+  return true, string_format("Plan imported: %d assignments, %d blessings, %d auto profiles.",
+    nA, nB, nP)
+end
+
+-- Share a single profile (1.8.0): one named profile (not all your
+-- settings) as a copyable text — a header line naming it, then its
+-- settings string. Importing stores it under that name, unapplied.
+function X.ProfileShareText(name)
+  local s = db.profiles[name]
+  if type(s) ~= "string" then return nil end
+  return "BuffRadar profile: " .. name .. "\n" .. s
+end
+
+function X.ProfileImport(text)
+  if type(text) ~= "string" then return false, "Nothing to import." end
+  local name, body = text:match("^BuffRadar profile: ([%w_%-]+)\n(.+)$")
+  if not name then
+    return false, "That doesn't look like a shared BuffRadar profile."
+  end
+  body = body:match("^%s*(.-)%s*$")
+  if body:sub(1, 3) ~= "BR1" then
+    return false, "The profile's settings string is damaged."
+  end
+  db.profiles[name] = body
+  if RefreshConfig then RefreshConfig() end
+  return true, "Profile imported: " .. name
+    .. " — /br profile load " .. name .. " applies it."
 end
 
 -- Named settings profiles (1.5.0): a profile is just a settings string
@@ -1812,7 +2144,7 @@ function X.Announce()
   local per, order = {}, {}
   for i = 1, nEntries do
     local e = entries[i]
-    if e.group then
+    if e.group and not e.pet then
       for _, spell in ipairs(e.missing) do
         if not per[spell] then per[spell] = {}; order[#order + 1] = spell end
         local nm = SafeString(e.name) or e.sortName
@@ -2182,6 +2514,19 @@ end
 -- imbue, a rogue poison, an oil or a sharpening stone)? (1.7.0)
 -- GetWeaponEnchantInfo is the game's own answer; a hand only counts
 -- when a weapon is actually equipped in it.
+-- Per-buff context (1.8.0): a buff can be limited to raids or to
+-- instances (dungeons, raids, battlegrounds) and is then simply not
+-- offered anywhere else. Set with /br context KEY raid|instance|always.
+-- On Forever, Shadow Protection ships with the instance limit as its
+-- default (the resistance-context rule) until the user changes it.
+function X.ContextOK(key)
+  local c = db and db.buffContext and db.buffContext[key]
+  if not c then return true end
+  if c == "raid" then return InRaid() end
+  if c == "instance" then return InInstanceNow() ~= nil end
+  return true
+end
+
 function X.WeaponEnchantMissing()
   local fn = _G.GetWeaponEnchantInfo
   if not fn then return false end
@@ -2211,7 +2556,7 @@ function X.InstanceCheck()
     X.applyFilter = keep
     local people, casts = 0, 0
     for i = 1, nEntries do
-      if entries[i].group then
+      if entries[i].group and not entries[i].pet then
         people = people + 1; casts = casts + #entries[i].missing
       end
     end
@@ -2234,7 +2579,7 @@ function X.JoinDigest(why)
   X.applyFilter = keep
   local people, casts = 0, 0
   for i = 1, nEntries do
-    if entries[i].group then people = people + 1; casts = casts + #entries[i].missing end
+    if entries[i].group and not entries[i].pet then people = people + 1; casts = casts + #entries[i].missing end
   end
   if people == 0 then return end
   Print(string.format("%s: %d %s missing buffs (%d casts).",
@@ -2267,6 +2612,20 @@ function X.OnRoster()
     wipe(X.peers)
     wipe(X.cover)
     X.upTotal, X.upFull = 0, 0  -- the run is over (1.6.0)
+    -- Repeat-offender history (1.8.0): the session that just ended
+    -- counts once for everyone who was seen unbuffed during it.
+    if db then
+      for name in pairs(X.offNow) do
+        db.offenders[name] = (db.offenders[name] or 0) + 1
+      end
+      local orows = {}
+      for nm, c in pairs(db.offenders) do orows[#orows + 1] = { nm = nm, c = c } end
+      if #orows > 50 then  -- keep the worst 50 only
+        table_sort(orows, function(a, b) return a.c > b.c end)
+        for i = 51, #orows do db.offenders[orows[i].nm] = nil end
+      end
+    end
+    wipe(X.offNow)
   end
   X.inGroupPrev = g
 end
@@ -2294,6 +2653,20 @@ end
 -- BuffRadarDB saved variable format, so positions saved by either
 -- edition's fixed version load unchanged in the other.)
 local function SavePosition()
+  if db.growUp then
+    -- Grow-up form: the bottom-left corner is the anchor (see X.ApplyAnchor).
+    local left, bottom = frame:GetLeft(), frame:GetBottom()
+    if left and bottom then
+      frame:ClearAllPoints()
+      frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+      db.point = { "BOTTOMLEFT", "BOTTOMLEFT", left, bottom }
+      if db.charPoint then
+        local k = X.CharKey()
+        if k then db.pointByChar[k] = db.point end
+      end
+      return
+    end
+  end
   local left, top = frame:GetLeft(), frame:GetTop()
   if left and top then
     -- Store the top-left corner in screen coordinates (origin bottom-left;
@@ -2355,6 +2728,11 @@ local function RestorePosition()
        and (x < 30 - frame:GetWidth() or x > sw - 50 or y < 50 or y > sh) then
       X.ClearSavedPoint()
     end
+  end
+  if db.growUp and db.point and db.point[1] == "BOTTOMLEFT" then
+    -- Grow-up form (1.8.0): restore the bottom anchor as saved.
+    frame:SetPoint("BOTTOMLEFT", UIParent, db.point[2], db.point[3], db.point[4])
+    return
   end
   if not db.point then
     -- Default spot, in top-left form: the pre-1.3.1 default anchored the
@@ -2495,6 +2873,21 @@ local function CreateRow(i)
   b.far:SetText(L["out of range"])
   b.far:Hide()
 
+  -- Duration bar (1.8.0): a thin bar along the row's bottom edge showing
+  -- how much of a 30-minute span the expiring buff has left.
+  b.bar = b:CreateTexture(nil, "ARTWORK")
+  b.bar:SetTexture("Interface\\Buttons\\WHITE8X8")
+  b.bar:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 2, 1)
+  b.bar:SetHeight(3)
+  b.bar:SetWidth(10)
+  b.bar:Hide()
+  -- Raid marker badge (1.8.0): the player's raid target icon, drawn over
+  -- the portrait's top-left corner.
+  b.marker = b:CreateTexture(nil, "OVERLAY")
+  b.marker:SetSize(12, 12)
+  b.marker:SetPoint("TOPLEFT", b, "TOPLEFT", 1, -1)
+  b.marker:Hide()
+
   -- Short status tag under the name ("recently rezzed"); shares the slot
   -- with the out-of-range label, which wins when both would apply.
   b.tag = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -2557,6 +2950,50 @@ end
 
 local grip  -- width resize grip, bottom-right corner (built in BuildUI)
 
+-- Color themes (1.8.0): a theme is a background color + border color pair.
+-- Picking one sets both; picking a custom background color afterwards
+-- switches the theme back to "custom" (border returns to the default).
+X.THEMES = {
+  midnight  = { label = "Midnight",  bg = { 0.04, 0.05, 0.09 }, border = { 0.35, 0.55, 0.8 } },
+  crimson   = { label = "Crimson",   bg = { 0.08, 0.02, 0.02 }, border = { 0.75, 0.2, 0.2 } },
+  forest    = { label = "Forest",    bg = { 0.02, 0.07, 0.03 }, border = { 0.3, 0.7, 0.35 } },
+  parchment = { label = "Parchment", bg = { 0.13, 0.11, 0.07 }, border = { 0.8, 0.7, 0.45 } },
+}
+X.THEME_ORDER = { "midnight", "crimson", "forest", "parchment" }
+
+function X.ThemeBorder()
+  local t = db and X.THEMES[db.theme]
+  if t then return t.border end
+  return { 0.35, 0.55, 0.8 }
+end
+
+-- Grow-up (1.8.0): normally the window hangs from its top-left corner and
+-- the list grows downward. With grow-up on, the window stands on its
+-- bottom-left corner instead, so the list grows upward and the bottom
+-- edge never moves. The saved point records which form it holds.
+function X.ApplyAnchor()
+  if not frame then return end
+  local left = frame:GetLeft()
+  if not left then return end
+  if db.growUp then
+    local bottom = frame:GetBottom()
+    if not bottom then return end
+    frame:ClearAllPoints()
+    frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+    db.point = { "BOTTOMLEFT", "BOTTOMLEFT", left, bottom }
+  else
+    local top = frame:GetTop()
+    if not top then return end
+    frame:ClearAllPoints()
+    frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+    db.point = { "TOPLEFT", "BOTTOMLEFT", left, top }
+  end
+  if db.charPoint then
+    local k = X.CharKey()
+    if k then db.pointByChar[k] = db.point end
+  end
+end
+
 -- Width and scale. The window holds secure row buttons, so its size can't
 -- change in combat; callers retry after combat (PLAYER_REGEN_ENABLED).
 local function ApplyGeometry()
@@ -2568,13 +3005,14 @@ end
 local function ApplyAppearance()
   if not frame then return end
   local c = db.bgColor or DEFAULTS.bgColor
+  local bc = X.ThemeBorder()
   if frame.SetBackdropColor then
     frame:SetBackdropColor(c[1], c[2], c[3], db.bgAlpha or 0.92)
-    frame:SetBackdropBorderColor(0.35, 0.55, 0.8, db.showBorder and 1 or 0)
+    frame:SetBackdropBorderColor(bc[1], bc[2], bc[3], db.showBorder and 1 or 0)
   end
   if X.pill and X.pill.SetBackdropColor then
     X.pill:SetBackdropColor(c[1], c[2], c[3], db.bgAlpha or 0.92)
-    X.pill:SetBackdropBorderColor(0.35, 0.55, 0.8, db.showBorder and 1 or 0)
+    X.pill:SetBackdropBorderColor(bc[1], bc[2], bc[3], db.showBorder and 1 or 0)
   end
   if grip then grip:SetShown(not db.locked) end
   title:SetShown(db.showTitle and true or false)
@@ -2584,6 +3022,18 @@ local function ApplyAppearance()
   else
     combatText:SetPoint("TOPLEFT", frame, "TOPLEFT", 9, -8)
   end
+end
+
+-- Apply a color theme (1.8.0). Defined here because it needs
+-- ApplyAppearance, which only exists from this point on.
+function X.ApplyTheme(name)
+  local t = X.THEMES[name]
+  if not t then return false end
+  db.theme = name
+  db.bgColor = { t.bg[1], t.bg[2], t.bg[3] }
+  ApplyAppearance()
+  if RefreshConfig then RefreshConfig() end
+  return true
 end
 
 -- One border pulse; restores the normal border shortly after. Assigned
@@ -2640,7 +3090,65 @@ function X.HistoryText()
   return table.concat(lines, "\n")
 end
 
-function X.ShowExport(text, forImport, titleText)
+-- Stats export (1.8.0): the cast statistics as copyable text.
+function X.StatsText()
+  local lines = { "BuffRadar cast statistics" }
+  lines[#lines + 1] = string_format("Casts: %d this session, %d all-time",
+    X.sessionCasts, db.castsTotal or 0)
+  if X.upTotal > 0 then
+    lines[#lines + 1] = string_format("Coverage uptime this run: %d%% (%d of %d scans fully buffed)",
+      math_floor(100 * X.upFull / X.upTotal + 0.5), X.upFull, X.upTotal)
+  end
+  local srows = {}
+  for k, n in pairs(db.stats or {}) do srows[#srows + 1] = { k = k, n = n } end
+  table.sort(srows, function(a, b) return a.n > b.n end)
+  if #srows > 0 then
+    lines[#lines + 1] = "By spell:"
+    for i = 1, math_min(10, #srows) do
+      lines[#lines + 1] = string_format("  %s: %d", srows[i].k, srows[i].n)
+    end
+  end
+  return table.concat(lines, "\n")
+end
+
+-- Discord summary (1.8.0): the group's buff state as a small markdown
+-- block, ready to paste into a Discord message.
+function X.DiscordText()
+  local keep = X.applyFilter
+  X.applyFilter = false
+  CollectEntries()
+  X.applyFilter = keep
+  local lines = { "**BuffRadar — group buff check**" }
+  if X.tallyUnits > 1 then
+    local listed = 0
+    for i = 1, nEntries do
+      if entries[i].group and not entries[i].pet then listed = listed + 1 end
+    end
+    lines[#lines + 1] = string_format("%d/%d fully buffed",
+      X.tallyUnits - listed, X.tallyUnits)
+  end
+  local people = {}
+  for i = 1, nEntries do
+    local e = entries[i]
+    if e.group then
+      people[#people + 1] = (SafeString(e.name) or e.sortName or "?")
+        .. " — " .. table.concat(e.missing, ", ")
+    end
+  end
+  if #people == 0 then
+    lines[#lines + 1] = "Everyone is buffed."
+  else
+    lines[#lines + 1] = "Still needs buffs:"
+    for _, p in ipairs(people) do lines[#lines + 1] = "- " .. p end
+  end
+  if X.upTotal >= 10 then
+    lines[#lines + 1] = string_format("Coverage uptime this run: %d%%",
+      math_floor(100 * X.upFull / X.upTotal + 0.5))
+  end
+  return table.concat(lines, "\n")
+end
+
+function X.ShowExport(text, forImport, titleText, mode)
   if InCombatLockdown() then Print("Can't open that during combat."); return end
   local f = X.exportFrame
   if not f then
@@ -2684,7 +3192,14 @@ function X.ShowExport(text, forImport, titleText)
     acc:SetPoint("BOTTOMRIGHT", -12, 8)
     acc:SetText("Import")
     acc:SetScript("OnClick", function()
-      local ok, msg = X.Import(f.editBox:GetText())
+      local ok, msg
+      if f.importMode == "plan" then
+        ok, msg = X.PlanImport(f.editBox:GetText())
+      elseif f.importMode == "profile" then
+        ok, msg = X.ProfileImport(f.editBox:GetText())
+      else
+        ok, msg = X.Import(f.editBox:GetText())
+      end
       Print(msg)
       if ok then
         f:Hide()
@@ -2700,6 +3215,7 @@ function X.ShowExport(text, forImport, titleText)
   end
   f.title:SetText(titleText or (forImport and "BuffRadar -- paste a settings string, then Import"
                              or "BuffRadar -- your settings string (select all, copy)"))
+  f.importMode = mode or "settings"  -- what the Import button applies (1.8.0)
   f.editBox:SetText(text or "")
   f.accept:SetShown(forImport and true or false)
   f:Show()
@@ -2720,7 +3236,13 @@ function X.ApplyRowLayout()
   if not frame or InCombatLockdown() then return end
   local h = db.compact and 16 or ROW_H
   X.rowH = h
-  local top = HEADER_H + X.BarHeight()
+  if X.findBar then
+    X.findBar:SetShown(db.findBox and true or false)
+    X.findBar:ClearAllPoints()
+    X.findBar:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -HEADER_H - X.BarHeight())
+    X.findBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -HEADER_H - X.BarHeight())
+  end
+  local top = HEADER_H + X.BarHeight() + (db.findBox and 16 or 0)
   X.topH = top
   if X.bar then X.bar:SetShown(X.BarHeight() > 0) end
   for i = 1, #rows do
@@ -3098,6 +3620,41 @@ local function BuildUI()
   end)
   grip:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
+  -- Name finder (1.8.0): a slim bar under the toggle strip holding one
+  -- edit box; while it has text, the list shows only matching names.
+  -- ApplyRowLayout positions and shows/hides it.
+  local findBar = CreateFrame("Frame", nil, frame)
+  findBar:SetHeight(16)
+  local findLabel = findBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  findLabel:SetPoint("LEFT", 2, 0)
+  findLabel:SetText("Find:")
+  local findEdit = CreateFrame("EditBox", nil, findBar, "InputBoxTemplate")
+  findEdit:SetSize(130, 16)
+  findEdit:SetPoint("LEFT", findLabel, "RIGHT", 6, 0)
+  findEdit:SetAutoFocus(false)
+  findEdit:SetMaxLetters(24)
+  findEdit:SetScript("OnTextChanged", function(self)
+    X.search = (self:GetText() or ""):lower()
+    if QueueRefresh then QueueRefresh() end
+  end)
+  findEdit:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+  findEdit:SetScript("OnEscapePressed", function(self)
+    self:SetText("")
+    self:ClearFocus()
+  end)
+  findBar:Hide()
+  X.findBar, X.findEdit = findBar, findEdit
+
+  -- Focus watch line (1.8.0): one line about your focus target's buffs,
+  -- directly above the coverage line. Refresh fills and shows it.
+  local focusText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  focusText:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 9, FOOTER_H + 17)
+  focusText:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -16, FOOTER_H + 17)
+  focusText:SetJustifyH("LEFT")
+  if focusText.SetWordWrap then focusText:SetWordWrap(false) end
+  focusText:Hide()
+  X.focusText = focusText
+
   for i = 1, MAX_ROWS do CreateRow(i) end
 
   local okNext, errNext = pcall(BuildNextButton)
@@ -3240,6 +3797,7 @@ local function InvalidateRows()
   for i = 1, #rows do
     local row = rows[i]
     row.cGuid, row.cUnit, row.bGuid, row.cFar, row.cTag = nil, nil, nil, nil, nil
+    row.cBar, row.cMarker, row.cFarTxt = nil, nil, nil
     wipe(row.cMissing)
   end
   if nextBtn then nextBtn.bGuid, nextBtn.isClear = nil, false end
@@ -3281,7 +3839,9 @@ local function RenderRow(row, e)
     elseif e.buddy then tag = L["buddy's watch"]
     elseif e.pinned then tag = L["pinned"]
     elseif e.weapon then tag = L["weapon enchant missing"]
-    elseif e.asked then tag = L["asked for a buff"] end
+    elseif e.drinking then tag = L["drinking"]
+    elseif e.asked then tag = L["asked for a buff"]
+    elseif e.pet then tag = L["pet"] end
   end
   if not tag and e.remain1 then
     tag = e.remain1 >= 90 and string_format(L["~%dm left"], math_floor(e.remain1 / 60))
@@ -3304,6 +3864,47 @@ local function RenderRow(row, e)
       end
     end
   end
+  -- Range band in words (1.8.0): a greyed row in group range reads
+  -- "near" instead of "out of range" when the setting is on.
+  local farTxt = far and (db.rangeText and e.rangeBucket == 1 and L["near"] or L["out of range"]) or nil
+  if row.cFarTxt ~= farTxt then
+    row.cFarTxt = farTxt
+    if farTxt then row.far:SetText(farTxt) end
+  end
+  -- Duration bar (1.8.0): the expiring buff's remaining time as a share
+  -- of 30 minutes; the color band shifts green -> yellow -> red.
+  local barKey
+  if db.durationBars and e.remain1 and e.remain1 < math_huge then
+    local frac = math_min(1, e.remain1 / 1800)
+    local band = e.remain1 < 300 and 1 or (e.remain1 < 900 and 2 or 3)
+    barKey = math_floor(frac * 40) .. ":" .. band
+    if row.cBar ~= barKey then
+      row.cBar = barKey
+      row.bar:SetWidth(math_max(2, (row:GetWidth() - 4) * frac))
+      if band == 1 then row.bar:SetVertexColor(1, 0.3, 0.3)
+      elseif band == 2 then row.bar:SetVertexColor(1, 0.85, 0.4)
+      else row.bar:SetVertexColor(0.4, 0.9, 0.4) end
+      row.bar:Show()
+    end
+  end
+  if not barKey then
+    -- Unconditional: InvalidateRows clears the cache without touching
+    -- the texture, so the hide can't ride on the cache alone.
+    row.cBar = nil
+    row.bar:Hide()
+  end
+  -- Raid marker badge (1.8.0).
+  local mk = (db.raidMarkers and e.marker) or nil
+  if row.cMarker ~= mk then
+    row.cMarker = mk
+    if mk then
+      row.marker:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_" .. mk)
+      row.marker:Show()
+    else
+      row.marker:Hide()
+    end
+  end
+  if not mk then row.marker:Hide() end
   local cm, changed = row.cMissing, false
   for j = 1, MAX_ICONS do
     if cm[j] ~= m[j] then changed = true; break end
@@ -3342,6 +3943,7 @@ end
 -- Shared look for the "nothing to list" states (no buffs known / paused in a city).
 local function ShowStatus(text)
   if X.pill then SetShownIfChanged(X.pill, false) end
+  if X.focusText then SetShownIfChanged(X.focusText, false) end
   SetShownIfChanged(coverText, false)
   SetTextIfChanged(countText, "")
   SetShownIfChanged(overflowText, false)
@@ -3561,7 +4163,7 @@ local function Refresh()
   local coverShown = false
   if X.tallyUnits > 1 then
     local listedGroup = 0
-    for i = 1, n do if entries[i].group then listedGroup = listedGroup + 1 end end
+    for i = 1, n do if entries[i].group and not entries[i].pet then listedGroup = listedGroup + 1 end end
     local parts = { string_format("%d/%d fully buffed", X.tallyUnits - listedGroup, X.tallyUnits) }
     for _, b in ipairs(myBuffs) do
       local t = not b.self and X.tally[b.key] or nil
@@ -3672,14 +4274,47 @@ local function Refresh()
         parts[#parts + 1] = "your weapon has no enchant"
       end
     end
+    -- World-buff watch (1.8.0): your active world buffs, with time left.
+    if db.worldWatch then
+      local wb = X.WorldBuffsText()
+      if wb then parts[#parts + 1] = wb end
+    end
+    -- Healer drinking (1.8.0): healers sitting down to drink between
+    -- pulls — the group waits for them, not the other way round.
+    if db.drinkWatch and (X.drinkHealers or 0) > 0 then
+      parts[#parts + 1] = X.drinkHealers == 1 and "Healer drinking"
+        or string_format("%d healers drinking", X.drinkHealers)
+    end
     SetTextIfChanged(coverText, table.concat(parts, "  ·  "))
     X.coverFrac = string_format("%d/%d", X.tallyUnits - listedGroup, X.tallyUnits)
     coverShown = true
   end
   SetShownIfChanged(coverText, coverShown)
 
+  -- Focus watch (1.8.0): what your focus target still needs, on its own
+  -- line above the coverage line. Missing() runs with isGroup=false, so
+  -- the focus never touches the coverage tallies.
+  local focusShown = false
+  if db.focusWatch and X.focusText and UnitExists("focus") and Valid("focus") then
+    local fname = SafeString(UnitName("focus"))
+    if fname then
+      local fn = Missing("focus", X.focusMiss, false)
+      if fn > 0 then
+        local fparts = {}
+        for i = 1, math_min(fn, 3) do fparts[#fparts + 1] = X.focusMiss[i] end
+        SetTextIfChanged(X.focusText, "Focus " .. fname .. ": needs "
+          .. table.concat(fparts, ", ") .. (fn > 3 and (" +" .. (fn - 3)) or ""))
+      else
+        SetTextIfChanged(X.focusText, "Focus " .. fname .. ": buffed")
+      end
+      focusShown = true
+    end
+  end
+  if X.focusText then SetShownIfChanged(X.focusText, focusShown) end
+
   local h = (X.topH or HEADER_H) + (shown > 0 and shown * (X.rowH or ROW_H) or 18) + 8
   if coverShown then h = h + 13 end
+  if focusShown then h = h + 13 end
   if n > MAX_ROWS then h = h + 14 end
   h = h + FOOTER_H  -- bottom row: settings gear + cast counter
   UpdateCounter()
@@ -3854,6 +4489,7 @@ for _, ev in ipairs({
   "READY_CHECK", "PLAYER_TALENT_UPDATE", "ACTIVE_TALENT_GROUP_CHANGED",
   "CHAT_MSG_ADDON", "CHAT_MSG_WHISPER", "CHAT_MSG_SAY", "CHALLENGE_MODE_START",
   "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST", "PLAYER_FLAGS_CHANGED",
+  "PLAYER_FOCUS_CHANGED",
 }) do
   pcall(driver.RegisterEvent, driver, ev)
 end
@@ -4001,6 +4637,15 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if (db.dbVersion or 0) < 9 then
       db.dbVersion = 9        -- 1.7.0: readyPost / pinned / weaponWatch / enterFlash / scanThrottle / history added; nothing to migrate
     end
+    if (db.dbVersion or 0) < 10 then
+      db.dbVersion = 10       -- 1.8.0: new watch/search settings take their defaults
+      -- Resistance context (#32): on Forever, shadow protection is a
+      -- pre-pull buff for instances by default, not an always-on need.
+      -- The player can change it any time with /br context SHADOW_PROT.
+      if CLASSIC_FEATURES and db.buffContext.SHADOW_PROT == nil then
+        db.buffContext.SHADOW_PROT = "instance"
+      end
+    end
     X.SpecSwap()
   elseif event == "PLAYER_LOGIN" then
     driver:UnregisterEvent("PLAYER_LOGIN")  -- one-off
@@ -4043,8 +4688,17 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     -- Fallback when the secure combat driver isn't available: this event still runs
     -- just before combat lockdown starts, so the key can be disarmed here.
     if not nextCombatDriver then ClearNext() end
+    -- Hide in combat (1.8.0): the window steps aside for the fight; the
+    -- post-combat refresh below decides whether it comes back.
+    if db and db.hideInCombat and frame
+       and (frame:IsShown() or (X.pill and X.pill:IsShown())) then
+      X.combatHid = true
+      frame:Hide()
+      if X.pill then X.pill:Hide() end
+    end
   elseif event == "PLAYER_REGEN_ENABLED" then
     X.afterCombat = true  -- Refresh() pulses the border if work is waiting
+    X.combatHid = nil
     if combatText then combatText:Hide() end
     BuildUI()
     ApplyGeometry()  -- a scale/width change made during combat lands now
@@ -4185,7 +4839,24 @@ local function MakeCheck(parent, label, getter, setter)
   cb:FitLabel()
   cb:SetScript("OnClick", function(self) setter(self:GetChecked() and true or false) end)
   cb.Update = function(self) self:SetChecked(getter() and true or false) end
+  if label and label ~= "" then  -- settings search registry (1.8.0)
+    X.cfgReg[#X.cfgReg + 1] = { w = cb,
+      keys = (label:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")):lower() }
+  end
   return cb
+end
+
+-- Settings search (1.8.0): dim every registered control that doesn't
+-- match the query; returns how many match. Empty query restores all.
+function X.CfgFilter(q)
+  q = (q or ""):lower()
+  local hits = 0
+  for _, r in ipairs(X.cfgReg) do
+    local on = q == "" or r.keys:find(q, 1, true) ~= nil
+    if on then hits = hits + 1 end
+    if r.w.SetAlpha then r.w:SetAlpha(on and 1 or 0.25) end
+  end
+  return hits
 end
 
 -- Hover help for a settings control: a white title line plus wrapped detail.
@@ -4233,6 +4904,9 @@ local function MakeButton(parent, text, width, onClick)
   b:SetSize(width, 22)
   b:SetText(text)
   b:SetScript("OnClick", onClick)
+  if text and text ~= "" then  -- settings search registry (1.8.0)
+    X.cfgReg[#X.cfgReg + 1] = { w = b, keys = text:lower() }
+  end
   return b
 end
 
@@ -4268,6 +4942,7 @@ local function OpenColorPicker()
   local function apply()
     local r, g, b = ColorPickerFrame:GetColorRGB()
     db.bgColor = { r, g, b }
+    db.theme = "custom"  -- a hand-picked color leaves the theme presets (1.8.0)
     ApplyAppearance()
     RefreshConfig()
   end
@@ -4548,6 +5223,48 @@ local function BuildConfig()
     function() return db.pill end,
     function(v) db.pill = v; Refresh() end)
   cfg.pillCheck:SetPoint("TOPLEFT", 10, -344)
+
+  cfg.growCheck = MakeCheck(look, L["Grow the list upward"],
+    function() return db.growUp end,
+    function(v) db.growUp = v; X.ApplyAnchor(); Refresh() end)
+  cfg.growCheck:SetPoint("TOPLEFT", 250, -268)
+
+  cfg.combatCheck = MakeCheck(look, L["Hide the window in combat"],
+    function() return db.hideInCombat end,
+    function(v) db.hideInCombat = v end)
+  cfg.combatCheck:SetPoint("TOPLEFT", 250, -294)
+
+  cfg.themeBtn = MakeButton(look, "Theme: Midnight", 170, function()
+    local cur = 1
+    for i, k in ipairs(X.THEME_ORDER) do if db.theme == k then cur = i end end
+    X.ApplyTheme(X.THEME_ORDER[cur % #X.THEME_ORDER + 1])
+  end)
+  cfg.themeBtn:SetPoint("TOPLEFT", 250, -330)
+
+  cfg.findCheck = MakeCheck(look, L["Show a name finder on the window"],
+    function() return db.findBox end,
+    function(v) db.findBox = v; X.ApplyRowLayout(); Refresh() end)
+  cfg.findCheck:SetPoint("TOPLEFT", 250, -356)
+
+  cfg.barsCheck = MakeCheck(look, "Duration bars on rows",
+    function() return db.durationBars end,
+    function(v) db.durationBars = v; InvalidateRows(); Refresh() end)
+  cfg.barsCheck:SetPoint("TOPLEFT", 10, -374)
+
+  cfg.markersCheck = MakeCheck(look, "Raid markers on rows",
+    function() return db.raidMarkers end,
+    function(v) db.raidMarkers = v; InvalidateRows(); Refresh() end)
+  cfg.markersCheck:SetPoint("TOPLEFT", 250, -382)
+
+  cfg.rangeCheck = MakeCheck(look, "Range words on greyed rows",
+    function() return db.rangeText end,
+    function(v) db.rangeText = v; InvalidateRows(); Refresh() end)
+  cfg.rangeCheck:SetPoint("TOPLEFT", 10, -400)
+
+  cfg.focusCheck = MakeCheck(look, "Focus target watch line",
+    function() return db.focusWatch end,
+    function(v) db.focusWatch = v; Refresh() end)
+  cfg.focusCheck:SetPoint("TOPLEFT", 250, -408)
 
   cfg.minimapCheck = MakeCheck(look, L["Minimap button (drag it around the minimap)"],
     function() return db.showMinimap end,
@@ -4838,6 +5555,35 @@ local function BuildConfig()
     function(v) db.scanThrottle = v end)
   cfg.throttleCheck:SetPoint("TOPLEFT", 10, -215)
 
+  section(beh, "More watches", 10, -248)
+
+  cfg.petsCheck = MakeCheck(beh, L["Watch group pets"],
+    function() return db.pets end,
+    function(v) db.pets = v; Refresh() end)
+  cfg.petsCheck:SetPoint("TOPLEFT", 10, -272)
+
+  cfg.auraCheck = MakeCheck(beh, L["Watch my aura or aspect"],
+    function() return db.auraWatch end,
+    function(v) db.auraWatch = v; pcall(BuildBuffList); Refresh() end)
+  cfg.auraCheck:SetPoint("TOPLEFT", 10, -298)
+
+  cfg.worldCheck = MakeCheck(beh, L["Watch my world buffs"],
+    function() return db.worldWatch end,
+    function(v) db.worldWatch = v; Refresh() end)
+  cfg.worldCheck:SetPoint("TOPLEFT", 10, -324)
+
+  cfg.drinkCheck = MakeCheck(beh, L["Mark healers who are drinking"],
+    function() return db.drinkWatch end,
+    function(v) db.drinkWatch = v; Refresh() end)
+  cfg.drinkCheck:SetPoint("TOPLEFT", 10, -350)
+
+  if not CLASSIC_FEATURES then
+    -- Aura, world-buff and drinking watches are Forever-only concepts.
+    cfg.auraCheck:Hide()
+    cfg.worldCheck:Hide()
+    cfg.drinkCheck:Hide()
+  end
+
   local behHint = beh:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   behHint:SetPoint("TOPLEFT", 14, -140)
   behHint:SetWidth(270)
@@ -4953,6 +5699,17 @@ local function BuildConfig()
     RefreshConfig()
   end)
   profDel:SetPoint("LEFT", profLoad, "RIGHT", 6, 0)
+  local profShare = MakeButton(data, "Share", 62, function()
+    local name = profName()
+    local text = X.ProfileShareText(name)
+    if text then
+      X.ShowExport(text, false, "BuffRadar profile: " .. name)
+    else
+      Print("No profile named '" .. name .. "'.")
+    end
+  end)
+  profShare:SetPoint("LEFT", profDel, "RIGHT", 6, 0)
+  Tip(profShare, "Share this profile", "Shows the named profile as one copyable text you can send to another player; they bring it in with /br profile import. Only that one profile is shared, not your other settings.")
   cfg.profileText = data:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   cfg.profileText:SetPoint("TOPLEFT", 14, -402)
   cfg.profileText:SetWidth(540)
@@ -4990,6 +5747,14 @@ local function BuildConfig()
   Tip(cfg.scaleDrop, "Window scale", "Makes everything in the list window bigger or smaller. Can't be changed during combat. /br scale accepts any value from 0.5 to 2.")
   Tip(resetLook, "Reset look", "Restores the default color, opacity, title, border, scale and width. Your position and other settings are kept.")
   Tip(cfg.minimapCheck, "Minimap button", "Left-click it to show or hide the window, right-click for settings, drag it around the minimap. The addon compartment (minimap menu) works either way.")
+  Tip(cfg.growCheck, "Grow the list upward", "The window stands on its bottom edge and the list grows upward instead of down — handy when the window sits low on the screen. The saved position remembers the form. Same as /br growup.")
+  Tip(cfg.combatCheck, "Hide the window in combat", "The window (and the pill) hide when combat starts and come back when it ends. Same as /br combat.")
+  Tip(cfg.themeBtn, "Color theme", "Click to cycle the window's color themes: Midnight, Crimson, Forest, Parchment. Picking a custom background color afterwards switches back to a custom theme. Same as /br theme <name>.")
+  Tip(cfg.findCheck, "Name finder", "A small Find box on the window: while it holds text, only players whose name matches are listed. Same as /br findbox; /br find <text> sets the text without the box.")
+  Tip(cfg.barsCheck, "Duration bars", "A thin bar along each row's bottom edge: how much of a 30-minute span the expiring buff has left. Green over 15 minutes, yellow under it, red under 5. Same as /br bars.")
+  Tip(cfg.markersCheck, "Raid markers", "Show each player's raid target icon (star, circle, ...) on their row, over the portrait. Same as /br markers.")
+  Tip(cfg.rangeCheck, "Range words", "On greyed out-of-range rows, a player who is still in group range reads 'near' instead of 'out of range', so you can tell who is almost reachable. Same as /br range.")
+  Tip(cfg.focusCheck, "Focus watch", "A line above the coverage line about your focus target: what they still need, or that they're buffed. Same as /br focus.")
   Tip(cfg.cfgScaleDrop, "Settings window scale", "Makes this settings window bigger or smaller.")
   -- Alerts
   Tip(cfg.soundCheck, "New name alert", "Play a sound when a player appears on the list. Mute it any time with your Mute / unmute key or /br sound.")
@@ -5017,11 +5782,41 @@ local function BuildConfig()
   Tip(cfg.weaponCheck, "Weapon enchant watch", "Your own row gets a 'weapon enchant missing' tag when an equipped weapon has no temporary enchant — a shaman imbue, a rogue poison, an oil or a sharpening stone. When your row isn't on the list, the coverage line says it instead.")
   Tip(cfg.enterCheck, "Instance-entry reminder", "One chat line when you step into a dungeon, raid or battleground while buffs are still missing: how many people still need buffs, and how many casts that is.")
   Tip(cfg.throttleCheck, "Scan throttle", "In groups of more than 20 players, the steady background rescan runs half as often. Refreshes caused by events — a buff landing, someone joining — always happen immediately. For very large raids on slower machines.")
+  Tip(cfg.petsCheck, "Group pets", "Pets in your group get their own rows when they miss Fortitude, Mark of the Wild or Arcane Intellect — click the row to buff the pet. Pets never count in the coverage numbers. Same as /br pets.")
+  Tip(cfg.auraCheck, "Aura / aspect watch", "Forever only: your own row flags it when no hunter aspect or paladin aura is up. Same as /br aura.")
+  Tip(cfg.worldCheck, "World-buff watch", "Forever only: the coverage line lists your active world buffs (Dragonslayer, Warchief's Blessing, Songflower, ...) with the time left. Same as /br worldbuff.")
+  Tip(cfg.drinkCheck, "Drinking healers", "Forever only: a player who is drinking gets a 'drinking' tag on their row, and healers who are drinking are counted on the coverage line. Same as /br drink.")
   -- Ignore & Stats
   Tip(clearIgnores, "Clear ignore list", "Stops ignoring everyone on the list.")
   Tip(resetStats, "Reset stats", "Clears the casts-by-spell statistics. The cast counter is kept.")
 
-  cfg:SetScript("OnShow", function() RefreshConfig() end)
+  -- Settings search (1.8.0): a find box along the window's bottom edge;
+  -- typing dims every control that doesn't match (see X.CfgFilter).
+  local searchBox = CreateFrame("EditBox", nil, cfg, "InputBoxTemplate")
+  searchBox:SetSize(180, 20)
+  searchBox:SetPoint("BOTTOMLEFT", cfg, "BOTTOMLEFT", 16, 10)
+  searchBox:SetAutoFocus(false)
+  searchBox:SetMaxLetters(30)
+  local searchHint = cfg:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  searchHint:SetPoint("LEFT", searchBox, "RIGHT", 8, 0)
+  searchHint:SetText("Find a setting")
+  searchBox:SetScript("OnTextChanged", function(self)
+    local t = self:GetText() or ""
+    local n = X.CfgFilter(t)
+    searchHint:SetText(t == "" and "Find a setting" or (n .. " matching"))
+  end)
+  searchBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+  cfg.searchBox = searchBox
+  X.cfgReg[#X.cfgReg + 1] = { w = cfg.slider, keys = "background opacity" }
+  X.cfgReg[#X.cfgReg + 1] = { w = cfg.fadeSlider, keys = "idle fade" }
+  X.cfgReg[#X.cfgReg + 1] = { w = cfg.gcSlider, keys = "group buff threshold" }
+  X.cfgReg[#X.cfgReg + 1] = { w = cfg.scaleDrop, keys = "window scale" }
+  X.cfgReg[#X.cfgReg + 1] = { w = cfg.cfgScaleDrop, keys = "settings window scale" }
+
+  cfg:SetScript("OnShow", function()
+    if cfg.searchBox then cfg.searchBox:SetText("") end  -- fresh search each open
+    RefreshConfig()
+  end)
   SelectTab("look")
   cfg:Hide()
 end
@@ -5072,6 +5867,21 @@ RefreshConfig = function()
   if cfg.weaponCheck then cfg.weaponCheck:Update() end
   if cfg.enterCheck then cfg.enterCheck:Update() end
   if cfg.throttleCheck then cfg.throttleCheck:Update() end
+  if cfg.growCheck then cfg.growCheck:Update() end
+  if cfg.combatCheck then cfg.combatCheck:Update() end
+  if cfg.themeBtn then
+    local th = X.THEMES[db.theme]
+    cfg.themeBtn:SetText("Theme: " .. (th and th.label or "Custom"))
+  end
+  if cfg.petsCheck then cfg.petsCheck:Update() end
+  if cfg.auraCheck then cfg.auraCheck:Update() end
+  if cfg.worldCheck then cfg.worldCheck:Update() end
+  if cfg.drinkCheck then cfg.drinkCheck:Update() end
+  if cfg.findCheck then cfg.findCheck:Update() end
+  if cfg.barsCheck then cfg.barsCheck:Update() end
+  if cfg.markersCheck then cfg.markersCheck:Update() end
+  if cfg.rangeCheck then cfg.rangeCheck:Update() end
+  if cfg.focusCheck then cfg.focusCheck:Update() end
 
   -- Ignore list: one removable cell per name, the overflow counted in the summary
   local names = Ignore.Sorted()
@@ -5200,11 +6010,15 @@ local function ListBuffs()
   local any = false
   for _, b in ipairs(myBuffs) do
     any = true
-    Print(string.format("  %s  -  %s (%s)  [%s]", b.key, b.name, b.who or "", OnOff(IsOn(b.key, b.default))))
+    local ctx = db.buffContext[b.key]
+    Print(string.format("  %s  -  %s (%s)  [%s]%s", b.key, b.name, b.who or "",
+      OnOff(IsOn(b.key, b.default)), ctx and ("  [" .. ctx .. " only]") or ""))
   end
   if next(myBlessing) then
     any = true
-    Print(string.format("  BLESSINGS  -  paladin blessings by class  [%s]", OnOff(IsOn("BLESSINGS", true))))
+    local ctx = db.buffContext.BLESSINGS
+    Print(string.format("  BLESSINGS  -  paladin blessings by class  [%s]%s",
+      OnOff(IsOn("BLESSINGS", true)), ctx and ("  [" .. ctx .. " only]") or ""))
   end
   if not any then Print("  (none known)") end
 end
@@ -5249,7 +6063,7 @@ function X.SelfTest()
   local ver, build, _, iface = GetBuildInfo()
   Print("BuffRadar self-test -- paste this whole block into a bug report:")
   Print(string.format("  version %s · %s edition · interface %s · client %s build %s",
-    "1.7.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
+    "1.8.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
   Print(string.format("  settings dbVersion %s · sort %s · cast mode %s · scale %s",
     tostring(db.dbVersion), tostring(db.sortMode), tostring(db.castMethod), tostring(db.scale)))
   Print(string.format("  sync %s · requests %s · role filter %s · profiles %d · idle fade %s",
@@ -5272,6 +6086,12 @@ function X.SelfTest()
     OnOff(db.readyPost), (db.pinned ~= "" and db.pinned) or "none",
     OnOff(db.weaponWatch), OnOff(db.enterFlash), OnOff(db.scanThrottle),
     ccount, #(db.history or {})))
+  local ocount = 0
+  for _ in pairs(db.offenders) do ocount = ocount + 1 end
+  Print(string.format("  grow up %s · combat hide %s · theme %s · find %s · bars %s · markers %s · focus %s · pets %s · aura %s · world %s · drink %s · offenders %d",
+    OnOff(db.growUp), OnOff(db.hideInCombat), tostring(db.theme), OnOff(db.findBox),
+    OnOff(db.durationBars), OnOff(db.raidMarkers), OnOff(db.focusWatch), OnOff(db.pets),
+    OnOff(db.auraWatch), OnOff(db.worldWatch), OnOff(db.drinkWatch), ocount))
   if #myBuffs == 0 then Print("  buffs found: none") end
   for _, b in ipairs(myBuffs) do
     local id
@@ -5573,12 +6393,55 @@ local function HandleSlash(msg)
       if X.DeleteProfile(pname) then Print("Profile deleted: " .. pname)
       else Print("No profile named '" .. pname .. "'.") end
       if RefreshConfig then RefreshConfig() end
+    elseif sub == "share" then
+      local text = X.ProfileShareText(pname)
+      if text then
+        X.ShowExport(text, false, "BuffRadar profile: " .. pname)
+        Print("Profile '" .. pname .. "' shown as one text — copy it and send it.")
+      else
+        Print("No profile named '" .. pname .. "'. /br profile list shows them.")
+      end
+    elseif sub == "import" then
+      X.ShowExport("", true, "BuffRadar — paste a shared profile, then Import", "profile")
     elseif sub == "list" or sub == "" then
       local names = X.ProfileNames()
       Print(#names > 0 and ("Profiles: " .. table.concat(names, ", "))
         or "No saved profiles yet. /br profile save <name> makes one.")
     else
-      Print("Usage: /br profile save|load|delete|list <name>")
+      Print("Usage: /br profile save|load|delete|list|share|import <name>")
+    end
+  elseif cmd == "plan" then
+    local sub = (rest:match("^(%S*)") or ""):lower()
+    if sub == "export" then
+      X.ShowExport(X.PlanExport(), false, "BuffRadar — your group buff plan (copy it)")
+      Print("Plan string shown — it carries assignments, the blessing plan and auto profiles, not your settings.")
+    elseif sub == "import" then
+      X.ShowExport("", true, "BuffRadar — paste a plan string, then Import", "plan")
+    else
+      local acount, bcount = 0, 0
+      for _ in pairs(X.assign) do acount = acount + 1 end
+      for _ in pairs(X.blessPlan) do bcount = bcount + 1 end
+      Print(string.format("Current plan: %d assignments, %d blessings. /br plan export shares it as one string.", acount, bcount))
+    end
+  elseif cmd == "discord" then
+    X.ShowExport(X.DiscordText(), false, "BuffRadar — copy into Discord")
+    Print("Discord summary shown — copy it into your Discord message.")
+  elseif cmd == "offenders" then
+    if rest:lower() == "clear" then
+      wipe(db.offenders)
+      Print("Repeat-offender history cleared.")
+    else
+      local orows = {}
+      for nm, c in pairs(db.offenders) do orows[#orows + 1] = { nm = nm, c = c } end
+      table_sort(orows, function(a, b) return a.c > b.c end)
+      if #orows == 0 then
+        Print("No repeat offenders yet — a player lands here after a group session where they were seen unbuffed.")
+      else
+        Print("Repeat offenders (group sessions seen unbuffed):")
+        for i = 1, math_min(10, #orows) do
+          Print(string.format("  %s: %d", orows[i].nm, orows[i].c))
+        end
+      end
     end
   elseif cmd == "preset" then
     local name = rest:lower()
@@ -5688,6 +6551,127 @@ local function HandleSlash(msg)
     db.scanThrottle = not db.scanThrottle
     Print("Scan throttle " .. OnOff(db.scanThrottle)
       .. " — in groups over 20, the steady rescan runs half as often (event refreshes stay instant).")
+  elseif cmd == "growup" then
+    db.growUp = not db.growUp
+    X.ApplyAnchor()
+    Print("Grow the list upward " .. OnOff(db.growUp)
+      .. " — on: the window's bottom edge stays put and the list grows up.")
+    Refresh()
+  elseif cmd == "combat" then
+    db.hideInCombat = not db.hideInCombat
+    Print("Hide the window in combat " .. OnOff(db.hideInCombat))
+  elseif cmd == "find" then
+    if rest == "" or rest:lower() == "off" then
+      X.search = ""
+      if X.findEdit then X.findEdit:SetText("") end
+      Print("Name finder cleared — everyone is listed again.")
+    else
+      X.search = rest:lower()
+      if X.findEdit then X.findEdit:SetText(rest) end
+      Print("Name finder: only names matching '" .. rest .. "' are listed. /br find off clears it.")
+    end
+    Refresh()
+  elseif cmd == "findbox" then
+    db.findBox = not db.findBox
+    X.ApplyRowLayout()
+    Print("Name finder box on the window " .. OnOff(db.findBox))
+    Refresh()
+  elseif cmd == "bars" then
+    db.durationBars = not db.durationBars
+    InvalidateRows()
+    Print("Duration bars on rows " .. OnOff(db.durationBars)
+      .. " — the bar shows the expiring buff's time left, as a share of 30 minutes.")
+    Refresh()
+  elseif cmd == "markers" then
+    db.raidMarkers = not db.raidMarkers
+    InvalidateRows()
+    Print("Raid markers on rows " .. OnOff(db.raidMarkers))
+    Refresh()
+  elseif cmd == "range" then
+    db.rangeText = not db.rangeText
+    InvalidateRows()
+    Print("Range words on greyed rows " .. OnOff(db.rangeText)
+      .. " — a player in group range reads 'near' instead of 'out of range'.")
+    Refresh()
+  elseif cmd == "focus" then
+    db.focusWatch = not db.focusWatch
+    Print("Focus target watch line " .. OnOff(db.focusWatch))
+    Refresh()
+  elseif cmd == "pets" then
+    db.pets = not db.pets
+    Print("Group pets on the list " .. OnOff(db.pets)
+      .. " — pets get rows for Fortitude, Mark of the Wild and Arcane Intellect.")
+    Refresh()
+  elseif cmd == "aura" then
+    if not CLASSIC_FEATURES then
+      Print("The aura / aspect watch belongs to the Forever edition.")
+    else
+      db.auraWatch = not db.auraWatch
+      pcall(BuildBuffList)
+      Print("Aura / aspect watch " .. OnOff(db.auraWatch)
+        .. " — your own row flags a missing hunter aspect or paladin aura.")
+      Refresh()
+    end
+  elseif cmd == "worldbuff" then
+    if not CLASSIC_FEATURES then
+      Print("The world-buff watch belongs to the Forever edition.")
+    else
+      db.worldWatch = not db.worldWatch
+      Print("World-buff watch " .. OnOff(db.worldWatch))
+      if db.worldWatch then
+        Print(X.WorldBuffsText() or "No world buffs on you right now.")
+      end
+      Refresh()
+    end
+  elseif cmd == "drink" then
+    if not CLASSIC_FEATURES then
+      Print("The drinking watch belongs to the Forever edition.")
+    else
+      db.drinkWatch = not db.drinkWatch
+      Print("Healer drinking watch " .. OnOff(db.drinkWatch)
+        .. " — drinking players are tagged; healers also reach the coverage line.")
+      Refresh()
+    end
+  elseif cmd == "context" then
+    local key, mode = rest:match("^(%S+)%s+(%S+)$")
+    key = key and key:upper()
+    mode = mode and mode:lower()
+    local found = key == "BLESSINGS"
+    if key and not found then
+      for _, d in ipairs(BUFF_DEFS) do if d.key == key then found = true break end end
+    end
+    if not key then
+      local parts = {}
+      for k, v in pairs(db.buffContext) do parts[#parts + 1] = k .. "=" .. v end
+      table_sort(parts)
+      Print(#parts > 0 and ("Buff contexts: " .. table.concat(parts, ", "))
+        or "No buff contexts set. /br context KEY raid|instance|always limits a buff.")
+    elseif not found then
+      Print("Unknown buff key. Use /br buffs to see keys.")
+    elseif mode == "raid" or mode == "instance" then
+      db.buffContext[key] = mode
+      Print(key .. " is now offered in " .. (mode == "raid" and "raids" or "instances") .. " only.")
+      Refresh()
+    elseif mode == "always" or mode == "clear" then
+      db.buffContext[key] = nil
+      Print(key .. " is offered everywhere again.")
+      Refresh()
+    else
+      Print("Usage: /br context KEY raid|instance|always")
+    end
+  elseif cmd == "theme" then
+    local m = rest:lower()
+    if m == "" or m == "list" then
+      local parts = {}
+      for _, k in ipairs(X.THEME_ORDER) do
+        parts[#parts + 1] = k .. (db.theme == k and " (current)" or "")
+      end
+      Print("Themes: " .. table.concat(parts, ", ") .. ". /br theme <name> applies one.")
+    elseif X.ApplyTheme(m) then
+      Print("Theme: " .. X.THEMES[m].label)
+    else
+      Print("Unknown theme '" .. m .. "'. /br theme lists them.")
+    end
   elseif cmd == "weapon" then
     db.weaponWatch = not db.weaponWatch
     Print("Weapon enchant watch " .. OnOff(db.weaponWatch)
@@ -5838,6 +6822,10 @@ local function HandleSlash(msg)
     RefreshMinimapButton()
     Print("Minimap button " .. OnOff(db.showMinimap))
   elseif cmd == "stats" then
+    if rest:lower() == "export" then
+      X.ShowExport(X.StatsText(), false, "BuffRadar — cast statistics")
+      return
+    end
     local srows = {}
     for k, n in pairs(db.stats or {}) do srows[#srows + 1] = { k = k, n = n } end
     table.sort(srows, function(a, b) return a.n > b.n end)
@@ -5944,11 +6932,22 @@ local function HandleSlash(msg)
     Print("  /br filter all|tank|healer|dps  - role filter   /br strip  - buff toggle strip")
     Print("  /br fade <0-90>  - idle fade   /br watch  - drop alert   /br taxi  - flight-path pause")
     Print("  /br profile save|load|delete|list <name>  - named settings profiles")
+    Print("  /br profile share <name> | profile import  - share ONE profile as a text")
+    Print("  /br plan export|import  - share the group buff plan as one string")
+    Print("  /br stats export  - cast statistics as text   /br discord  - summary for Discord")
+    Print("  /br offenders  - repeat offenders across sessions   /br context KEY raid|instance|always")
     Print("  /br assign <BUFF> <name>  - leader assigns a buff   /br buddy  - split the list")
     Print("  /br readypost  - also post the ready-check summary to group chat")
     Print("  /br pin <name>  - keep a player at the top   /br pin none  - clear the pin")
     Print("  /br weapon  - watch your weapon enchant   /br enterflash  - instance-entry reminder")
     Print("  /br history  - your recent casts   /br throttle  - halve the rescan rate in big groups")
+    Print("  /br growup  - list grows upward   /br combat  - hide in combat   /br theme <name>  - color theme")
+    Print("  /br find <text> | findbox  - name finder   /br bars  - duration bars   /br markers  - raid markers")
+    Print("  /br range  - range words   /br focus  - focus target watch line")
+    Print("  /br pets  - list group pets   /br context KEY raid|instance|always  - limit a buff")
+    if CLASSIC_FEATURES then
+      Print("  /br aura  - aura/aspect watch   /br worldbuff  - world-buff watch   /br drink  - drinking healers")
+    end
     Print("  /br pill  - all-buffed pill   /br consumables  - flask/food counts")
     Print("  /br custom add|remove|list <id>  - watch any buff spell you know")
     Print("  /br uptime  - coverage uptime %   /br preset raid|dungeon|solo")

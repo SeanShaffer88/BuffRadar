@@ -80,3 +80,22 @@ QUALITY.md was re-checked at its close with scores unchanged (the new
 code is Unverified in game, so no dimension may honestly move). Annex D does
 not apply (no AI features); Annex B applies in its Storytold Tier 2 adapted
 form (single integrator, slash-command registry, corpus-scored parity).
+
+## 2026-10-25 — Retail support dropped; Forever-only from 1.8.0 (SEAN)
+SEAN directed: "addon is Forever-only i'm dropping retail support."
+Consequences: releases from 1.8.0 attach only the Forever zip plus
+`SHA256SUMS.txt`; the Retail docs in this repo (everything under
+`BuffRadar/` except the shared source files) stay frozen at 1.7.0; past
+Retail releases remain available as history. The shared source keeps its
+Retail-gated spell tables untouched — removing them was not asked for,
+and the smoke corpus keeps exercising both editions' code paths. The
+field test is now Forever-only.
+
+## 2026-10-25 — #10 and #15 were duplicates; replaced in-batch (1.8.0)
+Implementation study for the 1.8.0 batch found two listed items already
+shipped: #10 (missing-buff icons — rows have shown the missing buffs'
+icons since the earliest versions) and #15 (opacity slider — the Window
+tab's background-opacity slider). Following the #23 → #45 precedent,
+each was replaced inside the same batch rather than silently dropped or
+re-shipped: #10 → #43 (Discord summary), #15 → #37 (focus watch). Both
+are marked † in the Forever changelog and recorded in `docs/PARITY.md`.

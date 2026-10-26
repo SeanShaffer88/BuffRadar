@@ -1,13 +1,66 @@
 # BuffRadar — Features (Forever edition)
 
-The full feature list for BuffRadar 1.7.0 (Forever edition) for
+The full feature list for BuffRadar 1.8.0 (Forever edition) for
 WoW: Forever (Interface 16001). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
 Prepared 2026-10-24 from the shipped 1.3.2 Forever README and
-CHANGELOG; updated 2026-10-25 for 1.7.0. Since 1.3.2 both editions are built from one source —
+CHANGELOG; updated 2026-10-25 for 1.8.0. Since 1.3.2 both editions are built from one source —
 the addon picks the Forever buff set when it loads on the Forever
 client — and the Forever buff set itself is unchanged from 1.2.4.
+**From 1.8.0 BuffRadar is Forever-only**: Retail support was dropped
+2026-10-25, and 1.7.0 is the last Retail release.
+
+## New in 1.8.0
+
+- **Buff plan strings** (`/br plan export|import`): assignments,
+  the blessing plan and the auto-profile map as one copyable
+  string; importing applies it and shares it onward.
+- **Name finder** (`/br find`, `/br findbox`): a search box on the
+  window filters the list by name; reports stay unfiltered.
+- **Duration bars** (`/br bars`): a thin bar under each row shows
+  the shortest time left on that player's buffs from your set
+  (green / yellow under 15m / red under 5m).
+- **Grow upward** (`/br growup`): the list can grow up from a
+  bottom anchor instead of down.
+- **Hide in combat** (`/br combat`): window and pill hide during
+  combat and return when it ends.
+- **Color themes** (`/br theme`): Midnight, Crimson, Forest and
+  Parchment window schemes; a custom color makes the theme Custom.
+- **Raid target markers** (`/br markers`): rows show the raid
+  marker currently on that player.
+- **Range in words** (`/br range`): rows just out of range say
+  *near* instead of out of range.
+- **Group pets** (`/br pets`): party/raid pets get rows when
+  missing Fortitude, Mark of the Wild or Arcane Intellect; pets
+  stay out of every report and announcement.
+- **Aura / aspect watch** (`/br aura`): hunters keep an aspect up,
+  paladins an aura — your own row reminds you.
+- **Per-buff context** (`/br context KEY raid|instance|always`):
+  a buff can matter only in raids or only in instances. Shadow
+  Protection starts in *instance* context on this edition.
+- **World-buff watch** (`/br worldbuff`): the coverage line lists
+  your world buffs with time left (Dragonslayer, Warchief's,
+  Songflower, Zandalar, Darkmoon fortunes, Dire Maul tributes,
+  Silithid traces).
+- **Healer drinking** (`/br drink`): drinking healers are tagged
+  *drinking* and counted on the coverage line.
+- **Focus watch** (`/br focus`): your focus target's missing
+  buffs as one line above the coverage line.
+- **Repeat offenders** (`/br offenders`): per-session counts of
+  who was seen unbuffed, kept across sessions (worst 50).
+- **Stats export** (`/br stats export`) and **Discord summary**
+  (`/br discord`): cast statistics, and the group's buff state as
+  a markdown block, both as copyable text.
+- **Settings search**: a find box in the settings window dims
+  every setting that doesn't match the text.
+- **Share one profile** (`/br profile share|import`, Data tab
+  Share button): one named profile as a copyable text.
+- Two listed items († in the changelog) were already shipped —
+  missing-buff icons and the opacity slider — and were replaced
+  in-batch by the Discord summary and the focus watch.
+- German translation covers all 78 strings; `/br selftest` also
+  reports the 1.8.0 state. Settings format is now dbVersion 10.
 
 ## New in 1.7.0
 
@@ -253,6 +306,6 @@ stays hidden on those characters.
 - 1.2.2 and earlier were confirmed working live by SEAN on
   2026-10-20. 1.2.4 (the TOPLEFT anchoring fix) was built but
   unverified in game, and **1.3.2 — the unified-source build — 1.4.0,
-  1.5.0 and 1.6.0 are likewise built but UNVERIFIED in game**. The Retail
-  edition (1.6.0, Interface 120105) is a separate zip from the same
-  source with its own feature list.
+  1.5.0, 1.6.0, 1.7.0 and 1.8.0 are likewise built but UNVERIFIED in
+  game**. The Retail edition ended at 1.7.0 (Interface 120105), a
+  separate zip from the same source with its own feature list.

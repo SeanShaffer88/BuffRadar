@@ -44,9 +44,10 @@ Special rules for this project:
 - **No CI in this repo** (SEAN's decision, 2026-10-25) — the gate runs locally.
 - Publishing: one `push_files` snapshot via the GitHub connector (the Contents
   API's per-call size cap cannot carry `BuffRadar.lua`), then blob-verify every
-  published file against the local tree. Releases attach both edition zips plus
-  `SHA256SUMS.txt`, and are not shipped until the assets are re-downloaded and
-  hash-verified.
+  published file against the local tree. **Forever-only from 1.8.0** (SEAN
+  dropped Retail support 2026-10-25; Retail docs stay frozen at 1.7.0):
+  releases attach the Forever zip plus `SHA256SUMS.txt`, and are not shipped
+  until the assets are re-downloaded and hash-verified.
 - The German locale stays complete — `tools/localecheck.py` enforces it; new
   user-facing list tags need an `L[...]` entry and a deDE translation.
 - Licence is GPLv3 (upstream author Malikor). The SEAN-annex MIT default does
