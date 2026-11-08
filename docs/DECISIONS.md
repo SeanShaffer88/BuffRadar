@@ -159,3 +159,12 @@ found while adding the new controls (the two-column and
 duration-bars checkboxes, and the wizard button and range-words
 checkbox, overlapped). Everything remains Unverified in game;
 SEAN's Forever field test is still the outstanding action.
+
+## 2026-11-08 — 1.13.0 after in-game verification
+
+SEAN verified 1.12.0 in game and cut the release. Most of the second
+suggestion list already existed (presets, consumables, range cues,
+per-alert sounds), so only the gaps were built: apicheck export, ignore
+list export/import, `/br summary`, packaging and CI. Real luacheck 1.2.0
+in CI was skipped at SEAN's request; the in-repo static checks stay the
+gate. `dbVersion` stays 13 (no new saved keys).

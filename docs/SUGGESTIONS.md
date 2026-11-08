@@ -30,16 +30,16 @@ Basis: read of `BuffRadar.lua` (8.1k lines, one file), tooling, docs and the 1.1
 19. **`/br perf`** — scan ms, memory, ticker rate, so budgets get in-game evidence.
 20. **Fuzz trials** — random roster sizes 1–40, secret-value injection and mid-combat transitions in `smoke51.py`.
 
-## Status (1.12.0)
+## Status (1.13.0)
 
 | # | Status | Notes |
 |---|---|---|
 | 1 | Done | `/br apicheck` |
-| 2 | Partial | `/br apicheck` lists weapon-enchant API candidates on the live client; the replacement name could not be verified from here, so `GetWeaponEnchantInfo` stays (pcall-guarded). Needs one in-game run. |
+| 2 | Done | `GetWeaponEnchantInfo` stays (pcall-guarded); in-game verification of 1.12.0 passed, so no replacement is needed. `/br apicheck` still lists candidates. |
 | 3 | Done | `/br buffcheck` |
 | 4 | Done | "(data hidden)" title badge |
 | 5 | Done | empty incremental `UNIT_AURA` payloads are dropped; real changes still rescan |
-| 6 | Done (Unverified) | hooks `EditModeManagerFrame` Enter/Exit when it exists |
+| 6 | Done | hooks `EditModeManagerFrame` Enter/Exit when it exists |
 | 7 | Done | Shift-snap, `/br snap` |
 | 8 | Done | right-edge width handle |
 | 9 | Done | `/br specscale`; tooltip shows the saved spec |
@@ -54,3 +54,21 @@ Basis: read of `BuffRadar.lua` (8.1k lines, one file), tooling, docs and the 1.1
 | 18 | Done | `tools/gate.sh`, `tools/install-hooks.sh` |
 | 19 | Done | `/br perf` |
 | 20 | Done | randomized roster/combat step in `smoke51.py` |
+
+## Second list (2026-11-08, after in-game verification)
+
+| Item | Status | Notes |
+|---|---|---|
+| In-game verification | Done | 1.12.0 verified live by SEAN on Forever 1.60.1.70862 |
+| Release | Done | cut by SEAN |
+| Real luacheck in CI | Skipped | SEAN: skip for now |
+| `apicheck` export | Done | `/br apicheck export` |
+| CI release workflow | Done | `.github/workflows/{ci,release}.yml`, `tools/package.sh` |
+| Weapon-enchant API | Done | no change needed (see #2) |
+| Consumable reminders | Already true | `/br consumables` (1.6.0) |
+| Per-class presets | Already true | `/br preset`, per-spec profiles |
+| Out-of-range hint | Already true | range words, out-of-range marker, `/br rangewatch` |
+| Raid-wide summary | Done | `/br summary` (join digest and `/br discord` already existed) |
+| Sound per buff type | Already true | `/br soundfor` (1.10.0) |
+| Ignore-list import/export | Done | `/br ignorelist export | import` |
+| Dual-spec test coverage | Done | smoke step for per-spec scale |
