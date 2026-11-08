@@ -19,7 +19,7 @@ as the situation calls for. When everyone is buffed, the list empties and
 gets out of your way. It costs nothing, asks for nothing, and never talks to
 anything outside the game.
 
-Version 1.11.0 · Interface 16001 · License: GPLv3 · Audited against Forever beta build 1.60.1.70862 (code audit + fake-client trials; in-game Unverified)
+Version 1.12.0 · Interface 16001 · License: GPLv3 · Audited against Forever beta build 1.60.1.70862 (code audit + fake-client trials; in-game Unverified)
 
 **Forever-only from 1.8.0:** the Retail edition ended at 1.7.0 (dropped
 2026-10-25). Both editions were built from the same source; this zip's `.toc`

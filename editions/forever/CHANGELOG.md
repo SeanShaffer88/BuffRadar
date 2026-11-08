@@ -2,6 +2,39 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.12.0 — 2026-11-08 — Forever edition
+
+Everything in the 20-item suggestion list (`docs/SUGGESTIONS.md`); in-game
+behaviour is Unverified.
+
+- **Diagnostics:** `/br apicheck` (which APIs exist on this build, plus a
+  hunt for weapon-enchant API names), `/br buffcheck` (every spell id in the
+  buff table against the client), `/br perf` (scan time and memory).
+- **Hidden-data badge:** the title shows "(data hidden)" while the game is
+  withholding aura data (secret values). **Update-pending badge:** the title
+  shows "(update pending)" while a scale/size change waits for combat.
+- **Incremental aura updates:** a `UNIT_AURA` payload that adds, removes and
+  changes nothing no longer triggers a rescan.
+- **Edit Mode:** while the game's layout editor is open the window is shown
+  and movable even when locked; closing it restores the lock.
+- **Scale grips:** hold Shift to snap to 75/100/125/150% (`/br snap`);
+  the tooltip shows the percentage. **Right-edge handle** changes the width.
+  **Scale per spec** (`/br specscale`): each specialization remembers its scale.
+- **Accessibility:** `/br tagsymbols` adds a symbol to every row tag;
+  `/br motion` turns off the idle fade and border flash.
+- **Range watch** (`/br rangewatch`): one chat line and the alert sound when
+  a player who needed a buff walks into range. The game does not allow casting
+  automatically, so the click stays yours.
+- **Settings diff:** `/br diff <string>` and `/br profile diff <name>` list what
+  a settings string would change; importing now prints that list first.
+- **Languages:** French, Spanish, Russian and Simplified Chinese added
+  (81 of 81 strings each).
+- **Code health:** new code lives in `Extras.lua`; the shared state table moved
+  to the top of the main file so both files reach it. Local pre-push gate:
+  `sh tools/gate.sh`, `sh tools/install-hooks.sh`. 252 smoke steps per setup,
+  including a randomized roster/combat fuzz step.
+- Saved variables: dbVersion 13 (new settings take their defaults).
+
 ## 1.11.0 — 2026-11-08 — Forever edition
 
 - **Scale grips in both bottom corners.** Drag either bottom corner to

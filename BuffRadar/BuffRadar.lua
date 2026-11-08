@@ -69,6 +69,20 @@ local UPDATE_INTERVAL = 0.4
 local FOOTER_H  = 16
 local SOUND_FILE = "Interface\\AddOns\\BuffRadar\\Media\\droplet.ogg"
 
+-- Enhancement state (1.4.0), declared up here so every later section -- and
+-- Extras.lua -- can reach it. One table on purpose: the main chunk is at
+-- Lua 5.1's 200-local limit, so new state lives here, not in new locals.
+local X = { session = {}, dead = {}, rezAt = {}, tally = {}, tallyUnits = 0,
+            listA = {}, listB = {}, recentlyGone = {}, sessionCasts = 0,
+            missPrev = {}, missNow = {}, expiredAt = {}, rowH = 24,
+            handled = {}, asked = {}, applyFilter = true,
+            prevHolder = {}, queueAt = 0, consTally = {},
+            assign = {}, blessPlan = {}, peers = {}, cover = {}, myCover = false,
+            expiryTally = {}, upTotal = 0, upFull = 0,
+            search = "", offNow = {}, drinkSet = {}, focusMiss = {}, cfgReg = {} }
+X.hid = 0  -- last time an aura read came back unreadable (secret) (1.12.0)
+do local ns = select(2, ...); if ns then ns.X = X end end  -- shared with Extras.lua
+
 -- Edition, picked at load from the client's interface version: the
 -- Forever client reports 16001, retail 120105 and up. One source serves
 -- both; each edition's zip differs only in its .toc and docs. CLASSIC_FEATURES (true
@@ -330,6 +344,12 @@ local DEFAULTS = {
   joinDigest = true,   -- one-line summary when joining a group (1.5.0)
   roleFilter = "ALL",  -- window list filter: "ALL", "TANK", "HEALER" or "DAMAGER" (1.5.0)
   showStrip = true,    -- buff toggle strip + filter chips under the title (1.5.0)
+  scalePerSpec = false, -- remember a window scale per specialization (1.12.0)
+  specScales = {},     -- spec key -> scale (1.12.0)
+  gripSnap = true,     -- Shift while dragging a scale grip snaps to 75/100/125/150% (1.12.0)
+  tagSymbols = false,  -- add a symbol to row tags so meaning never rests on color (1.12.0)
+  reduceMotion = false, -- no idle fade, no border flash (1.12.0)
+  rangeWatch = false,  -- say when a player who needs a buff walks into range (1.12.0)
   idleFade = 0,        -- fade the window by this % while the mouse is away (0 = off) (1.5.0)
   pill = false,        -- collapse to a small pill while everyone is buffed (1.6.0)
   queueTag = true,     -- tag the top row "up next" right after a cast lands (1.6.0)
@@ -449,6 +469,14 @@ function SanitizeDB(saved)
         if v then
           for key, on in pairs(v) do
             if type(key) == "string" and type(on) == "boolean" then clean[key] = on end
+          end
+        end
+        v = clean
+      elseif k == "specScales" then
+        local clean = {}
+        if v then
+          for sk, n in pairs(v) do
+            if type(sk) == "string" and IsNumber(n) then clean[sk] = Clamp(n, 0.5, 2) end
           end
         end
         v = clean
@@ -936,11 +964,15 @@ local function ReadBuff(unit, i)
     if a == nil then return true end
     local okN, n = pcall(GetField, a, "name")
     local okE, e = pcall(GetField, a, "expirationTime")
-    return false, okN and SafeString(n) or nil, okE and SafeNumber(e) or nil
+    local sn = okN and SafeString(n) or nil
+    if not sn then X.hid = GetTime() end
+    return false, sn, okE and SafeNumber(e) or nil
   elseif UnitBuff then
     local ok, n, _, _, _, _, e = pcall(UnitBuff, unit, i)
     if not ok or n == nil then return true end
-    return false, SafeString(n), SafeNumber(e)
+    local sn = SafeString(n)
+    if not sn then X.hid = GetTime() end
+    return false, sn, SafeNumber(e)
   end
   return true
 end
@@ -1236,14 +1268,6 @@ local Single = { holder = {}, spell = {}, keep = {}, drop = {} }
 --   tally: per-buff coverage over group members from the latest scan,
 --     buff key -> { total = n, miss = n }; tallyUnits = members scanned
 ---------------------------------------------------------------------------
-local X = { session = {}, dead = {}, rezAt = {}, tally = {}, tallyUnits = 0,
-            listA = {}, listB = {}, recentlyGone = {}, sessionCasts = 0,
-            missPrev = {}, missNow = {}, expiredAt = {}, rowH = 24,
-            handled = {}, asked = {}, applyFilter = true,
-            prevHolder = {}, queueAt = 0, consTally = {},
-            assign = {}, blessPlan = {}, peers = {}, cover = {}, myCover = false,
-            expiryTally = {}, upTotal = 0, upFull = 0,
-            search = "", offNow = {}, drinkSet = {}, focusMiss = {}, cfgReg = {} }
 
 -- Consumables watch (1.6.0): not castable, so these never make rows --
 -- they only feed the coverage line. Matched by aura name: exact names, or
@@ -1657,6 +1681,7 @@ local function Consider(unit, isGroup)
   e.remain1 = X.remainTmp
   if isGroup and n == 0 then X.missNow[guid] = {} end  -- clean baseline for expiry checks
   local inRange = n > 0 and InRange(e.missing[1], unit)
+  if n > 0 and not inRange and db.rangeWatch then X.farNow[guid] = nm or UnitName(unit) or true end
   if n == 0 or (not inRange and not db.showOutOfRange) then return end  -- slot is reused next time
   nEntries = slot
   local _, class = UnitClass(unit)
@@ -1973,6 +1998,8 @@ function X.KeyOfName(name)
   return X.nameKey[name]
 end
 
+X.ext = {}   -- extra slash commands, registered by Extras.lua: name -> function(rest)
+
 -- Per-spec profiles (retail-style specialization API only; clients without
 -- it simply never swap). Only the buff toggles and rebuff timings are
 -- per-spec -- the rest of the settings are about the window, not the spec.
@@ -1983,6 +2010,7 @@ function X.SpecKey()
   return nil
 end
 
+
 function X.SpecSwap()
   local key = X.SpecKey()
   if not key or X.spec == key then return end
@@ -1990,6 +2018,14 @@ function X.SpecSwap()
     local p = db.specProfiles[X.spec] or {}
     p.enabled, p.rebuffPer = db.enabled, db.rebuffPer
     db.specProfiles[X.spec] = p
+  end
+  if db.scalePerSpec then
+    if X.spec then db.specScales[X.spec] = db.scale end
+    local sc = db.specScales[key]
+    if sc and sc ~= db.scale then
+      db.scale = sc
+      if X.ApplyScaleNow then X.ApplyScaleNow() end
+    end
   end
   X.spec = key
   local p = db.specProfiles[key]
@@ -2130,7 +2166,8 @@ X.EXPORT_KEYS = { "locked", "includeSelf", "avoidPvP", "autoHide", "rebuff", "sc
   "scanThrottle", "growUp", "hideInCombat", "theme", "findBox", "durationBars", "raidMarkers",
   "rangeText", "focusWatch", "pets", "auraWatch", "worldWatch", "drinkWatch", "twoCol",
   "deathRecap", "wipeReport", "rowGap", "iconSize", "strata",
-  "tooltipLevel", "viewMode", "classColors", "showRealm", "nameTrim" }
+  "tooltipLevel", "viewMode", "classColors", "showRealm", "nameTrim",
+  "scalePerSpec", "gripSnap", "tagSymbols", "reduceMotion", "rangeWatch" }
 
 local function Esc(v) return (tostring(v):gsub("%%", "%%25"):gsub(";", "%%3B"):gsub("=", "%%3D")) end
 local function Unesc(v) return (v:gsub("%%3D", "="):gsub("%%3B", ";"):gsub("%%25", "%%")) end
@@ -3283,16 +3320,40 @@ function X.ApplyAnchor()
   end
 end
 
+-- Title suffix (1.12.0): "(update pending)" while a size/scale change waits
+-- for combat to end; "(data hidden)" while the game is withholding aura
+-- data from addons (secret values), so a stale-looking list has a reason.
+function X.UpdateTitleMarks()
+  if not title then return end
+  local hid = X.hid > 0 and (GetTime() - X.hid) < 10
+  local key = (X.geoPending and "p" or "") .. (hid and "h" or "")
+  if X.titleKey == key then return end
+  X.titleKey = key
+  local txt = "|cff33ccffBuff|rRadar"
+  if X.geoPending then txt = txt .. " |cffffa040(update pending)|r" end
+  if hid then txt = txt .. " |cffffa040(data hidden)|r" end
+  title:SetText(txt)
+end
+
 -- Width and scale. The window holds secure row buttons, so its size can't
 -- change in combat; callers retry after combat (PLAYER_REGEN_ENABLED).
 local function ApplyGeometry()
-  if not frame or InCombatLockdown() then return end
+  if not frame then return end
+  if InCombatLockdown() then
+    X.geoPending = true  -- lands at PLAYER_REGEN_ENABLED; the title says so meanwhile (1.12.0)
+    X.UpdateTitleMarks()
+    return
+  end
+  X.geoPending = nil
   -- Two-column layout (1.9.0): each column keeps the chosen width, with
   -- a small gap between the columns.
   local cols = X.cols or 1
   frame:SetWidth((db.width or WIDTH) * cols + (cols - 1) * 6)
   frame:SetScale(db.scale or 1)
+  X.UpdateTitleMarks()
 end
+
+function X.ApplyScaleNow() ApplyGeometry() end
 
 local function ApplyAppearance()
   if not frame then return end
@@ -3311,6 +3372,7 @@ local function ApplyAppearance()
   end
   if grip then grip:SetShown(not db.locked) end
   if X.gripL then X.gripL:SetShown(not db.locked) end
+  if X.edge then X.edge:SetShown(not db.locked) end
   title:SetShown(db.showTitle and true or false)
   combatText:ClearAllPoints()
   if db.showTitle then
@@ -3515,7 +3577,7 @@ end
 -- One border pulse; restores the normal border shortly after. Assigned
 -- here because frame / ApplyAppearance only exist from this point on.
 function X.Flash()
-  if not frame or not frame.SetBackdropBorderColor or InCombatLockdown() then return end
+  if not frame or not frame.SetBackdropBorderColor or InCombatLockdown() or db.reduceMotion then return end
   frame:SetBackdropBorderColor(1, 0.35, 0.35, 1)
   if C_Timer and C_Timer.After then
     C_Timer.After(0.7, function() if frame then ApplyAppearance() end end)
@@ -3530,6 +3592,27 @@ end
 -- fires once per drop: prevHolder only refills when the buff is seen on
 -- someone again. A holder change (you recast it on someone else) is a
 -- move, not a drop. Runs after each CollectEntries in Refresh.
+X.farNow, X.farPrev = {}, {}
+-- Range watch (1.12.0): a player who needed a buff and was out of range
+-- last scan, and is in range now, still needs it -> one chat line + the
+-- alert sound. The game does not allow casting automatically, so this
+-- only tells you; the click is yours.
+function X.CheckRange()
+  if not db.rangeWatch then
+    wipe(X.farPrev); wipe(X.farNow); return
+  end
+  for i = 1, nEntries do
+    local e = entries[i]
+    local g = e.guid
+    if g and X.farPrev[g] and not e.outOfRange and not e.pet then
+      Print(string_format("%s is in range now and still needs a buff.", tostring(X.farPrev[g])))
+      PlayAlert("new")
+    end
+  end
+  X.farPrev, X.farNow = X.farNow, X.farPrev
+  wipe(X.farNow)
+end
+
 function X.CheckDrops()
   if db.watchDrop then
     for key, prev in pairs(X.prevHolder) do
@@ -3674,7 +3757,9 @@ function X.ShowExport(text, forImport, titleText, mode)
       elseif f.importMode == "profile" then
         ok, msg = X.ProfileImport(f.editBox:GetText())
       else
-        ok, msg = X.Import(f.editBox:GetText())
+        local txt = f.editBox:GetText()
+        if X.PrintDiff then X.PrintDiff(txt, "This import") end  -- what it changes, before it does (1.12.0)
+        ok, msg = X.Import(txt)
       end
       Print(msg)
       if ok then
@@ -3817,8 +3902,8 @@ end
 function X.UpdateFade()
   if not frame or not db then return end
   local target = 1
-  if db.idleFade and db.idleFade > 0 and not frame.isMoving and not (grip and grip.isSizing)
-     and not (X.gripL and X.gripL.isSizing) then
+  if db.idleFade and db.idleFade > 0 and not db.reduceMotion and not frame.isMoving and not (grip and grip.isSizing)
+     and not (X.gripL and X.gripL.isSizing) and not (X.edge and X.edge.isSizing) then
     local over = frame.IsMouseOver and frame:IsMouseOver()
     if not over then target = 1 - db.idleFade / 100 end
   end
@@ -3913,11 +3998,21 @@ end
 -- Scale drag (1.11.0). Cursor-driven; the OnUpdate runs only while a grip is
 -- held. Scale = the cursor's horizontal distance from the fixed bottom
 -- corner divided by the window's unscaled width.
+X.SNAPS = { 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2 }
+
 function X.ScaleFromCursor(g)
   local cx = GetCursorPosition() / UIParent:GetEffectiveScale()
   local w = g.baseW
   if not w or w <= 0 then return db.scale or 1 end
   local ns = (g.side == "RIGHT") and (cx - g.fixedX) / w or (g.fixedX - cx) / w
+  if db.gripSnap ~= false and IsShiftKeyDown and IsShiftKeyDown() then
+    local best, bd = ns, 0.06  -- Shift: snap to a preset within 6%
+    for _, p in ipairs(X.SNAPS) do
+      local d = math.abs(ns - p)
+      if d < bd then best, bd = p, d end
+    end
+    ns = best
+  end
   if ns < 0.5 then ns = 0.5 elseif ns > 2 then ns = 2 end  -- same bounds as RANGES.scale
   return ns
 end
@@ -3931,6 +4026,18 @@ function X.PlaceScaled(g, ns)
   else
     frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left / ns, g.fixedY / ns)
   end
+end
+
+function X.EndEdgeDrag(e)
+  if not e or not e.isSizing then return end
+  e.isSizing = false
+  if InCombatLockdown() then return end
+  frame:StopMovingOrSizing()
+  local cols = X.cols or 1
+  local w = (frame:GetWidth() - (cols - 1) * 6) / cols
+  db.width = math.max(MIN_WIDTH, math.min(MAX_WIDTH, math_floor(w + 0.5)))
+  ApplyGeometry()
+  SavePosition()
 end
 
 function X.BeginScaleDrag(g)
@@ -4177,6 +4284,10 @@ local function BuildUI()
     g:SetScript("OnEnter", function(self)
       GameTooltip:SetOwner(self, right and "ANCHOR_RIGHT" or "ANCHOR_LEFT")
       GameTooltip:AddLine(L["Drag to resize the window"])
+      GameTooltip:AddLine(string.format("%d%%%s", math_floor((db.scale or 1) * 100 + 0.5),
+        db.scalePerSpec and (X.spec and ("  (scale saved for " .. X.spec .. ")") or "  (per-spec scale on)") or ""),
+        0.8, 0.8, 0.8)
+      if db.gripSnap ~= false then GameTooltip:AddLine("Hold Shift to snap to 75 / 100 / 125 / 150%", 0.6, 0.6, 0.6) end
       GameTooltip:Show()
     end)
     g:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -4184,6 +4295,26 @@ local function BuildUI()
   end
   grip = MakeScaleGrip("RIGHT")
   X.gripL = MakeScaleGrip("LEFT")
+
+  -- Width handle (1.12.0): drag the right edge to change the list width,
+  -- the job the old corner grip did. Kept clear of the corner grip.
+  local edge = CreateFrame("Button", nil, frame)
+  edge:SetWidth(5)
+  edge:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -HEADER_H)
+  edge:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 18)
+  edge:SetScript("OnMouseDown", function(self, button)
+    if button ~= "LeftButton" or db.locked or InCombatLockdown() then return end
+    frame:StartSizing("RIGHT")
+    self.isSizing = true
+  end)
+  edge:SetScript("OnMouseUp", function(self) X.EndEdgeDrag(self) end)
+  edge:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
+    GameTooltip:AddLine("Drag to change the width")
+    GameTooltip:Show()
+  end)
+  edge:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  X.edge = edge
 
   -- Name finder (1.8.0): a slim bar under the toggle strip holding one
   -- edit box; while it has text, the list shows only matching names.
@@ -4378,6 +4509,22 @@ local function DispName(e)
   return nm
 end
 
+-- Tag symbols (1.12.0): with tagSymbols on, a status tag also carries a
+-- symbol, so its meaning never rests on color alone.
+function X.InvalidateTags()
+  for i = 1, #rows do rows[i].cTag = false end
+  if QueueRefresh then QueueRefresh() end
+end
+
+X.TAGSYM = setmetatable({}, { __index = function() return "*" end })
+do
+  local T = X.TAGSYM
+  T[L["a buff just expired"]] = "!"; T[L["recently rezzed"]] = "+"; T[L["up next"]] = ">"
+  T[L["being buffed"]] = "~"; T[L["your assignment"]] = "#"; T[L["assigned elsewhere"]] = "x"
+  T[L["buddy's watch"]] = "&"; T[L["pinned"]] = "^"; T[L["weapon enchant missing"]] = "/"
+  T[L["drinking"]] = "o"; T[L["asked for a buff"]] = "?"; T[L["pet"]] = "p"
+end
+
 local function RenderRow(row, e)
   row.entry, row.guid = e, e.guid
   local m = e.missing
@@ -4419,6 +4566,9 @@ local function RenderRow(row, e)
     elseif e.drinking then tag = L["drinking"]
     elseif e.asked then tag = L["asked for a buff"]
     elseif e.pet then tag = L["pet"] end
+  end
+  if tag and db.tagSymbols then
+    tag = (X.TAGSYM[tag] or "*") .. " " .. tag
   end
   if not tag and e.remain1 then
     tag = e.remain1 >= 90 and string_format(L["~%dm left"], math_floor(e.remain1 / 60))
@@ -4717,6 +4867,8 @@ local function Refresh()
 
   local n = CollectEntries()
   X.CheckDrops()
+  X.CheckRange()
+  X.UpdateTitleMarks()
   X.RefreshStrip()
   X.RefreshChips()
 
@@ -5032,8 +5184,16 @@ local driver = CreateFrame("Frame")
 local refreshQueued = false
 local ticker
 
+X.perf = { n = 0, total = 0, max = 0, last = 0 }
 local function SafeRefresh()
+  local t0 = debugprofilestop and debugprofilestop()
   local ok, err = pcall(Refresh)
+  if t0 then
+    local dt = debugprofilestop() - t0
+    local pf = X.perf
+    pf.n, pf.total, pf.last = pf.n + 1, pf.total + dt, dt
+    if dt > pf.max then pf.max = dt end
+  end
   if not ok and err ~= lastError then
     lastError = err
     Print("|cffff4040error:|r " .. tostring(err))
@@ -5193,6 +5353,15 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   if event == "UNIT_AURA" or event == "NAME_PLATE_UNIT_ADDED" or event == "NAME_PLATE_UNIT_REMOVED"
      or event == "UPDATE_MOUSEOVER_UNIT" then
     if InCombatLockdown() then return end
+    if event == "UNIT_AURA" then
+      -- Incremental payload (12.x aura updates): nothing added, removed or
+      -- changed and not a full update -> nothing for us to rescan.
+      local info = ...
+      if type(info) == "table" and not info.isFullUpdate and info.addedAuras == nil
+         and info.removedAuraInstanceIDs == nil and info.updatedAuraInstanceIDs == nil then
+        return
+      end
+    end
     if event == "UNIT_AURA" and type(arg1) == "string" and arg1 ~= "player" and arg1 ~= "target"
        and arg1 ~= "mouseover" and not arg1:find("^party%d") and not arg1:find("^raid%d")
        and not (arg1:find("^nameplate%d") and UnitIsPlayer(arg1)) then
@@ -5347,6 +5516,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if (db.dbVersion or 0) < 12 then
       db.dbVersion = 12       -- 1.10.0: customization settings take their defaults
     end
+    if (db.dbVersion or 0) < 13 then
+      db.dbVersion = 13       -- 1.12.0: scalePerSpec / specScales / gripSnap / tagSymbols / reduceMotion / rangeWatch take their defaults
+    end
     X.SpecSwap()
   elseif event == "PLAYER_LOGIN" then
     driver:UnregisterEvent("PLAYER_LOGIN")  -- one-off
@@ -5388,6 +5560,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     -- Same for a scale drag in progress.
     if grip and grip.isSizing then X.EndScaleDrag(grip) end
     if X.gripL and X.gripL.isSizing then X.EndScaleDrag(X.gripL) end
+    if X.edge and X.edge.isSizing then X.EndEdgeDrag(X.edge) end
     if nextBtn then nextBtn.bGuid, nextBtn.isClear = nil, false end  -- driver clears it
     -- Fallback when the secure combat driver isn't available: this event still runs
     -- just before combat lockdown starts, so the key can be disarmed here.
@@ -7045,7 +7218,7 @@ function X.SelfTest()
   local ver, build, _, iface = GetBuildInfo()
   Print("BuffRadar self-test -- paste this whole block into a bug report:")
   Print(string.format("  version %s · %s edition · interface %s · client %s build %s",
-    "1.11.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
+    "1.12.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
   Print(string.format("  settings dbVersion %s · sort %s · cast mode %s · scale %s",
     tostring(db.dbVersion), tostring(db.sortMode), tostring(db.castMethod), tostring(db.scale)))
   Print(string.format("  sync %s · requests %s · role filter %s · profiles %d · idle fade %s",
@@ -7105,7 +7278,7 @@ local function HandleSlash(msg)
     if not ok then Print("|cffff4040error building window:|r " .. tostring(err)) end
   end
 
-  local needsOOC = { [""]=true, show=true, hide=true, reset=true, resetpos=true, scale=true, width=true, macro=true }
+  local needsOOC = { [""]=true, show=true, hide=true, reset=true, resetpos=true, scale=true, width=true, specscale=true, macro=true }
   if needsOOC[cmd] and InCombatLockdown() then
     Print("Can't do that during combat.")
     return
@@ -7464,6 +7637,11 @@ local function HandleSlash(msg)
       end
     elseif sub == "import" then
       X.ShowExport("", true, "BuffRadar — paste a shared profile, then Import", "profile")
+    elseif sub == "diff" then
+      local str = db.profiles[pname]
+      if type(str) ~= "string" then Print("No profile named '" .. pname .. "'. /br profile list shows them.")
+      elseif X.PrintDiff then X.PrintDiff(str, "Profile '" .. pname .. "'")
+      else Print("Diff needs Extras.lua.") end
     elseif sub == "list" or sub == "" then
       local names = X.ProfileNames()
       Print(#names > 0 and ("Profiles: " .. table.concat(names, ", "))
@@ -8047,6 +8225,25 @@ local function HandleSlash(msg)
         Print(string.format("  %s: %d", srows[i].k, srows[i].n))
       end
     end
+  elseif cmd == "specscale" then
+    local v = rest:lower()
+    if v == "on" then db.scalePerSpec = true elseif v == "off" then db.scalePerSpec = false
+    else db.scalePerSpec = not db.scalePerSpec end
+    if db.scalePerSpec and X.spec then db.specScales[X.spec] = db.scale end
+    Print("Scale per specialization " .. OnOff(db.scalePerSpec) .. (X.spec and (" (this spec: " .. X.spec .. ")") or ""))
+  elseif cmd == "tagsymbols" then
+    db.tagSymbols = not db.tagSymbols
+    X.InvalidateTags()
+    Print("Row tag symbols " .. OnOff(db.tagSymbols))
+  elseif cmd == "motion" then
+    db.reduceMotion = not db.reduceMotion
+    Print("Reduced motion " .. OnOff(db.reduceMotion) .. " (no idle fade, no border flash)")
+  elseif cmd == "rangewatch" then
+    db.rangeWatch = not db.rangeWatch
+    Print("Range watch " .. OnOff(db.rangeWatch))
+  elseif cmd == "snap" then
+    db.gripSnap = not db.gripSnap
+    Print("Shift-snap on the scale grips " .. OnOff(db.gripSnap))
   elseif cmd == "scale" then
     local n = tonumber(rest)
     if n and n >= 0.5 and n <= 2 then
@@ -8114,6 +8311,8 @@ local function HandleSlash(msg)
       SetCVar("nameplateShowFriends", 1)
       Print("Friendly nameplates turned on, so nearby non-group players can be listed.")
     end
+  elseif X.ext[cmd] then
+    X.ext[cmd](rest)
   else
     Print("Commands:")
     Print("  /br  - show/hide the window   (/br debug if it won't appear)")
@@ -8182,10 +8381,22 @@ local function HandleSlash(msg)
     if CLASSIC_FEATURES then
       Print("  /br bless <CLASS> <BLESSING> [name]  - blessing planner")
     end
+    Print("  /br specscale  - remember the scale per specialization   /br snap  - Shift-snap the scale grips")
+    Print("  /br tagsymbols | motion | rangewatch  - tag symbols, reduced motion, tell me when someone walks into range")
+    Print("  /br apicheck | buffcheck | perf  - diagnostics   /br profile diff <name>  - what a profile would change")
+    Print("  /br width <180-400>  - list width")
     Print("  /br resetpos  - reset the window position")
   end
   Refresh()
 end
+
+-- Handed to Extras.lua (the optional second file): the few locals it needs.
+X.Print, X.OnOff, X.L, X.Refresh, X.BUFF_DEFS = Print, OnOff, L, Refresh, BUFF_DEFS
+X.GetDB = function() return db end
+X.CLASSIC = CLASSIC_FEATURES
+X.GetFrame = function() return frame end
+X.PositionSave = SavePosition
+X.ApplyAppearance = ApplyAppearance
 
 SlashCmdList.BUFFRADAR = function(msg)
   local ok, err = pcall(HandleSlash, msg)

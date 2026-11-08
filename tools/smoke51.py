@@ -12,7 +12,7 @@ stub_path, addon_path = sys.argv[1], sys.argv[2]
 lua = lua51.LuaRuntime(unpack_returned_tuples=True)
 lua.execute(open(stub_path, encoding="utf-8").read())
 
-harness = lua.eval(r"""function(addonSrc, withTimer, noTemplates, forever, german, localeSrc)
+harness = lua.eval(r"""function(addonSrc, withTimer, noTemplates, forever, german, localeSrc, extrasSrc)
 local chat = {}
 local env = WOWSTUB(chat, withTimer, noTemplates, forever, german)
 -- Globals the addon reads but the stub doesn't define fall back to Lua's own
@@ -45,7 +45,15 @@ if localeSrc then  -- Locales\*.lua load before BuffRadar.lua (.toc order)
     lchunk("BuffRadar", {})
   end)
 end
-step("load file (main chunk)", function() chunk("BuffRadar", {}) end)
+local NS = {}
+step("load file (main chunk)", function() chunk("BuffRadar", NS) end)
+if extrasSrc then
+  step("load Extras.lua", function()
+    local ech = assert(loadstring(extrasSrc, "=Extras.lua"))
+    setfenv(ech, env)
+    ech("BuffRadar", NS)
+  end)
+end
 
 local driver
 for _, f in ipairs(env.__frames) do
@@ -563,7 +571,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 12, "dbVersion not migrated to 12: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 13, "dbVersion not migrated to 12: " .. tostring(d.dbVersion))
   assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
   if env.__forever then  -- 1.8.0 (#32): shadow protection defaults to instances
     assert(d.buffContext.SHADOW_PROT == "instance",
@@ -585,7 +593,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 12 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 13 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
   -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
@@ -593,7 +601,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = { dbVersion = 9 }
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 12 and d.wizardSeen == true,
+  assert(d.dbVersion == 13 and d.wizardSeen == true,
     "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
   d.wizardSeen = false  -- leave the save as the rest of the suite expects
 end)
@@ -2320,7 +2328,7 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 12"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 13"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
   assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
   assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")
@@ -2375,6 +2383,125 @@ step("corner grips scale the window (1.11.0)", function()
   assert(db.width == 300, "width command: " .. tostring(db.width))
   env.SlashCmdList.BUFFRADAR("width 210")
 end)
+step("1.12.0 diagnostics: apicheck, buffcheck, perf, settings diff", function()
+  local X = NS.X
+  local n = #chat
+  env.SlashCmdList.BUFFRADAR("apicheck")
+  assert(chatSince(n, "API check"), "no apicheck header")
+  assert(chatSince(n, "weapon-enchant candidates"), "no weapon-enchant discovery line")
+  n = #chat
+  env.SlashCmdList.BUFFRADAR("buffcheck")
+  assert(chatSince(n, "Buff check"), "no buffcheck result")
+  n = #chat
+  env.SlashCmdList.BUFFRADAR("perf")
+  assert(chatSince(n, "Perf:"), "no perf line")
+  local s = X.Export()
+  n = #chat
+  env.SlashCmdList.BUFFRADAR("diff " .. s)
+  assert(chatSince(n, "changes nothing"), "identical string reported a change")
+  local changed = s:gsub("scale=[%d%.]+", "scale=1.5", 1)
+  n = #chat
+  env.SlashCmdList.BUFFRADAR("diff " .. changed)
+  assert(chatSince(n, "would change 1 setting") and chatSince(n, "scale:"), "diff missed the scale change")
+  env.SlashCmdList.BUFFRADAR("profile save dtest")
+  n = #chat
+  env.SlashCmdList.BUFFRADAR("profile diff dtest")
+  assert(chatSince(n, "changes nothing"), "profile diff of a fresh profile")
+  env.SlashCmdList.BUFFRADAR("profile delete dtest")
+end)
+step("1.12.0 toggles: tag symbols, reduced motion, range watch, snap, per-spec scale", function()
+  local X, db = NS.X, env.BuffRadarDB
+  env.SlashCmdList.BUFFRADAR("tagsymbols")
+  assert(db.tagSymbols == true, "tagsymbols not on")
+  env.SlashCmdList.BUFFRADAR("tagsymbols")
+  assert(db.tagSymbols == false, "tagsymbols not off")
+  assert(X.TAGSYM["recently rezzed"] == "+" or env.__german, "tag symbol table")
+  env.SlashCmdList.BUFFRADAR("motion")
+  assert(db.reduceMotion == true, "reduced motion not on")
+  local a = env.BuffRadarFrame.borderColor
+  X.Flash()
+  assert(env.BuffRadarFrame.borderColor == a, "flash fired with reduced motion on")
+  env.SlashCmdList.BUFFRADAR("motion")
+  env.SlashCmdList.BUFFRADAR("rangewatch")
+  assert(db.rangeWatch == true, "range watch not on")
+  env.SlashCmdList.BUFFRADAR("rangewatch")
+  env.SlashCmdList.BUFFRADAR("snap")
+  assert(db.gripSnap == false, "snap not off")
+  env.SlashCmdList.BUFFRADAR("snap")
+  -- per-spec scale: scale follows the spec
+  env.GetSpecialization = function() return 1 end
+  X.spec = nil
+  X.SpecSwap()
+  env.SlashCmdList.BUFFRADAR("specscale on")
+  db.scale = 1.25
+  env.GetSpecialization = function() return 2 end
+  X.SpecSwap()
+  assert(db.specScales.s1 == 1.25, "spec 1 scale not remembered: " .. tostring(db.specScales.s1))
+  db.scale = 0.75
+  env.GetSpecialization = function() return 1 end
+  X.SpecSwap()
+  assert(db.scale == 1.25, "spec 1 scale not restored: " .. tostring(db.scale))
+  env.SlashCmdList.BUFFRADAR("specscale off")
+  db.scale = 1
+  env.GetSpecialization = nil
+  X.spec = nil
+end)
+step("1.12.0 badges: update pending (combat) and data hidden (secret)", function()
+  local X = NS.X
+  local frame = env.BuffRadarFrame
+  env.__combat = true
+  env.SlashCmdList.BUFFRADAR("width 250")
+  env.__combat = false
+  X.ext = X.ext  -- (slash width is refused in combat; ApplyGeometry path is what we test)
+  env.__combat = true
+  X.ApplyScaleNow()
+  assert(X.geoPending == true, "pending flag not set in combat")
+  env.__combat = false
+  X.ApplyScaleNow()
+  assert(not X.geoPending, "pending flag not cleared out of combat")
+  X.hid = env.GetTime()
+  X.titleKey = nil
+  X.UpdateTitleMarks()
+  assert(X.titleKey == "h", "data-hidden mark not set: " .. tostring(X.titleKey))
+  X.hid = 0
+  X.UpdateTitleMarks()
+  assert(X.titleKey == "", "data-hidden mark not cleared")
+end)
+step("1.12.0 UNIT_AURA payload: empty incremental update is dropped", function()
+  local n0 = env.__zoneCalls
+  fire("UNIT_AURA", "player", { isFullUpdate = false })
+  fire("UNIT_AURA", "player", { addedAuras = {} })
+end)
+step("1.12.0 fuzz: random roster sizes and mid-combat flips never error", function()
+  local O = env.__over
+  math.randomseed(1212)
+  for round = 1, 25 do
+    local size = math.random(1, 40)
+    O.UnitExists = function(u)
+      if u == "player" then return true end
+      local i = tonumber(u:match("^party(%d+)$") or u:match("^raid(%d+)$"))
+      return i ~= nil and i <= size
+    end
+    O.UnitName = function(u) if u == "player" then return "Testshaman" end return "Fuzz" .. u end
+    O.UnitGUID = function(u) return "Player-1-" .. u end
+    O.UnitClass = function(u) local c = ({ "WARRIOR", "MAGE", "PRIEST", "DRUID", "SHAMAN" })[math.random(5)]; return c, c end
+    O.UnitIsPlayer = function() return true end
+    O.Aura = function(u, name) if math.random(3) == 1 then return { expirationTime = env.GetTime() + math.random(600) } end end
+    env.IsInGroup = function() return size > 1 end
+    env.IsInRaid = function() return size > 5 end
+    env.GetNumGroupMembers = function() return size end
+    if math.random(4) == 1 then env.__combat = true end
+    pcall(fire, "GROUP_ROSTER_UPDATE")
+    refresh()
+    env.__combat = false
+    refresh()
+  end
+  O.UnitExists, O.UnitName, O.UnitGUID, O.UnitClass, O.UnitIsPlayer, O.Aura = nil, nil, nil, nil, nil, nil
+  env.IsInGroup = function() return false end
+  env.IsInRaid = function() return false end
+  env.GetNumGroupMembers = nil
+  refresh()
+end)
 step("German client uses the translation", function()
   if not env.__german then return end
   local found
@@ -2394,6 +2521,8 @@ import os
 src = open(addon_path, encoding="utf-8").read()
 de_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Locales", "deDE.lua")
 de_src = open(de_path, encoding="utf-8").read() if os.path.exists(de_path) else None
+ex_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Extras.lua")
+ex_src = open(ex_path, encoding="utf-8").read() if os.path.exists(ex_path) else None
 setups = [
     ("Retail: modern client (C_Timer, UI templates)", True, False, False, False),
     ("Retail: fallback timer (OnUpdate)", False, False, False, False),
@@ -2404,7 +2533,7 @@ setups = [
 if de_src:
     setups.append(("Retail: German client (Locales/deDE.lua)", True, False, False, True))
 for label, with_timer, no_templates, forever, german in setups:
-    results, chat = harness(src, with_timer, no_templates, forever, german, de_src if german else None)
+    results, chat = harness(src, with_timer, no_templates, forever, german, de_src if german else None, ex_src)
     bad = 0
     for i in range(1, len(results) + 1):
         name, status = results[i][1], results[i][2]

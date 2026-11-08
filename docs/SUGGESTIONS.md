@@ -29,3 +29,28 @@ Basis: read of `BuffRadar.lua` (8.1k lines, one file), tooling, docs and the 1.1
 18. **Local pre-push hook** running the full gate (no CI, per project decision).
 19. **`/br perf`** — scan ms, memory, ticker rate, so budgets get in-game evidence.
 20. **Fuzz trials** — random roster sizes 1–40, secret-value injection and mid-combat transitions in `smoke51.py`.
+
+## Status (1.12.0)
+
+| # | Status | Notes |
+|---|---|---|
+| 1 | Done | `/br apicheck` |
+| 2 | Partial | `/br apicheck` lists weapon-enchant API candidates on the live client; the replacement name could not be verified from here, so `GetWeaponEnchantInfo` stays (pcall-guarded). Needs one in-game run. |
+| 3 | Done | `/br buffcheck` |
+| 4 | Done | "(data hidden)" title badge |
+| 5 | Done | empty incremental `UNIT_AURA` payloads are dropped; real changes still rescan |
+| 6 | Done (Unverified) | hooks `EditModeManagerFrame` Enter/Exit when it exists |
+| 7 | Done | Shift-snap, `/br snap` |
+| 8 | Done | right-edge width handle |
+| 9 | Done | `/br specscale`; tooltip shows the saved spec |
+| 10 | Done | "(update pending)" title badge |
+| 11 | Done | `/br tagsymbols` |
+| 12 | Done | `/br motion` |
+| 13 | Partial | `/br rangewatch` notifies; the game does not allow addons to cast for you, so there is no auto-cast |
+| 14 | Done | `/br diff`, `/br profile diff`, diff printed before every import |
+| 15 | Already true | only spellbook spells are offered; talent/spell events rescan. Not changed. |
+| 16 | Done | frFR, esES, ruRU, zhCN (81/81 each); machine-assisted translation, community review welcome |
+| 17 | Partial | new code is in `Extras.lua`; the existing 8k-line file stays whole: Lua locals cannot cross files and it shares ~190 of them |
+| 18 | Done | `tools/gate.sh`, `tools/install-hooks.sh` |
+| 19 | Done | `/br perf` |
+| 20 | Done | randomized roster/combat step in `smoke51.py` |
