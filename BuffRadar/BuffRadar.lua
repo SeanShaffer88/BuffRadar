@@ -709,7 +709,7 @@ local L = {
   ["Still needs: %s"] = "Still needs: %s",
   -- window buttons, minimap button and addon menu
   ["BuffRadar settings"] = "BuffRadar settings",
-  ["Drag to resize the width"] = "Drag to resize the width",
+  ["Drag to resize the window"] = "Drag to resize the window",
   ["Left-click: show / hide the window"] = "Left-click: show / hide the window",
   ["Right-click: settings"] = "Right-click: settings",
   ["Drag: move around the minimap"] = "Drag: move around the minimap",
@@ -3310,6 +3310,7 @@ local function ApplyAppearance()
     X.pill:SetBackdropBorderColor(bc[1], bc[2], bc[3], db.showBorder and 1 or 0)
   end
   if grip then grip:SetShown(not db.locked) end
+  if X.gripL then X.gripL:SetShown(not db.locked) end
   title:SetShown(db.showTitle and true or false)
   combatText:ClearAllPoints()
   if db.showTitle then
@@ -3816,7 +3817,8 @@ end
 function X.UpdateFade()
   if not frame or not db then return end
   local target = 1
-  if db.idleFade and db.idleFade > 0 and not frame.isMoving and not (grip and grip.isSizing) then
+  if db.idleFade and db.idleFade > 0 and not frame.isMoving and not (grip and grip.isSizing)
+     and not (X.gripL and X.gripL.isSizing) then
     local over = frame.IsMouseOver and frame:IsMouseOver()
     if not over then target = 1 - db.idleFade / 100 end
   end
@@ -3908,6 +3910,59 @@ local function BuildNextButton()
   end)
 end
 
+-- Scale drag (1.11.0). Cursor-driven; the OnUpdate runs only while a grip is
+-- held. Scale = the cursor's horizontal distance from the fixed bottom
+-- corner divided by the window's unscaled width.
+function X.ScaleFromCursor(g)
+  local cx = GetCursorPosition() / UIParent:GetEffectiveScale()
+  local w = g.baseW
+  if not w or w <= 0 then return db.scale or 1 end
+  local ns = (g.side == "RIGHT") and (cx - g.fixedX) / w or (g.fixedX - cx) / w
+  if ns < 0.5 then ns = 0.5 elseif ns > 2 then ns = 2 end  -- same bounds as RANGES.scale
+  return ns
+end
+
+function X.PlaceScaled(g, ns)
+  local left = (g.side == "RIGHT") and g.fixedX or (g.fixedX - g.baseW * ns)
+  frame:SetScale(ns)
+  frame:ClearAllPoints()
+  if db.growUp then
+    frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left / ns, g.fixedY / ns)
+  else
+    frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left / ns, g.fixedY / ns)
+  end
+end
+
+function X.BeginScaleDrag(g)
+  local s = frame:GetScale() or 1
+  local l, r = frame:GetLeft(), frame:GetRight()
+  local y = db.growUp and frame:GetBottom() or frame:GetTop()
+  if not (l and r and y) then return end
+  g.baseW = frame:GetWidth()
+  g.fixedX = (g.side == "RIGHT") and l * s or r * s
+  g.fixedY = y * s
+  g.isSizing = true
+  g:SetScript("OnUpdate", function(self)
+    if InCombatLockdown() then X.EndScaleDrag(self); return end
+    local ns = X.ScaleFromCursor(self)
+    db.scale = ns
+    X.PlaceScaled(self, ns)
+  end)
+end
+
+function X.EndScaleDrag(g)
+  if not g or not g.isSizing then return end
+  g.isSizing = false
+  g:SetScript("OnUpdate", nil)
+  local ns = math_floor((db.scale or 1) * 100 + 0.5) / 100
+  db.scale = ns
+  if not InCombatLockdown() then
+    X.PlaceScaled(g, ns)
+    SavePosition()
+  end
+  if RefreshConfig then RefreshConfig() end
+end
+
 local function BuildUI()
   if built or InCombatLockdown() then return end
 
@@ -3967,7 +4022,7 @@ local function BuildUI()
 
   local gear = CreateFrame("Button", nil, frame)
   gear:SetSize(14, 14)
-  gear:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 8, 6)
+  gear:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 20, 6)
   gear:SetNormalTexture("Interface\\Buttons\\UI-OptionsButton")
   gear:SetHighlightTexture("Interface\\Buttons\\UI-OptionsButton", "ADD")
   gear:SetScript("OnClick", function() OpenConfig() end)
@@ -4094,31 +4149,41 @@ local function BuildUI()
   end
   X.RefreshChips()
 
-  -- Resize grip: drag the bottom-right corner to change the width.
-  grip = CreateFrame("Button", nil, frame)
-  grip:SetSize(12, 12)
-  grip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -3, 3)
-  grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
-  grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
-  grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight", "ADD")
-  grip:SetScript("OnMouseDown", function(self, button)
-    if button ~= "LeftButton" or db.locked or InCombatLockdown() then return end
-    frame:StartSizing("RIGHT")
-    self.isSizing = true
-  end)
-  grip:SetScript("OnMouseUp", function(self)
-    if not self.isSizing or InCombatLockdown() then return end
-    frame:StopMovingOrSizing()
-    self.isSizing = false
-    db.width = math_floor(frame:GetWidth() + 0.5)
-    SavePosition()  -- re-anchor by the top-left corner (sizing can move the anchor)
-  end)
-  grip:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(L["Drag to resize the width"])
-    GameTooltip:Show()
-  end)
-  grip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  -- Scale grips (1.11.0): drag either bottom corner to rescale the whole
+  -- window (frame, rows, icons and text) together. The opposite bottom
+  -- corner stays put on screen; the top edge (or bottom edge when the list
+  -- grows up) stays put vertically. Width is set with /br width.
+  local function MakeScaleGrip(side)
+    local g = CreateFrame("Button", nil, frame)
+    g:SetSize(12, 12)
+    g.side = side
+    local right = side == "RIGHT"
+    g:SetPoint(right and "BOTTOMRIGHT" or "BOTTOMLEFT", frame, right and "BOTTOMRIGHT" or "BOTTOMLEFT",
+               right and -3 or 3, 3)
+    g:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    g:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+    g:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight", "ADD")
+    if not right then  -- mirror the right-corner art for the left corner
+      local texs = { g:GetNormalTexture(), g:GetPushedTexture(), g:GetHighlightTexture() }
+      for i = 1, 3 do
+        if texs[i] and texs[i].SetTexCoord then texs[i]:SetTexCoord(1, 0, 0, 1) end
+      end
+    end
+    g:SetScript("OnMouseDown", function(self, button)
+      if button ~= "LeftButton" or db.locked or InCombatLockdown() then return end
+      X.BeginScaleDrag(self)
+    end)
+    g:SetScript("OnMouseUp", function(self) X.EndScaleDrag(self) end)
+    g:SetScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, right and "ANCHOR_RIGHT" or "ANCHOR_LEFT")
+      GameTooltip:AddLine(L["Drag to resize the window"])
+      GameTooltip:Show()
+    end)
+    g:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return g
+  end
+  grip = MakeScaleGrip("RIGHT")
+  X.gripL = MakeScaleGrip("LEFT")
 
   -- Name finder (1.8.0): a slim bar under the toggle strip holding one
   -- edit box; while it has text, the list shows only matching names.
@@ -5320,12 +5385,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       frame.isMoving = false
       SavePosition()
     end
-    if grip and grip.isSizing then  -- same for a resize in progress
-      frame:StopMovingOrSizing()
-      grip.isSizing = false
-      db.width = math_floor(frame:GetWidth() + 0.5)
-      SavePosition()
-    end
+    -- Same for a scale drag in progress.
+    if grip and grip.isSizing then X.EndScaleDrag(grip) end
+    if X.gripL and X.gripL.isSizing then X.EndScaleDrag(X.gripL) end
     if nextBtn then nextBtn.bGuid, nextBtn.isClear = nil, false end  -- driver clears it
     -- Fallback when the secure combat driver isn't available: this event still runs
     -- just before combat lockdown starts, so the key can be disarmed here.
@@ -5879,7 +5941,7 @@ local function BuildConfig()
   cfg.scaleDrop:SetPoint("LEFT", scaleLabel, "RIGHT", 12, 0)
   local widthHint = look:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   widthHint:SetPoint("TOPLEFT", 14, -206)
-  widthHint:SetText("Drag the window's bottom-right corner to change its width.")
+  widthHint:SetText("Drag either bottom corner to scale the window. Width: /br width <180-400>.")
 
   local resetLook = MakeButton(look, "Reset look", 110, function()
     db.bgColor = { DEFAULTS.bgColor[1], DEFAULTS.bgColor[2], DEFAULTS.bgColor[3] }
@@ -6983,7 +7045,7 @@ function X.SelfTest()
   local ver, build, _, iface = GetBuildInfo()
   Print("BuffRadar self-test -- paste this whole block into a bug report:")
   Print(string.format("  version %s · %s edition · interface %s · client %s build %s",
-    "1.10.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
+    "1.11.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
   Print(string.format("  settings dbVersion %s · sort %s · cast mode %s · scale %s",
     tostring(db.dbVersion), tostring(db.sortMode), tostring(db.castMethod), tostring(db.scale)))
   Print(string.format("  sync %s · requests %s · role filter %s · profiles %d · idle fade %s",
@@ -7043,7 +7105,7 @@ local function HandleSlash(msg)
     if not ok then Print("|cffff4040error building window:|r " .. tostring(err)) end
   end
 
-  local needsOOC = { [""]=true, show=true, hide=true, reset=true, resetpos=true, scale=true, macro=true }
+  local needsOOC = { [""]=true, show=true, hide=true, reset=true, resetpos=true, scale=true, width=true, macro=true }
   if needsOOC[cmd] and InCombatLockdown() then
     Print("Can't do that during combat.")
     return
@@ -7993,6 +8055,15 @@ local function HandleSlash(msg)
       if RefreshConfig then RefreshConfig() end
     else
       Print("Usage: /br scale <0.5 - 2>")
+    end
+  elseif cmd == "width" then
+    local n = tonumber(rest)
+    if n and n >= MIN_WIDTH and n <= MAX_WIDTH then
+      db.width = math_floor(n + 0.5)
+      ApplyGeometry()
+      if QueueRefresh then QueueRefresh() end
+    else
+      Print(string.format("Usage: /br width <%d - %d>", MIN_WIDTH, MAX_WIDTH))
     end
   elseif cmd == "reset" then
     X.ClearSavedPoint()

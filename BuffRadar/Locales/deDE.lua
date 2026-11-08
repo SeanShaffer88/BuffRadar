@@ -54,7 +54,7 @@ BuffRadarLocales.deDE = {
   ["Still needs: %s"] = "Braucht noch: %s",
   -- window buttons, minimap button and addon menu
   ["BuffRadar settings"] = "BuffRadar-Einstellungen",
-  ["Drag to resize the width"] = "Ziehen, um die Breite zu ändern",
+  ["Drag to resize the window"] = "Ziehen, um das Fenster zu skalieren",
   ["Left-click: show / hide the window"] = "Linksklick: Fenster ein-/ausblenden",
   ["Right-click: settings"] = "Rechtsklick: Einstellungen",
   ["Drag: move around the minimap"] = "Ziehen: um die Minikarte verschieben",

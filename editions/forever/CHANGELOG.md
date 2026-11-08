@@ -2,6 +2,28 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.11.0 — 2026-11-08 — Forever edition
+
+- **Scale grips in both bottom corners.** Drag either bottom corner to
+  scale the whole window — frame, rows, icons and text — together
+  (0.5 – 2.0, same range as `/br scale`). The opposite bottom corner stays
+  where it is on screen; the top edge stays put (the bottom edge when
+  the list grows up). Hidden while locked; refused in combat; a drag in
+  progress ends when combat starts. Releasing saves the scale and the
+  position; the Window scale dropdown follows.
+- **`/br width <180-400>`** sets the list width. The old corner grip that
+  changed only the width is replaced by the scale grips, so the width now
+  has this command.
+- **Build 1.60.1.70862 audit.** Interface 16001 is unchanged. Aura, range
+  and spell reads were re-checked: every secret-value-prone call is already
+  wrapped in `pcall` with `issecretvalue` / `canaccessvalue` guards. The
+  weapon-enchant reminder still relies on `GetWeaponEnchantInfo`; it is
+  `pcall`-guarded and goes quiet if the function is missing. In game:
+  Unverified.
+- Tests: one new trial step (both grips, clamp, lock, combat, `/br width`);
+  247 steps across six fake-client setups, 0 errors.
+- Saved variables unchanged (dbVersion stays 12).
+
 ## 1.10.0 — 2026-10-25 — Forever edition
 
 A customization release: ten player-requested options — five

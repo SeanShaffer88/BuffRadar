@@ -117,6 +117,16 @@ stay parked under investigation for the reasons in `docs/PARITY.md`
 Building further is closed off; the outstanding action is SEAN's
 Forever field test (everything since 1.3.2 is Unverified in game).
 
+## 2026-11-08 — Scale grips replace the width grip (1.11.0)
+SEAN asked for drag-to-resize anchors in the bottom corners that scale
+the window and everything in it. Both bottom corners now scale; the old
+width-only grip is gone and width moved to `/br width`. Scale math is
+cursor distance from the fixed bottom corner over the unscaled window
+width, clamped 0.5-2. Helpers live on `X` (the file-scope local budget
+is 194/200; two extra locals broke compile and the trial step caught a
+second bug, a scoped `RANGES` reference). Compatibility with build
+1.60.1.70862 is a code audit only — Unverified in game.
+
 ## 2026-10-25 — Customization batch shipped as 1.10.0
 SEAN asked for 5 enhancements and 5 additions that give players more
 customization, then directed "Build all 10 as 1.10.0". Shipped:

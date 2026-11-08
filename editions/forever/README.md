@@ -19,7 +19,7 @@ as the situation calls for. When everyone is buffed, the list empties and
 gets out of your way. It costs nothing, asks for nothing, and never talks to
 anything outside the game.
 
-Version 1.10.0 · Interface 16001 · License: GPLv3 (1.2.4 was last verified on Forever beta build 1.60.1.70450)
+Version 1.11.0 · Interface 16001 · License: GPLv3 · Audited against Forever beta build 1.60.1.70862 (code audit + fake-client trials; in-game Unverified)
 
 **Forever-only from 1.8.0:** the Retail edition ended at 1.7.0 (dropped
 2026-10-25). Both editions were built from the same source; this zip's `.toc`
@@ -132,7 +132,7 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
 - **Cast counter** for this session and all-time, plus per-spell cast statistics.
 - **Customizable look:** background color, opacity, title, border, width and scale —
   in the tabbed settings window (Window / Alerts / Buffs / Behavior / Ignore & Stats).
-  Drag the window's bottom-right corner to make it wider or narrower; pick a scale
+  Drag either bottom corner to scale the whole window (or set the width with `/br width`); pick a scale
   (50%–200%) for the list window and for the settings window from their dropdowns.
 
 ## Supported buffs
@@ -168,7 +168,7 @@ those characters.
 | Show / hide from the minimap | Left-click the minimap button or BuffRadar in the minimap's addon menu |
 | Rebuff timing | Settings > Buffs: a seconds box per buff (empty = the all-buffs time) and one for all buffs |
 | Move the window | Drag it (lock it with `/br lock`) |
-| Resize the window | Drag its bottom-right corner (width), or pick a scale in Settings > Window |
+| Resize the window | Drag either bottom corner (scales window, rows and text), or pick a scale in Settings > Window; `/br width <180-400>` sets the width |
 | Hide or show the window | Your *Show / hide window* key, or `/br` |
 | Mute the sound | Your *Mute / unmute sound* key, or `/br sound` |
 

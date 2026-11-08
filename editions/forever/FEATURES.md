@@ -1,6 +1,6 @@
 # BuffRadar — Features (Forever edition)
 
-The full feature list for BuffRadar 1.10.0 (Forever edition) for
+The full feature list for BuffRadar 1.11.0 (Forever edition) for
 WoW: Forever (Interface 16001). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
@@ -328,8 +328,8 @@ stays hidden on those characters.
   color, opacity, title, border, width and scale; per-buff on/off
   (`/br buffs`, `/br toggle KEY`); per-buff rebuff timing on the
   Buffs tab; hover help on every setting; clickable checkbox
-  labels. The window resizes by dragging its bottom-right corner,
-  and scale dropdowns (50%–200%) cover the list window and the
+  labels. Dragging either bottom corner scales the whole window
+  (width: `/br width`), and scale dropdowns (50%–200%) cover the list window and the
   settings window. Settings open from the gear icon, by
   right-clicking the minimap button or the addon menu entry, via
   Esc > Options > AddOns (on clients that list addon options), or

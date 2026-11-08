@@ -2329,6 +2329,52 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   assert(chatSince(n, "saved themes"), "self-test missing the 1.10.0 state line")
   assert(chatSince(n, "buff SKYFURY") or chatSince(n, "buff FORTITUDE"), "self-test lists no buffs")
 end)
+step("corner grips scale the window (1.11.0)", function()
+  local db = env.BuffRadarDB
+  local gr, gl
+  for _, f in ipairs(env.__frames) do
+    if f.side == "RIGHT" and f.scripts.OnMouseDown then gr = f end
+    if f.side == "LEFT" and f.scripts.OnMouseDown then gl = f end
+  end
+  assert(gr and gl, "scale grips not built")
+  local frame = env.BuffRadarFrame
+  db.locked = false
+  db.scale = 1
+  -- bottom-right: left edge fixed at 40, stub width 210 -> cursor 355 = x1.5
+  env.GetCursorPosition = function() return 355, 0 end
+  gr.scripts.OnMouseDown(gr, "LeftButton")
+  assert(gr.isSizing, "right grip did not start sizing")
+  gr.scripts.OnUpdate(gr)
+  assert(db.scale == 1.5 and frame.scaleV == 1.5, "right grip scale " .. tostring(db.scale))
+  env.GetCursorPosition = function() return 9999, 0 end
+  gr.scripts.OnUpdate(gr)
+  assert(db.scale == 2, "scale not clamped to 2: " .. tostring(db.scale))
+  gr.scripts.OnMouseUp(gr)
+  assert(not gr.isSizing and not gr.scripts.OnUpdate, "right grip still sizing after release")
+  -- bottom-left: right edge fixed at 250 -> cursor -65 = x1.5
+  db.scale = 1
+  frame.scaleV = 1
+  env.GetCursorPosition = function() return -65, 0 end
+  gl.scripts.OnMouseDown(gl, "LeftButton")
+  gl.scripts.OnUpdate(gl)
+  assert(db.scale == 1.5, "left grip scale " .. tostring(db.scale))
+  gl.scripts.OnMouseUp(gl)
+  assert(db.scale == 1.5 and not gl.isSizing, "left grip release")
+  -- locked windows and combat refuse a drag
+  db.locked = true
+  gr.scripts.OnMouseDown(gr, "LeftButton")
+  assert(not gr.isSizing, "locked window started a scale drag")
+  db.locked = false
+  env.__combat = true
+  gr.scripts.OnMouseDown(gr, "LeftButton")
+  assert(not gr.isSizing, "combat started a scale drag")
+  env.__combat = false
+  env.GetCursorPosition = function() return 0, 0 end
+  db.scale = 1
+  env.SlashCmdList.BUFFRADAR("width 300")
+  assert(db.width == 300, "width command: " .. tostring(db.width))
+  env.SlashCmdList.BUFFRADAR("width 210")
+end)
 step("German client uses the translation", function()
   if not env.__german then return end
   local found
