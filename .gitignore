@@ -1,2 +1,3 @@
 # Release zips made by build.ps1 (attach them to a GitHub release instead)
+dist
 dist/

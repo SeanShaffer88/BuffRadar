@@ -1554,6 +1554,7 @@ end
 local Ignore = { index = {} }
 
 function Ignore.Key(name) return (name:gsub("%s+", "")):lower() end
+X.Ignore = Ignore  -- for Extras.lua (1.13.0)
 
 -- Called after the saved settings load: builds the index and drops entries
 -- that differ only in case or spacing ("bob" next to "Bob").
@@ -3670,6 +3671,30 @@ function X.StatsText()
   return table.concat(lines, "\n")
 end
 
+-- Per-buff summary (1.13.0): how many casts of each buff the group
+-- still needs, biggest first. Counts everyone, ignoring the role filter.
+function X.SummaryLines()
+  local keep = X.applyFilter
+  X.applyFilter = false
+  CollectEntries()
+  X.applyFilter = keep
+  local per, people = {}, 0
+  for i = 1, nEntries do
+    local e = entries[i]
+    if e.group and not e.pet then
+      people = people + 1
+      for j = 1, #e.missing do
+        local n = SafeString(e.missing[j]) or "?"
+        per[n] = (per[n] or 0) + 1
+      end
+    end
+  end
+  local rows = {}
+  for n, c in pairs(per) do rows[#rows + 1] = { n = n, c = c } end
+  table_sort(rows, function(a, b) if a.c ~= b.c then return a.c > b.c end return a.n < b.n end)
+  return rows, people
+end
+
 -- Discord summary (1.8.0): the group's buff state as a small markdown
 -- block, ready to paste into a Discord message.
 function X.DiscordText()
@@ -3756,6 +3781,8 @@ function X.ShowExport(text, forImport, titleText, mode)
         ok, msg = X.PlanImport(f.editBox:GetText())
       elseif f.importMode == "profile" then
         ok, msg = X.ProfileImport(f.editBox:GetText())
+      elseif f.importMode == "ignore" then
+        ok, msg = X.IgnoreImport(f.editBox:GetText())
       else
         local txt = f.editBox:GetText()
         if X.PrintDiff then X.PrintDiff(txt, "This import") end  -- what it changes, before it does (1.12.0)
@@ -7218,7 +7245,7 @@ function X.SelfTest()
   local ver, build, _, iface = GetBuildInfo()
   Print("BuffRadar self-test -- paste this whole block into a bug report:")
   Print(string.format("  version %s · %s edition · interface %s · client %s build %s",
-    "1.12.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
+    "1.13.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
   Print(string.format("  settings dbVersion %s · sort %s · cast mode %s · scale %s",
     tostring(db.dbVersion), tostring(db.sortMode), tostring(db.castMethod), tostring(db.scale)))
   Print(string.format("  sync %s · requests %s · role filter %s · profiles %d · idle fade %s",
@@ -7661,6 +7688,13 @@ local function HandleSlash(msg)
       for _ in pairs(X.assign) do acount = acount + 1 end
       for _ in pairs(X.blessPlan) do bcount = bcount + 1 end
       Print(string.format("Current plan: %d assignments, %d blessings. /br plan export shares it as one string.", acount, bcount))
+    end
+  elseif cmd == "summary" then
+    local rows, people = X.SummaryLines()
+    if #rows == 0 then Print("Nobody in your group is missing a buff you can cast.")
+    else
+      Print(string_format("Group needs (%d %s):", people, people == 1 and "person" or "people"))
+      for i = 1, math_min(#rows, 12) do Print(string_format("  %s: %d", rows[i].n, rows[i].c)) end
     end
   elseif cmd == "discord" then
     X.ShowExport(X.DiscordText(), false, "BuffRadar — copy into Discord")
@@ -8176,6 +8210,7 @@ local function HandleSlash(msg)
     end
     if RefreshConfig then RefreshConfig() end
   elseif cmd == "ignorelist" or cmd == "ignores" then
+    if (rest == "export" or rest == "import") and X.ext.ignorelist then X.ext.ignorelist(rest); return end
     local names = Ignore.Sorted()
     Print(#names == 0 and "Ignore list is empty." or ("Ignored: " .. table.concat(names, ", ")))
     local sess = {}
@@ -8339,7 +8374,7 @@ local function HandleSlash(msg)
     Print("  /br export | import  - copy settings between characters as one string")
     Print("  /br compact  - half-height rows   /br text <0.8-1.5>  - list text size")
     Print("  /br charpoint  - per-character window position   /br selftest  - bug-report block")
-    Print("  /br ignore <name> | unignore <name> | ignorelist")
+    Print("  /br ignore <name> | unignore <name> | ignorelist [export|import]   /br summary  - what the group still needs")
     Print("  /br rebuff KEY <sec>  - per-buff rebuff timing (see /br buffs for keys)")
     Print("  /br alertsound droplet|system|none  - new-name alert sound")
     Print("  /br announce  - post missing buffs to party/raid chat")
@@ -8383,7 +8418,7 @@ local function HandleSlash(msg)
     end
     Print("  /br specscale  - remember the scale per specialization   /br snap  - Shift-snap the scale grips")
     Print("  /br tagsymbols | motion | rangewatch  - tag symbols, reduced motion, tell me when someone walks into range")
-    Print("  /br apicheck | buffcheck | perf  - diagnostics   /br profile diff <name>  - what a profile would change")
+    Print("  /br apicheck [export] | buffcheck | perf  - diagnostics   /br profile diff <name>  - what a profile would change")
     Print("  /br width <180-400>  - list width")
     Print("  /br resetpos  - reset the window position")
   end

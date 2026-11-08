@@ -36,14 +36,19 @@ local WANT = {
   "issecretvalue", "canaccessvalue", "EditModeManagerFrame", "debugprofilestop",
 }
 
-function X.ApiCheck()
+function X.ApiCheck(export)
   local ver, build, _, iface = GetBuildInfo()
-  Print(string.format("API check -- client %s build %s interface %s:", tostring(ver), tostring(build), tostring(iface)))
+  local lines = {}
+  local function out(text, plain)
+    lines[#lines + 1] = plain or text
+    if not export then Print(text) end
+  end
+  out(string.format("API check -- client %s build %s interface %s:", tostring(ver), tostring(build), tostring(iface)))
   local missing = 0
   for _, path in ipairs(WANT) do
     local ok = Has(path)
     if not ok then missing = missing + 1 end
-    Print(string.format("  %-40s %s", path, Yes(ok)))
+    out(string.format("  %-40s %s", path, Yes(ok)), string.format("  %-40s %s", path, ok and "yes" or "NO"))
   end
   -- Weapon-enchant discovery: any API whose name suggests a temporary weapon
   -- enchant, so a replacement for GetWeaponEnchantInfo can be named from
@@ -63,8 +68,34 @@ function X.ApiCheck()
     end
   end
   table.sort(hits)
-  Print("  weapon-enchant candidates: " .. (#hits > 0 and table.concat(hits, ", ") or "none found"))
-  Print(string.format("  %d of %d listed APIs missing. A missing optional API is handled; missing ones BuffRadar needs are marked in /br debug.", missing, #WANT))
+  out("  weapon-enchant candidates: " .. (#hits > 0 and table.concat(hits, ", ") or "none found"))
+  out(string.format("  %d of %d listed APIs missing. A missing optional API is handled; missing ones BuffRadar needs are marked in /br debug.", missing, #WANT))
+  if export then X.ShowExport(table.concat(lines, "\n"), false, "BuffRadar API check -- select all, copy") end
+  return table.concat(lines, "\n")
+end
+
+---------------------------------------------------------------------------
+-- Ignore list export / import (1.13.0): one line of names, copyable, so a
+-- list moves between characters or accounts. /br ignorelist export|import.
+---------------------------------------------------------------------------
+function X.IgnoreExport()
+  return "BRI1;" .. table.concat(X.Ignore.Sorted(), ";")
+end
+
+function X.IgnoreImport(text)
+  if type(text) ~= "string" then return false, "Nothing to import." end
+  text = text:gsub("^%s+", ""):gsub("%s+$", "")
+  if text:sub(1, 5) ~= "BRI1;" then return false, "Not a BuffRadar ignore-list string (should start with BRI1;)." end
+  local added, seen = 0, 0
+  for name in (text:sub(6) .. ";"):gmatch("(.-);") do
+    name = name:gsub("^%s+", ""):gsub("%s+$", "")
+    if name ~= "" and #name <= 64 and not name:find("[%c]") then
+      seen = seen + 1
+      if X.Ignore.Add(name) then added = added + 1 end
+    end
+  end
+  if X.Refresh then X.Refresh() end
+  return true, string.format("Ignore list: %d added, %d already there.", added, seen - added)
 end
 
 ---------------------------------------------------------------------------
@@ -196,7 +227,12 @@ end
 ---------------------------------------------------------------------------
 -- Slash registration (dispatched from BuffRadar.lua's HandleSlash)
 ---------------------------------------------------------------------------
-X.ext.apicheck = function() X.ApiCheck() end
+X.ext.apicheck = function(rest) X.ApiCheck(rest == "export") end
+X.ext.ignorelist = function(rest)
+  if rest == "export" then X.ShowExport(X.IgnoreExport(), false, "BuffRadar ignore list -- select all, copy")
+  elseif rest == "import" then X.ShowExport("", true, "BuffRadar -- paste an ignore-list string, then Import", "ignore")
+  else Print("Usage: /br ignorelist export | import") end
+end
 X.ext.buffcheck = function() X.BuffCheck() end
 X.ext.perf = function() X.PerfReport() end
 X.ext.diff = function(rest)

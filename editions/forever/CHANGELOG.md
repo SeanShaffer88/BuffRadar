@@ -2,6 +2,25 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.13.0 — 2026-11-08 — Forever edition
+
+1.12.0 was verified in game on Forever 1.60.1.70862. This release adds
+the tooling and small features left on the suggestion list.
+
+- **`/br apicheck export`** opens the API report in a copy window (no
+  color codes) so it can be pasted into a bug report.
+- **`/br ignorelist export` / `import`:** the ignore list as one
+  `BRI1;` string, so it moves between characters or accounts. Import
+  skips names already listed and reports the counts.
+- **`/br summary`:** how many casts of each buff the group still needs,
+  biggest first.
+- **Release tooling:** `tools/package.sh` builds the Forever zip and
+  `SHA256SUMS.txt`; `.github/workflows/ci.yml` runs the gate on every
+  push and PR; `release.yml` builds and publishes a release when a `v*`
+  tag matching the TOC version is pushed.
+- **Tests:** smoke steps for per-spec scale, ignore-list round trip and
+  the new commands (255 steps on each of the six setups).
+
 ## 1.12.0 — 2026-11-08 — Forever edition
 
 Everything in the 20-item suggestion list (`docs/SUGGESTIONS.md`); in-game

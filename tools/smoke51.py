@@ -683,6 +683,58 @@ step("per-spec profiles keep separate buff toggles (1.4.0)", function()
   assert(d.enabled.CUSTOM_TEST == false, "spec 2 kept spec 1's toggle")
   env.GetSpecialization = nil
 end)
+step("dual-spec scale: each spec keeps its own window scale (1.13.0)", function()
+  local spec = 1
+  env.GetSpecialization = function() return spec end
+  fire("ADDON_LOADED", "BuffRadar")
+  local d = env.BuffRadarDB
+  d.scalePerSpec = true
+  d.scale = 1.3
+  spec = 2
+  fire("PLAYER_TALENT_UPDATE")
+  d.scale = 0.8
+  spec = 1
+  fire("PLAYER_TALENT_UPDATE")
+  assert(math.abs((d.scale or 0) - 1.3) < 0.001, "spec 1 scale not restored: " .. tostring(d.scale))
+  spec = 2
+  fire("PLAYER_TALENT_UPDATE")
+  assert(math.abs((d.scale or 0) - 0.8) < 0.001, "spec 2 scale not restored: " .. tostring(d.scale))
+  spec = 1
+  fire("PLAYER_TALENT_UPDATE")
+  d.scalePerSpec = false
+  env.GetSpecialization = nil
+end)
+step("ignore list export/import round-trip (1.13.0)", function()
+  local d = env.BuffRadarDB
+  env.SlashCmdList.BUFFRADAR("ignore Zork")
+  env.SlashCmdList.BUFFRADAR("ignore Bleep-Realm")
+  env.SlashCmdList.BUFFRADAR("ignorelist export")
+  local f = env.BuffRadarExportFrame
+  assert(f and f.editBox, "no export frame for the ignore list")
+  local txt = f.editBox:GetText()
+  assert(txt:sub(1, 5) == "BRI1;" and txt:find("Zork", 1, true) and txt:find("Bleep-Realm", 1, true),
+    "export string wrong: " .. tostring(txt))
+  env.SlashCmdList.BUFFRADAR("unignore Zork")
+  env.SlashCmdList.BUFFRADAR("unignore Bleep-Realm")
+  assert(not d.ignored["Zork"], "unignore failed")
+  env.SlashCmdList.BUFFRADAR("ignorelist import")
+  f.editBox:SetText(txt .. ";bad\1name")
+  f.accept.scripts.OnClick(f.accept)
+  assert(d.ignored["Zork"] or d.ignored["zork"], "import did not restore Zork")
+  assert(d.ignored["Bleep-Realm"], "import did not restore Bleep-Realm")
+  env.SlashCmdList.BUFFRADAR("unignore Zork")
+  env.SlashCmdList.BUFFRADAR("unignore Bleep-Realm")
+  env.SlashCmdList.BUFFRADAR("ignorelist import")
+  f.editBox:SetText("not a list")
+  f.accept.scripts.OnClick(f.accept)
+end)
+step("/br summary and /br apicheck export (1.13.0)", function()
+  env.SlashCmdList.BUFFRADAR("summary")
+  env.SlashCmdList.BUFFRADAR("apicheck export")
+  local f = env.BuffRadarExportFrame
+  assert(f and f.editBox:GetText():find("API check", 1, true), "apicheck export text missing")
+  assert(not f.editBox:GetText():find("|c", 1, true), "color codes leaked into the export")
+end)
 step("settings export/import round-trip (1.4.0)", function()
   local d = env.BuffRadarDB
   d.scale, d.sortMode = 1.5, "role"

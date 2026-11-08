@@ -1,6 +1,6 @@
 # BuffRadar — Features (Forever edition)
 
-The full feature list for BuffRadar 1.12.0 (Forever edition) for
+The full feature list for BuffRadar 1.13.0 (Forever edition) for
 WoW: Forever (Interface 16001). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
@@ -364,3 +364,9 @@ stays hidden on those characters.
   1.5.0, 1.6.0, 1.7.0, 1.8.0, 1.9.0 and 1.10.0 are likewise built but
   UNVERIFIED in game**. The Retail edition ended at 1.7.0 (Interface 120105), a
   separate zip from the same source with its own feature list.
+
+## Added in 1.13.0
+
+- `/br apicheck export` - API report in a copy window.
+- `/br ignorelist export | import` - move the ignore list between characters.
+- `/br summary` - casts still needed per buff, biggest first.
