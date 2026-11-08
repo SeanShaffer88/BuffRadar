@@ -48,6 +48,9 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     function methods.GetBottom() return 480 end
     function methods.GetCenter() return 500, 400 end
     function methods.GetEffectiveScale() return 1 end
+    function methods.SetScale(self, v) self.scaleV = v end
+    function methods.GetScale(self) return self.scaleV or 1 end
+    function methods.GetRight() return 250 end
     function methods.GetPoint() return "TOPLEFT", env.UIParent, "BOTTOMLEFT", 40, 600 end
     function methods.GetChecked(self) return self.checked or false end
     function methods.SetChecked(self, v) self.checked = v end

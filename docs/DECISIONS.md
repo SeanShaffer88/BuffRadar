@@ -117,6 +117,30 @@ stay parked under investigation for the reasons in `docs/PARITY.md`
 Building further is closed off; the outstanding action is SEAN's
 Forever field test (everything since 1.3.2 is Unverified in game).
 
+## 2026-11-08 — All 20 suggestions applied as 1.12.0
+SEAN: "Apply all suggestions". Notes: (a) the main file stays one chunk
+at the 200-local limit, so the state table `X` moved to the top and the
+new feature code went into `Extras.lua`, loaded second through the shared
+addon namespace; a full split of the 8k-line file is NOT done because Lua
+locals cannot cross files and the existing code shares ~190 of them
+(recorded in docs/SUGGESTIONS.md). (b) The weapon-enchant replacement API
+for Forever could not be named from evidence (the lookup was not
+approved), so `/br apicheck` now lists candidates and `GetWeaponEnchantInfo`
+stays. (c) "Auto-queue out-of-range casts" became Range watch: the game
+forbids addons casting for you. (d) Talent-aware buff set was already
+true (only spells in the spellbook are offered; talent and spell changes
+rescan) and is covered by `/br apicheck`/`buffcheck`.
+
+## 2026-11-08 — Scale grips replace the width grip (1.11.0)
+SEAN asked for drag-to-resize anchors in the bottom corners that scale
+the window and everything in it. Both bottom corners now scale; the old
+width-only grip is gone and width moved to `/br width`. Scale math is
+cursor distance from the fixed bottom corner over the unscaled window
+width, clamped 0.5-2. Helpers live on `X` (the file-scope local budget
+is 194/200; two extra locals broke compile and the trial step caught a
+second bug, a scoped `RANGES` reference). Compatibility with build
+1.60.1.70862 is a code audit only — Unverified in game.
+
 ## 2026-10-25 — Customization batch shipped as 1.10.0
 SEAN asked for 5 enhancements and 5 additions that give players more
 customization, then directed "Build all 10 as 1.10.0". Shipped:

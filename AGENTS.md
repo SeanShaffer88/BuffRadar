@@ -8,18 +8,18 @@ Purpose in one line: a click-to-buff list addon for World of Warcraft — it sho
 every nearby player who is missing one of your buffs; click a name (or press one
 key) to buff them.
 
-Frozen foundation: one shared Lua source (`BuffRadar/BuffRadar.lua`) builds both
+Frozen foundation: one shared Lua source (`BuffRadar/BuffRadar.lua` + `Extras.lua`) builds both
 editions; editions differ only in their `.toc` and bundled docs
 (`BuffRadar/` = Retail docs, `editions/forever/` = Forever docs). Every feature
 is reachable as a `/br` slash command — the slash surface is the operation
 registry — as well as through its settings control where it has one.
-SavedVariables are versioned (`dbVersion`, currently 12) with a tested migration
+SavedVariables are versioned (`dbVersion`, currently 13) with a tested migration
 chain; adding or changing a setting is a format change and updates the migration
 smoke fixtures in the same change.
 
 Build: none (interpreted Lua 5.1).
 Full gate (all of it, every time, output read):
-`python3 tools/luacheck51.py BuffRadar/BuffRadar.lua BuffRadar/Locales/deDE.lua` ·
+`python3 tools/luacheck51.py BuffRadar/BuffRadar.lua BuffRadar/Extras.lua BuffRadar/Locales/*.lua` · (or just `sh tools/gate.sh`; `sh tools/install-hooks.sh` runs it before every push) ·
 `python3 tools/lualimits.py BuffRadar/BuffRadar.lua` ·
 `python3 tools/localecheck.py BuffRadar/BuffRadar.lua BuffRadar/Locales` ·
 real luacheck 1.2.0 over both Lua files (0 warnings / 0 errors) ·

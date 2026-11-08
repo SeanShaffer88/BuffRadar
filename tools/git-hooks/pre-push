@@ -1,0 +1,3 @@
+#!/bin/sh
+# Runs the full gate before every push. Install: sh tools/install-hooks.sh
+exec sh "$(git rev-parse --show-toplevel)/tools/gate.sh"
