@@ -168,3 +168,19 @@ per-alert sounds), so only the gaps were built: apicheck export, ignore
 list export/import, `/br summary`, packaging and CI. Real luacheck 1.2.0
 in CI was skipped at SEAN's request; the in-repo static checks stay the
 gate. `dbVersion` stays 13 (no new saved keys).
+
+## 2026-11-11 — Release pipeline repaired; docs synced to 1.13.0
+
+SEAN directed "do all of them" on the five improvement briefs drafted
+2026-11-11 (release pipeline, unit-scoped refresh, modifier clicks,
+pull-timer flash, file split) — BuffRadar resumed for this scope only.
+Findings while repairing Brief 1: the 1.12.0 GitHub Release had no
+assets, 1.11.0 and 1.13.0 had no release or tag, and the stray
+`1.12.0` tag (no `v` prefix) could never fire `release.yml`, which
+requires `v*` tags equal to the Forever .toc version. Fixes: the
+release workflow now verifies its own assets landed; QUALITY.md,
+docs/PARITY.md and the Forever FEATURES.md were synced from their
+stale 1.10.0 state to the verified record (1.12.0 verified in game on
+1.60.1.70862; 1.13.0 Unverified); AGENTS.md's "no CI" line was
+corrected (CI exists since 1.13.0; real luacheck stays local per
+SEAN's 2026-11-08 call). Tag rule going forward: `v<version>` only.
