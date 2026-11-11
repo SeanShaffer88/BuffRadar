@@ -359,11 +359,12 @@ stays hidden on those characters.
 ## Verification status
 
 - 1.2.2 and earlier were confirmed working live by SEAN on
-  2026-10-20. 1.2.4 (the TOPLEFT anchoring fix) was built but
-  unverified in game, and **1.3.2 — the unified-source build — 1.4.0,
-  1.5.0, 1.6.0, 1.7.0, 1.8.0, 1.9.0 and 1.10.0 are likewise built but
-  UNVERIFIED in game**. The Retail edition ended at 1.7.0 (Interface 120105), a
-  separate zip from the same source with its own feature list.
+  2026-10-20. **1.12.0 was verified in game by SEAN on Forever
+  1.60.1.70862** (2026-11-08) — that run covers the cumulative
+  1.3.2–1.12.0 feature set on the Forever client. **1.13.0 is built
+  but UNVERIFIED in game.** The Retail edition ended at 1.7.0
+  (Interface 120105), a separate zip from the same source with its
+  own feature list.
 
 ## Added in 1.13.0
 
