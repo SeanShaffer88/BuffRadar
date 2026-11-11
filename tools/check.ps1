@@ -56,7 +56,7 @@ function Section($name) { Write-Host "`n== $name" }
 # 1. luacheck: accidental globals, unused or shadowed variables, unreachable code
 Section 'luacheck'
 Push-Location $project
-try { & $luacheck 'BuffRadar\Data.lua' 'BuffRadar\BuffRadar.lua' 'BuffRadar\Extras.lua' 'BuffRadar\Locales' --no-color --codes; if ($LASTEXITCODE -ne 0) { $failed += 'luacheck' } }
+try { & $luacheck 'BuffRadar\Data.lua' 'BuffRadar\BuffRadar.lua' 'BuffRadar\Config.lua' 'BuffRadar\Slash.lua' 'BuffRadar\Extras.lua' 'BuffRadar\Locales' --no-color --codes; if ($LASTEXITCODE -ne 0) { $failed += 'luacheck' } }
 finally { Pop-Location }
 
 # 2. Compile with real Lua 5.1 (the language WoW runs)

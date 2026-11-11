@@ -72,3 +72,18 @@ Basis: read of `BuffRadar.lua` (8.1k lines, one file), tooling, docs and the 1.1
 | Sound per buff type | Already true | `/br soundfor` (1.10.0) |
 | Ignore-list import/export | Done | `/br ignorelist export | import` |
 | Dual-spec test coverage | Done | smoke step for per-spec scale |
+
+## Third list (2026-11-11, shipped as 1.15.0)
+
+Seven suggestions SEAN approved the day 1.14.0 shipped; all seven are
+built, gated and in 1.15.0 (Unverified in game, like 1.13.0/1.14.0).
+
+| # | Item | Status |
+|---|---|---|
+| 1 | File split Slices B + C (settings -> Config.lua, slash -> Slash.lua) | Done — split complete; main file ~8.4k -> ~6.0k lines |
+| 2 | Pull countdown in the coverage line | Done — coverage line counts down from X.pull while a timer runs |
+| 3 | Un-park #33 with a definition (buff fell off mid-fight) | Done — /br fallsound, "fall" alert kind, off by default; no parked items remain |
+| 4 | /br why <name> — explain why a player is/isn't listed | Done — runs the scan's own checks in order and reports the deciding one |
+| 5 | Custom group-cast pairs for modifier clicks | Done — /br grouppair, consulted by GroupSpellFor |
+| 6 | Group-cast keybind | Done — BuffRadarGroupButton, falls back to the plain cast |
+| 7 | Workflow upkeep (actions off the deprecated Node 20 runtime) | Done — checkout v5, setup-python v6 in both workflows |

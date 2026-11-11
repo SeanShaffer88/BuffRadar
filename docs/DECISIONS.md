@@ -215,3 +215,40 @@ split, then Briefs 2, 3, 4 — nothing else built; file-split Slices B
   pull flash) and the right column one (modifier clicks); the tab's
   lower rows shifted down — the in-game settings pass for 1.14.0 must
   confirm nothing clips at the tab's bottom edge.
+
+## 2026-11-11 — 1.15.0: all seven suggestions built
+
+- Scope: SEAN approved all seven suggestions the day 1.14.0 shipped —
+  file split Slices B+C, coverage-line countdown, #33 un-parked,
+  `/br why`, custom group pairs, group-cast keybind, workflow upkeep.
+- #33's definition (from its own investigation note): the re-entry
+  case — a watched group buff up at a fight's start and gone at the
+  first scan after it. Detection rides Consider's existing expiry
+  snapshots; the scan cannot run in combat, so the alert fires at
+  combat end, which is also when rebuffing becomes possible. Its own
+  "fall" alert kind and `fallSound` option, off by default.
+- Coverage countdown reads the pull state Extras already keeps; the
+  refresh ticker keeps it current. Closes Brief 4's recorded follow-up.
+- `/br why` runs the scan's own checks in order (ignore, session
+  ignore, validity, missing, listed, finder, range) and reports the
+  deciding one, then refreshes to rebuild the tallies its probe scan
+  touched.
+- Custom pairs (`db.customGroup`, capped, per-character like custom
+  spells — deliberately not in profile exports) are consulted after
+  the built-in group map, so a built-in pair always wins.
+- The group keybind mirrors the cast-setup branches rather than
+  touching the field-proven next-buff binding path; with no group
+  version it arms the plain cast, so the key is never dead. The 60-
+  upvalue ceiling on Refresh and the 200-local ceiling on the main
+  chunk were both hit during this batch: group-button state lives on
+  X, and the split files declare their own locals.
+- File split complete: Config.lua (settings) and Slash.lua (slash
+  commands) moved verbatim; main keeps thin delegating locals and two
+  bridge tables (X.cfgAPI, X.slashAPI) for the locals they consume;
+  Slash re-reads reassigned main state through getState() at command
+  entry. BuffRadar.lua: 8,455 lines at 1.14.0 -> about 6,000.
+- Workflows: checkout v5 / setup-python v6 — the first majors on the
+  Node 24 runtime runners are moving to.
+- dbVersion 15 (fallSound, customGroup), migration + fixtures in the
+  same change. All of 1.15.0 is Unverified in game.
+

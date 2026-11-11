@@ -67,6 +67,7 @@ BuffRadarLocales.zhCN = {
   ["Paused on a flight path."] = "在飞行路线上已暂停。",
   ["Pause on flight paths"] = "在飞行路线上暂停",
   ["Alert when a watched buff drops"] = "被监视的增益消失时提醒",
+["Sound when a buff falls off in combat"] = "战斗中增益掉落时播放声音",
   ["Offer group buffs in a party or raid"] = "在队伍或团队中提供群体增益",
   ["Show out-of-range players (greyed)"] = "显示超出范围的玩家（灰色）",
   ["Compact rows (no portraits)"] = "紧凑行（无头像）",

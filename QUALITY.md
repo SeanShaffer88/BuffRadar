@@ -35,6 +35,11 @@ clicks, pull-timer flash), the Data.lua split, and the release
 pipeline repair; all of it is Unverified in game, and the two
 un-parked items (#8, #19) stay Unverified until SEAN's field pass.
 The trial-run corpus grew with steps for each new behaviour.
+Re-checked at the close of 1.15.0 (2026-11-11): **scores unchanged** —
+the release builds #33 (the last parked item), the coverage-line pull
+countdown, custom group-cast pairs, a group-cast keybind, and finishes
+the file split (Config.lua, Slash.lua); all of it is Unverified in
+game. The trial-run corpus grew with steps for each new behaviour.
 Scores are 0–5 per dimension (3 = meets the bar with evidence); the weighted
 total uses the §17 weights. A release under this regime requires: total ≥85,
 no dimension below 3, and no Fail. **The current total is 69** — the blockers

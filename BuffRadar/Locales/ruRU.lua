@@ -67,6 +67,7 @@ BuffRadarLocales.ruRU = {
   ["Paused on a flight path."] = "Пауза на маршруте полёта.",
   ["Pause on flight paths"] = "Пауза на маршрутах полёта",
   ["Alert when a watched buff drops"] = "Оповещать, когда отслеживаемый бафф спадает",
+["Sound when a buff falls off in combat"] = "Звук, когда бафф спадает в бою",
   ["Offer group buffs in a party or raid"] = "Предлагать групповые баффы в группе или рейде",
   ["Show out-of-range players (greyed)"] = "Показывать игроков вне зоны досягаемости (серым)",
   ["Compact rows (no portraits)"] = "Компактные строки (без портретов)",

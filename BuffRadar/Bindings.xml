@@ -1,6 +1,8 @@
 <Bindings>
     <Binding name="CLICK BuffRadarNextButton:LeftButton" category="BUFFRADAR">
     </Binding>
+    <Binding name="CLICK BuffRadarGroupButton:LeftButton" category="BUFFRADAR">
+    </Binding>
     <Binding name="BUFFRADAR_TOGGLE" category="BUFFRADAR">
         BuffRadar_ToggleWindow()
     </Binding>

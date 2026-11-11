@@ -12,7 +12,7 @@ stub_path, addon_path = sys.argv[1], sys.argv[2]
 lua = lua51.LuaRuntime(unpack_returned_tuples=True)
 lua.execute(open(stub_path, encoding="utf-8").read())
 
-harness = lua.eval(r"""function(addonSrc, withTimer, noTemplates, forever, german, localeSrc, extrasSrc, dataSrc)
+harness = lua.eval(r"""function(addonSrc, withTimer, noTemplates, forever, german, localeSrc, extrasSrc, dataSrc, configSrc, slashSrc)
 local chat = {}
 local env = WOWSTUB(chat, withTimer, noTemplates, forever, german)
 -- Globals the addon reads but the stub doesn't define fall back to Lua's own
@@ -55,6 +55,22 @@ if dataSrc then
   end)
 end
 step("load file (main chunk)", function() chunk("BuffRadar", NS) end)
+if configSrc then
+  step("load Config.lua", function()
+    local cch = assert(loadstring(configSrc, "=Config.lua"))
+    setfenv(cch, env)
+    cch("BuffRadar", NS)
+    assert(NS.X.RefreshConfig and NS.X.OpenConfig, "Config.lua did not publish its entry points")
+  end)
+end
+if slashSrc then
+  step("load Slash.lua", function()
+    local sch = assert(loadstring(slashSrc, "=Slash.lua"))
+    setfenv(sch, env)
+    sch("BuffRadar", NS)
+    assert(NS.X.HandleSlash and NS.X.OnOff, "Slash.lua did not publish its entry points")
+  end)
+end
 if extrasSrc then
   step("load Extras.lua", function()
     local ech = assert(loadstring(extrasSrc, "=Extras.lua"))
@@ -340,6 +356,25 @@ step("modifier clicks: group spell mapping + shift-click bookkeeping (1.14.0)", 
   NS.X.pendingCast = nil
   row.scripts.PostClick(row, "LeftButton", false)
   assert(NS.X.pendingCast and NS.X.pendingCast.spell == "Power Word: Fortitude", "plain click booked the wrong spell")
+  env.SlashCmdList.BUFFRADAR("modclick off")
+end)
+step("custom group-cast pairs feed modifier clicks (1.15.0)", function()
+  if not NS.X.classic then return end
+  env.SlashCmdList.BUFFRADAR("modclick on")
+  env.SlashCmdList.BUFFRADAR('grouppair "Thorns" "Thorns of the Grove"')
+  assert(NS.X.GroupSpellFor("Thorns") == "Thorns of the Grove", "custom pair not used by GroupSpellFor")
+  assert(env.BuffRadarDB.customGroup["Thorns"] == "Thorns of the Grove", "pair not saved")
+  local row = env.BuffRadarRow1
+  row.entry = { missing = { "Thorns" }, guid = "g1", sortName = "Bob" }
+  row.attrs["type"] = "spell"
+  env.IsShiftKeyDown = function() return true end
+  NS.X.pendingCast = nil
+  row.scripts.PostClick(row, "LeftButton", false)
+  assert(NS.X.pendingCast and NS.X.pendingCast.spell == "Thorns of the Grove",
+    "shift-click ignored the custom pair: " .. tostring(NS.X.pendingCast and NS.X.pendingCast.spell))
+  env.IsShiftKeyDown = function() return false end
+  env.SlashCmdList.BUFFRADAR('grouppair clear "Thorns"')
+  assert(NS.X.GroupSpellFor("Thorns") == nil, "cleared pair still active")
   env.SlashCmdList.BUFFRADAR("modclick off")
 end)
 step("fast aura: unwatched payload skipped, watched payload refreshes (1.14.0)", function()
@@ -657,7 +692,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 14, "dbVersion not migrated to 14: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 15, "dbVersion not migrated to 15: " .. tostring(d.dbVersion))
   assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
   if env.__forever then  -- 1.8.0 (#32): shadow protection defaults to instances
     assert(d.buffContext.SHADOW_PROT == "instance",
@@ -679,7 +714,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 14 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 15 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
   -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
@@ -687,7 +722,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = { dbVersion = 9 }
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 14 and d.wizardSeen == true,
+  assert(d.dbVersion == 15 and d.wizardSeen == true,
     "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
   d.wizardSeen = false  -- leave the save as the rest of the suite expects
 end)
@@ -2414,6 +2449,101 @@ step("single-target buff dropping off its holder alerts once (1.5.0)", function(
   env.BuffRadarDB.enabled.EARTH_SHIELD = nil
   cleanup()
 end)
+step("/br why explains listing decisions (1.15.0)", function()
+  local cleanup = partyOfTwo()
+  refresh()
+  local n = #chat
+  env.SlashCmdList.BUFFRADAR("why Aaron")
+  assert(chatSince(n, "Aaron is on the list"), "why did not report Aaron listed")
+  assert(chatSince(n, ", missing:"), "why did not name the missing buffs")
+  local O = env.__over
+  O.Aura = function(u, name) return { expirationTime = env.GetTime() + 600 } end
+  n = #chat
+  env.SlashCmdList.BUFFRADAR("why Aaron")
+  assert(chatSince(n, "already has every buff"), "why did not report Aaron fully buffed")
+  O.Aura = nil
+  env.SlashCmdList.BUFFRADAR("ignore Aaron")
+  n = #chat
+  env.SlashCmdList.BUFFRADAR("why Aaron")
+  assert(chatSince(n, "ignore list"), "why did not report the ignore")
+  env.SlashCmdList.BUFFRADAR("unignore Aaron")
+  n = #chat
+  env.SlashCmdList.BUFFRADAR("why Nobody")
+  assert(chatSince(n, "no player named"), "why did not report an unknown name")
+  cleanup()
+end)
+step("pull countdown shows on the coverage line (1.15.0)", function()
+  local cleanup = partyOfTwo()
+  local pf
+  for _, f in ipairs(env.__frames) do if f.events and f.events.START_TIMER then pf = f end end
+  assert(pf, "no frame registered START_TIMER")
+  env.SlashCmdList.BUFFRADAR("pullflash on")
+  refresh()  -- a real scan, so the tally holds casts still needed
+  pf.scripts.OnEvent(pf, "START_TIMER", 3, 10, 10)
+  assert(NS.X.pull ~= nil, "pull state not set")
+  NS.X.Refresh()  -- not refresh(): that drains queued timers, ending the pull
+  local found
+  for _, fs in ipairs(env.__fontstrings) do
+    if type(fs.text) == "string" and fs.text:find("Pull in ", 1, true) then found = fs.text end
+  end
+  assert(found, "no pull countdown on the coverage line")
+  pf.scripts.OnEvent(pf, "START_TIMER", 3, 0, 0)  -- zero cancels
+  assert(NS.X.pull == nil, "pull state not cleared by the cancel")
+  NS.X.Refresh()
+  local gone = true
+  for _, fs in ipairs(env.__fontstrings) do
+    if type(fs.text) == "string" and fs.text:find("Pull in", 1, true) then gone = false end
+  end
+  assert(gone, "countdown still on the coverage line after the cancel")
+  runQueued()
+  env.SlashCmdList.BUFFRADAR("pullflash off")
+  cleanup()
+end)
+step("group-cast keybind button arms the group version (1.15.0)", function()
+  local cleanup = partyOfTwo()
+  env.IsSpellInRange = function() return 1 end
+  refresh()
+  local gb = env.BuffRadarGroupButton
+  assert(gb, "group button not created")
+  if env.__forever then
+    assert(gb.attrs["type"] == "spell", "group button type wrong: " .. tostring(gb.attrs["type"]))
+    assert(gb.attrs["spell"] == "Prayer of Fortitude",
+      "group button not armed with the group spell: " .. tostring(gb.attrs["spell"]))
+  else
+    assert(gb.attrs["spell"] == "Skyfury",
+      "group button should fall back to the plain head spell: " .. tostring(gb.attrs["spell"]))
+  end
+  env.IsSpellInRange = nil
+  cleanup()
+end)
+step("buff falling off mid-fight plays the fall alert (1.15.0, #33)", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo()
+  local db = env.BuffRadarDB
+  local O = env.__over
+  db.fallSound = true
+  db.alertSounds.fall = "system"
+  local played = 0
+  local oldPlay = env.PlaySound
+  env.PlaySound = function() played = played + 1 end
+  O.Aura = function(u, name) if u == "party1" and name == "Power Word: Fortitude" then return { expirationTime = env.GetTime() + 600 } end end
+  refresh()  -- baseline: party1 has Fortitude
+  fire("PLAYER_REGEN_DISABLED")
+  O.Aura = nil  -- Fortitude falls off during the fight
+  fire("PLAYER_REGEN_ENABLED")
+  refresh()  -- the first scan after combat sees the drop
+  assert(played == 1, "fall alert did not play exactly once, played=" .. played)
+  -- control: the same drop outside combat stays silent
+  O.Aura = function(u, name) if u == "party1" and name == "Power Word: Fortitude" then return { expirationTime = env.GetTime() + 600 } end end
+  refresh()  -- baseline again
+  O.Aura = nil
+  refresh()
+  assert(played == 1, "fall alert played for an out-of-combat drop")
+  env.PlaySound = oldPlay
+  db.fallSound = false
+  db.alertSounds.fall = nil
+  cleanup()
+end)
 step("coverage line notes a buff on cooldown (1.5.0)", function()
   if env.__forever then return end
   local cleanup = partyOfTwo("C")
@@ -2466,7 +2596,7 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 14"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 15"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
   assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
   assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")
@@ -2663,6 +2793,10 @@ ex_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Extras.lua
 ex_src = open(ex_path, encoding="utf-8").read() if os.path.exists(ex_path) else None
 da_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Data.lua")
 da_src = open(da_path, encoding="utf-8").read() if os.path.exists(da_path) else None
+cf_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Config.lua")
+cf_src = open(cf_path, encoding="utf-8").read() if os.path.exists(cf_path) else None
+sl_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Slash.lua")
+sl_src = open(sl_path, encoding="utf-8").read() if os.path.exists(sl_path) else None
 setups = [
     ("Retail: modern client (C_Timer, UI templates)", True, False, False, False),
     ("Retail: fallback timer (OnUpdate)", False, False, False, False),
@@ -2673,7 +2807,7 @@ setups = [
 if de_src:
     setups.append(("Retail: German client (Locales/deDE.lua)", True, False, False, True))
 for label, with_timer, no_templates, forever, german in setups:
-    results, chat = harness(src, with_timer, no_templates, forever, german, de_src if german else None, ex_src, da_src)
+    results, chat = harness(src, with_timer, no_templates, forever, german, de_src if german else None, ex_src, da_src, cf_src, sl_src)
     bad = 0
     for i in range(1, len(results) + 1):
         name, status = results[i][1], results[i][2]

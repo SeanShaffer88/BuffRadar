@@ -2,6 +2,38 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.0 — 2026-11-11 — Forever edition
+
+The last parked item lands, the pull countdown moves onto the coverage
+line, modifier clicks gain custom pairs and a keybind, and the file
+split finishes. Settings format version 15.
+
+- **Buff-fell-off sound (`/br fallsound`, off by default; #33):** a
+  distinct alert sound when a watched group buff that was up at the
+  start of a fight is gone at the first scan after it — told apart
+  from a fresh arrival, which the new-name alert cannot do. It has its
+  own sound choice under Settings > Alerts ("Buff fell off").
+  Single-target buffs keep their own drop alert.
+- **Pull countdown on the coverage line:** while a pull timer runs
+  (with `/br pullflash` on), the coverage line itself counts down the
+  seconds, next to the chat line and border flash from 1.14.0.
+- **Custom group-cast pairs (`/br grouppair`):** pair any buff with
+  its group version — `/br grouppair "Single" "Group"` — and
+  Shift-click (with `/br modclick` on) casts yours. `/br grouppair`
+  lists your pairs; `clear` removes one.
+- **`/br why <name>`:** ask why a player is or is not on the list —
+  the answer names the deciding reason (ignore list, can't be buffed
+  right now, already fully buffed, out of range, hidden by the finder
+  or the role filter) or what they are missing.
+- **Group-cast keybind:** a new "Cast next group buff" key binding
+  casts the group version of the first row's buff. When that buff has
+  no group version it casts the buff itself, so the key is never dead.
+- **File split finished (#17):** the settings window moved to
+  `Config.lua` and the slash commands to `Slash.lua`, alongside
+  `Data.lua` from 1.14.0. Internal only; no behaviour change.
+- **Workflows:** the CI and release actions moved off their deprecated
+  runtime, so releases keep building.
+
 ## 1.14.0 — 2026-11-11 — Forever edition
 
 Three long-parked items land, all off by default until they have been

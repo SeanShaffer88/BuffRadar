@@ -1,6 +1,6 @@
 # BuffRadar — Features (Forever edition)
 
-The full feature list for BuffRadar 1.14.0 (Forever edition) for
+The full feature list for BuffRadar 1.15.0 (Forever edition) for
 WoW: Forever (Interface 16001). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
@@ -361,12 +361,21 @@ stays hidden on those characters.
 - 1.2.2 and earlier were confirmed working live by SEAN on
   2026-10-20. **1.12.0 was verified in game by SEAN on Forever
   1.60.1.70862** (2026-11-08) — that run covers the cumulative
-  1.3.2–1.12.0 feature set on the Forever client. **1.13.0 and
-  1.14.0 are built but UNVERIFIED in game** — in particular the three
+  1.3.2–1.12.0 feature set on the Forever client. **1.13.0, 1.14.0
+  and 1.15.0 are built but UNVERIFIED in game** — in particular the
   new options below are off by default until they have been run in
   game. The Retail edition ended at 1.7.0
   (Interface 120105), a separate zip from the same source with its
   own feature list.
+
+## Added in 1.15.0
+
+- `/br fallsound` - a distinct sound when a watched group buff falls off during a fight (off by default; #33).
+- Pull countdown on the coverage line while a pull timer runs (with `/br pullflash` on).
+- `/br grouppair "Single" "Group"` - your own Shift-click group-cast pairs.
+- "Cast next group buff" key binding - casts the group version of the first row's buff.
+- `/br why <name>` - the deciding reason a player is or is not on the list.
+- Settings window and slash commands moved to their own files (internal; no behaviour change).
 
 ## Added in 1.14.0
 

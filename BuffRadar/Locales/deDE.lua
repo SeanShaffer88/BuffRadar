@@ -82,6 +82,7 @@ BuffRadarLocales.deDE = {
   ["Paused on a flight path."] = "Auf einer Flugroute pausiert.",
   ["Pause on flight paths"] = "Auf Flugrouten pausieren",
   ["Alert when a watched buff drops"] = "Alarm, wenn ein überwachter Buff abfällt",
+["Sound when a buff falls off in combat"] = "Ton, wenn ein Buff im Kampf abfällt",
   ["Offer group buffs in a party or raid"] = "Gruppenbuffs in Gruppe oder Raid anbieten",
   ["Show out-of-range players (greyed)"] = "Spieler außer Reichweite anzeigen (grau)",
   ["Compact rows (no portraits)"] = "Kompakte Zeilen (ohne Porträts)",
