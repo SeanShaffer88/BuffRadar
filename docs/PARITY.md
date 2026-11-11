@@ -1,7 +1,7 @@
 # Parity / Capability Matrix — BuffRadar
 
-Updated: 2026-10-25 · Overall readiness: the core product is complete and
-shipped at 1.10.0 — **Forever-only since 1.8.0** (Retail support dropped
+Updated: 2026-11-11 · Overall readiness: the core product is complete and
+shipped at 1.13.0 — **Forever-only since 1.8.0** (Retail support dropped
 by SEAN 2026-10-25; Retail ended at 1.7.0). The approved 50-item
 enhancement program is **complete**: 44 of 50 shipped (1.6.0 + 1.7.0 +
 1.8.0 + 1.9.0), 3 resolved as duplicates (each replaced in-batch), and
@@ -9,14 +9,15 @@ enhancement program is **complete**: 44 of 50 shipped (1.6.0 + 1.7.0 +
 further SEAN-requested customization batch (10 items) shipped in
 1.10.0, listed after the program below. Every
 "Complete" below names its test
-evidence. Nothing here is scored from in-game behaviour — the addon is
-**Unverified in game** since 1.3.2 (see the Gap column and `QUALITY.md`).
+evidence. In-game status: **1.12.0 verified by SEAN on Forever
+1.60.1.70862** (2026-11-08); 1.13.0 additions are Unverified in game
+(see the Gap column and `QUALITY.md`).
 
 | Area | Target | State | Evidence (test / corpus) | Gap |
 |---|---|---|---|---|
-| Core list & casting | Missing-buff list for group + nearby players; click / keybind / macro casting; you first | Complete | Trial run: list building, click-cast paths (target/id/macro/rank), BuffRadarNextButton + macro sync, in all 6 setups | In-game click-cast on both clients Unverified |
+| Core list & casting | Missing-buff list for group + nearby players; click / keybind / macro casting; you first | Complete | Trial run: list building, click-cast paths (target/id/macro/rank), BuffRadarNextButton + macro sync, in all 6 setups | In-game click-cast verified on Forever at 1.12.0; Retail edition ended at 1.7.0 and stays Unverified |
 | Retail buff set | All 13 classes, patch 12.1.5 set | Complete | Edition + per-class steps in the Retail setups | Unverified in a live retail client |
-| Forever buff set | Classic set incl. blessings, ranks, group variants | Complete | Forever setups incl. rank-table and Kings-first steps | Unverified in a live Forever client since 1.2.2 |
+| Forever buff set | Classic set incl. blessings, ranks, group variants | Complete | Forever setups incl. rank-table and Kings-first steps | Verified in game at 1.12.0 on 1.60.1.70862 |
 | Coordination (1.5.0–1.8.0) | Cast sync, chat requests, assignments, buddy split, blessing plan, peer hello, cover-me handoff, coverage roster, plan strings | Complete (batches 1–3) | Trial steps: sync handled-marks, request tags, leader-trust assignment sink/float, buddy hash split, blessing plan set/broadcast/receive, cover handoff + return, roster line, plan export/import round-trip — 6 setups | All multi-user behaviour Unverified in game (needs a second BuffRadar user) |
 | List & window | Sorts (name/role/distance/need), filters, strip, chips, pill, idle fade, rescue, pin, name finder, grow-up anchor, combat hide, color themes, two-column layout, saved custom themes, row spacing + icon size, window strata, click-through while locked, group-by-buff view | Complete (batches 1–4 + 1.10.0) | Trial steps per feature, incl. pill show/hide/peek, off-screen rescue via `/br resetpos`, pin order under name sort, find filter, grow-up anchor, combat hide/show, theme cycle, two-column split + widen/narrow (harness records anchors + width); 1.10.0 steps: theme save/apply/delete + sanitizer round-trip, row-pitch + icon-size deltas, frame strata, click-through mouse flags locked/unlocked, buff-view fold + cast target | Window load-rescue branch itself is not smoke-covered (harness limit) |
 | Rows & interaction | Tags (expired/rezzed/asked/handled/queued/assigned/buddy/pinned/weapon/drinking/pet), portraits, compact rows, text scale, tooltips (3 detail levels), duration bars, raid markers, range text, focus line, coverage-line part toggles, row color marks, name formats (class colors / realm / trim), buff priority order | Complete (batches 1–3 + 1.10.0) | Tag-priority steps incl. queue + pinned + weapon + drinking tags; tooltip step (recorder GameTooltip: missing + remaining-time lines); bars/markers/range/focus steps; 1.10.0 display step (coverage part off/on, tooltip minimal/full lines, tank color mark, realm + trimmed names, plain name color); priority step (offer order flips + resets) | The aura/aspect note in the row below applies as before |
@@ -25,7 +26,7 @@ evidence. Nothing here is scored from in-game behaviour — the addon is
 | Stats & reporting | Cast stats + export, cast history, announce, ready-check report + auto-post, join digest, selftest, repeat offenders, Discord summary, death recap, post-wipe report | Complete (batches 1–4) | Announce/ready/digest/selftest steps; auto-post step (leader posts to PARTY); history record + resetcount-clear step; offenders fold-on-group-end step; stats export + Discord render steps; death-recap step (PLAYER_DEAD print + reprint); wipe step (controllable clock: single death = no report, 2-of-3 dead after 20 s = report) | — |
 | Settings & QoL | Tabs UI, export/import, named profiles + share-one-profile, per-spec profiles, presets, auto profiles, scan throttle, settings search, setup wizard | Complete (batches 1–4) | Settings-fire-every-control step, export/import round-trip, profile + preset + auto-profile steps, throttle toggle + 25-player tick step, profile share/import round-trip, settings-search dim step, wizard step (preset pick applies + advances, theme cycles, Finish marks seen) | — |
 | Settings data safety | Versioned SavedVariables, migrations, corrupt-data repair | Complete | Migration fixture: legacy v2 save → v12, corrupt save replaced, corrupt customSpells/autoProfile repaired; v9 save marks the setup wizard as seen (existing users are not nagged) | — |
-| Localisation | deDE complete for every user-facing string | Complete | `tools/localecheck.py`: 81/81 strings; German setup runs the full trial run (246 steps) | Other locales: none planned |
+| Localisation | deDE, frFR, esES, ruRU, zhCN complete for every user-facing string | Complete | `tools/localecheck.py`: 81/81 strings in each of the five locales; German setup runs the full trial run | New locales are machine-assisted translations; native-speaker review welcome |
 
 ## The 50-item program (SEAN approved 2026-10-25: add all 50)
 
@@ -62,8 +63,8 @@ evidence. Nothing here is scored from in-game behaviour — the addon is
   row spacing + icon size, coverage-line part toggles, per-kind alert
   sounds, tooltip detail levels, row color marks, group-by-buff view,
   buff priority order, window strata + click-through, name formats.
-  Each is a slash operation as well as a settings control. All ten are
-  Unverified in game, like everything since 1.3.2.
+  Each is a slash operation as well as a settings control. All ten were
+  covered by SEAN's 1.12.0 in-game verification on Forever (2026-11-08).
 - **Parked under investigation (3):** #8 pull-timer flash — no verified
   source for pull timers exists in the target clients' documented API;
   needs in-game research before it can be built honestly. #19 modifier
