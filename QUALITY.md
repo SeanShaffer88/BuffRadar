@@ -40,6 +40,11 @@ the release builds #33 (the last parked item), the coverage-line pull
 countdown, custom group-cast pairs, a group-cast keybind, and finishes
 the file split (Config.lua, Slash.lua); all of it is Unverified in
 game. The trial-run corpus grew with steps for each new behaviour.
+Re-checked at the close of 1.15.1 (2026-11-11): **scores unchanged** —
+a layout-only fix release driven by SEAN's first 1.15.0 captures (the
+first in-game evidence for the settings window since 1.12.0); the main
+window and list are now field-verified at 1.15.0, and 1.15.1's own
+layout is Unverified until his re-check.
 Scores are 0–5 per dimension (3 = meets the bar with evidence); the weighted
 total uses the §17 weights. A release under this regime requires: total ≥85,
 no dimension below 3, and no Fail. **The current total is 69** — the blockers

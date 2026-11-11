@@ -1,6 +1,6 @@
 # BuffRadar — Features (Forever edition)
 
-The full feature list for BuffRadar 1.15.0 (Forever edition) for
+The full feature list for BuffRadar 1.15.1 (Forever edition) for
 WoW: Forever (Interface 16001). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
@@ -364,9 +364,16 @@ stays hidden on those characters.
   1.3.2–1.12.0 feature set on the Forever client. **1.13.0, 1.14.0
   and 1.15.0 are built but UNVERIFIED in game** — in particular the
   new options below are off by default until they have been run in
-  game. The Retail edition ended at 1.7.0
+  game. A first in-game look at 1.15.0 (2026-11-11) confirmed the
+  main window and the settings window render and list correctly;
+  the layout faults it exposed in the settings window are fixed in
+  1.15.1, which is itself Unverified in game. The Retail edition ended at 1.7.0
   (Interface 120105), a separate zip from the same source with its
   own feature list.
+
+## Fixed in 1.15.1
+
+- Window tab re-spaced in a taller settings window; the Display options panel now replaces the tab instead of drawing over it; duration bars, raid markers, range words and the focus watch line moved into that panel ("Row extras").
 
 ## Added in 1.15.0
 

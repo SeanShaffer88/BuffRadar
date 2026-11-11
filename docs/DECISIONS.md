@@ -252,3 +252,20 @@ split, then Briefs 2, 3, 4 — nothing else built; file-split Slices B
 - dbVersion 15 (fallSound, customGroup), migration + fixtures in the
   same change. All of 1.15.0 is Unverified in game.
 
+## 2026-11-11 — 1.15.1: settings layout fixes from the field pass
+
+- SEAN's first 1.15.0 captures: the main window and list render
+  correctly in game; the settings Window tab did not — three proven
+  collisions (idle-fade vs the width hint, the long minimap label vs
+  Grow-up, combat-hide vs the Layer button), bottom rows spilling
+  below the frame, and the Display options panel drawing over the
+  tab (its backdrop does not hide the tab on this client).
+- Fixes: settings window 470 -> 540 tall; the tab's lower half
+  re-spaced row by row; four fine-display checks (bars, markers,
+  range words, focus line) moved into the Display panel as "Row
+  extras" (same fields/callbacks; the panel grew to fit); opening
+  the panel now hides the tab panels and closing it (or clicking a
+  tab) restores the current tab via SelectTab/cfg.curTab — no
+  reliance on backdrop opacity. No db change (dbVersion stays 15).
+- 1.15.1 is Unverified in game until SEAN's re-check captures.
+

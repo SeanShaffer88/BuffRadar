@@ -2,6 +2,26 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.1 — 2026-11-11 — Forever edition
+
+Settings-window fixes from the first in-game look at 1.15.0. No
+settings-format change.
+
+- **Window tab re-spaced:** the settings window is taller, and the
+  lower half of the Window tab no longer crowds — the idle-fade
+  slider, "Grow the list upward", "Hide the window in combat", the
+  Layer button and the settings-scale row each have their own space,
+  and the bottom rows sit inside the window instead of spilling
+  below it.
+- **Display options panel:** opening it now replaces the tab
+  underneath instead of drawing over it (the tab shows through the
+  panel's background on this client, which made both unreadable).
+  Closing it — or clicking any tab — brings the tab back.
+- **Four options moved** from the Window tab into the Display
+  options panel, under "Row extras": duration bars, raid markers,
+  range words on greyed rows, and the focus target watch line. Same
+  options, same `/br` commands (`bars`, `markers`, `range`, `focus`).
+
 ## 1.15.0 — 2026-11-11 — Forever edition
 
 The last parked item lands, the pull countdown moves onto the coverage

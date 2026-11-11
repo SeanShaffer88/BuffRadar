@@ -219,6 +219,8 @@ local function MakeScaleDropdown(parent, getter, setter)
 end
 
 local function SelectTab(key)
+  cfg.curTab = key
+  if cfg.displayPanel then cfg.displayPanel:Hide() end
   for k, panel in pairs(cfg.panels) do panel:SetShown(k == key) end
   if cfg.nativeTabs then
     PanelTemplates_SetTab(cfg, cfg.tabBtns[key]:GetID())
@@ -240,7 +242,7 @@ local function BuildConfig()
     cfg:Hide()
     cfg = CreateFrame("Frame", "BuffRadarConfig", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
   end
-  cfg:SetSize(600, 470)
+  cfg:SetSize(600, 540)
   cfg:SetScale(db.cfgScale or 1)
   cfg:SetPoint("CENTER")
   cfg:SetFrameStrata("DIALOG")
@@ -427,12 +429,12 @@ local function BuildConfig()
   end)
 
   local fadeLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  fadeLabel:SetPoint("TOPLEFT", 304, -214)
+  fadeLabel:SetPoint("TOPLEFT", 304, -240)
   fadeLabel:SetText("Idle fade (mouse away)")
   local fadeValue = look:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   fadeValue:SetPoint("LEFT", fadeLabel, "RIGHT", 8, 0)
   cfg.fadeValue = fadeValue
-  cfg.fadeSlider = MakeSlider(look, 306, -234, 170, 0, 90, 5, function(v)
+  cfg.fadeSlider = MakeSlider(look, 306, -260, 170, 0, 90, 5, function(v)
     v = math.floor(v + 0.5)
     db.idleFade = v
     fadeValue:SetText(v .. "%")
@@ -469,22 +471,22 @@ local function BuildConfig()
   cfg.pillCheck = MakeCheck(look, L["Collapse to a pill while everyone is buffed"],
     function() return db.pill end,
     function(v) db.pill = v; Refresh() end)
-  cfg.pillCheck:SetPoint("TOPLEFT", 10, -344)
+  cfg.pillCheck:SetPoint("TOPLEFT", 10, -370)
 
   cfg.growCheck = MakeCheck(look, L["Grow the list upward"],
     function() return db.growUp end,
     function(v) db.growUp = v; X.ApplyAnchor(); Refresh() end)
-  cfg.growCheck:SetPoint("TOPLEFT", 250, -268)
+  cfg.growCheck:SetPoint("TOPLEFT", 250, -288)
 
   cfg.combatCheck = MakeCheck(look, L["Hide the window in combat"],
     function() return db.hideInCombat end,
     function(v) db.hideInCombat = v end)
-  cfg.combatCheck:SetPoint("TOPLEFT", 250, -294)
+  cfg.combatCheck:SetPoint("TOPLEFT", 250, -320)
 
   cfg.twoColCheck = MakeCheck(look, L["Two columns when the list is long"],
     function() return db.twoCol end,
     function(v) db.twoCol = v; X.cols = nil; Refresh() end)
-  cfg.twoColCheck:SetPoint("TOPLEFT", 10, -370)
+  cfg.twoColCheck:SetPoint("TOPLEFT", 10, -396)
 
   cfg.wizardBtn = MakeButton(look, "Run the setup wizard", 150, function()
     X.OpenWizard()
@@ -497,7 +499,7 @@ local function BuildConfig()
     for i, k in ipairs(order) do if k:lower() == (db.theme or ""):lower() then cur = i end end
     X.ApplyTheme(order[cur % #order + 1])
   end)
-  cfg.themeBtn:SetPoint("TOPLEFT", 250, -330)
+  cfg.themeBtn:SetPoint("TOPLEFT", 250, -362)
 
   cfg.saveThemeBtn = MakeButton(look, "Save as theme", 150, function()
     local n = 1
@@ -510,37 +512,25 @@ local function BuildConfig()
       Print("You already have 4 saved themes — /br theme delete <name> one first.")
     end
   end)
-  cfg.saveThemeBtn:SetPoint("TOPLEFT", 428, -330)
+  cfg.saveThemeBtn:SetPoint("TOPLEFT", 428, -362)
 
   cfg.findCheck = MakeCheck(look, L["Show a name finder on the window"],
     function() return db.findBox end,
     function(v) db.findBox = v; X.ApplyRowLayout(); Refresh() end)
-  cfg.findCheck:SetPoint("TOPLEFT", 250, -356)
+  cfg.findCheck:SetPoint("TOPLEFT", 250, -388)
 
-  cfg.barsCheck = MakeCheck(look, "Duration bars on rows",
-    function() return db.durationBars end,
-    function(v) db.durationBars = v; InvalidateRows(); Refresh() end)
-  cfg.barsCheck:SetPoint("TOPLEFT", 10, -396)
-
-  cfg.markersCheck = MakeCheck(look, "Raid markers on rows",
-    function() return db.raidMarkers end,
-    function(v) db.raidMarkers = v; InvalidateRows(); Refresh() end)
-  cfg.markersCheck:SetPoint("TOPLEFT", 250, -382)
-
-  cfg.rangeCheck = MakeCheck(look, "Range words on greyed rows",
-    function() return db.rangeText end,
-    function(v) db.rangeText = v; InvalidateRows(); Refresh() end)
-  cfg.rangeCheck:SetPoint("TOPLEFT", 10, -422)
-
-  cfg.focusCheck = MakeCheck(look, "Focus target watch line",
-    function() return db.focusWatch end,
-    function(v) db.focusWatch = v; Refresh() end)
-  cfg.focusCheck:SetPoint("TOPLEFT", 250, -408)
-
+  
+  
+  
+  
   cfg.displayBtn = MakeButton(look, "More display options…", 170, function()
     local p = cfg.displayPanel
     if not p then return end
-    if p:IsShown() then p:Hide() return end
+    if p:IsShown() then
+      p:Hide()
+      SelectTab(cfg.curTab or "look")
+      return
+    end
     for _, chk in pairs(cfg.coverChecks or {}) do chk:Update() end
     for rule, b in pairs(cfg.colorBtns or {}) do b:SetText(X.RowColorName(rule)) end
     if cfg.tooltipBtn then
@@ -550,9 +540,10 @@ local function BuildConfig()
       cfg.trimBtn:SetText((db.nameTrim or 0) == 0 and "full length" or ("max " .. db.nameTrim))
     if cfg.viewCheck then cfg.viewCheck:Update() end
     end
+    for _, panel in pairs(cfg.panels) do panel:Hide() end
     p:Show()
   end)
-  cfg.displayBtn:SetPoint("TOPLEFT", 250, -434)
+  cfg.displayBtn:SetPoint("TOPLEFT", 250, -428)
 
   cfg.minimapCheck = MakeCheck(look, L["Minimap button (drag it around the minimap)"],
     function() return db.showMinimap end,
@@ -560,7 +551,7 @@ local function BuildConfig()
   cfg.minimapCheck:SetPoint("TOPLEFT", 10, -268)
 
   local cfgScaleLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  cfgScaleLabel:SetPoint("TOPLEFT", 14, -308)
+  cfgScaleLabel:SetPoint("TOPLEFT", 14, -296)
   cfgScaleLabel:SetText("Settings window scale")
   cfg.cfgScaleDrop = MakeScaleDropdown(look,
     function() return db.cfgScale or 1 end,
@@ -579,7 +570,7 @@ local function BuildConfig()
     ApplyAppearance()
     RefreshConfig()
   end)
-  cfg.strataBtn:SetPoint("TOPLEFT", 334, -306)
+  cfg.strataBtn:SetPoint("TOPLEFT", 14, -344)
 
   ------------------------------------------------------------------
   -- Tab: Alerts
@@ -1128,10 +1119,6 @@ local function BuildConfig()
   Tip(cfg.displayBtn, "More display options", "Opens a panel with the finer display choices: which parts the coverage line shows, colored edge marks on rows (your assignments, tanks, expiring soon, your buddy's rows), how much detail row tooltips carry, class-colored names, realm names and shortened names.")
   Tip(cfg.wizardBtn, "Setup wizard", "Runs the three-page first-run setup again: how you play, the window theme, and your buffs. Same as /br wizard.")
   Tip(cfg.findCheck, "Name finder", "A small Find box on the window: while it holds text, only players whose name matches are listed. Same as /br findbox; /br find <text> sets the text without the box.")
-  Tip(cfg.barsCheck, "Duration bars", "A thin bar along each row's bottom edge: how much of a 30-minute span the expiring buff has left. Green over 15 minutes, yellow under it, red under 5. Same as /br bars.")
-  Tip(cfg.markersCheck, "Raid markers", "Show each player's raid target icon (star, circle, ...) on their row, over the portrait. Same as /br markers.")
-  Tip(cfg.rangeCheck, "Range words", "On greyed out-of-range rows, a player who is still in group range reads 'near' instead of 'out of range', so you can tell who is almost reachable. Same as /br range.")
-  Tip(cfg.focusCheck, "Focus watch", "A line above the coverage line about your focus target: what they still need, or that they're buffed. Same as /br focus.")
   Tip(cfg.cfgScaleDrop, "Settings window scale", "Makes this settings window bigger or smaller.")
   -- Alerts
   Tip(cfg.soundCheck, "New name alert", "Play a sound when a player appears on the list. Mute it any time with your Mute / unmute key or /br sound.")
@@ -1175,7 +1162,7 @@ local function BuildConfig()
   -- are full. Coverage-line parts, row color marks, tooltip detail and
   -- the row-name options live here.
   local dpanel = CreateFrame("Frame", nil, cfg, BackdropTemplateMixin and "BackdropTemplate" or nil)
-  dpanel:SetSize(470, 424)
+  dpanel:SetSize(470, 484)
   dpanel:SetPoint("CENTER", cfg, "CENTER", 0, 0)
   if dpanel.SetBackdrop then
     dpanel:SetBackdrop({
@@ -1193,7 +1180,7 @@ local function BuildConfig()
   local dtitle = dpanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   dtitle:SetPoint("TOPLEFT", 18, -14)
   dtitle:SetText("Display options")
-  local dclose = MakeButton(dpanel, "Close", 70, function() dpanel:Hide() end)
+  local dclose = MakeButton(dpanel, "Close", 70, function() dpanel:Hide(); SelectTab(cfg.curTab or "look") end)
   dclose:SetPoint("TOPRIGHT", -14, -10)
   section(dpanel, "Coverage line shows", 16, -44)
   cfg.coverChecks = {}
@@ -1242,19 +1229,41 @@ local function BuildConfig()
   cfg.classColorCheck = MakeCheck(dpanel, "Class-colored names",
     function() return db.classColors end,
     function(v) db.classColors = v; InvalidateRows(); Refresh() end)
-  cfg.classColorCheck:SetPoint("TOPLEFT", 16, -352)
+  cfg.classColorCheck:SetPoint("TOPLEFT", 16, -424)
   cfg.realmCheck = MakeCheck(dpanel, "Show realm names",
     function() return db.showRealm end,
     function(v) db.showRealm = v; InvalidateRows(); Refresh() end)
-  cfg.realmCheck:SetPoint("TOPLEFT", 246, -352)
+  cfg.realmCheck:SetPoint("TOPLEFT", 246, -424)
+  section(dpanel, "Row extras", 16, -318)
+  cfg.barsCheck = MakeCheck(dpanel, "Duration bars on rows",
+    function() return db.durationBars end,
+    function(v) db.durationBars = v; InvalidateRows(); Refresh() end)
+  cfg.barsCheck:SetPoint("TOPLEFT", 16, -342)
+  cfg.markersCheck = MakeCheck(dpanel, "Raid markers on rows",
+    function() return db.raidMarkers end,
+    function(v) db.raidMarkers = v; InvalidateRows(); Refresh() end)
+  cfg.markersCheck:SetPoint("TOPLEFT", 246, -342)
+  cfg.rangeCheck = MakeCheck(dpanel, "Range words on greyed rows",
+    function() return db.rangeText end,
+    function(v) db.rangeText = v; InvalidateRows(); Refresh() end)
+  cfg.rangeCheck:SetPoint("TOPLEFT", 16, -368)
+  cfg.focusCheck = MakeCheck(dpanel, "Focus target watch line",
+    function() return db.focusWatch end,
+    function(v) db.focusWatch = v; Refresh() end)
+  cfg.focusCheck:SetPoint("TOPLEFT", 246, -368)
+
+  Tip(cfg.barsCheck, "Duration bars", "A thin bar along each row's bottom edge: how much of a 30-minute span the expiring buff has left. Green over 15 minutes, yellow under it, red under 5. Same as /br bars.")
+  Tip(cfg.markersCheck, "Raid markers", "Show each player's raid target icon (star, circle, ...) on their row, over the portrait. Same as /br markers.")
+  Tip(cfg.rangeCheck, "Range words", "On greyed out-of-range rows, a player who is still in group range reads 'near' instead of 'out of range', so you can tell who is almost reachable. Same as /br range.")
+  Tip(cfg.focusCheck, "Focus watch", "A line above the coverage line about your focus target: what they still need, or that they're buffed. Same as /br focus.")
   cfg.viewCheck = MakeCheck(dpanel, "Group rows by buff (one row per buff still needed)",
     function() return db.viewMode == "buffs" end,
     function(v) db.viewMode = v and "buffs" or "people"; Refresh() end)
-  cfg.viewCheck:SetPoint("TOPLEFT", 16, -318)
+  cfg.viewCheck:SetPoint("TOPLEFT", 16, -398)
   Tip(cfg.viewCheck, "List view",
     "Unticked: one row per player, the classic list. Ticked: one row per buff still needed, showing how many players need it; click a row to cast that buff on an in-range player who needs it.")
   local tipLab = dpanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  tipLab:SetPoint("TOPLEFT", 18, -390)
+  tipLab:SetPoint("TOPLEFT", 18, -450)
   tipLab:SetText("Row tooltips")
   cfg.tooltipBtn = MakeButton(dpanel, "Standard", 120, function()
     local order = { "minimal", "standard", "full" }
@@ -1263,9 +1272,9 @@ local function BuildConfig()
     db.tooltipLevel = order[idx % #order + 1]
     cfg.tooltipBtn:SetText(db.tooltipLevel:sub(1, 1):upper() .. db.tooltipLevel:sub(2))
   end)
-  cfg.tooltipBtn:SetPoint("TOPLEFT", 110, -386)
+  cfg.tooltipBtn:SetPoint("TOPLEFT", 110, -446)
   local trimLab = dpanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  trimLab:SetPoint("TOPLEFT", 250, -390)
+  trimLab:SetPoint("TOPLEFT", 250, -450)
   trimLab:SetText("Name length")
   cfg.trimBtn = MakeButton(dpanel, "full length", 110, function()
     local order = { 0, 8, 10, 12, 14, 18 }
@@ -1276,7 +1285,7 @@ local function BuildConfig()
     InvalidateRows()
     Refresh()
   end)
-  cfg.trimBtn:SetPoint("TOPLEFT", 336, -386)
+  cfg.trimBtn:SetPoint("TOPLEFT", 336, -446)
 
   -- Settings search (1.8.0): a find box along the window's bottom edge;
   -- typing dims every control that doesn't match (see X.CfgFilter).
