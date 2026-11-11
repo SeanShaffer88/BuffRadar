@@ -19,6 +19,16 @@ a SEAN-requested 10-item customization batch shipped (saved themes,
 row spacing + icon size, coverage part toggles, per-kind alert sounds,
 tooltip detail levels, row color marks, group-by-buff view, buff
 priority order, window strata + click-through, name formats).
+Re-checked at the close of 1.13.0 (2026-11-11): **scores unchanged** —
+the evidence picture changed, the score does not move on one field run.
+1.12.0 was verified in game by SEAN on Forever 1.60.1.70862, which
+retires the "Unverified since 1.3.2" basis for the core through 1.12.0;
+the 1.13.0 additions (apicheck export, ignore-list export/import,
+`/br summary`, CI + packaging) are Unverified in game, and the
+multi-user coordination behaviour still has no second-user field
+evidence. The 1.12.0 GitHub Release originally shipped with no assets;
+assets were backfilled and 1.13.0 was published through the tag
+workflow on 2026-11-11 (see docs/DECISIONS.md).
 Scores are 0–5 per dimension (3 = meets the bar with evidence); the weighted
 total uses the §17 weights. A release under this regime requires: total ≥85,
 no dimension below 3, and no Fail. **The current total is 69** — the blockers
