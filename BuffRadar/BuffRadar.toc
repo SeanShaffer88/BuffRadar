@@ -9,4 +9,5 @@
 ## X-License: GPL-3.0-or-later
 
 Locales\deDE.lua
+Data.lua
 BuffRadar.lua

@@ -85,5 +85,9 @@ BuffRadarLocales.frFR = {
   ["Watch my aura or aspect"] = "Surveiller mon aura ou mon aspect",
   ["Watch my world buffs"] = "Surveiller mes buffs mondiaux",
   ["Mark healers who are drinking"] = "Marquer les soigneurs qui boivent",
-  ["Show a name finder on the window"] = "Afficher une recherche de nom dans la fenêtre",
+  ["Show a name finder on the window"] = "Afficher une recherche de nom dans la fenêtre",  ["Skip rescans for aura changes that touch no watched buff"] = "Ignorer les rescans quand aucune aura surveillée ne change",
+  ["Shift-click a row casts the group version of its buff"] = "Maj-clic sur une ligne lance la version de groupe du buff",
+  ["Shift-click to cast: %s"] = "Maj-clic pour lancer : %s",
+  ["Flash when a pull timer starts"] = "Clignoter au démarrage d'un compte à rebours de pull",
+
 }

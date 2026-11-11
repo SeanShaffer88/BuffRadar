@@ -85,5 +85,9 @@ BuffRadarLocales.esES = {
   ["Watch my aura or aspect"] = "Vigilar mi aura o aspecto",
   ["Watch my world buffs"] = "Vigilar mis beneficios de mundo",
   ["Mark healers who are drinking"] = "Marcar a los sanadores que están bebiendo",
-  ["Show a name finder on the window"] = "Mostrar un buscador de nombres en la ventana",
+  ["Show a name finder on the window"] = "Mostrar un buscador de nombres en la ventana",  ["Skip rescans for aura changes that touch no watched buff"] = "Omitir reescaneos cuando no cambia ningún beneficio vigilado",
+  ["Shift-click a row casts the group version of its buff"] = "Mayús-clic en una fila lanza la versión de grupo del beneficio",
+  ["Shift-click to cast: %s"] = "Mayús-clic para lanzar: %s",
+  ["Flash when a pull timer starts"] = "Parpadear cuando empieza un temporizador de pull",
+
 }

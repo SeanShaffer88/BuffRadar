@@ -65,11 +65,15 @@ evidence. In-game status: **1.12.0 verified by SEAN on Forever
   buff priority order, window strata + click-through, name formats.
   Each is a slash operation as well as a settings control. All ten were
   covered by SEAN's 1.12.0 in-game verification on Forever (2026-11-08).
-- **Parked under investigation (3):** #8 pull-timer flash — no verified
-  source for pull timers exists in the target clients' documented API;
-  needs in-game research before it can be built honestly. #19 modifier
-  clicks — Ctrl/Shift on a secure cast button needs an in-game
-  prototype; a wrong guess breaks click-casting. #33 newly-unbuffed
-  sound — overlaps the existing new-name alert; needs a sharper
-  definition (re-entry case + distinct sound) first. These three stay
-  parked until there is evidence, not guesses.
+- **Parked under investigation (1):** #33 newly-unbuffed sound —
+  overlaps the existing new-name alert; needs a sharper definition
+  (re-entry case + distinct sound) first. It stays parked until there
+  is a definition, not a guess.
+- **Un-parked in 1.14.0 (2), shipped off by default, Unverified in
+  game:** #8 pull-timer flash — sources verified from the boss mods'
+  own code (the native group countdown event; boss-mod pull comms
+  from trusted senders), with an in-game probe in `/br apicheck`
+  reporting which sources this client delivers. #19 modifier clicks —
+  the secure modified-attribute mechanism is documented; Shift-click
+  casts the group version of a row's buff, plain clicks unchanged,
+  and the in-game prototype test is the field pass for this release.

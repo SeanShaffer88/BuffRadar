@@ -12,7 +12,7 @@ stub_path, addon_path = sys.argv[1], sys.argv[2]
 lua = lua51.LuaRuntime(unpack_returned_tuples=True)
 lua.execute(open(stub_path, encoding="utf-8").read())
 
-harness = lua.eval(r"""function(addonSrc, withTimer, noTemplates, forever, german, localeSrc, extrasSrc)
+harness = lua.eval(r"""function(addonSrc, withTimer, noTemplates, forever, german, localeSrc, extrasSrc, dataSrc)
 local chat = {}
 local env = WOWSTUB(chat, withTimer, noTemplates, forever, german)
 -- Globals the addon reads but the stub doesn't define fall back to Lua's own
@@ -46,6 +46,14 @@ if localeSrc then  -- Locales\*.lua load before BuffRadar.lua (.toc order)
   end)
 end
 local NS = {}
+if dataSrc then
+  step("load Data.lua", function()
+    local dch = assert(loadstring(dataSrc, "=Data.lua"))
+    setfenv(dch, env)
+    dch("BuffRadar", NS)
+    assert(NS.X and NS.X.BUFF_DEFS and NS.X.BLESSINGS, "Data.lua did not publish its tables")
+  end)
+end
 step("load file (main chunk)", function() chunk("BuffRadar", NS) end)
 if extrasSrc then
   step("load Extras.lua", function()
@@ -57,7 +65,9 @@ end
 
 local driver
 for _, f in ipairs(env.__frames) do
-  if f.events and f.events.ADDON_LOADED then driver = f end
+  -- the FIRST frame that registered ADDON_LOADED is the addon's event
+  -- driver (Extras.lua adds small listener frames of its own later)
+  if f.events and f.events.ADDON_LOADED then driver = f; break end
 end
 step("find event frame", function() assert(driver, "no frame registered ADDON_LOADED") end)
 if not driver then return results, chat end
@@ -279,6 +289,82 @@ step("UNIT_AURA on yourself: refresh queued", function()
   fire("UNIT_AURA", "player")
   assert(#env.__timers == 1, "no refresh queued for the player")
   runQueued()
+end)
+step("pull timer: probe counts sightings; flash fires with casts outstanding (1.14.0)", function()
+  local pf
+  for _, f in ipairs(env.__frames) do if f.events and f.events.START_TIMER then pf = f end end
+  assert(pf, "no frame registered START_TIMER")
+  local firePull = function(...) pf.scripts.OnEvent(pf, ...) end
+  NS.X.tally = { FORTITUDE = { total = 5, miss = 2 } }
+  firePull("START_TIMER", 3, 10, 10)
+  assert(NS.X.pullProbe.stSeen == 1, "START_TIMER not counted by the probe")
+  assert(NS.X.pull == nil, "flash state set while pullflash is off")
+  env.SlashCmdList.BUFFRADAR("pullflash on")
+  firePull("START_TIMER", 3, 10, 10)
+  assert(NS.X.pull ~= nil, "pull state not set with pullflash on and casts outstanding")
+  local found
+  for _, line in ipairs(chat) do if line:find("Pull in 10s", 1, true) then found = line end end
+  assert(found, "no countdown line printed: " .. table.concat(chat, " | "))
+  firePull("START_TIMER", 3, 0, 0)
+  assert(NS.X.pull == nil, "zero timer did not cancel the pull state")
+  firePull("CHAT_MSG_ADDON", "D5", "PT\t10", "RAID", "Nobody-Elsewhere")
+  assert(NS.X.pullProbe.d5 == 1, "DBM PT message not counted by the probe")
+  assert(NS.X.pull == nil, "untrusted DBM pull started the flash")
+  runQueued()  -- drain the pull countdown timers so later steps see a clean queue
+  NS.X.tally = {}
+  env.SlashCmdList.BUFFRADAR("pullflash off")
+end)
+step("modifier clicks: group spell mapping + shift-click bookkeeping (1.14.0)", function()
+  env.SlashCmdList.BUFFRADAR("modclick on")
+  if NS.X.classic then
+    assert(NS.X.GroupSpellFor("Power Word: Fortitude") == "Prayer of Fortitude", "Fortitude group mapping wrong")
+    assert(NS.X.GroupSpellFor("Mark of the Wild") == "Gift of the Wild", "Mark group mapping wrong")
+    assert(NS.X.GroupSpellFor("Blessing of Might") == "Greater Blessing of Might", "blessing group mapping wrong")
+    assert(NS.X.GroupSpellFor("Thorns") == nil, "Thorns must have no group version")
+  else
+    assert(NS.X.GroupSpellFor("Power Word: Fortitude") == nil, "retail defs carry no groupCast")
+  end
+  local row = env.BuffRadarRow1
+  row.entry = { missing = { "Power Word: Fortitude" }, guid = "g1", sortName = "Bob" }
+  row.attrs["type"] = "spell"
+  env.IsShiftKeyDown = function() return true end
+  NS.X.pendingCast = nil
+  row.scripts.PostClick(row, "LeftButton", false)
+  if NS.X.classic then
+    assert(NS.X.pendingCast and NS.X.pendingCast.spell == "Prayer of Fortitude",
+      "shift-click booked the wrong spell: " .. tostring(NS.X.pendingCast and NS.X.pendingCast.spell))
+  else
+    assert(NS.X.pendingCast and NS.X.pendingCast.spell == "Power Word: Fortitude", "retail shift-click must book the plain spell")
+  end
+  env.IsShiftKeyDown = function() return false end
+  NS.X.pendingCast = nil
+  row.scripts.PostClick(row, "LeftButton", false)
+  assert(NS.X.pendingCast and NS.X.pendingCast.spell == "Power Word: Fortitude", "plain click booked the wrong spell")
+  env.SlashCmdList.BUFFRADAR("modclick off")
+end)
+step("fast aura: unwatched payload skipped, watched payload refreshes (1.14.0)", function()
+  if not env.__timers then return end
+  env.SlashCmdList.BUFFRADAR("fastaura on")
+  local probe = NS.X.auraProbe or {}
+  local skipped0 = probe.skipped or 0
+  fire("UNIT_AURA", "player", { addedAuras = { { name = "Unwatched Proc", auraInstanceID = 9002 } } })
+  probe = NS.X.auraProbe
+  assert(probe and (probe.skipped or 0) == skipped0 + 1, "unwatched payload was not skipped")
+  assert(#env.__timers == 0, "skipped payload queued a refresh")
+  local watchedName = next(NS.X.watchNames or {})
+  assert(watchedName, "watchNames is empty")
+  fire("UNIT_AURA", "player", { addedAuras = { { name = watchedName, auraInstanceID = 9003 } } })
+  assert(#env.__timers == 1, "watched payload did not queue a refresh")
+  runQueued()
+  fire("UNIT_AURA", "player", { addedAuras = { { name = "Well Fed", auraInstanceID = 9001 } } })
+  assert(#env.__timers == 1, "consumable aura change (Well Fed) did not queue a refresh")
+  runQueued()
+  fire("UNIT_AURA", "player", { removedAuraInstanceIDs = { 9002 } })
+  assert(#env.__timers == 0, "removal of an unwatched aura queued a refresh")
+  fire("UNIT_AURA", "player", { removedAuraInstanceIDs = { 9003 } })
+  assert(#env.__timers == 1, "removal of a watched aura did not queue a refresh")
+  runQueued()
+  env.SlashCmdList.BUFFRADAR("fastaura off")
 end)
 step("UNIT_AURA in combat: ignored", function()
   if not env.__timers then return end
@@ -571,7 +657,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 13, "dbVersion not migrated to 12: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 14, "dbVersion not migrated to 14: " .. tostring(d.dbVersion))
   assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
   if env.__forever then  -- 1.8.0 (#32): shadow protection defaults to instances
     assert(d.buffContext.SHADOW_PROT == "instance",
@@ -593,7 +679,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 13 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 14 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
   -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
@@ -601,7 +687,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = { dbVersion = 9 }
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 13 and d.wizardSeen == true,
+  assert(d.dbVersion == 14 and d.wizardSeen == true,
     "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
   d.wizardSeen = false  -- leave the save as the rest of the suite expects
 end)
@@ -2380,7 +2466,7 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 13"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 14"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
   assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
   assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")
@@ -2575,6 +2661,8 @@ de_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Locales", 
 de_src = open(de_path, encoding="utf-8").read() if os.path.exists(de_path) else None
 ex_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Extras.lua")
 ex_src = open(ex_path, encoding="utf-8").read() if os.path.exists(ex_path) else None
+da_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Data.lua")
+da_src = open(da_path, encoding="utf-8").read() if os.path.exists(da_path) else None
 setups = [
     ("Retail: modern client (C_Timer, UI templates)", True, False, False, False),
     ("Retail: fallback timer (OnUpdate)", False, False, False, False),
@@ -2585,7 +2673,7 @@ setups = [
 if de_src:
     setups.append(("Retail: German client (Locales/deDE.lua)", True, False, False, True))
 for label, with_timer, no_templates, forever, german in setups:
-    results, chat = harness(src, with_timer, no_templates, forever, german, de_src if german else None, ex_src)
+    results, chat = harness(src, with_timer, no_templates, forever, german, de_src if german else None, ex_src, da_src)
     bad = 0
     for i in range(1, len(results) + 1):
         name, status = results[i][1], results[i][2]

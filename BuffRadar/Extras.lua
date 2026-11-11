@@ -28,7 +28,7 @@ local function Yes(v) return v and "|cff00ff00yes|r" or "|cffff4040no|r" end
 -- Paste the output in a bug report; it replaces guessing about a build.
 ---------------------------------------------------------------------------
 local WANT = {
-  "C_UnitAuras.GetBuffDataByIndex", "C_UnitAuras.GetAuraDataBySpellName", "UnitBuff",
+  "C_UnitAuras.GetBuffDataByIndex", "C_UnitAuras.GetAuraDataBySpellName", "C_UnitAuras.GetAuraDataByAuraInstanceID", "UnitBuff",
   "C_Spell.GetSpellName", "C_Spell.GetSpellTexture", "C_Spell.IsSpellInRange", "C_Spell.GetSpellCooldown",
   "C_SpellBook.IsSpellKnown", "IsSpellKnown", "UnitInRange", "CheckInteractDistance",
   "GetWeaponEnchantInfo", "GetInventoryItemID", "GetSpecialization", "UnitGroupRolesAssigned",
@@ -70,6 +70,25 @@ function X.ApiCheck(export)
   table.sort(hits)
   out("  weapon-enchant candidates: " .. (#hits > 0 and table.concat(hits, ", ") or "none found"))
   out(string.format("  %d of %d listed APIs missing. A missing optional API is handled; missing ones BuffRadar needs are marked in /br debug.", missing, #WANT))
+  -- UNIT_AURA payload probe (1.14.0, Brief 2): what this client actually
+  -- sends, counted by the event driver since login.
+  local probe = X.auraProbe
+  if probe and probe.seen then
+    out(string.format("  UNIT_AURA payloads seen: %d (full %d, with adds %d, with removals %d, with updates %d, skipped by fast aura %d)",
+      probe.seen, probe.full or 0, probe.added or 0, probe.removed or 0, probe.updated or 0, probe.skipped or 0))
+  else
+    out("  UNIT_AURA payloads seen: none yet (cast or receive a buff, then run this again)")
+  end
+  local pp = X.pullProbe
+  if pp and (pp.stSeen or 0) > 0 then
+    local types = {}
+    for ty in pairs(pp.stTypes or {}) do types[#types + 1] = tostring(ty) end
+    table.sort(types)
+    out(string.format("  Pull timers: START_TIMER seen %d (timerTypes: %s), DBM PT seen %d",
+      pp.stSeen, #types > 0 and table.concat(types, ", ") or "?", pp.d5 or 0))
+  else
+    out("  Pull timers: none seen yet (start a /countdown or a boss-mod /pull in a group, then run this again)")
+  end
   if export then X.ShowExport(table.concat(lines, "\n"), false, "BuffRadar API check -- select all, copy") end
   return table.concat(lines, "\n")
 end
@@ -144,6 +163,11 @@ function X.PerfReport()
   if not pf or pf.n == 0 then Print("Perf: no scans timed yet (needs debugprofilestop)."); return end
   Print(string.format("Perf: %d scans · average %.2f ms · last %.2f ms · worst %.2f ms",
     pf.n, pf.total / pf.n, pf.last, pf.max))
+  local probe = X.auraProbe
+  if probe and probe.seen then
+    Print(string.format("Perf: UNIT_AURA payloads %d · skipped by fast aura %d",
+      probe.seen, probe.skipped or 0))
+  end
   local getMem = (C_AddOns and C_AddOns.GetAddOnMemoryUsage) or _G.GetAddOnMemoryUsage
   local upd = (C_AddOns and C_AddOns.UpdateAddOnMemoryUsage) or _G.UpdateAddOnMemoryUsage
   if getMem then
@@ -222,6 +246,86 @@ function X.InitEditMode()
   end
   pcall(hooksecurefunc, _G.EditModeManagerFrame, "EnterEditMode", enter)
   pcall(hooksecurefunc, _G.EditModeManagerFrame, "ExitEditMode", leave)
+end
+
+---------------------------------------------------------------------------
+-- Pull timers (1.14.0, Brief 4 -- un-parked from the 50-item program's #8).
+-- Sources, in the order they were verified from the boss mods' own code:
+--   1. the native group countdown: START_TIMER (timerType, timeRemaining,
+--      totalTime), started by /countdown or C_PartyInfo.DoCountdown --
+--      BigWigs' own /pull rides this same path;
+--   2. DBM addon comms on prefix "D5", sub-prefix "PT" (tab-separated),
+--      accepted only from a trusted sender (X.SenderTrusted).
+-- Which of these Forever actually delivers is PROBE evidence, not a
+-- promise: every sighting is counted in X.pullProbe and /br apicheck
+-- reports it. The feature itself (border flash + countdown line) is
+-- display only and off until /br pullflash on.
+---------------------------------------------------------------------------
+X.pullProbe = { stSeen = 0, stTypes = {}, d5 = 0 }
+X.pull = nil
+
+function X.PullStart(secs, source)
+  local probe = X.pullProbe
+  probe.lastSource, probe.lastSecs = source, secs
+  if secs <= 0 then X.pull = nil; return end  -- a zero timer is a cancel
+  local db = X.GetDB and X.GetDB()
+  if not db or not db.pullFlash then return end
+  if InCombatLockdown and InCombatLockdown() then return end
+  local casts = 0
+  for _, tt in pairs(X.tally or {}) do casts = casts + (tt.miss or 0) end
+  if casts <= 0 then return end
+  X.pull = { endsAt = GetTime() + secs, source = source }
+  Print(string.format("Pull in %ds (%s) -- %d casts still needed.", secs, source, casts))
+  if X.Flash then X.Flash() end
+  if C_Timer and C_Timer.After then
+    if secs > 3 then
+      C_Timer.After(secs - 3, function() if X.pull then if X.Flash then X.Flash() end end end)
+    end
+    C_Timer.After(secs, function()
+      if X.pull then
+        X.pull = nil
+        if X.Flash then X.Flash() end
+        if X.Refresh then X.Refresh() end
+      end
+    end)
+  end
+end
+
+do
+  local pf = CreateFrame("Frame")
+  X.pullFrame = pf
+  pf:RegisterEvent("ADDON_LOADED")
+  pf:RegisterEvent("START_TIMER")
+  pf:RegisterEvent("CHAT_MSG_ADDON")
+  pf:SetScript("OnEvent", function(_, ev, a1, a2, a3, a4)
+    local probe = X.pullProbe
+    if ev == "ADDON_LOADED" then
+      if a1 == "BuffRadar" and C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
+        pcall(C_ChatInfo.RegisterAddonMessagePrefix, "D5")
+        pcall(C_ChatInfo.RegisterAddonMessagePrefix, "BigWigs")
+      end
+      return
+    end
+    if ev == "START_TIMER" then
+      probe.stSeen = probe.stSeen + 1
+      if a1 ~= nil then probe.stTypes[a1] = true end
+      local secs = (type(a2) == "number" and a2) or (type(a3) == "number" and a3) or 0
+      X.PullStart(secs, "countdown")
+      return
+    end
+    if ev == "CHAT_MSG_ADDON" and a1 == "D5" and type(a2) == "string" then
+      local sub, rest = a2:match("^(%u+)%s+(.+)$")
+      if sub == "PT" then
+        probe.d5 = probe.d5 + 1
+        probe.d5last = a2:sub(1, 24)
+        local secs = tonumber((rest or ""):match("(%d+)"))
+        if secs and X.SenderTrusted and X.SenderTrusted(a4) then
+          X.PullStart(secs, "boss mod")
+        end
+      end
+      return
+    end
+  end)
 end
 
 ---------------------------------------------------------------------------

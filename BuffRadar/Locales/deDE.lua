@@ -101,5 +101,9 @@ BuffRadarLocales.deDE = {
   ["Watch my aura or aspect"] = "Meine Aura / meinen Aspekt beobachten",
   ["Watch my world buffs"] = "Welt-Buffs auf mir beobachten",
   ["Mark healers who are drinking"] = "Heiler markieren, die gerade trinken",
-  ["Show a name finder on the window"] = "Namenssuche im Fenster anzeigen",
+  ["Show a name finder on the window"] = "Namenssuche im Fenster anzeigen",  ["Skip rescans for aura changes that touch no watched buff"] = "Neuscannen überspringen, wenn keine beobachtete Stärkung betroffen ist",
+  ["Shift-click a row casts the group version of its buff"] = "Umschalt-Klick auf eine Zeile wirkt die Gruppenversion der Stärkung",
+  ["Shift-click to cast: %s"] = "Umschalt-Klick zum Wirken: %s",
+  ["Flash when a pull timer starts"] = "Blinken, wenn ein Pull-Timer startet",
+
 }

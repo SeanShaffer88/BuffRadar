@@ -2,6 +2,40 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.14.0 — 2026-11-11 — Forever edition
+
+Three long-parked items land, all off by default until they have been
+run in game, plus a packaging repair and an internal file split.
+
+- **Release repair (Brief 1):** the 1.12.0 release originally shipped
+  with no files attached; its Forever zip and checksums are attached
+  now. 1.13.0 is released as well. The release workflow now checks its
+  own attachments landed, and publishing a version that already has a
+  release adds the files to it instead of failing.
+- **Fast aura updates (Brief 2, `/br fastaura`, off by default):**
+  aura-change events now report what actually changed. With fast aura
+  on, a change that touches no buff you can cast skips the rescan (the
+  steady refresh still runs, and any doubtful payload rescans as
+  before). `/br apicheck` and `/br perf` report the payload shapes
+  this client sends and how many were skipped.
+- **Modifier clicks (Brief 3, `/br modclick`, off by default;
+  un-parks #19):** Shift-click a row to cast the group version of its
+  buff (Prayer of Fortitude, Gift of the Wild, greater blessings)
+  instead of the single-target version. Plain clicks are unchanged.
+  Row tooltips show the Shift-click spell while the option is on.
+- **Pull-timer flash (Brief 4, `/br pullflash`, off by default;
+  un-parks #8):** when a group pull timer starts — the game's own
+  /countdown, or a boss-mod pull timer from a trusted sender — the
+  border flashes and chat shows the seconds left and how many casts
+  are still needed. `/br apicheck` reports which pull-timer sources
+  this client actually delivers.
+- **File split, Slice A (Brief 5, #17):** the buff tables, class sets,
+  blessings, presets and themes moved to a new `Data.lua`, loaded
+  first. No behaviour change; the settings and slash code moves in
+  later slices.
+- Settings format is now dbVersion 14 (the three new options take
+  their defaults; nothing else changes).
+
 ## 1.13.0 — 2026-11-08 — Forever edition
 
 1.12.0 was verified in game on Forever 1.60.1.70862. This release adds

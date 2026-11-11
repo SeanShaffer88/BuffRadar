@@ -85,5 +85,9 @@ BuffRadarLocales.zhCN = {
   ["Watch my aura or aspect"] = "监视我的光环或守护",
   ["Watch my world buffs"] = "监视我的世界增益",
   ["Mark healers who are drinking"] = "标记正在饮水的治疗者",
-  ["Show a name finder on the window"] = "在窗口中显示姓名搜索",
+  ["Show a name finder on the window"] = "在窗口中显示姓名搜索",  ["Skip rescans for aura changes that touch no watched buff"] = "当未监视的光环变化时跳过重新扫描",
+  ["Shift-click a row casts the group version of its buff"] = "Shift 点击一行施放该增益的团队版本",
+  ["Shift-click to cast: %s"] = "Shift 点击施放：%s",
+  ["Flash when a pull timer starts"] = "开怪倒计时开始时闪烁",
+
 }

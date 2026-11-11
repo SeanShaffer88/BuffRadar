@@ -29,6 +29,12 @@ multi-user coordination behaviour still has no second-user field
 evidence. The 1.12.0 GitHub Release originally shipped with no assets;
 assets were backfilled and 1.13.0 was published through the tag
 workflow on 2026-11-11 (see docs/DECISIONS.md).
+Re-checked at the close of 1.14.0 (2026-11-11): **scores unchanged** —
+the release adds three off-by-default options (fast aura, modifier
+clicks, pull-timer flash), the Data.lua split, and the release
+pipeline repair; all of it is Unverified in game, and the two
+un-parked items (#8, #19) stay Unverified until SEAN's field pass.
+The trial-run corpus grew with steps for each new behaviour.
 Scores are 0–5 per dimension (3 = meets the bar with evidence); the weighted
 total uses the §17 weights. A release under this regime requires: total ≥85,
 no dimension below 3, and no Fail. **The current total is 69** — the blockers

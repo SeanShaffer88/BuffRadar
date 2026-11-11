@@ -184,3 +184,34 @@ stale 1.10.0 state to the verified record (1.12.0 verified in game on
 1.60.1.70862; 1.13.0 Unverified); AGENTS.md's "no CI" line was
 corrected (CI exists since 1.13.0; real luacheck stays local per
 SEAN's 2026-11-08 call). Tag rule going forward: `v<version>` only.
+
+## 2026-11-11 — 1.14.0: Briefs 2–4 built (default off); file split Slice A only
+
+Scope set by SEAN the same day: Brief 1, then Slice A of the file
+split, then Briefs 2, 3, 4 — nothing else built; file-split Slices B
+(settings) and C (slash) were NOT built and stay as briefs.
+- Brief 2 (fast aura): the brief's per-unit entry cache was trimmed to
+  a relevance skip — CollectEntries' global passes (tallies, single-
+  target holders, drop checks) make per-unit caching a rewrite of the
+  scan core, while the payload itself proves most incremental updates
+  touch no watched buff. Any doubt falls back to today's full refresh.
+  The probe ships unconditionally so Forever's real payload shapes are
+  evidence before the default can change.
+- Brief 3 (#19): mapping A chosen (Shift+left-click = group version),
+  attributes only, no script-handler changes; combat snippets and
+  every clear path clear the shift family alongside the plain one.
+  The prototype gate became the 1.14.0 field pass because the option
+  is off by default and plain casting is untouched.
+- Brief 4 (#8): display = border flash + a chat countdown line. The
+  brief's coverage-line countdown was dropped: the coverage line is
+  rebuilt by every refresh, so a ticking countdown there needs a
+  main-side hook — noted as a follow-up if the field pass wants it.
+  Sources are counted by a probe before the feature trusts them;
+  boss-mod comms require X.SenderTrusted.
+- dbVersion 14 for the three new options (all default off), with the
+  migration ladder and smoke fixtures updated in the same change, per
+  the rule that adding a setting is a format change.
+- Settings window: the Behavior tab gained two rows (fast aura,
+  pull flash) and the right column one (modifier clicks); the tab's
+  lower rows shifted down — the in-game settings pass for 1.14.0 must
+  confirm nothing clips at the tab's bottom edge.

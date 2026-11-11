@@ -72,7 +72,9 @@ local SOUND_FILE = "Interface\\AddOns\\BuffRadar\\Media\\droplet.ogg"
 -- Enhancement state (1.4.0), declared up here so every later section -- and
 -- Extras.lua -- can reach it. One table on purpose: the main chunk is at
 -- Lua 5.1's 200-local limit, so new state lives here, not in new locals.
-local X = { session = {}, dead = {}, rezAt = {}, tally = {}, tallyUnits = 0,
+local X = (select(2, ...) and select(2, ...).X) or {}
+do
+  local _defs = { session = {}, dead = {}, rezAt = {}, tally = {}, tallyUnits = 0,
             listA = {}, listB = {}, recentlyGone = {}, sessionCasts = 0,
             missPrev = {}, missNow = {}, expiredAt = {}, rowH = 24,
             handled = {}, asked = {}, applyFilter = true,
@@ -80,215 +82,19 @@ local X = { session = {}, dead = {}, rezAt = {}, tally = {}, tallyUnits = 0,
             assign = {}, blessPlan = {}, peers = {}, cover = {}, myCover = false,
             expiryTally = {}, upTotal = 0, upFull = 0,
             search = "", offNow = {}, drinkSet = {}, focusMiss = {}, cfgReg = {} }
+  for k, v in pairs(_defs) do if X[k] == nil then X[k] = v end end
+end
 X.hid = 0  -- last time an aura read came back unreadable (secret) (1.12.0)
-do local ns = select(2, ...); if ns then ns.X = X end end  -- shared with Extras.lua
+if select(2, ...) then select(2, ...).X = X end  -- shared with Data.lua / Extras.lua
 
--- Edition, picked at load from the client's interface version: the
--- Forever client reports 16001, retail 120105 and up. One source serves
--- both; each edition's zip differs only in its .toc and docs. CLASSIC_FEATURES (true
--- on Forever) turns on spell ranks, group versions of buffs (Prayer of
--- Fortitude, ...) and paladin blessings; on retail their settings, commands
--- and cast modes ("id", "rank") are hidden and that code stays inert.
-local CLASSIC_FEATURES
-do
-  local ok, _, _, _, iface = pcall(GetBuildInfo)
-  iface = ok and tonumber(iface) or 0
-  CLASSIC_FEATURES = iface > 0 and iface < 100000
-end
-
----------------------------------------------------------------------------
--- Buff data. Edit freely.
---   id/name : rank-1 spell id (used to get the localized name) + English fallback
---   also    : other spells that count as "already has it" (group / greater versions)
---   classes : which classes actually benefit
---   on      : enabled by default (toggle in game with /br toggle KEY)
----------------------------------------------------------------------------
--- Fields:
---   key      settings key (/br toggle KEY, or the checkboxes in /br config)
---   id/name  spell to cast (rank-1 id gives the localized name; English fallback)
---   choices  instead of id/name: alternatives in priority order; the first one you know
---            is cast, and ANY of them already on the target counts as "has it"
---   also     other auras that count as "has it" (group / greater versions)
---   classes  who benefits (ignored for self-only buffs)
---   role     only players with this assigned group role ("TANK", ...); players
---            with no assigned role (strangers, unassigned) fall back to classes
---   self    true = can only be cast on yourself (shown on your own row)
---   groupOnly true = only reaches you and your party/raid (e.g. Battle Shout):
---            players outside your group are never listed for it
---   single   true = yours can sit on only one other player at a time (Earth
---            Shield): while it's on someone, nobody else is listed for it
---   who      short label for the settings window
---   on       enabled by default
-local ALL, MANA, MELEE, TANKS, BUFF_DEFS, AURA_DEFS  -- who benefits / what you can cast (per edition)
-if not CLASSIC_FEATURES then
-  -- Retail edition: all thirteen classes. (The Forever edition lists nine.)
-  ALL  = { WARRIOR=true, PALADIN=true, HUNTER=true, ROGUE=true, PRIEST=true,
-                 SHAMAN=true, MAGE=true, WARLOCK=true, DRUID=true,
-                 DEATHKNIGHT=true, MONK=true, DEMONHUNTER=true, EVOKER=true }
-  -- Retail mana users: hunters use focus, so they drop off this list; evokers and
-  -- monks (Mistweaver) join it.
-  MANA = { PALADIN=true, PRIEST=true, SHAMAN=true, MAGE=true,
-                 WARLOCK=true, DRUID=true, MONK=true, EVOKER=true }
-
-  MELEE = { WARRIOR=true, ROGUE=true, PALADIN=true, SHAMAN=true, DRUID=true,
-                  DEATHKNIGHT=true, MONK=true, DEMONHUNTER=true }
-  TANKS = { WARRIOR=true, PALADIN=true, DRUID=true, DEATHKNIGHT=true,
-                  MONK=true, DEMONHUNTER=true }
-
-  -- Retail edition buff set. Retail has no spell ranks and no separate group
-  -- versions: casting a raid buff on one group member applies it to the whole
-  -- party/raid in range, so the per-person list simply clears as the aura lands.
-  -- Blizzard's own list of player-cast long-term raid buffs (hotfix notes,
-  -- 2026-04-03): Mark of the Wild, Arcane Intellect, Battle Shout, Power Word:
-  -- Fortitude, Skyfury, Source of Magic, Symbiotic Relationship, Blessing of
-  -- the Bronze. Source of Magic and Symbiotic Relationship are deliberately NOT
-  -- here: each can sit on only ONE player per caster, so everyone else would
-  -- show as "missing" forever. Battle Shout and Blessing of the Bronze are
-  -- groupOnly: they can't be given to players outside your group, so listing
-  -- strangers for them would also leave those strangers "missing" forever.
-  -- Spells from the Forever edition that retail removed (mage armors, Divine
-  -- Spirit, Fear Ward, Inner Fire, blessings, ...) are gone too — BuffRadar
-  -- only ever offers spells found in your spellbook, so they could never fire.
-  BUFF_DEFS = {
-    -- Mage
-    { key="ARCANE_INTELLECT", id=1459,  name="Arcane Intellect",
-      also={}, classes=MANA, pets=true, who="mana users", on=true },
-    -- Warrior (new in the retail edition: warriors have no buffs in Forever)
-    { key="BATTLE_SHOUT",     id=6673,  name="Battle Shout",
-      also={}, classes=ALL, groupOnly=true, who="you & your group", on=true },
-    -- Priest
-    { key="FORTITUDE",        id=1243,  name="Power Word: Fortitude",
-      also={}, classes=ALL, pets=true, who="everyone", on=true },
-    -- Druid
-    { key="MARK_OF_THE_WILD", id=1126,  name="Mark of the Wild",
-      also={}, classes=ALL, pets=true, who="everyone", on=true },
-    { key="THORNS",           id=467,   name="Thorns",
-      also={}, classes=MELEE, who="melee classes (PvP talent)", on=false },
-    -- Shaman. Skyfury is NOT groupOnly: it's cast on a target ally, and only
-    -- spreads to the whole party/raid when that ally is in your group, so
-    -- players outside the group can receive it too.
-    { key="SKYFURY",          id=462854, name="Skyfury",
-      also={}, classes=ALL, who="everyone", on=true },
-    { key="SHAMAN_SHIELD", self=true, who="you", on=true,
-      choices={ {52127, "Water Shield"}, {324, "Lightning Shield"} } },
-    -- Earth Shield sits on one other player at a time (plus yourself with
-    -- Elemental Orbit, which BuffRadar doesn't count): single.
-    { key="EARTH_SHIELD",     id=974,   name="Earth Shield",
-      also={}, classes=TANKS, role="TANK", single=true, who="tanks", on=false },
-    -- Evoker (new in the retail edition)
-    { key="BLESSING_OF_THE_BRONZE", id=381732, name="Blessing of the Bronze",
-      also={}, classes=ALL, groupOnly=true, who="you & your group", on=true },
-    -- Warlock
-    { key="UNENDING_BREATH",  id=5697,  name="Unending Breath",
-      also={}, classes=ALL, who="everyone (situational)", on=false },
-  }
-else
-  -- Forever edition (1.2.4 tables, unchanged): nine classes, spell ranks,
-  -- group versions of buffs, paladin blessings (see BLESSINGS below).
-  ALL  = { WARRIOR=true, PALADIN=true, HUNTER=true, ROGUE=true, PRIEST=true,
-                 SHAMAN=true, MAGE=true, WARLOCK=true, DRUID=true }
-  MANA = { PALADIN=true, HUNTER=true, PRIEST=true, SHAMAN=true, MAGE=true,
-                 WARLOCK=true, DRUID=true }
-
-  MELEE = { WARRIOR=true, ROGUE=true, PALADIN=true, SHAMAN=true, DRUID=true }
-  TANKS = { WARRIOR=true }
-
-  BUFF_DEFS = {
-    -- Mage
-    { key="ARCANE_INTELLECT", id=1459,  name="Arcane Intellect",
-      also={ {23028, "Arcane Brilliance"} }, groupCast={ 23028, "Arcane Brilliance" },
-      classes=MANA, pets=true, who="mana users", on=true },
-    { key="MAGE_ARMOR", self=true, who="you", on=true,
-      choices={ {30482, "Molten Armor"}, {6117, "Mage Armor"}, {7302, "Ice Armor"}, {168, "Frost Armor"} } },
-    { key="DAMPEN_MAGIC",     id=604,   name="Dampen Magic",
-      also={}, classes=ALL, who="everyone (situational)", on=false },
-    { key="AMPLIFY_MAGIC",    id=1008,  name="Amplify Magic",
-      also={}, classes=ALL, who="everyone (situational)", on=false },
-    -- Priest
-    { key="FORTITUDE",        id=1243,  name="Power Word: Fortitude",
-      also={ {21562, "Prayer of Fortitude"} }, groupCast={ 21562, "Prayer of Fortitude" },
-      classes=ALL, pets=true, who="everyone", on=true },
-    { key="DIVINE_SPIRIT",    id=14752, name="Divine Spirit",
-      also={ {27681, "Prayer of Spirit"} }, groupCast={ 27681, "Prayer of Spirit" },
-      classes=MANA, who="mana users", on=true },
-    { key="FEAR_WARD",        id=6346,  name="Fear Ward",
-      also={}, classes=TANKS, who="warriors", on=true },
-    { key="INNER_FIRE",       id=588,   name="Inner Fire",
-      self=true, also={}, who="you", on=true },
-    { key="SHADOW_PROT",      id=976,   name="Shadow Protection",
-      also={ {27683, "Prayer of Shadow Protection"} }, groupCast={ 27683, "Prayer of Shadow Protection" },
-      classes=ALL, who="everyone (situational)", on=false },
-    -- Druid
-    { key="MARK_OF_THE_WILD", id=1126,  name="Mark of the Wild",
-      also={ {21849, "Gift of the Wild"} }, groupCast={ 21849, "Gift of the Wild" },
-      classes=ALL, pets=true, who="everyone", on=true },
-    { key="THORNS",           id=467,   name="Thorns",
-      also={}, classes=MELEE, who="melee classes", on=true },
-    -- Shaman
-    { key="SHAMAN_SHIELD", self=true, who="you", on=true,
-      choices={ {24398, "Water Shield"}, {324, "Lightning Shield"} } },
-    { key="EARTH_SHIELD",     id=974,   name="Earth Shield",
-      also={}, classes=TANKS, who="warriors", on=false },
-    { key="WATER_BREATHING",  id=131,   name="Water Breathing",
-      also={}, classes=ALL, who="everyone (situational)", on=false },
-    -- Warlock
-    { key="WARLOCK_ARMOR", self=true, who="you", on=true,
-      choices={ {28176, "Fel Armor"}, {706, "Demon Armor"}, {687, "Demon Skin"} } },
-    { key="UNENDING_BREATH",  id=5697,  name="Unending Breath",
-      also={}, classes=ALL, who="everyone (situational)", on=false },
-    { key="DETECT_INVIS", classes=ALL, who="everyone (situational)", on=false,
-      choices={ {11743, "Detect Greater Invisibility"}, {2970, "Detect Invisibility"},
-                {132, "Detect Lesser Invisibility"} } },
-  }
-
-  -- Aura / aspect watch (1.8.0): self-only stances that work like the
-  -- self buffs above, but live apart because they're a watch you turn on
-  -- separately (/br aura). Any one of the choices counts as "it's up".
-  AURA_DEFS = {
-    { key = "HUNTER_ASPECT", who = "you (aspect)",
-      choices = { {13165, "Aspect of the Hawk"}, {13163, "Aspect of the Monkey"},
-                  {5118, "Aspect of the Cheetah"}, {13159, "Aspect of the Pack"},
-                  {20043, "Aspect of the Wild"}, {13161, "Aspect of the Beast"} } },
-    { key = "PALADIN_AURA", who = "you (aura)",
-      choices = { {465, "Devotion Aura"}, {7294, "Retribution Aura"},
-                  {19746, "Concentration Aura"}, {20218, "Sanctity Aura"},
-                  {19876, "Shadow Resistance Aura"}, {19888, "Frost Resistance Aura"},
-                  {19891, "Fire Resistance Aura"} } },
-  }
-end
-
--- Paladin: only one of YOUR blessings can sit on a player, so each class gets the
--- first blessing in its list that you know. Kings leads every list: it buffs all
--- stats, so a paladin who knows it wants it on everyone. Might/Wisdom are only
--- fallbacks for paladins who don't know Kings yet. (Before 1.2.3 Kings sat
--- second, behind Might/Wisdom — and since Kings is learned after them, anyone
--- who knew Kings already knew the first entry too, so Kings was never cast.)
-local BLESSINGS = {
-  MIGHT     = { id=19740, name="Blessing of Might",     greater={25782, "Greater Blessing of Might"} },
-  WISDOM    = { id=19742, name="Blessing of Wisdom",    greater={25894, "Greater Blessing of Wisdom"} },
-  KINGS     = { id=20217, name="Blessing of Kings",     greater={25898, "Greater Blessing of Kings"} },
-  SALVATION = { id=1038,  name="Blessing of Salvation", greater={25895, "Greater Blessing of Salvation"} },
-  LIGHT     = { id=19977, name="Blessing of Light",     greater={25890, "Greater Blessing of Light"} },
-  SANCTUARY = { id=20911, name="Blessing of Sanctuary", greater={25899, "Greater Blessing of Sanctuary"} },
-}
-local BLESSING_PRIORITY = {
-  WARRIOR = { "KINGS", "MIGHT" },
-  ROGUE   = { "KINGS", "MIGHT" },
-  HUNTER  = { "KINGS", "WISDOM" },   -- Might is melee attack power only
-  PALADIN = { "KINGS", "WISDOM", "MIGHT" },
-  SHAMAN  = { "KINGS", "WISDOM", "MIGHT" },
-  DRUID   = { "KINGS", "WISDOM", "MIGHT" },
-  PRIEST  = { "KINGS", "WISDOM" },
-  MAGE    = { "KINGS", "WISDOM" },
-  WARLOCK = { "KINGS", "WISDOM" },
-  -- Retail-only classes. Paladin blessings don't exist on retail, so these
-  -- rows never fire there; they keep the table complete over all classes.
-  DEATHKNIGHT = { "KINGS", "MIGHT" },
-  MONK        = { "KINGS", "WISDOM", "MIGHT" },
-  DEMONHUNTER = { "KINGS", "MIGHT" },
-  EVOKER      = { "KINGS", "WISDOM" },
-}
-
+-- Buff data lives in Data.lua (loaded first through the .toc); these
+-- locals alias the shared tables so the rest of this file reads as it
+-- always has.
+local CLASSIC_FEATURES = X.classic
+local ALL, BUFF_DEFS = X.ALL, X.BUFF_DEFS
+local BLESSINGS = X.BLESSINGS
+-- (X.MANA / X.MELEE / X.TANKS / X.AURA_DEFS / X.BLESSING_PRIORITY are read
+-- through X at their few use sites, to keep main-chunk locals freed.)
 ---------------------------------------------------------------------------
 -- Saved settings
 ---------------------------------------------------------------------------
@@ -372,6 +178,9 @@ local DEFAULTS = {
   rowColors = {},      -- colored edge marks on rows: mine|tank|expiring|buddy (1.10.0)
   pinned = "",         -- full or short name of the player pinned to the top (1.7.0)
   weaponWatch = false, -- remind me when my weapon has no temporary enchant (1.7.0)
+  fastAura = false,    -- skip refreshes for aura changes that touch no watched buff (1.14.0, Brief 2)
+  modClick = false,    -- Shift-click a row casts the group version of its buff (1.14.0, Brief 3)
+  pullFlash = false,   -- flash + countdown line when a pull timer starts (1.14.0, Brief 4)
   enterFlash = true,   -- print a reminder when entering an instance unbuffed (1.7.0)
   scanThrottle = false, -- halve the steady rescan rate in groups over 20 (1.7.0)
   history = {},        -- last 50 casts through BuffRadar: { t, spell, who } (1.7.0)
@@ -698,6 +507,10 @@ local L = {
   ["Show a name finder on the window"] = "Show a name finder on the window",
   ["Remind me when entering an instance unbuffed"] = "Remind me when entering an instance unbuffed",
   ["Halve the rescan rate in big groups"] = "Halve the rescan rate in big groups",
+  ["Skip rescans for aura changes that touch no watched buff"] = "Skip rescans for aura changes that touch no watched buff",
+  ["Shift-click a row casts the group version of its buff"] = "Shift-click a row casts the group version of its buff",
+  ["Shift-click to cast: %s"] = "Shift-click to cast: %s",
+  ["Flash when a pull timer starts"] = "Flash when a pull timer starts",
   ["Low mana -- buffing paused."] = "Low mana -- buffing paused.",
   ["~%dm left"] = "~%dm left",  -- on a row whose buff is about to expire
   ["~%ds left"] = "~%ds left",
@@ -1013,6 +826,62 @@ local function Remaining(unit, name)
   return scanCache[name]
 end
 
+---------------------------------------------------------------------------
+-- Fast aura (1.14.0, Brief 2): is this incremental UNIT_AURA payload about
+-- a buff BuffRadar watches? Answers from the payload itself: addedAuras
+-- carry full aura data; removed/updated instance ids are resolved through
+-- a per-unit cache of ids seen in addedAuras (a removed aura can no longer
+-- be asked about), then through the client API. ANY doubt -- unreadable
+-- name, unknown id, missing cache -- answers "relevant", and the caller
+-- does the normal full refresh. Never answers from a guess.
+---------------------------------------------------------------------------
+function X.AuraRelevant(unit, info)
+  local watch = X.watchNames
+  if not watch then return true end
+  local cache = X.auraIds or {}; X.auraIds = cache
+  local byUnit = cache[unit]
+  local function remember(id, nm)
+    if id and nm then
+      if not byUnit then byUnit = {}; cache[unit] = byUnit end
+      byUnit[id] = nm
+    end
+  end
+  local added = GetField(info, "addedAuras")
+  if type(added) == "table" then
+    for _, a in ipairs(added) do
+      if type(a) ~= "table" then return true end
+      local nm = SafeString(GetField(a, "name"))
+      remember(GetField(a, "auraInstanceID"), nm)
+      if not nm then return true end
+      if watch[nm] then return true end
+    end
+  end
+  local updated = GetField(info, "updatedAuraInstanceIDs")
+  if type(updated) == "table" then
+    for _, id in ipairs(updated) do
+      local nm = byUnit and byUnit[id]
+      if not nm and C_UnitAuras and C_UnitAuras.GetAuraDataByAuraInstanceID then
+        local ok, d = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, unit, id)
+        if ok and type(d) == "table" then
+          nm = SafeString(GetField(d, "name")); remember(id, nm)
+        end
+      end
+      if not nm then return true end
+      if watch[nm] then return true end
+    end
+  end
+  local removed = GetField(info, "removedAuraInstanceIDs")
+  if type(removed) == "table" then
+    for _, id in ipairs(removed) do
+      local nm = byUnit and byUnit[id]
+      if byUnit then byUnit[id] = nil end
+      if not nm then return true end
+      if watch[nm] then return true end
+    end
+  end
+  return false
+end
+
 local function HasAny(unit, names, minLeft)
   minLeft = minLeft or db.rebuff or 0
   for i = 1, #names do
@@ -1146,7 +1015,7 @@ function BuildBuffList()
   -- Aura / aspect watch (1.8.0, Forever): self-only stances join the
   -- buff list while the watch is on, like the custom spells above.
   if CLASSIC_FEATURES and db and db.auraWatch then
-    for _, d in ipairs(AURA_DEFS) do
+    for _, d in ipairs(X.AURA_DEFS or {}) do
       local castName, names = nil, {}
       for _, c in ipairs(d.choices) do
         local n = SpellName(c[1], c[2])
@@ -1166,7 +1035,7 @@ function BuildBuffList()
   end
 
   wipe(myBlessing)
-  for class, list in pairs(CLASSIC_FEATURES and BLESSING_PRIORITY or {}) do
+  for class, list in pairs(CLASSIC_FEATURES and X.BLESSING_PRIORITY or {}) do
     for _, k in ipairs(list) do
       local b = BLESSINGS[k]
       local name = SpellName(b.id, b.name)
@@ -1189,6 +1058,24 @@ function BuildBuffList()
     end
   end
 
+  do  -- watched aura names for the fast-aura relevance check (1.14.0)
+    local watch = {}
+    for _, b in ipairs(myBuffs) do
+      if b.name then watch[b.name] = true end
+      for _, n in ipairs(b.names or {}) do watch[n] = true end
+    end
+    for _, cd in ipairs(X.CONS_DEFS or {}) do
+      for _, n in ipairs(cd.names or {}) do watch[n] = true end
+      if cd.sub then watch[cd.sub] = true end
+    end
+    for _, b in pairs(myBlessing) do
+      if type(b) == "table" then
+        if b.name then watch[b.name] = true end
+        for _, n in ipairs(b.names or {}) do watch[n] = true end
+      end
+    end
+    X.watchNames = watch
+  end
   hasAnyBuff = (#myBuffs > 0) or (next(myBlessing) ~= nil)
 end
 end -- BuildBuffList block
@@ -2367,14 +2254,6 @@ end
 -- BuffRadarNextButton binding already ships): one-click window/behavior
 -- setups. They touch only the keys listed, never buff toggles or timings,
 -- so they compose with spec profiles and named profiles.
-X.PRESETS = {
-  raid = { sortMode = "role", groupCast = true, showOutOfRange = true,
-           groupOnly = false, pauseInCities = true },
-  dungeon = { sortMode = "need", groupCast = true, showOutOfRange = false,
-              groupOnly = true, pauseInCities = true },
-  solo = { sortMode = "name", groupCast = false, showOutOfRange = false,
-           groupOnly = false, pauseInCities = false },
-}
 
 function X.ApplyPreset(name)
   local p = X.PRESETS[name]
@@ -2467,8 +2346,33 @@ local function CastText(name, unit)
   return name
 end
 
+-- Group version of a castable buff, for modifier clicks (1.14.0, Brief 3):
+-- the def's groupCast (Prayer of Fortitude, Gift of the Wild, ...) or a
+-- blessing's greater version; nil when the buff has none.
+local function GroupSpellFor(spell)
+  if not spell then return nil end
+  for _, d in ipairs(X.BUFF_DEFS or {}) do
+    if d.groupCast then
+      local cn = d.id and SpellName(d.id, d.name) or d.name
+      if cn == spell then return SpellName(d.groupCast[1], d.groupCast[2]) end
+    end
+  end
+  for _, b in pairs(X.BLESSINGS or {}) do
+    if b.greater and SpellName(b.id, b.name) == spell then
+      return SpellName(b.greater[1], b.greater[2])
+    end
+  end
+  return nil
+end
+X.GroupSpellFor = GroupSpellFor
+
 function Bind(btn, unit, spell)
   local pick = PickRank(spell, unit)
+  local gspell = (db.modClick and CLASSIC_FEATURES) and GroupSpellFor(spell) or nil
+  btn:SetAttribute("shift-type1", nil)
+  btn:SetAttribute("shift-spell1", nil)
+  btn:SetAttribute("shift-unit1", nil)
+  btn:SetAttribute("shift-macrotext1", nil)
   local method = db.castMethod
   if method == "target" then
     -- Self-casts go straight to "player", and party/raid members are cast on
@@ -2488,12 +2392,22 @@ function Bind(btn, unit, spell)
       btn:SetAttribute("type", "spell")
       btn:SetAttribute("spell", spell)
       btn:SetAttribute("unit", "player")
+      if gspell then
+        btn:SetAttribute("shift-type1", "spell")
+        btn:SetAttribute("shift-spell1", gspell)
+        btn:SetAttribute("shift-unit1", "player")
+      end
       return
     end
     if unit:match("^party%d+$") or unit:match("^raid%d+$") then
       btn:SetAttribute("type", "spell")
       btn:SetAttribute("spell", spell)
       btn:SetAttribute("unit", unit)
+      if gspell then
+        btn:SetAttribute("shift-type1", "spell")
+        btn:SetAttribute("shift-spell1", gspell)
+        btn:SetAttribute("shift-unit1", unit)
+      end
       return
     end
     local ok, name = pcall(GetUnitName or UnitName, unit, true)
@@ -2501,18 +2415,33 @@ function Bind(btn, unit, spell)
     if name and name ~= "" then
       btn:SetAttribute("type", "macro")
       btn:SetAttribute("macrotext", "/targetexact " .. name .. "\n/cast " .. spell .. "\n/targetlasttarget")
+      if gspell then
+        btn:SetAttribute("shift-type1", "macro")
+        btn:SetAttribute("shift-macrotext1", "/targetexact " .. name .. "\n/cast " .. gspell .. "\n/targetlasttarget")
+      end
     end
   elseif method == "id" and pick and pick.id then
     btn:SetAttribute("type", "spell")
     btn:SetAttribute("unit", unit)
     btn:SetAttribute("spell", pick.id)
     btn:SetAttribute("macrotext", nil)
+    if gspell then
+      local gpick = PickRank(gspell, unit)
+      btn:SetAttribute("shift-type1", "spell")
+      btn:SetAttribute("shift-unit1", unit)
+      btn:SetAttribute("shift-spell1", (gpick and gpick.id) or gspell)
+    end
   else
     local text = (method == "rank") and CastText(spell, unit) or spell
     btn:SetAttribute("type", "macro")
     btn:SetAttribute("unit", nil)
     btn:SetAttribute("spell", nil)
     btn:SetAttribute("macrotext", "/cast [@" .. unit .. ",help,nodead] " .. text)
+    if gspell then
+      local gtext = (method == "rank") and CastText(gspell, unit) or gspell
+      btn:SetAttribute("shift-type1", "macro")
+      btn:SetAttribute("shift-macrotext1", "/cast [@" .. unit .. ",help,nodead] " .. gtext)
+    end
   end
 end
 end -- Bind block
@@ -2562,10 +2491,11 @@ local function UpdateCounter()
   end
 end
 
-local function NotePendingCast(entry)
+local function NotePendingCast(entry, spellOverride)
   if entry and entry.missing and entry.missing[1] then
-    X.pendingCast = { spell = entry.missing[1], time = GetTime(),
-                      guid = entry.guid, key = X.KeyOfName(entry.missing[1]),
+    local spell = spellOverride or entry.missing[1]
+    X.pendingCast = { spell = spell, time = GetTime(),
+                      guid = entry.guid, key = X.KeyOfName(spell),
                       who = entry.sortName }
   end
 end
@@ -3030,6 +2960,12 @@ local function Row_OnEnter(self)
     GameTooltip:AddLine("|cff00ff00" .. e.missing[1] .. "|r")
   else
     GameTooltip:AddLine(string_format(L["Click to cast: %s"], "|cff00ff00" .. e.missing[1] .. "|r"))
+    if db.modClick and CLASSIC_FEATURES then
+      local gs = X.GroupSpellFor(e.missing[1])
+      if gs then
+        GameTooltip:AddLine(string_format(L["Shift-click to cast: %s"], "|cff00ff00" .. gs .. "|r"))
+      end
+    end
   end
   if e.groupCast then
     GameTooltip:AddLine(L["Group version — one cast buffs the whole party."], 0.4, 0.8, 1)
@@ -3234,7 +3170,16 @@ local function CreateRow(i)
   end)
   b:SetScript("PostClick", function(self, button, down)
     -- (a right-click casts nothing, so it mustn't count toward the cast counter)
-    if button ~= "RightButton" and self:GetAttribute("type") then NotePendingCast(self.entry) end
+    if button ~= "RightButton" and self:GetAttribute("type") then
+      -- Modifier click (Brief 3): bookkeep the spell the secure dispatch
+      -- actually cast (the group version), not the row's plain pick.
+      local override
+      if button == "LeftButton" and db.modClick and _G.IsShiftKeyDown and _G.IsShiftKeyDown()
+         and self.entry and self.entry.missing then
+        override = X.GroupSpellFor(self.entry.missing[1])
+      end
+      NotePendingCast(self.entry, override)
+    end
     if db.clickDebug then
       Print(string.format("click: %s %s | type=%s | %s", tostring(button),
         down and "down" or "up", tostring(self:GetAttribute("type")),
@@ -3253,13 +3198,6 @@ local grip  -- width resize grip, bottom-right corner (built in BuildUI)
 -- Color themes (1.8.0): a theme is a background color + border color pair.
 -- Picking one sets both; picking a custom background color afterwards
 -- switches the theme back to "custom" (border returns to the default).
-X.THEMES = {
-  midnight  = { label = "Midnight",  bg = { 0.04, 0.05, 0.09 }, border = { 0.35, 0.55, 0.8 } },
-  crimson   = { label = "Crimson",   bg = { 0.08, 0.02, 0.02 }, border = { 0.75, 0.2, 0.2 } },
-  forest    = { label = "Forest",    bg = { 0.02, 0.07, 0.03 }, border = { 0.3, 0.7, 0.35 } },
-  parchment = { label = "Parchment", bg = { 0.13, 0.11, 0.07 }, border = { 0.8, 0.7, 0.45 } },
-}
-X.THEME_ORDER = { "midnight", "crimson", "forest", "parchment" }
 
 -- Saved themes (1.10.0): your own background + border pairs, kept in
 -- db.customThemes, usable anywhere a built-in theme is.
@@ -3962,6 +3900,10 @@ local function ClearNext()
   nextBtn:SetAttribute("spell", nil)
   nextBtn:SetAttribute("unit", nil)
   nextBtn:SetAttribute("macrotext", nil)
+  nextBtn:SetAttribute("shift-type1", nil)
+  nextBtn:SetAttribute("shift-spell1", nil)
+  nextBtn:SetAttribute("shift-unit1", nil)
+  nextBtn:SetAttribute("shift-macrotext1", nil)
   nextBtn.isClear = true
   nextBtn.bGuid = nil
 end
@@ -3971,11 +3913,13 @@ local function BindCached(btn, unit, spell, guid)
   local method = db.castMethod
   local lvl = SafeNumber(UnitLevel(unit)) or 0  -- compared below
   if btn.bGuid == guid and btn.bUnit == unit and btn.bSpell == spell
-     and btn.bMethod == method and btn.bLevel == lvl then
+     and btn.bMethod == method and btn.bLevel == lvl
+     and btn.bMod == (db.modClick and true or false) then
     return
   end
   Bind(btn, unit, spell)
   btn.bGuid, btn.bUnit, btn.bSpell, btn.bMethod, btn.bLevel = guid, unit, spell, method, lvl
+  btn.bMod = db.modClick and true or false
   btn.isClear = false
 end
 
@@ -3997,6 +3941,10 @@ local function BuildNextButton()
       self:SetAttribute("spell", nil)
       self:SetAttribute("unit", nil)
       self:SetAttribute("macrotext", nil)
+      self:SetAttribute("shift-type1", nil)
+      self:SetAttribute("shift-spell1", nil)
+      self:SetAttribute("shift-unit1", nil)
+      self:SetAttribute("shift-macrotext1", nil)
     end
   ]])
   if RegisterStateDriver then
@@ -4008,6 +3956,10 @@ local function BuildNextButton()
       self:SetAttribute("spell", nil)
       self:SetAttribute("unit", nil)
       self:SetAttribute("macrotext", nil)
+      self:SetAttribute("shift-type1", nil)
+      self:SetAttribute("shift-spell1", nil)
+      self:SetAttribute("shift-unit1", nil)
+      self:SetAttribute("shift-macrotext1", nil)
     ]])
   end
   nextBtn:HookScript("PostClick", function(self, _, down)
@@ -4706,6 +4658,10 @@ local function RenderRow(row, e)
       row:SetAttribute("spell", nil)
       row:SetAttribute("unit", nil)
       row:SetAttribute("macrotext", nil)
+      row:SetAttribute("shift-type1", nil)
+      row:SetAttribute("shift-spell1", nil)
+      row:SetAttribute("shift-unit1", nil)
+      row:SetAttribute("shift-macrotext1", nil)
       row.bGuid = nil
     end
   else
@@ -5388,6 +5344,23 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
          and info.removedAuraInstanceIDs == nil and info.updatedAuraInstanceIDs == nil then
         return
       end
+      -- Brief 2 probe (1.14.0): count payload shapes so /br apicheck can
+      -- prove what this client sends before anything depends on it.
+      if type(info) == "table" then
+        local probe = X.auraProbe or {}; X.auraProbe = probe
+        probe.seen = (probe.seen or 0) + 1
+        if info.isFullUpdate then probe.full = (probe.full or 0) + 1 end
+        if info.addedAuras then probe.added = (probe.added or 0) + 1 end
+        if info.removedAuraInstanceIDs then probe.removed = (probe.removed or 0) + 1 end
+        if info.updatedAuraInstanceIDs then probe.updated = (probe.updated or 0) + 1 end
+        -- Fast aura (Brief 2): an incremental payload that touches no
+        -- watched buff needs no rescan. Any doubt -> relevant -> rescan.
+        if db and db.fastAura and not info.isFullUpdate
+           and type(arg1) == "string" and not X.AuraRelevant(arg1, info) then
+          probe.skipped = (probe.skipped or 0) + 1
+          return
+        end
+      end
     end
     if event == "UNIT_AURA" and type(arg1) == "string" and arg1 ~= "player" and arg1 ~= "target"
        and arg1 ~= "mouseover" and not arg1:find("^party%d") and not arg1:find("^raid%d")
@@ -5545,6 +5518,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     end
     if (db.dbVersion or 0) < 13 then
       db.dbVersion = 13       -- 1.12.0: scalePerSpec / specScales / gripSnap / tagSymbols / reduceMotion / rangeWatch take their defaults
+    end
+    if (db.dbVersion or 0) < 14 then
+      db.dbVersion = 14       -- 1.14.0: fastAura / modClick / pullFlash take their defaults (all off)
     end
     X.SpecSwap()
   elseif event == "PLAYER_LOGIN" then
@@ -6575,6 +6551,11 @@ local function BuildConfig()
     function() return db.clickThrough end,
     function(v) db.clickThrough = v; X.ApplyClickThrough() end)
   cfg.clickThroughCheck:SetPoint("TOPLEFT", 296, -408 + castY)
+  cfg.modClickCheck = MakeCheck(beh, L["Shift-click a row casts the group version of its buff"],
+    function() return db.modClick end,
+    function(v) db.modClick = v; Refresh() end)
+  cfg.modClickCheck:SetPoint("TOPLEFT", 296, -434 + castY)
+  Tip(cfg.modClickCheck, "Modifier clicks", "Shift-click a row to cast the group version of its buff (Prayer of Fortitude, Gift of the Wild, greater blessings) instead of the single-target version. Plain clicks are unchanged. Same as /br modclick.")
   Tip(cfg.clickThroughCheck, "Click-through while locked",
     "While the window is locked, it and its rows stop catching mouse clicks, so clicks land on the game world behind them. Unlock with /br lock to move or use the window again.")
 
@@ -6582,38 +6563,46 @@ local function BuildConfig()
     function() return db.scanThrottle end,
     function(v) db.scanThrottle = v end)
   cfg.throttleCheck:SetPoint("TOPLEFT", 10, -215)
+  cfg.fastAuraCheck = MakeCheck(beh, L["Skip rescans for aura changes that touch no watched buff"],
+    function() return db.fastAura end,
+    function(v) db.fastAura = v end)
+  cfg.fastAuraCheck:SetPoint("TOPLEFT", 10, -240)
+  cfg.pullFlashCheck = MakeCheck(beh, L["Flash when a pull timer starts"],
+    function() return db.pullFlash end,
+    function(v) db.pullFlash = v end)
+  cfg.pullFlashCheck:SetPoint("TOPLEFT", 10, -265)
 
-  section(beh, "More watches", 10, -248)
+  section(beh, "More watches", 10, -298)
 
   cfg.petsCheck = MakeCheck(beh, L["Watch group pets"],
     function() return db.pets end,
     function(v) db.pets = v; Refresh() end)
-  cfg.petsCheck:SetPoint("TOPLEFT", 10, -272)
+  cfg.petsCheck:SetPoint("TOPLEFT", 10, -322)
 
   cfg.auraCheck = MakeCheck(beh, L["Watch my aura or aspect"],
     function() return db.auraWatch end,
     function(v) db.auraWatch = v; pcall(BuildBuffList); Refresh() end)
-  cfg.auraCheck:SetPoint("TOPLEFT", 10, -298)
+  cfg.auraCheck:SetPoint("TOPLEFT", 10, -348)
 
   cfg.worldCheck = MakeCheck(beh, L["Watch my world buffs"],
     function() return db.worldWatch end,
     function(v) db.worldWatch = v; Refresh() end)
-  cfg.worldCheck:SetPoint("TOPLEFT", 10, -324)
+  cfg.worldCheck:SetPoint("TOPLEFT", 10, -374)
 
   cfg.drinkCheck = MakeCheck(beh, L["Mark healers who are drinking"],
     function() return db.drinkWatch end,
     function(v) db.drinkWatch = v; Refresh() end)
-  cfg.drinkCheck:SetPoint("TOPLEFT", 10, -350)
+  cfg.drinkCheck:SetPoint("TOPLEFT", 10, -400)
 
   cfg.deathCheck = MakeCheck(beh, L["Print a recap when I die"],
     function() return db.deathRecap end,
     function(v) db.deathRecap = v end)
-  cfg.deathCheck:SetPoint("TOPLEFT", 10, -376)
+  cfg.deathCheck:SetPoint("TOPLEFT", 10, -426)
 
   cfg.wipeCheck = MakeCheck(beh, L["Print a report after a wipe"],
     function() return db.wipeReport end,
     function(v) db.wipeReport = v end)
-  cfg.wipeCheck:SetPoint("TOPLEFT", 10, -402)
+  cfg.wipeCheck:SetPoint("TOPLEFT", 10, -452)
 
   if not CLASSIC_FEATURES then
     -- Aura, world-buff and drinking watches are Forever-only concepts.
@@ -6826,6 +6815,8 @@ local function BuildConfig()
   Tip(cfg.readyPostCheck, "Ready-check auto-post", "When a ready check runs, the summary is also posted to group chat — only when you're the leader or an assistant. Off: it only prints for you. Dead or AFK BuffRadar users hand their duties to the others automatically (cover-me, no setting).")
   Tip(cfg.weaponCheck, "Weapon enchant watch", "Your own row gets a 'weapon enchant missing' tag when an equipped weapon has no temporary enchant — a shaman imbue, a rogue poison, an oil or a sharpening stone. When your row isn't on the list, the coverage line says it instead.")
   Tip(cfg.enterCheck, "Instance-entry reminder", "One chat line when you step into a dungeon, raid or battleground while buffs are still missing: how many people still need buffs, and how many casts that is.")
+  Tip(cfg.pullFlashCheck, "Pull-timer flash", "When a group pull timer starts (the game's /countdown, or a boss-mod pull timer from a trusted sender), the border flashes and chat shows the seconds and how many casts are still needed. Same as /br pullflash.")
+  Tip(cfg.fastAuraCheck, "Fast aura updates", "Aura changes that touch no buff you can cast skip the rescan; the steady refresh still runs, and any doubtful payload rescans as before. Same as /br fastaura.")
   Tip(cfg.throttleCheck, "Scan throttle", "In groups of more than 20 players, the steady background rescan runs half as often. Refreshes caused by events — a buff landing, someone joining — always happen immediately. For very large raids on slower machines.")
   Tip(cfg.petsCheck, "Group pets", "Pets in your group get their own rows when they miss Fortitude, Mark of the Wild or Arcane Intellect — click the row to buff the pet. Pets never count in the coverage numbers. Same as /br pets.")
   Tip(cfg.auraCheck, "Aura / aspect watch", "Forever only: your own row flags it when no hunter aspect or paladin aura is up. Same as /br aura.")
@@ -7734,6 +7725,28 @@ local function HandleSlash(msg)
     db.pill = not db.pill
     Print("All-buffed pill " .. OnOff(db.pill))
     Refresh()
+  elseif cmd == "fastaura" then
+    local m = rest:lower()
+    if m == "on" then db.fastAura = true
+    elseif m == "off" then db.fastAura = false
+    else db.fastAura = not db.fastAura end
+    Print("Fast aura updates " .. OnOff(db.fastAura) ..
+      " -- aura changes that touch no watched buff skip the rescan (the steady refresh still runs).")
+  elseif cmd == "modclick" then
+    local m = rest:lower()
+    if m == "on" then db.modClick = true
+    elseif m == "off" then db.modClick = false
+    else db.modClick = not db.modClick end
+    Print("Modifier clicks " .. OnOff(db.modClick) ..
+      " -- Shift-click a row to cast the group version of its buff (Forever only).")
+    Refresh()
+  elseif cmd == "pullflash" then
+    local m = rest:lower()
+    if m == "on" then db.pullFlash = true
+    elseif m == "off" then db.pullFlash = false
+    else db.pullFlash = not db.pullFlash end
+    Print("Pull-timer flash " .. OnOff(db.pullFlash) ..
+      " -- border flash and a countdown line when a group pull timer starts (the game's /countdown or a boss-mod pull).")
   elseif cmd == "consumables" then
     db.consumables = not db.consumables
     Print("Consumables on the coverage line " .. OnOff(db.consumables))

@@ -2,7 +2,7 @@
 ## Title: |cff33ccffBuff|rRadar
 ## Notes: Clickable list of nearby players (you first) who are missing your buffs. Click a name, press a key or use a macro to buff them.
 ## Author: Malikor
-## Version: 1.13.0
+## Version: 1.14.0
 ## SavedVariables: BuffRadarDB
 ## IconTexture: Interface\AddOns\BuffRadar\Media\icon.png
 ## Category: Combat
@@ -13,5 +13,6 @@ Locales\frFR.lua
 Locales\esES.lua
 Locales\ruRU.lua
 Locales\zhCN.lua
+Data.lua
 BuffRadar.lua
 Extras.lua

@@ -85,5 +85,9 @@ BuffRadarLocales.ruRU = {
   ["Watch my aura or aspect"] = "Следить за моей аурой или стойкой",
   ["Watch my world buffs"] = "Следить за моими мировыми баффами",
   ["Mark healers who are drinking"] = "Отмечать целителей, которые пьют",
-  ["Show a name finder on the window"] = "Показывать поиск по имени в окне",
+  ["Show a name finder on the window"] = "Показывать поиск по имени в окне",  ["Skip rescans for aura changes that touch no watched buff"] = "Пропускать повторное сканирование, если отслеживаемые ауры не изменились",
+  ["Shift-click a row casts the group version of its buff"] = "Shift-клик по строке применяет групповую версию баффа",
+  ["Shift-click to cast: %s"] = "Shift-клик для применения: %s",
+  ["Flash when a pull timer starts"] = "Мигать при запуске таймера пула",
+
 }
