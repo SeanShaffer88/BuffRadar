@@ -41,7 +41,7 @@ proves it (evidence labels: Verified / Partially Verified / Unverified).
 Special rules for this project:
 - Secure action buttons: `HookScript` / `WrapScript` only — **never**
   `SetScript("OnClick")` on a secure button.
-- **No CI in this repo** (SEAN's decision, 2026-10-25) — the gate runs locally.
+- **CI runs the gate** (`.github/workflows/ci.yml`, added in 1.13.0): static checks + trial run + a packaging dry run on every push/PR. Real luacheck 1.2.0 stays a local Windows step (`tools/check.ps1`) — SEAN skipped it in CI on 2026-11-08. `release.yml` publishes on a `v*` tag that must equal the Forever .toc version.
 - Publishing: one `push_files` snapshot via the GitHub connector (the Contents
   API's per-call size cap cannot carry `BuffRadar.lua`), then blob-verify every
   published file against the local tree. **Forever-only from 1.8.0** (SEAN
