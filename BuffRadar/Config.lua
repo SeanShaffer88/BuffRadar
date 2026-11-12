@@ -588,7 +588,7 @@ local function BuildConfig()
     ApplyAppearance()
     RefreshConfig()
   end)
-  cfg.strataBtn:SetPoint("TOPLEFT", 14, -344)
+  cfg.strataBtn:SetPoint("TOPLEFT", 14, -328)
 
   ------------------------------------------------------------------
   -- Tab: Alerts
