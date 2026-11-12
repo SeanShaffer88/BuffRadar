@@ -2106,6 +2106,9 @@ step("settings controls and long labels stay within their columns", function()
     "Grow checkbox must clear the settings scale picker")
   assert(cfg.themeBtn.points[1][3] == -336 and cfg.saveThemeBtn.points[1][3] == -336,
     "theme buttons must clear the pill checkbox")
+  local layerBottom = -cfg.strataBtn.points[1][3] + cfg.strataBtn.size[2]
+  assert(layerBottom + 8 <= -cfg.pillCheck.points[1][3] - 4,
+    "Layer button must clear the wrapped pill checkbox label")
   assert(cfg.findCheck.points[1][2] == 300 and cfg.displayBtn.points[1][2] == 300,
     "Window controls must stay in the right column")
   for _, check in ipairs({cfg.pillCheck, cfg.findCheck, cfg.muteInstCheck, cfg.consCheck,
