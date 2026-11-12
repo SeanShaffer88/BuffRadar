@@ -28,6 +28,16 @@ ticks people off as you buff them. Click a name to cast. It is now a
 Forever-only addon (the Retail edition ended at 1.7.0), it's free, and it works
 entirely inside the game: no accounts, no network, nothing leaves your PC.
 
+## Screenshots
+
+**BuffRadar list**
+
+![BuffRadar list showing nearby players who need buffs.](editions/forever/screenshots/buffradar-forever-list.png)
+
+**BuffRadar settings**
+
+![BuffRadar settings window with appearance and behavior options.](editions/forever/screenshots/buffradar-forever-settings.png)
+
 ## Layout
 
 | Path | What it is |
