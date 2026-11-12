@@ -5,7 +5,7 @@
 -- used to sit at the bottom of BuffRadar.lua, moved verbatim; it reaches
 -- the main file's locals through X.slashAPI, which BuffRadar.lua fills
 -- in before this file loads. State the main file owns and reassigns
--- (the window, its grip, build/session flags) is re-read through
+-- (the window and build/session flags) is re-read through
 -- syncState() at each command, so nothing here can go stale.
 -- Copyright (C) 2026 Malikor. GPLv3 or later.
 
@@ -26,9 +26,9 @@ local MakeMacro, OpenKeybinds = A.MakeMacro, A.OpenKeybinds
 local RefreshMinimapButton, RestorePosition = A.RefreshMinimapButton, A.RestorePosition
 local SpellName, UpdateCounter, QueueRefresh = A.SpellName, A.UpdateCounter, A.QueueRefresh
 local myBuffs, myBlessing = A.myBuffs, A.myBlessing
-local Single, Ignore = A.Single, A.Ignore
-local ALL, BLESSINGS, BUFF_DEFS = A.ALL, A.BLESSINGS, A.BUFF_DEFS
-local entries, seen, known, ranks, rows = A.entries, A.seen, A.known, A.ranks, A.rows
+local Ignore = A.Ignore
+local BLESSINGS, BUFF_DEFS = A.BLESSINGS, A.BUFF_DEFS
+local ranks, rows = A.ranks, A.rows
 local CLASSIC_FEATURES = A.CLASSIC_FEATURES
 local MAX_WIDTH, MIN_WIDTH = A.MAX_WIDTH, A.MIN_WIDTH
 local pairs, ipairs, next, type, tonumber, tostring, pcall = pairs, ipairs, next, type, tonumber, tostring, pcall
@@ -38,12 +38,12 @@ local table_sort = table.sort
 local wipe = wipe or function(t) for k in pairs(t) do t[k] = nil end return t end
 
 -- State owned by BuffRadar.lua; refreshed at every command entry.
-local frame, grip, built, hasAnyBuff, sessionShow
+local frame, built, hasAnyBuff, sessionShow
 local lastError, bookCount, nextWrapped, nextCombatDriver
 local function syncState()
   db = X.GetDB()
   local s = A.getState()
-  frame, grip, built, hasAnyBuff, sessionShow = s.frame, s.grip, s.built, s.hasAnyBuff, s.sessionShow
+  frame, built, hasAnyBuff, sessionShow = s.frame, s.built, s.hasAnyBuff, s.sessionShow
   lastError, bookCount, nextWrapped, nextCombatDriver = s.lastError, s.bookCount, s.nextWrapped, s.nextCombatDriver
 end
 
@@ -559,11 +559,11 @@ local function HandleSlash(msg)
       Print(string.format("Current plan: %d assignments, %d blessings. /br plan export shares it as one string.", acount, bcount))
     end
   elseif cmd == "summary" then
-    local rows, people = X.SummaryLines()
-    if #rows == 0 then Print("Nobody in your group is missing a buff you can cast.")
+    local summary, people = X.SummaryLines()
+    if #summary == 0 then Print("Nobody in your group is missing a buff you can cast.")
     else
       Print(string_format("Group needs (%d %s):", people, people == 1 and "person" or "people"))
-      for i = 1, math_min(#rows, 12) do Print(string_format("  %s: %d", rows[i].n, rows[i].c)) end
+      for i = 1, math_min(#summary, 12) do Print(string_format("  %s: %d", summary[i].n, summary[i].c)) end
     end
   elseif cmd == "discord" then
     X.ShowExport(X.DiscordText(), false, "BuffRadar — copy into Discord")

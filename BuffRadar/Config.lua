@@ -19,13 +19,12 @@ local L = A.L
 local Print, Refresh, PlayAlert = A.Print, A.Refresh, A.PlayAlert
 local ApplyAppearance, ApplyGeometry = A.ApplyAppearance, A.ApplyGeometry
 local BuildBuffList, InvalidateRows, UpdateCounter = A.BuildBuffList, A.InvalidateRows, A.UpdateCounter
-local IsOn, Esc = A.IsOn, A.Esc
+local IsOn = A.IsOn
 local KeybindText, OpenKeybinds, MakeMacro = A.KeybindText, A.OpenKeybinds, A.MakeMacro
-local Missing = A.Missing
 local RefreshMinimapButton = A.RefreshMinimapButton
 local myBuffs, myBlessing = A.myBuffs, A.myBlessing
-local Single, Ignore = A.Single, A.Ignore
-local BLESSINGS, DEFAULTS, SCALE_PRESETS = A.BLESSINGS, A.DEFAULTS, A.SCALE_PRESETS
+local Ignore = A.Ignore
+local DEFAULTS, SCALE_PRESETS = A.DEFAULTS, A.SCALE_PRESETS
 local CLASSIC_FEATURES = A.CLASSIC_FEATURES
 local NEXT_BINDING = A.NEXT_BINDING
 local pairs, ipairs, next, type, tonumber, tostring, pcall = pairs, ipairs, next, type, tonumber, tostring, pcall
@@ -37,6 +36,19 @@ local OpenConfig, RefreshConfig  -- assigned in the block below, published on X 
 
 do
 local cfg
+local CONFIG_WIDTH, CONFIG_HEIGHT = 600, 610
+local NATIVE_TAB_DEPTH = 30  -- 32-unit native tabs start 2 units above the bottom edge
+
+local function ApplyConfigScale()
+  local scale = db.cfgScale or 1
+  local width, height = UIParent:GetSize()
+  if width and height and width > 12 and height > 12 then
+    -- Reserve room below a centered window for the tabs drawn outside it.
+    local tabDepth = cfg.nativeTabs and NATIVE_TAB_DEPTH or 0
+    scale = math_min(scale, (width - 12) / CONFIG_WIDTH, (height - 12) / (CONFIG_HEIGHT + 2 * tabDepth))
+  end
+  if cfg:GetScale() ~= scale then cfg:SetScale(scale) end
+end
 
 local function MakeCheck(parent, label, getter, setter)
   local cb = CreateFrame("CheckButton", nil, parent)
@@ -51,7 +63,9 @@ local function MakeCheck(parent, label, getter, setter)
   cb.FitLabel = function(self)  -- the label is part of the click target, not just the box
     local w = self.label:GetStringWidth()
     if self.label.maxWidth then w = math_min(w, self.label.maxWidth) end
-    self:SetHitRectInsets(0, -(w + 4), 0, 0)
+    local height = self.label.maxWidth and self.label:GetStringHeight() or 24
+    local extra = math.max(0, (height - 24) / 2)
+    self:SetHitRectInsets(0, -(w + 4), -extra, -extra)
   end
   cb:FitLabel()
   cb:SetScript("OnClick", function(self) setter(self:GetChecked() and true or false) end)
@@ -61,6 +75,15 @@ local function MakeCheck(parent, label, getter, setter)
       keys = (label:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")):lower() }
   end
   return cb
+end
+
+local function WrapCheckLabel(check)
+  local label = check.label
+  label.maxWidth = 250
+  label:SetWidth(label.maxWidth)
+  label:SetJustifyH("LEFT")
+  label:SetWordWrap(true)
+  check:FitLabel()
 end
 
 -- Settings search (1.8.0): dim every registered control that doesn't
@@ -221,6 +244,7 @@ end
 local function SelectTab(key)
   cfg.curTab = key
   if cfg.displayPanel then cfg.displayPanel:Hide() end
+  cfg.searchFooter:Show()
   for k, panel in pairs(cfg.panels) do panel:SetShown(k == key) end
   if cfg.nativeTabs then
     PanelTemplates_SetTab(cfg, cfg.tabBtns[key]:GetID())
@@ -242,8 +266,7 @@ local function BuildConfig()
     cfg:Hide()
     cfg = CreateFrame("Frame", "BuffRadarConfig", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
   end
-  cfg:SetSize(600, 540)
-  cfg:SetScale(db.cfgScale or 1)
+  cfg:SetSize(CONFIG_WIDTH, CONFIG_HEIGHT)
   cfg:SetPoint("CENTER")
   cfg:SetFrameStrata("DIALOG")
   cfg:SetClampedToScreen(true)
@@ -315,17 +338,17 @@ local function BuildConfig()
     local panel = CreateFrame("Frame", nil, cfg)
     if native then  -- inside the template's inset area, below the title bar
       panel:SetPoint("TOPLEFT", cfg.Inset, "TOPLEFT", 4, -4)
-      panel:SetPoint("BOTTOMRIGHT", cfg.Inset, "BOTTOMRIGHT", -4, 4)
     else
       panel:SetPoint("TOPLEFT", 8, -70)
-      panel:SetPoint("BOTTOMRIGHT", -8, 8)
     end
+    panel:SetPoint("BOTTOMRIGHT", cfg, "BOTTOMRIGHT", native and -10 or -8, 38)
     panel:Hide()
     cfg.panels[key] = panel
   end
   if cfg.nativeTabs then
     cfg.Tabs = tabList  -- newer PanelTemplates look here; older ones use the names
     PanelTemplates_SetNumTabs(cfg, #tabList)
+    cfg:SetClampRectInsets(0, 0, 0, -NATIVE_TAB_DEPTH)
   end
 
   local function section(panel, text, x, y)
@@ -471,12 +494,14 @@ local function BuildConfig()
   cfg.pillCheck = MakeCheck(look, L["Collapse to a pill while everyone is buffed"],
     function() return db.pill end,
     function(v) db.pill = v; Refresh() end)
-  cfg.pillCheck:SetPoint("TOPLEFT", 10, -370)
+  cfg.pillCheck:SetPoint("TOPLEFT", 10, -362)
+  WrapCheckLabel(cfg.pillCheck)
 
+  -- Keep long left-column checkbox labels clear of right-column controls.
   cfg.growCheck = MakeCheck(look, L["Grow the list upward"],
     function() return db.growUp end,
     function(v) db.growUp = v; X.ApplyAnchor(); Refresh() end)
-  cfg.growCheck:SetPoint("TOPLEFT", 250, -288)
+  cfg.growCheck:SetPoint("TOPLEFT", 300, -296)
 
   cfg.twoColCheck = MakeCheck(look, L["Two columns when the list is long"],
     function() return db.twoCol end,
@@ -494,7 +519,7 @@ local function BuildConfig()
     for i, k in ipairs(order) do if k:lower() == (db.theme or ""):lower() then cur = i end end
     X.ApplyTheme(order[cur % #order + 1])
   end)
-  cfg.themeBtn:SetPoint("TOPLEFT", 250, -362)
+  cfg.themeBtn:SetPoint("TOPLEFT", 250, -336)
 
   cfg.saveThemeBtn = MakeButton(look, "Save as theme", 150, function()
     local n = 1
@@ -507,17 +532,14 @@ local function BuildConfig()
       Print("You already have 4 saved themes — /br theme delete <name> one first.")
     end
   end)
-  cfg.saveThemeBtn:SetPoint("TOPLEFT", 428, -362)
+  cfg.saveThemeBtn:SetPoint("TOPLEFT", 428, -336)
 
   cfg.findCheck = MakeCheck(look, L["Show a name finder on the window"],
     function() return db.findBox end,
     function(v) db.findBox = v; X.ApplyRowLayout(); Refresh() end)
-  cfg.findCheck:SetPoint("TOPLEFT", 250, -388)
+  cfg.findCheck:SetPoint("TOPLEFT", 300, -388)
+  WrapCheckLabel(cfg.findCheck)
 
-  
-  
-  
-  
   cfg.displayBtn = MakeButton(look, "More display options…", 170, function()
     local p = cfg.displayPanel
     if not p then return end
@@ -536,9 +558,11 @@ local function BuildConfig()
     if cfg.viewCheck then cfg.viewCheck:Update() end
     end
     for _, panel in pairs(cfg.panels) do panel:Hide() end
+    cfg.searchBox:ClearFocus()
+    cfg.searchFooter:Hide()
     p:Show()
   end)
-  cfg.displayBtn:SetPoint("TOPLEFT", 250, -428)
+  cfg.displayBtn:SetPoint("TOPLEFT", 300, -428)
 
   cfg.minimapCheck = MakeCheck(look, L["Minimap button (drag it around the minimap)"],
     function() return db.showMinimap end,
@@ -552,7 +576,6 @@ local function BuildConfig()
     function() return db.cfgScale or 1 end,
     function(v)
       db.cfgScale = v
-      cfg:SetScale(v)
       RefreshConfig()
     end)
   cfg.cfgScaleDrop:SetPoint("LEFT", cfgScaleLabel, "RIGHT", 12, 0)
@@ -617,6 +640,7 @@ local function BuildConfig()
     function() return db.muteInInstance end,
     function(v) db.muteInInstance = v end)
   cfg.muteInstCheck:SetPoint("TOPLEFT", 10, -92)
+  WrapCheckLabel(cfg.muteInstCheck)
 
   section(alerts, "Buff drops", 302, -6)
   cfg.watchCheck = MakeCheck(alerts, L["Alert when a watched buff drops"],
@@ -705,7 +729,7 @@ local function BuildConfig()
     Print("Buff order reset - your buffs are back in their normal order.")
     Refresh()
   end)
-  prioReset:SetPoint("BOTTOMLEFT", buffs, "BOTTOMLEFT", 10, 10)
+  prioReset:SetPoint("TOPLEFT", 14, -346)
   Tip(prioReset, "Buff order",
     "Rows offer your buffs in the addon's normal order until you set your own: /br prio lists your buffs, /br prio <short name> <place> moves one. This button clears your order.")
   local prioHint = buffs:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -786,6 +810,7 @@ local function BuildConfig()
     function() return db.consumables end,
     function(v) db.consumables = v; Refresh() end)
   cfg.consCheck:SetPoint("TOPLEFT", 10, -134)
+  WrapCheckLabel(cfg.consCheck)
 
   section(beh, "Casting & order", 302, -6)
 
@@ -827,6 +852,8 @@ local function BuildConfig()
   cfg.sortBtn:SetPoint("TOPLEFT", 320, -140 + castY)
   local sortHint = beh:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   sortHint:SetPoint("LEFT", cfg.sortBtn, "RIGHT", 8, 0)
+  sortHint:SetWidth(112)
+  sortHint:SetJustifyH("LEFT")
   sortHint:SetText("role = tanks & leaders · distance = nearest · need = most missing")
 
   section(beh, "Coordination", 302, -176 + castY)
@@ -835,50 +862,57 @@ local function BuildConfig()
     function() return db.sync end,
     function(v) db.sync = v end)
   cfg.syncCheck:SetPoint("TOPLEFT", 296, -200 + castY)
+  WrapCheckLabel(cfg.syncCheck)
 
   cfg.requestsCheck = MakeCheck(beh, L["Mark players who ask for a buff in chat"],
     function() return db.requests end,
     function(v) db.requests = v end)
   cfg.requestsCheck:SetPoint("TOPLEFT", 296, -226 + castY)
+  WrapCheckLabel(cfg.requestsCheck)
 
   cfg.digestCheck = MakeCheck(beh, L["Print a summary when joining a group"],
     function() return db.joinDigest end,
     function(v) db.joinDigest = v end)
-  cfg.digestCheck:SetPoint("TOPLEFT", 296, -252 + castY)
+  cfg.digestCheck:SetPoint("TOPLEFT", 296, -256 + castY)
+  WrapCheckLabel(cfg.digestCheck)
 
   cfg.queueCheck = MakeCheck(beh, L["Tag the next row after a cast"],
     function() return db.queueTag end,
     function(v) db.queueTag = v end)
-  cfg.queueCheck:SetPoint("TOPLEFT", 296, -278 + castY)
+  cfg.queueCheck:SetPoint("TOPLEFT", 296, -282 + castY)
 
   cfg.buddyCheck = MakeCheck(beh, L["Split the list with other BuffRadar users"],
     function() return db.buddySplit end,
     function(v) db.buddySplit = v; Refresh() end)
-  cfg.buddyCheck:SetPoint("TOPLEFT", 296, -304 + castY)
+  cfg.buddyCheck:SetPoint("TOPLEFT", 296, -308 + castY)
+  WrapCheckLabel(cfg.buddyCheck)
 
   cfg.readyPostCheck = MakeCheck(beh, L["Post the ready-check summary to group chat"],
     function() return db.readyPost end,
     function(v) db.readyPost = v end)
-  cfg.readyPostCheck:SetPoint("TOPLEFT", 296, -330 + castY)
+  cfg.readyPostCheck:SetPoint("TOPLEFT", 296, -338 + castY)
+  WrapCheckLabel(cfg.readyPostCheck)
 
   cfg.weaponCheck = MakeCheck(beh, L["Watch my weapon enchant"],
     function() return db.weaponWatch end,
     function(v) db.weaponWatch = v; Refresh() end)
-  cfg.weaponCheck:SetPoint("TOPLEFT", 296, -356 + castY)
+  cfg.weaponCheck:SetPoint("TOPLEFT", 296, -370 + castY)
 
   cfg.enterCheck = MakeCheck(beh, L["Remind me when entering an instance unbuffed"],
     function() return db.enterFlash end,
     function(v) db.enterFlash = v end)
-  cfg.enterCheck:SetPoint("TOPLEFT", 296, -382 + castY)
+  cfg.enterCheck:SetPoint("TOPLEFT", 296, -396 + castY)
+  WrapCheckLabel(cfg.enterCheck)
 
   cfg.clickThroughCheck = MakeCheck(beh, "Clicks pass through while locked",
     function() return db.clickThrough end,
     function(v) db.clickThrough = v; X.ApplyClickThrough() end)
-  cfg.clickThroughCheck:SetPoint("TOPLEFT", 296, -408 + castY)
+  cfg.clickThroughCheck:SetPoint("TOPLEFT", 296, -428 + castY)
   cfg.modClickCheck = MakeCheck(beh, L["Shift-click a row casts the group version of its buff"],
     function() return db.modClick end,
     function(v) db.modClick = v; Refresh() end)
-  cfg.modClickCheck:SetPoint("TOPLEFT", 296, -434 + castY)
+  cfg.modClickCheck:SetPoint("TOPLEFT", 296, -454 + castY)
+  WrapCheckLabel(cfg.modClickCheck)
   Tip(cfg.modClickCheck, "Modifier clicks", "Shift-click a row to cast the group version of its buff (Prayer of Fortitude, Gift of the Wild, greater blessings) instead of the single-target version. Plain clicks are unchanged. Same as /br modclick.")
   Tip(cfg.clickThroughCheck, "Click-through while locked",
     "While the window is locked, it and its rows stop catching mouse clicks, so clicks land on the game world behind them. Unlock with /br lock to move or use the window again.")
@@ -891,10 +925,11 @@ local function BuildConfig()
     function() return db.fastAura end,
     function(v) db.fastAura = v end)
   cfg.fastAuraCheck:SetPoint("TOPLEFT", 10, -240)
+  WrapCheckLabel(cfg.fastAuraCheck)
   cfg.pullFlashCheck = MakeCheck(beh, L["Flash when a pull timer starts"],
     function() return db.pullFlash end,
     function(v) db.pullFlash = v end)
-  cfg.pullFlashCheck:SetPoint("TOPLEFT", 10, -265)
+  cfg.pullFlashCheck:SetPoint("TOPLEFT", 10, -270)
 
   section(beh, "More watches", 10, -298)
 
@@ -936,7 +971,7 @@ local function BuildConfig()
   end
 
   local behHint = beh:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  behHint:SetPoint("TOPLEFT", 14, -140)
+  behHint:SetPoint("TOPLEFT", cfg.consCheck, "BOTTOMLEFT", 4, -8)
   behHint:SetWidth(270)
   behHint:SetJustifyH("LEFT")
   behHint:SetText("Right-click any name in the BuffRadar window to ignore that player; manage the list on the Ignore & Stats tab.")
@@ -1270,14 +1305,17 @@ local function BuildConfig()
   end)
   cfg.trimBtn:SetPoint("TOPLEFT", 336, -446)
 
-  -- Settings search (1.8.0): a find box along the window's bottom edge;
-  -- typing dims every control that doesn't match (see X.CfgFilter).
-  local searchBox = CreateFrame("EditBox", nil, cfg, "InputBoxTemplate")
+  -- Keep search in a separate footer below the tab content.
+  local footer = CreateFrame("Frame", nil, cfg)
+  footer:SetSize(360, 20)
+  footer:SetPoint("BOTTOMLEFT", cfg, "BOTTOMLEFT", 16, 10)
+  cfg.searchFooter = footer
+  local searchBox = CreateFrame("EditBox", nil, footer, "InputBoxTemplate")
   searchBox:SetSize(180, 20)
-  searchBox:SetPoint("BOTTOMLEFT", cfg, "BOTTOMLEFT", 16, 10)
+  searchBox:SetPoint("LEFT")
   searchBox:SetAutoFocus(false)
   searchBox:SetMaxLetters(30)
-  local searchHint = cfg:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  local searchHint = footer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   searchHint:SetPoint("LEFT", searchBox, "RIGHT", 8, 0)
   searchHint:SetText("Find a setting")
   searchBox:SetScript("OnTextChanged", function(self)
@@ -1297,6 +1335,11 @@ local function BuildConfig()
     if cfg.searchBox then cfg.searchBox:SetText("") end  -- fresh search each open
     RefreshConfig()
   end)
+  cfg:RegisterEvent("DISPLAY_SIZE_CHANGED")
+  cfg:RegisterEvent("UI_SCALE_CHANGED")
+  cfg:SetScript("OnEvent", function()
+    if cfg:IsShown() then ApplyConfigScale() end
+  end)
   SelectTab("look")
   cfg:Hide()
 end
@@ -1304,6 +1347,7 @@ end
 RefreshConfig = function()
   db = X.GetDB()
   if not cfg or not cfg:IsShown() then return end
+  ApplyConfigScale()
   local c = db.bgColor
   if cfg.swatch.SetBackdropColor then cfg.swatch:SetBackdropColor(c[1], c[2], c[3], 1) end
   cfg.slider:SetValue(math.floor((db.bgAlpha or 0.92) * 100 + 0.5))

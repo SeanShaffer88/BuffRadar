@@ -15,6 +15,11 @@ lua.execute(open(stub_path, encoding="utf-8").read())
 harness = lua.eval(r"""function(addonSrc, withTimer, noTemplates, forever, german, localeSrc, extrasSrc, dataSrc, configSrc, slashSrc)
 local chat = {}
 local env = WOWSTUB(chat, withTimer, noTemplates, forever, german)
+local unitIsUnit = env.UnitIsUnit
+env.UnitIsUnit = function(a, b)
+  if env.__over.UnitIsUnit then return env.__over.UnitIsUnit(a, b) end
+  return unitIsUnit(a, b)
+end
 -- Globals the addon reads but the stub doesn't define fall back to Lua's own
 -- standard library, then to nil (like a client without that API).
 local std = { string=string, table=table, math=math, pairs=pairs, ipairs=ipairs, next=next,
@@ -1700,19 +1705,40 @@ end)
 
 step("raid marker badge shows on the row (1.8.0)", function()
   local cleanup = partyOfTwo("M")
-  local O = env.__over
   env.IsSpellInRange = function() return 1 end
-  env.GetRaidTargetIndex = function(u) if u == "party1" then return 3 end end
-  env.SlashCmdList.BUFFRADAR("markers")
-  refresh()
-  local row = shownRows().party1 and shownRows().party1.row
-  assert(row, "Aaron not listed")
-  assert(row.marker and row.marker.shown, "raid marker badge not shown")
-  env.SlashCmdList.BUFFRADAR("markers")
-  refresh()
-  assert(not row.marker.shown, "raid marker stayed after the setting went off")
-  env.GetRaidTargetIndex = nil
+  local marker, calls = 3, 0
+  local previousCanAccess = env.canaccessvalue
+  env.canaccessvalue = function(v) return v ~= 7 end
+  env.GetRaidTargetIndex = function(u)
+    calls = calls + 1
+    if u == "party1" then return marker end
+  end
+  local db = NS.X.GetDB()
+  local ok, err = pcall(function()
+    refresh()
+    assert(calls == 0, "raid marker API was called with markers off")
+    env.SlashCmdList.BUFFRADAR("markers")
+    refresh()
+    local row = assert(shownRows().party1, "Aaron not listed").row
+    assert(row.marker and row.marker.shown, "raid marker badge not shown")
+    for _, invalid in ipairs({7, 9, 2.5}) do
+      marker = invalid
+      refresh()
+      assert(not row.marker.shown, "unreadable or invalid raid marker was shown")
+    end
+    marker = 8
+    refresh()
+    assert(row.marker.shown, "valid raid marker did not return after an invalid one")
+    env.SlashCmdList.BUFFRADAR("markers")
+    calls = 0
+    refresh()
+    assert(not row.marker.shown, "raid marker stayed after the setting went off")
+    assert(calls == 0, "raid marker API was called after markers were turned off")
+  end)
+  if db.raidMarkers then env.SlashCmdList.BUFFRADAR("markers") end
+  env.GetRaidTargetIndex, env.canaccessvalue = nil, previousCanAccess
   cleanup()
+  assert(ok, err)
 end)
 
 step("out-of-range group members stay off the list (1.8.0)", function()
@@ -1734,6 +1760,69 @@ step("out-of-range group members stay off the list (1.8.0)", function()
     "unknown spell-specific range was treated as safe")
   env.C_Spell = nil
   cleanup()
+end)
+
+step("range checks ignore inaccessible results without guessing spell range", function()
+  local previousModern, previousLegacy = env.C_Spell, env.IsSpellInRange
+  local previousGroup, previousInteract = env.UnitInRange, env.CheckInteractDistance
+  local previousCanAccess, previousUnitIsUnit = env.canaccessvalue, env.__over.UnitIsUnit
+  local protected = {}
+  local selected, spells = {}, { "Test buff" }
+  env.canaccessvalue = function(v) return v ~= protected end
+  local ok, err = pcall(function()
+    local function listed(unit)
+      return NS.X.FilterInRange(unit or "party2", spells, selected) == 1
+    end
+    local function inaccessible() return protected end
+    env.C_Spell = { IsSpellInRange = inaccessible }
+    env.IsSpellInRange = function() return 1 end
+    assert(listed(), "readable legacy result did not replace inaccessible modern result")
+    env.C_Spell.IsSpellInRange = function() return false end
+    assert(not listed(), "explicit modern out-of-range result was replaced by legacy range")
+    env.C_Spell.IsSpellInRange = function() error("unavailable") end
+    assert(listed(), "readable legacy result did not replace failed modern query")
+    env.C_Spell.IsSpellInRange, env.IsSpellInRange = inaccessible, inaccessible
+    env.UnitInRange = function() return true, true end
+    assert(not listed(), "approximate range overrode unreadable spell results")
+
+    -- Lua 5.1 has no secret primitives. Mask values that would otherwise
+    -- normalize as in range so the assertions exercise the readability guard.
+    local maskedFailures = {}
+    local function expectHidden(message)
+      if listed() then maskedFailures[#maskedFailures + 1] = message end
+    end
+    env.canaccessvalue = function(v) return v ~= true end
+    env.C_Spell.IsSpellInRange = function() return true end
+    env.IsSpellInRange = function() return false end
+    expectHidden("masked modern true overrode readable legacy false")
+    env.C_Spell, env.IsSpellInRange = nil, nil
+    env.canaccessvalue = function(v) return v ~= 1 end
+    env.CheckInteractDistance = function() return false end
+    env.UnitInRange = function() return 1, true end
+    expectHidden("masked group range result was treated as in range")
+    env.UnitInRange = function() return true, 1 end
+    expectHidden("masked group checked flag was treated as true")
+    assert(#maskedFailures == 0, table.concat(maskedFailures, "; "))
+
+    env.canaccessvalue = function(v) return v ~= protected end
+    env.UnitInRange = function() return protected, true end
+    env.CheckInteractDistance = function() return false end
+    assert(not listed(), "unreadable group range was treated as in range")
+    env.UnitInRange = function() return protected, protected end
+    env.CheckInteractDistance = inaccessible
+    assert(not listed(), "unreadable approximate range was treated as in range")
+    env.CheckInteractDistance = function() return true end
+    assert(listed(), "readable interact-distance fallback was ignored")
+    env.UnitInRange = function() return false, true end
+    assert(not listed(), "explicit group out-of-range result was replaced by interact range")
+    env.__over.UnitIsUnit = function(unit) if unit == "target" then return true end return protected end
+    assert(not listed(), "unreadable self comparison was treated as self")
+    assert(listed("player") and listed("target"), "self or self alias failed range check")
+  end)
+  env.C_Spell, env.IsSpellInRange = previousModern, previousLegacy
+  env.UnitInRange, env.CheckInteractDistance = previousGroup, previousInteract
+  env.canaccessvalue, env.__over.UnitIsUnit = previousCanAccess, previousUnitIsUnit
+  assert(ok, err)
 end)
 
 step("focus watch line reports the focus target (1.8.0)", function()
@@ -1784,10 +1873,24 @@ step("group pets get their own rows (1.8.0)", function()
   assert(set["Power Word: Fortitude"], "pet not offered Fortitude")
   assert(set.row.tag.text == "pet" or set.row.tag.text == "Begleiter",
     "pet row not tagged: " .. tostring(set.row.tag.text))
+  local marker = 7
+  env.issecretvalue = function(v) return v == 7 end
+  env.GetRaidTargetIndex = function(unit) if unit == "partypet1" then return marker end end
+  local ok, err = pcall(function()
+    env.SlashCmdList.BUFFRADAR("markers")
+    refresh()
+    assert(not shownRows().partypet1.row.marker.shown, "secret pet marker was displayed")
+    marker = 4
+    refresh()
+    assert(shownRows().partypet1.row.marker.shown, "readable pet marker was not displayed")
+  end)
+  env.issecretvalue, env.GetRaidTargetIndex = nil, nil
+  env.SlashCmdList.BUFFRADAR("markers")
   env.SlashCmdList.BUFFRADAR("pets")
   refresh()
   assert(not shownRows().partypet1, "pet stayed after the setting went off")
   cleanup()
+  assert(ok, err)
 end)
 
 step("aura and aspect watch toggles (1.8.0)", function()
@@ -1980,6 +2083,98 @@ step("repeat offenders are counted when a group ends (1.8.0)", function()
   env.SlashCmdList.BUFFRADAR("offenders clear")
   assert(next(db.offenders) == nil, "offender history not cleared")
   cleanup()
+end)
+
+step("Behavior ignore-list hint clears the consumables checkbox", function()
+  NS.X.OpenConfig(true)
+  local cfg = env.BuffRadarConfig
+  local hint
+  for _, font in ipairs(env.__fontstrings) do
+    if type(font.text) == "string" and font.text:find("Right-click any name in the BuffRadar window", 1, true) then
+      hint = font
+      break
+    end
+  end
+  local point = assert(hint and hint.points and hint.points[1], "missing ignore-list hint anchor")
+  assert(point[1] == "TOPLEFT" and point[2] == cfg.consCheck and point[3] == "BOTTOMLEFT" and point[5] <= -8,
+    "ignore-list hint must clear the bottom of the consumables checkbox")
+end)
+
+step("settings controls and long labels stay within their columns", function()
+  local cfg = env.BuffRadarConfig
+  assert(cfg.growCheck.points[1][2] == 300 and cfg.growCheck.points[1][3] == -296,
+    "Grow checkbox must clear the settings scale picker")
+  assert(cfg.themeBtn.points[1][3] == -336 and cfg.saveThemeBtn.points[1][3] == -336,
+    "theme buttons must clear the pill checkbox")
+  assert(cfg.findCheck.points[1][2] == 300 and cfg.displayBtn.points[1][2] == 300,
+    "Window controls must stay in the right column")
+  for _, check in ipairs({cfg.pillCheck, cfg.findCheck, cfg.muteInstCheck, cfg.consCheck,
+      cfg.fastAuraCheck, cfg.readyPostCheck, cfg.enterCheck, cfg.modClickCheck}) do
+    assert(check.label.width == 250, "long settings label must wrap inside its column: " .. check.label.text)
+  end
+  assert(cfg.pullFlashCheck.points[1][3] <= cfg.fastAuraCheck.points[1][3] - 30,
+    "pull-timer checkbox must clear the wrapped Fast Aura label")
+  for _, control in ipairs(NS.X.cfgReg) do
+    if control.w.text == "Reset buff order" then
+      local anchor = control.w.points[1]
+      assert(anchor[1] == "TOPLEFT" and anchor[3] == -346,
+        "reset buff order belongs beside its rebuff settings, above the footer")
+      return
+    end
+  end
+  error("reset buff order control missing")
+end)
+
+step("settings footer clears tab content and hides with Display Options", function()
+  local cfg = env.BuffRadarConfig
+  local footer = cfg.searchFooter
+  local searchPoint = (footer or cfg.searchBox).points[1]
+  local searchTop = cfg.size[2] - searchPoint[5] - (footer or cfg.searchBox).size[2]
+  local data = cfg.panels.data
+  local panelTop = data.points[1][3]
+  if type(panelTop) == "number" then
+    for _, control in ipairs(NS.X.cfgReg) do
+      if control.w.text == "Raid" then
+        local presetBottom = -panelTop - control.w.points[1][3] + control.w.size[2]
+        assert(presetBottom + 8 <= searchTop, "preset row exceeds space above the settings footer")
+        break
+      end
+    end
+  end
+  for _, panel in pairs(cfg.panels) do
+    local bottom = panel.points[2]
+    assert(bottom[2] == cfg and bottom[5] >= searchPoint[5] + footer.size[2] + 8,
+      "tab panel must end at least 8 units above the search footer")
+  end
+  cfg.tabBtns.look.scripts.OnClick()
+  cfg.displayBtn.scripts.OnClick()
+  assert(cfg.displayPanel.shown and not cfg.panels.look.shown and not footer.shown,
+    "Display Options should replace the current tab and its search footer")
+  cfg.tabBtns.alerts.scripts.OnClick()
+  assert(cfg.panels.alerts.shown and not cfg.displayPanel.shown and footer.shown,
+    "selecting a tab should restore the search footer")
+  cfg.tabBtns.look.scripts.OnClick()
+end)
+
+step("settings scale fits a small UI and restores the saved preference", function()
+  local cfg = env.BuffRadarConfig
+  local db = env.BuffRadarDB
+  local saved = db.cfgScale
+  local getSize = env.UIParent.GetSize
+  db.cfgScale = 2
+  env.UIParent.GetSize = function() return 1024, 768 end
+  NS.X.RefreshConfig()
+  local scale = cfg:GetScale()
+  local tabDepth = cfg.nativeTabs and 30 or 0
+  assert(scale * cfg.size[1] <= 1024 and scale * (cfg.size[2] + 2 * tabDepth) <= 768,
+    "settings and tabs must fit at the maximum saved scale")
+  assert(db.cfgScale == 2, "temporary scale cap must not overwrite the preference")
+  env.UIParent.GetSize = function() return 2000, 1600 end
+  cfg.scripts.OnEvent(cfg, "DISPLAY_SIZE_CHANGED")
+  assert(cfg:GetScale() == 2, "settings must restore the saved scale when it fits")
+  env.UIParent.GetSize = getSize
+  db.cfgScale = saved
+  NS.X.RefreshConfig()
 end)
 
 step("settings search dims what does not match (1.8.0)", function()

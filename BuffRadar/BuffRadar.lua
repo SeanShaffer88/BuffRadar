@@ -719,59 +719,10 @@ local function InMajorCity()
   return false, mapID, zone
 end
 
-local function InRange(spell, unit)
-  if UnitIsUnit(unit, "player") then return true end
-  local hasSpellRange, r = false, nil
-  if C_Spell and C_Spell.IsSpellInRange then
-    hasSpellRange = true
-    local ok
-    ok, r = pcall(C_Spell.IsSpellInRange, spell, unit)
-    if not ok then r = nil end
-  end
-  if r == nil and IsSpellInRange then
-    hasSpellRange = true
-    local ok
-    ok, r = pcall(IsSpellInRange, spell, unit)
-    if not ok then r = nil end
-  end
-  -- A protected (secret) answer can't be compared: treat it as "unknown".
-  -- (Readable() below does this elsewhere; it's defined after this function.)
-  if r ~= nil and issecretvalue then
-    local okS, secret = pcall(issecretvalue, r)
-    if not okS or secret then r = nil end
-  end
-  if r == true or r == 1 then return true end
-  if r == false or r == 0 then return false end
-  if hasSpellRange then return false end  -- unknown spell range is not safe to assume
-  -- Older clients without spell-range APIs fall back to group range /
-  -- follow distance; when a spell API exists, an unknown result fails closed.
-  if UnitInRange then
-    local okR, inRange, checked = pcall(UnitInRange, unit)
-    if okR and checked then return inRange and true or false end
-  end
-  if CheckInteractDistance then
-    local okC, near = pcall(CheckInteractDistance, unit, 4)
-    return okC and near and true or false
-  end
-  return false
-end
-
-function X.FilterInRange(unit, source, out)
-  wipe(out)
-  local n = 0
-  for i = 1, #source do
-    if InRange(source[i], unit) then
-      n = n + 1
-      out[n] = source[i]
-    end
-  end
-  return n
-end
-
 -- The Forever engine can hand addons "secret" values that throw when compared or used
 -- as table keys. These helpers turn anything unreadable into nil instead of an error.
 local function Readable(v)
-  if v == nil then return false end
+  if type(v) == "nil" then return false end
   if issecretvalue then
     local ok, secret = pcall(issecretvalue, v)
     if not ok or secret then return false end
@@ -781,6 +732,72 @@ local function Readable(v)
     if not ok or not can then return false end
   end
   return true
+end
+
+do
+  local function RangeResult(value)
+    if not Readable(value) then return nil end
+    if value == true or value == 1 then return true end
+    if value == false or value == 0 then return false end
+  end
+
+  local function QueryRange(api, first, second)
+    local ok, value = pcall(api, first, second)
+    if ok then return RangeResult(value) end
+  end
+
+  local function InRange(spell, unit)
+    if unit == "player" then return true end
+    local isSelf = UnitIsUnit(unit, "player")
+    if Readable(isSelf) and isSelf == true then return true end
+
+    local modern = C_Spell and C_Spell.IsSpellInRange
+    local legacy = IsSpellInRange
+    if modern then
+      local result = QueryRange(modern, spell, unit)
+      if result ~= nil then return result end
+    end
+    if legacy then
+      local result = QueryRange(legacy, spell, unit)
+      if result ~= nil then return result end
+    end
+    -- An unknown spell range is not safe to replace with an approximate range.
+    if modern or legacy then return false end
+
+    if UnitInRange then
+      local ok, inRange, checked = pcall(UnitInRange, unit)
+      if ok and RangeResult(checked) == true then
+        local result = RangeResult(inRange)
+        if result ~= nil then return result end
+      end
+    end
+    if CheckInteractDistance then
+      return QueryRange(CheckInteractDistance, unit, 4) == true
+    end
+    return false
+  end
+
+  function X.FilterInRange(unit, source, out)
+    wipe(out)
+    local n = 0
+    for i = 1, #source do
+      if InRange(source[i], unit) then
+        n = n + 1
+        out[n] = source[i]
+      end
+    end
+    return n
+  end
+end
+
+function X.ReadRaidMarker(unit)
+  local api = _G.GetRaidTargetIndex
+  if not db.raidMarkers or type(api) ~= "function" then return nil end
+  local ok, marker = pcall(api, unit)
+  if ok and Readable(marker) and type(marker) == "number"
+    and marker >= 1 and marker <= 8 and marker == math_floor(marker) then
+    return marker
+  end
 end
 
 local function SafeString(v)
@@ -1627,11 +1644,7 @@ local function Consider(unit, isGroup)
   e.fullName, e.sortName = full, nm or ""
   e.isSelf = UnitIsUnit(unit, "player")
   e.rangeBucket = 0
-  e.marker = nil
-  if _G.GetRaidTargetIndex then
-    local okM, mi = pcall(_G.GetRaidTargetIndex, unit)
-    if okM and type(mi) == "number" and mi > 0 then e.marker = mi end
-  end
+  e.marker = X.ReadRaidMarker(unit)
   if isGroup then
     -- Expiry tracking: a buff that was not missing last scan, is missing
     -- now, and is truly gone (not just inside its rebuff window) expired,
@@ -1722,11 +1735,7 @@ function X.ConsiderPet(petUnit, ownerUnit)
   e.class = SafeString(oclass)
   e.group, e.isSelf, e.pet = true, false, true
   e.rangeBucket = 0
-  e.marker = nil
-  if _G.GetRaidTargetIndex then
-    local okM, mi = pcall(_G.GetRaidTargetIndex, petUnit)
-    if okM and type(mi) == "number" and mi > 0 then e.marker = mi end
-  end
+  e.marker = X.ReadRaidMarker(petUnit)
   e.remain1 = nil
   e.expired, e.rezzed = nil, nil
   e.outOfRange = false
@@ -3801,10 +3810,10 @@ function X.SummaryLines()
       end
     end
   end
-  local rows = {}
-  for n, c in pairs(per) do rows[#rows + 1] = { n = n, c = c } end
-  table_sort(rows, function(a, b) if a.c ~= b.c then return a.c > b.c end return a.n < b.n end)
-  return rows, people
+  local counts = {}
+  for n, c in pairs(per) do counts[#counts + 1] = { n = n, c = c } end
+  table_sort(counts, function(a, b) if a.c ~= b.c then return a.c > b.c end return a.n < b.n end)
+  return counts, people
 end
 
 -- Discord summary (1.8.0): the group's buff state as a small markdown
