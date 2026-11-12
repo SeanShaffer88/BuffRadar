@@ -689,7 +689,11 @@ step("unreadable unit eligibility results never offer a buff", function()
 
   O.UnitAffectingCombat = function(u) if u == "party2" then return secret(false) end return false end
   check(false, "unreadable target combat state offered a buff")
-  O.UnitAffectingCombat = function(u) if u == "player" then return secret(false) end return false end
+  O.UnitAffectingCombat = function(u)
+    if u == "player" then return secret(false) end
+    masked = nil
+    return false
+  end
   check(false, "unreadable caster combat state offered a buff")
   env.UnitIsCharmed, env.issecretvalue, db.avoidPvP = prevCharm, prevSecret, prevAvoid
   cleanup()
