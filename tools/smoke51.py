@@ -20,6 +20,19 @@ env.UnitIsUnit = function(a, b)
   if env.__over.UnitIsUnit then return env.__over.UnitIsUnit(a, b) end
   return unitIsUnit(a, b)
 end
+local unitIsPvP = env.UnitIsPVP
+env.UnitIsPVP = function(unit)
+  if env.__over.UnitIsPVP then return env.__over.UnitIsPVP(unit) end
+  return unitIsPvP(unit)
+end
+local visibilityDrivers = {}
+local registerStateDriver = env.RegisterStateDriver
+env.RegisterStateDriver = function(target, state, condition)
+  if state ~= "visibility" then return registerStateDriver(target, state, condition) end
+  assert(condition == "[combat] hide", "visibility driver must not force a show outside combat")
+  if noTemplates then error("visibility driver unavailable in fallback setup") end
+  visibilityDrivers[target] = (visibilityDrivers[target] or 0) + 1
+end
 -- Globals the addon reads but the stub doesn't define fall back to Lua's own
 -- standard library, then to nil (like a client without that API).
 local std = { string=string, table=table, math=math, pairs=pairs, ipairs=ipairs, next=next,
@@ -92,7 +105,12 @@ for _, f in ipairs(env.__frames) do
 end
 step("find event frame", function() assert(driver, "no frame registered ADDON_LOADED") end)
 if not driver then return results, chat end
-local fire = function(ev, ...) driver.scripts.OnEvent(driver, ev, ...) end
+local fire = function(ev, ...)
+  driver.scripts.OnEvent(driver, ev, ...)
+  if ev == "PLAYER_REGEN_DISABLED" then
+    for target in pairs(visibilityDrivers) do target.shown = false end
+  end
+end
 step("ADDON_LOADED", function() fire("ADDON_LOADED", "BuffRadar") end)
 step("PLAYER_LOGIN", function() fire("PLAYER_LOGIN") end)
 step("window exists", function() assert(env.BuffRadarFrame, "BuffRadarFrame not created") end)
@@ -625,6 +643,61 @@ step("combat targets and caster are never eligible", function()
     "targets remained listed while the caster was in combat")
   O.UnitAffectingCombat = nil
   cleanup()
+end)
+step("unreadable unit eligibility results never offer a buff", function()
+  local cleanup = partyOfTwo("VE")
+  local db, O = env.BuffRadarDB, env.__over
+  local prevCharm, prevSecret, prevAvoid = env.UnitIsCharmed, env.issecretvalue, db.avoidPvP
+  local errors, masked = {}
+  local function secret(value)
+    masked = value
+    return value
+  end
+  env.issecretvalue = function(value)
+    if masked ~= nil and value == masked then masked = nil; return true end
+    return false
+  end
+  env.IsSpellInRange = function() return 1 end
+  local function check(expected, message)
+    masked = nil
+    refresh()
+    if (shownRows().party2 ~= nil) ~= expected then errors[#errors + 1] = message end
+  end
+  db.avoidPvP = false
+  env.UnitIsCharmed = function() return false end
+  check(true, "readable uncharmed target was hidden")
+  env.UnitIsCharmed = function(u) if u == "party2" then return secret(false) end return false end
+  check(false, "unreadable charm state offered a buff")
+  env.UnitIsCharmed = function(u) if u == "party2" then error("charm API refused") end return false end
+  check(false, "failed charm API offered a buff")
+  env.UnitIsCharmed = nil
+  check(true, "client without the charm API hid an eligible target")
+
+  db.avoidPvP = true
+  O.UnitIsPVP = function(u) return u == "party2" end
+  check(false, "flagged target was listed for an unflagged caster")
+  O.UnitIsPVP = function() return true end
+  check(true, "flagged caster could not buff a flagged target")
+  O.UnitIsPVP = function(u) if u == "player" then return secret(true) end return true end
+  check(false, "unreadable caster PvP flag offered a buff")
+  O.UnitIsPVP = function(u) if u == "party2" then return secret(false) end return false end
+  check(false, "unreadable target PvP flag offered a buff to an unflagged caster")
+  O.UnitIsPVP = function(u) if u == "party2" then return secret(false) end return true end
+  check(true, "known flagged caster was blocked by an unreadable target PvP flag")
+  db.avoidPvP = false
+  check(true, "disabled PvP filter still blocked an eligible target")
+
+  O.UnitAffectingCombat = function(u) if u == "party2" then return secret(false) end return false end
+  check(false, "unreadable target combat state offered a buff")
+  O.UnitAffectingCombat = function(u)
+    if u == "player" then return secret(false) end
+    masked = nil
+    return false
+  end
+  check(false, "unreadable caster combat state offered a buff")
+  env.UnitIsCharmed, env.issecretvalue, db.avoidPvP = prevCharm, prevSecret, prevAvoid
+  cleanup()
+  assert(#errors == 0, table.concat(errors, "; "))
 end)
 step("line-of-sight failures skip that target for the session window", function()
   local cleanup = partyOfTwo("L")
@@ -1659,6 +1732,91 @@ step("combat always hides the list and restores it afterward", function()
   fire("PLAYER_REGEN_ENABLED")
   timerTick()
   assert(frame:IsShown(), "window did not return after combat ended")
+end)
+step("combat visibility leaves locked frames to the secure driver", function()
+  local frame, pill = env.BuffRadarFrame, NS.X.pill
+  local db = env.BuffRadarDB
+  local oldHidden = db.hidden
+  local hideFrame, hidePill = frame.Hide, pill.Hide
+  local function rejectLockedHide(hide)
+    return function(self)
+      assert(not env.__combat, "addon attempted a protected Hide during lockdown")
+      hide(self)
+    end
+  end
+  frame.Hide, pill.Hide = rejectLockedHide(hideFrame), rejectLockedHide(hidePill)
+  local ok, err = pcall(function()
+    frame:Show()
+    pill:Show()
+    env.__combat = not noTemplates
+    fire("PLAYER_REGEN_DISABLED")
+    assert(not frame.shown and not pill.shown, "combat did not hide both surfaces")
+    if noTemplates then
+      assert(not visibilityDrivers[frame] and not visibilityDrivers[pill], "fallback registered a driver")
+    else
+      assert(visibilityDrivers[frame] == 1 and visibilityDrivers[pill] == 1,
+        "each combat surface should have one secure visibility driver")
+    end
+    env.__combat = false
+    db.hidden = true
+    fire("PLAYER_REGEN_ENABLED")
+    assert(not frame.shown and not pill.shown, "combat exit force-showed a hidden surface")
+    timerTick()
+    assert(not frame.shown and not pill.shown, "post-combat refresh ignored manual hide")
+  end)
+  env.__combat, db.hidden = false, oldHidden
+  frame.Hide, pill.Hide = hideFrame, hidePill
+  assert(ok, err)
+end)
+step("appearance changes and delayed border restore wait for combat to end", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local frame, pill = env.BuffRadarFrame, X.pill
+  local restoreFrame, restorePill = frame.SetFrameStrata, pill.SetFrameStrata
+  local oldStrata, oldMotion = db.strata, db.reduceMotion
+  local frameWrites, pillWrites = 0, 0
+  frame.SetFrameStrata = function(self, strata)
+    assert(not env.__combat, "SetFrameStrata called on the main frame during combat")
+    frameWrites = frameWrites + 1
+    restoreFrame(self, strata)
+  end
+  pill.SetFrameStrata = function(self, strata)
+    assert(not env.__combat, "SetFrameStrata called on the pill during combat")
+    pillWrites = pillWrites + 1
+    restorePill(self, strata)
+  end
+  local ok, err = pcall(function()
+    db.reduceMotion = false
+    local restoreBorder
+    X.Flash()
+    if env.C_Timer then
+      restoreBorder = table.remove(env.__timers)
+      assert(restoreBorder, "border pulse did not schedule a restore")
+    else
+      assert(X.flashPending, "border pulse did not request a fallback restore")
+    end
+    env.__combat = true
+    local delayOk, delayErr = true, nil
+    if restoreBorder then delayOk, delayErr = pcall(restoreBorder) end
+    local layer = env.BuffRadarConfig.strataBtn
+    db.strata = "LOW"
+    local firstOk, firstErr = pcall(layer.scripts.OnClick)
+    local lastOk, lastErr = pcall(layer.scripts.OnClick)
+    assert(delayOk and firstOk and lastOk,
+      tostring(delayErr) .. "; " .. tostring(firstErr) .. "; " .. tostring(lastErr))
+    assert(frameWrites == 0 and pillWrites == 0 and db.strata == "HIGH",
+      "combat changed the frame layer or lost the selected layer")
+    env.__combat = false
+    fire("PLAYER_REGEN_ENABLED")
+    assert(frame.strata == "HIGH" and pill.strata == "HIGH" and frameWrites == 1 and pillWrites == 1,
+      "latest frame and pill layers were not applied once after combat")
+    assert(not X.flashPending, "appearance replay left a redundant fallback border restore")
+    fire("PLAYER_REGEN_ENABLED")
+    assert(frameWrites == 1 and pillWrites == 1, "appearance replay repeated without a pending change")
+  end)
+  env.__combat = false
+  frame.SetFrameStrata, pill.SetFrameStrata, db.reduceMotion = restoreFrame, restorePill, oldMotion
+  env.SlashCmdList.BUFFRADAR("strata " .. string.lower(oldStrata))
+  assert(ok, err)
 end)
 
 step("name finder filters the list (1.8.0)", function()

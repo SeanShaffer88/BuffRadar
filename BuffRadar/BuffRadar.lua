@@ -1416,14 +1416,24 @@ local function Valid(unit)
   if not UnitCanAssist("player", unit) then return false end
   if not UnitAffectingCombat then return false end
   local okPlayer, playerCombat = pcall(UnitAffectingCombat, "player")
+  if not okPlayer or not Readable(playerCombat) or playerCombat ~= false then return false end
   local okUnit, unitCombat = pcall(UnitAffectingCombat, unit)
-  if not okPlayer or not okUnit or playerCombat or unitCombat then return false end
-  if UnitIsCharmed and UnitIsCharmed(unit) then return false end
+  if not okUnit or not Readable(unitCombat) or unitCombat ~= false then return false end
+  if UnitIsCharmed then
+    local ok, charmed = pcall(UnitIsCharmed, unit)
+    if not ok or not Readable(charmed) or charmed ~= false then return false end
+  end
   if _G.UnitInPhase then  -- a player in another phase can't be reached or buffed
     local ok, inPhase = pcall(_G.UnitInPhase, unit)
     if ok and inPhase == false then return false end
   end
-  if db.avoidPvP and UnitIsPVP(unit) and not UnitIsPVP("player") then return false end
+  if db.avoidPvP then
+    local ok, flagged = pcall(UnitIsPVP, unit)
+    if not ok or not Readable(flagged) or flagged ~= false then
+      local okPlayerPvP, playerFlagged = pcall(UnitIsPVP, "player")
+      if not okPlayerPvP or not Readable(playerFlagged) or playerFlagged ~= true then return false end
+    end
+  end
   return true
 end
 
@@ -3391,6 +3401,12 @@ function X.ApplyScaleNow() ApplyGeometry() end
 
 local function ApplyAppearance()
   if not frame then return end
+  if InCombatLockdown() then
+    X.appearancePending = true
+    return
+  end
+  X.appearancePending = nil
+  X.flashPending = nil
   -- Window layer (1.10.0): the main frame and the pill share a strata.
   if frame.SetFrameStrata then frame:SetFrameStrata(db.strata or "MEDIUM") end
   if X.pill and X.pill.SetFrameStrata then X.pill:SetFrameStrata(db.strata or "MEDIUM") end
@@ -4651,6 +4667,12 @@ local function BuildUI()
 
   for i = 1, MAX_ROWS do CreateRow(i) end
 
+  -- Hide in combat; outside combat, Refresh decides what should be visible.
+  if RegisterStateDriver then
+    frame.visibilityDriver = pcall(RegisterStateDriver, frame, "visibility", "[combat] hide")
+    pill.visibilityDriver = pcall(RegisterStateDriver, pill, "visibility", "[combat] hide")
+  end
+
   local okNext, errNext = pcall(BuildNextButton)
   pcall(BuildGroupButton)
   if not okNext then Print("|cffff4040keybind button unavailable:|r " .. tostring(errNext)) end
@@ -5089,7 +5111,7 @@ local function Refresh()
   local wasAfterCombat = X.afterCombat
   X.afterCombat = nil
   X.afterCombatScan = wasAfterCombat or nil
-  if X.flashPending then X.flashPending = nil; ApplyAppearance() end
+  if X.flashPending then ApplyAppearance() end
 
   if not hasAnyBuff then
     refreshIdle = true
@@ -5942,19 +5964,18 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
         row:SetAttribute("shift-macrotext1", nil)
       end
     end
-    -- Keep the out-of-combat list from implying that any buff can be cast
-    -- during combat. The post-combat refresh rebuilds it.
-    if frame and (frame:IsShown() or (X.pill and X.pill:IsShown())) then
-      X.combatHid = true
-      frame:Hide()
-      if X.pill then X.pill:Hide() end
+    -- Secure drivers own combat hiding. Older clients can hide here only
+    -- if the event arrives before their lockdown starts.
+    if not InCombatLockdown() then
+      if frame and not frame.visibilityDriver then frame:Hide() end
+      if X.pill and not X.pill.visibilityDriver then X.pill:Hide() end
     end
   elseif event == "PLAYER_REGEN_ENABLED" then
     X.afterCombat = true  -- Refresh() pulses the border if work is waiting
-    X.combatHid = nil
     if combatText then combatText:Hide() end
     BuildUI()
     ApplyGeometry()  -- a scale/width change made during combat lands now
+    if X.appearancePending or X.flashPending then ApplyAppearance() end
     X.ApplyRowLayout()
     X.ApplyClickThrough()
     ApplyNextRegistration()
