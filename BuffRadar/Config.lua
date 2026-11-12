@@ -473,10 +473,11 @@ local function BuildConfig()
     function(v) db.pill = v; Refresh() end)
   cfg.pillCheck:SetPoint("TOPLEFT", 10, -370)
 
+  -- Keep long left-column checkbox labels clear of right-column controls.
   cfg.growCheck = MakeCheck(look, L["Grow the list upward"],
     function() return db.growUp end,
     function(v) db.growUp = v; X.ApplyAnchor(); Refresh() end)
-  cfg.growCheck:SetPoint("TOPLEFT", 250, -288)
+  cfg.growCheck:SetPoint("TOPLEFT", 300, -296)
 
   cfg.twoColCheck = MakeCheck(look, L["Two columns when the list is long"],
     function() return db.twoCol end,
@@ -494,7 +495,7 @@ local function BuildConfig()
     for i, k in ipairs(order) do if k:lower() == (db.theme or ""):lower() then cur = i end end
     X.ApplyTheme(order[cur % #order + 1])
   end)
-  cfg.themeBtn:SetPoint("TOPLEFT", 250, -362)
+  cfg.themeBtn:SetPoint("TOPLEFT", 250, -336)
 
   cfg.saveThemeBtn = MakeButton(look, "Save as theme", 150, function()
     local n = 1
@@ -507,12 +508,12 @@ local function BuildConfig()
       Print("You already have 4 saved themes — /br theme delete <name> one first.")
     end
   end)
-  cfg.saveThemeBtn:SetPoint("TOPLEFT", 428, -362)
+  cfg.saveThemeBtn:SetPoint("TOPLEFT", 428, -336)
 
   cfg.findCheck = MakeCheck(look, L["Show a name finder on the window"],
     function() return db.findBox end,
     function(v) db.findBox = v; X.ApplyRowLayout(); Refresh() end)
-  cfg.findCheck:SetPoint("TOPLEFT", 250, -388)
+  cfg.findCheck:SetPoint("TOPLEFT", 300, -388)
 
   
   
@@ -538,7 +539,7 @@ local function BuildConfig()
     for _, panel in pairs(cfg.panels) do panel:Hide() end
     p:Show()
   end)
-  cfg.displayBtn:SetPoint("TOPLEFT", 250, -428)
+  cfg.displayBtn:SetPoint("TOPLEFT", 300, -428)
 
   cfg.minimapCheck = MakeCheck(look, L["Minimap button (drag it around the minimap)"],
     function() return db.showMinimap end,
