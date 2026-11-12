@@ -2,6 +2,17 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.3 — 2026-11-12 — Forever fixes
+
+- Safely handle hidden range, combat, charm, and PvP results from the
+  game when deciding who can receive a buff.
+- Skip unreadable raid-marker values and avoid marker lookups when the
+  display option is off.
+- Use the game's secure visibility driver to hide the buff window in
+  combat and apply pending appearance changes after combat.
+- Fix overlapping controls across all five settings tabs. Give search
+  its own footer and hide it while More Display Options is open.
+
 ## 1.15.2 — 2026-11-11 — Shared safety update
 
 - Only list targets who can currently receive a useful buff: the target
