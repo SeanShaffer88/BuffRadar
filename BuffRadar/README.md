@@ -49,9 +49,9 @@ layout — only the `.toc` differs, and BuffRadar picks the right buff set when 
 - **Water droplet alert** when someone new appears (optional, with a mute keybind;
   a system sound or silence can be chosen instead, and alerts can stay quiet in
   instances).
-- **Only eligible players appear:** the current character must know a useful buff,
-  the target must be in cast range and out of combat, and the caster must be out of
-  combat. **Right-click a row** to ignore a player who doesn't want buffs.
+- **Out-of-range players** can stay listed, greyed and marked *out of range*, so you
+  see who's coming into range. **Right-click a row** to ignore a player who doesn't
+  want buffs.
 - **Role ordering** option: you, tanks (by group role) and leaders first.
 - **Rezzed players first** (after you): someone who just came back from the dead
   has lost every buff, so their row jumps up with a *recently rezzed* marker.
@@ -235,11 +235,10 @@ Hover over a name to see exactly what will be cast and what they still need.
 
 ## Good to know
 
-- **Combat:** the window hides and buff buttons are disabled while your character is
-  in combat; it returns when combat ends.
-- **Line of sight:** addons can't reliably check it before casting. When the game
-  reports a line-of-sight failure, BuffRadar temporarily skips that target so the next
-  keybind press can continue to the next eligible player.
+- **Combat:** the game doesn't let addons change click-to-cast buttons during combat,
+  so the list freezes until combat ends. The keybind and macro do nothing in combat.
+- **Line of sight:** addons can't check line of sight in advance. If a cast fails with
+  *"Target not in line of sight"*, move and try again.
 - **Targeting:** party and raid members are buffed directly, without touching your
   target. To buff a player outside your group, BuffRadar targets them by name,
   casts, then switches back to your previous target.
@@ -260,6 +259,8 @@ Hover over a name to see exactly what will be cast and what they still need.
 - **Patch days:** Midnight removed the "load out-of-date addons" option, so this
   edition loads only while its interface version matches the live patch (120105 =
   12.1.5). A new retail patch needs a new BuffRadar build with the updated number.
+- **Show / hide in combat:** the game doesn't allow it, so the keybind applies the
+  change as soon as combat ends.
 - **Cast counter:** the session count resets on login or `/reload`. The all-time count
   is shared by all your characters.
 - **Earth Shield** can sit on only one other player at a time, so while yours is on a

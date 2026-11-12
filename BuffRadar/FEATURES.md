@@ -196,8 +196,8 @@ Same as the Forever edition: discovery is group units + target +
 mouseover + friendly nameplates only (nameplates required for
 strangers, with the login warning and `/br debug` reporting when
 they're off); water-droplet alert with mute/system/none choices;
-only lists players currently in cast range who can benefit from a buff
-and are out of combat; role ordering (you, tanks by
+out-of-range rows greyed **and marked *out of range* in text**, so
+the state doesn't rely on color alone; role ordering (you, tanks by
 group role, and leaders first); city/battleground pauses (Dornogal
 is in the retail city list); party/raid-only mode; autohide; minimap
 button and addon-compartment entry; tabbed settings window (Window /
