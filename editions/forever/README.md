@@ -9,6 +9,16 @@ buffs — with their portrait, class-colored name and icons of what they still n
 Click a name to buff them. Press one key (or one macro) to buff the next person.
 You always come first.
 
+## Screenshots
+
+**BuffRadar list**
+
+![BuffRadar showing nearby players who still need buffs.](screenshots/buffradar-forever-list.png)
+
+**BuffRadar settings**
+
+![BuffRadar settings for appearance and behavior options.](screenshots/buffradar-forever-settings.png)
+
 ## TL;DR
 
 Think of it as a to-do list for buffing: BuffRadar watches your group and
