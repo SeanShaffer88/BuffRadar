@@ -79,6 +79,7 @@ do
             listA = {}, listB = {}, recentlyGone = {}, sessionCasts = 0,
             missPrev = {}, missNow = {}, expiredAt = {}, rowH = 24,
             handled = {}, asked = {}, applyFilter = true,
+            failedTargets = {},
             prevHolder = {}, queueAt = 0, consTally = {},
             assign = {}, blessPlan = {}, peers = {}, cover = {}, myCover = false,
             expiryTally = {}, upTotal = 0, upFull = 0,
@@ -125,7 +126,7 @@ local DEFAULTS = {
   pauseInCities = true, -- stop scanning in major cities
   groupCast = false,   -- offer the group version (Prayer of Fortitude etc.) when enough group members need a buff
   groupCastMin = 3,    -- how many group members must need the buff first
-  showOutOfRange = false, -- also list out-of-range players, greyed and unclickable
+  showOutOfRange = false, -- the list only includes targets in cast range
   sortMode = "name",   -- list order: "name" or "role" (tanks and leaders first)
   ignored = {},        -- player names BuffRadar never lists (right-click a row)
   rebuffPer = {},      -- per-buff rebuff thresholds in seconds: buff key -> seconds
@@ -187,7 +188,7 @@ local DEFAULTS = {
   scanThrottle = false, -- halve the steady rescan rate in groups over 20 (1.7.0)
   history = {},        -- last 50 casts through BuffRadar: { t, spell, who } (1.7.0)
   growUp = false,      -- the list grows upward from a fixed bottom edge (1.8.0)
-  hideInCombat = false, -- hide the window while you are in combat (1.8.0)
+  hideInCombat = true,  -- no buff targets are available while you are in combat
   twoCol = false,      -- two columns when the list is long (1.9.0)
   theme = "midnight",  -- window color theme: midnight/crimson/forest/parchment/custom (1.8.0)
   findBox = false,     -- name finder box on the window (1.8.0)
@@ -720,13 +721,19 @@ end
 
 local function InRange(spell, unit)
   if UnitIsUnit(unit, "player") then return true end
-  local ok, r
+  local hasSpellRange, r = false, nil
   if C_Spell and C_Spell.IsSpellInRange then
+    hasSpellRange = true
+    local ok
     ok, r = pcall(C_Spell.IsSpellInRange, spell, unit)
-  elseif IsSpellInRange then
-    ok, r = pcall(IsSpellInRange, spell, unit)
+    if not ok then r = nil end
   end
-  if not ok then r = nil end
+  if r == nil and IsSpellInRange then
+    hasSpellRange = true
+    local ok
+    ok, r = pcall(IsSpellInRange, spell, unit)
+    if not ok then r = nil end
+  end
   -- A protected (secret) answer can't be compared: treat it as "unknown".
   -- (Readable() below does this elsewhere; it's defined after this function.)
   if r ~= nil and issecretvalue then
@@ -735,7 +742,9 @@ local function InRange(spell, unit)
   end
   if r == true or r == 1 then return true end
   if r == false or r == 0 then return false end
-  -- Range unknown: fall back to group range / follow distance.
+  if hasSpellRange then return false end  -- unknown spell range is not safe to assume
+  -- Older clients without spell-range APIs fall back to group range /
+  -- follow distance; when a spell API exists, an unknown result fails closed.
   if UnitInRange then
     local okR, inRange, checked = pcall(UnitInRange, unit)
     if okR and checked then return inRange and true or false end
@@ -745,6 +754,18 @@ local function InRange(spell, unit)
     return okC and near and true or false
   end
   return false
+end
+
+function X.FilterInRange(unit, source, out)
+  wipe(out)
+  local n = 0
+  for i = 1, #source do
+    if InRange(source[i], unit) then
+      n = n + 1
+      out[n] = source[i]
+    end
+  end
+  return n
 end
 
 -- The Forever engine can hand addons "secret" values that throw when compared or used
@@ -1376,6 +1397,10 @@ local function Valid(unit)
   if not UnitExists(unit) or not UnitIsPlayer(unit) then return false end
   if UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit) then return false end
   if not UnitCanAssist("player", unit) then return false end
+  if not UnitAffectingCombat then return false end
+  local okPlayer, playerCombat = pcall(UnitAffectingCombat, "player")
+  local okUnit, unitCombat = pcall(UnitAffectingCombat, unit)
+  if not okPlayer or not okUnit or playerCombat or unitCombat then return false end
   if UnitIsCharmed and UnitIsCharmed(unit) then return false end
   if _G.UnitInPhase then  -- a player in another phase can't be reached or buffed
     local ok, inPhase = pcall(_G.UnitInPhase, unit)
@@ -1555,6 +1580,11 @@ local function Consider(unit, isGroup)
   -- protected one can't be either, so that unit is skipped.
   local guid = SafeString(UnitGUID(unit))
   if not guid or seen[guid] then return end
+  local blockedUntil = X.failedTargets[guid]
+  if blockedUntil then
+    if blockedUntil > GetTime() then return end
+    X.failedTargets[guid] = nil
+  end
   local full, nm = Ignore.UnitNames(unit)
   if next(Ignore.index) and Ignore.Has(full, nm) then return end  -- on the ignore list
   if next(X.session) and X.SessionHas(full, nm) then return end  -- session-only ignore
@@ -1579,15 +1609,16 @@ local function Consider(unit, isGroup)
   local e = entries[slot]
   if not e then
     local p = #entryPool
-    if p > 0 then e = entryPool[p]; entryPool[p] = nil else e = { missing = {} } end
+    if p > 0 then e = entryPool[p]; entryPool[p] = nil else e = { missing = {}, allMissing = {} } end
     entries[slot] = e
   end
-  local n = Missing(unit, e.missing, isGroup)
+  if not e.allMissing then e.allMissing = {} end
+  local allN = Missing(unit, e.allMissing, isGroup)
   e.remain1 = X.remainTmp
-  if isGroup and n == 0 then X.missNow[guid] = {} end  -- clean baseline for expiry checks
-  local inRange = n > 0 and InRange(e.missing[1], unit)
-  if n > 0 and not inRange and db.rangeWatch then X.farNow[guid] = nm or UnitName(unit) or true end
-  if n == 0 or (not inRange and not db.showOutOfRange) then return end  -- slot is reused next time
+  if isGroup and allN == 0 then X.missNow[guid] = {} end  -- clean baseline for expiry checks
+  local n = X.FilterInRange(unit, e.allMissing, e.missing)
+  if allN > 0 and n == 0 and db.rangeWatch then X.farNow[guid] = nm or UnitName(unit) or true end
+  if n == 0 then return end  -- only list targets with a buff currently in range
   nEntries = slot
   local _, class = UnitClass(unit)
   -- e.name may be a protected value (display only: SetText accepts those);
@@ -1595,7 +1626,7 @@ local function Consider(unit, isGroup)
   e.unit, e.guid, e.name, e.class, e.group = unit, guid, nm or UnitName(unit), SafeString(class), isGroup
   e.fullName, e.sortName = full, nm or ""
   e.isSelf = UnitIsUnit(unit, "player")
-  e.rangeBucket = (not inRange) and ((_G.UnitInRange and _G.UnitInRange(unit)) and 1 or 2) or 0
+  e.rangeBucket = 0
   e.marker = nil
   if _G.GetRaidTargetIndex then
     local okM, mi = pcall(_G.GetRaidTargetIndex, unit)
@@ -1606,12 +1637,12 @@ local function Consider(unit, isGroup)
     -- now, and is truly gone (not just inside its rebuff window) expired,
     -- was dispelled, or went away with a death.
     local keys, expired, fallExpired = {}, nil, nil
-    for j = 1, #e.missing do
-      local key = X.KeyOfName(e.missing[j])
+    for j = 1, #e.allMissing do
+      local key = X.KeyOfName(e.allMissing[j])
       if key then
         keys[key] = true
         local prev = X.missPrev[guid]
-        if prev and not prev[key] and not HasAny(unit, { e.missing[j] }, 0) then
+        if prev and not prev[key] and not HasAny(unit, { e.allMissing[j] }, 0) then
           expired = true
           if not Single.spell[key] then fallExpired = true end
         end
@@ -1633,7 +1664,7 @@ local function Consider(unit, isGroup)
   end
   local rz = X.rezAt[guid]
   e.rezzed = (rz and GetTime() - rz < 60) or nil
-  e.outOfRange = not inRange
+  e.outOfRange = false
   e.groupCast = false
   e.role = RoleOf(unit)
   e.pet = nil
@@ -1675,13 +1706,14 @@ function X.ConsiderPet(petUnit, ownerUnit)
   local e = entries[slot]
   if not e then
     local p = #entryPool
-    if p > 0 then e = entryPool[p]; entryPool[p] = nil else e = { missing = {} } end
+    if p > 0 then e = entryPool[p]; entryPool[p] = nil else e = { missing = {}, allMissing = {} } end
     entries[slot] = e
   end
-  local n = X.PetMissing(petUnit, e.missing)
+  if not e.allMissing then e.allMissing = {} end
+  local allN = X.PetMissing(petUnit, e.allMissing)
+  if allN == 0 then return end
+  local n = X.FilterInRange(petUnit, e.allMissing, e.missing)
   if n == 0 then return end
-  local inRange = InRange(e.missing[1], petUnit)
-  if not inRange and not db.showOutOfRange then return end
   nEntries = slot
   local _, oclass = UnitClass(ownerUnit)
   e.unit, e.guid, e.name = petUnit, guid, pname
@@ -1689,7 +1721,7 @@ function X.ConsiderPet(petUnit, ownerUnit)
   e.fullName = nil
   e.class = SafeString(oclass)
   e.group, e.isSelf, e.pet = true, false, true
-  e.rangeBucket = (not inRange) and ((_G.UnitInRange and _G.UnitInRange(petUnit)) and 1 or 2) or 0
+  e.rangeBucket = 0
   e.marker = nil
   if _G.GetRaidTargetIndex then
     local okM, mi = pcall(_G.GetRaidTargetIndex, petUnit)
@@ -1697,7 +1729,7 @@ function X.ConsiderPet(petUnit, ownerUnit)
   end
   e.remain1 = nil
   e.expired, e.rezzed = nil, nil
-  e.outOfRange = not inRange
+  e.outOfRange = false
   e.groupCast = false
   e.role = 3
 end
@@ -2074,11 +2106,11 @@ end
 X.EXPORT_KEYS = { "locked", "includeSelf", "avoidPvP", "autoHide", "rebuff", "scale",
   "width", "cfgScale", "castMethod", "clickReg", "bgAlpha", "showTitle", "showBorder",
   "playSound", "showCounter", "groupOnly", "pauseInCities", "groupCast", "groupCastMin",
-  "showOutOfRange", "sortMode", "alertSound", "alertSounds", "buffPrio", "clickThrough", "muteInInstance", "showMinimap", "lowMana",
+  "sortMode", "alertSound", "alertSounds", "buffPrio", "clickThrough", "muteInInstance", "showMinimap", "lowMana",
   "sync", "requests", "joinDigest", "roleFilter", "showStrip", "idleFade",
   "pill", "queueTag", "consumables", "buddySplit", "readyPost", "weaponWatch", "enterFlash",
-  "scanThrottle", "growUp", "hideInCombat", "theme", "findBox", "durationBars", "raidMarkers",
-  "rangeText", "focusWatch", "pets", "auraWatch", "worldWatch", "drinkWatch", "twoCol",
+  "scanThrottle", "growUp", "theme", "findBox", "durationBars", "raidMarkers",
+  "focusWatch", "pets", "auraWatch", "worldWatch", "drinkWatch", "twoCol",
   "deathRecap", "wipeReport", "rowGap", "iconSize", "strata",
   "tooltipLevel", "viewMode", "classColors", "showRealm", "nameTrim",
   "scalePerSpec", "gripSnap", "tagSymbols", "reduceMotion", "rangeWatch",
@@ -2528,6 +2560,14 @@ local function NotePendingCast(entry, spellOverride)
                       guid = entry.guid, key = X.KeyOfName(spell),
                       who = entry.sortName }
   end
+end
+
+function X.SkipPendingCast()
+  local pending = X.pendingCast
+  if not pending or not pending.guid or GetTime() - pending.time > 4 then return false end
+  X.failedTargets[pending.guid] = GetTime() + 30
+  X.pendingCast = nil
+  return true
 end
 
 ---------------------------------------------------------------------------
@@ -3076,7 +3116,8 @@ local function IconInset()
 end
 
 local function CreateRow(i)
-  local b = CreateFrame("Button", "BuffRadarRow" .. i, frame, "SecureActionButtonTemplate")
+  local b = CreateFrame("Button", "BuffRadarRow" .. i, frame,
+                        "SecureActionButtonTemplate,SecureHandlerStateTemplate")
   -- Anchored on both sides, so rows follow the window's width when it's resized.
   b:SetHeight(ROW_H)
   b:SetPoint("TOPLEFT", frame, "TOPLEFT", 6, -HEADER_H - (i - 1) * ROW_H)
@@ -3095,6 +3136,21 @@ local function CreateRow(i)
   -- action the template doesn't know, so a right-click casts nothing.
   -- Bind() never touches "type2", so this holds for the row's lifetime.
   b:SetAttribute("type2", "buffradarignore")
+  local stateOK = pcall(b.SetAttribute, b, "_onstate-combat", [[
+    if newstate == "combat" then
+      self:SetAttribute("type", nil)
+      self:SetAttribute("spell", nil)
+      self:SetAttribute("unit", nil)
+      self:SetAttribute("macrotext", nil)
+      self:SetAttribute("shift-type1", nil)
+      self:SetAttribute("shift-spell1", nil)
+      self:SetAttribute("shift-unit1", nil)
+      self:SetAttribute("shift-macrotext1", nil)
+    end
+  ]])
+  if stateOK and RegisterStateDriver then
+    b.combatDriver = pcall(RegisterStateDriver, b, "combat", "[combat] combat; nocombat")
+  end
 
   b.portrait = b:CreateTexture(nil, "ARTWORK")
   b.portrait:SetSize(ROW_H - 2, ROW_H - 2)
@@ -3634,13 +3690,18 @@ function X.Why(name)
     return
   end
   if not Valid(unit) then
-    Print(disp .. " can't be buffed right now (dead, offline, charmed or in another phase), so they are not listed.")
+    Print(disp .. " can't be buffed right now (dead, offline, in combat, charmed or in another phase), so they are not listed.")
     return
   end
-  local miss = {}
-  local n = Missing(unit, miss, isGroup)
+  local allMiss, miss = {}, {}
+  local n = Missing(unit, allMiss, isGroup)
   if n == 0 then
     Print(disp .. " already has every buff you can give them.")
+    return
+  end
+  local inRange = X.FilterInRange(unit, allMiss, miss)
+  if inRange == 0 then
+    Print(disp .. " needs " .. table.concat(allMiss, ", ") .. " but none are in cast range; move closer before buffing.")
     return
   end
   local guid = UnitGUID(unit)
@@ -3660,10 +3721,6 @@ function X.Why(name)
   end
   if X.search and X.search ~= "" and not (disp:lower():find(X.search, 1, true)) then
     Print(disp .. " needs " .. table.concat(miss, ", ") .. ", but the name finder ('" .. X.search .. "') hides them. Clear the finder text to see everyone.")
-    return
-  end
-  if not InRange(miss[1], unit) and not db.showOutOfRange then
-    Print(disp .. " needs " .. miss[1] .. " but is out of range, and out-of-range players are hidden. /br range shows them.")
     return
   end
   Print(disp .. " is not on the list right now; they need: " .. table.concat(miss, ", ") .. ".")
@@ -5587,7 +5644,7 @@ for _, ev in ipairs({
   "SPELLS_CHANGED", "LEARNED_SPELL_IN_TAB", "LEARNED_SPELL_IN_SKILL_LINE",
   "GROUP_ROSTER_UPDATE", "PARTY_MEMBERS_CHANGED", "RAID_ROSTER_UPDATE",
   "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "UNIT_AURA", "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
-  "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_SUCCEEDED", "UI_ERROR_MESSAGE",
+  "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED", "UI_ERROR_MESSAGE",
   "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN", "CVAR_UPDATE", "UPDATE_BINDINGS",
   "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS",
   "SPELL_DATA_LOAD_RESULT", "UNIT_PORTRAIT_UPDATE",
@@ -5649,12 +5706,29 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     end
     return
   end
-  if event == "UNIT_SPELLCAST_SENT" or event == "UNIT_SPELLCAST_FAILED"
-     or event == "UNIT_SPELLCAST_SUCCEEDED" or event == "UI_ERROR_MESSAGE" then
+  if event == "UNIT_SPELLCAST_SENT" or event == "UNIT_SPELLCAST_SUCCEEDED"
+     or event == "UI_ERROR_MESSAGE" then
     if db and db.clickDebug and (event == "UI_ERROR_MESSAGE" or arg1 == "player") then
       local parts = { SafeString(arg1) or "?" }  -- "?" = nil or protected
       for i = 1, select("#", ...) do parts[#parts + 1] = SafeString((select(i, ...))) or "?" end
       Print("|cffaaaaaa" .. event .. ": " .. table.concat(parts, ", ") .. "|r")
+    end
+    if event == "UI_ERROR_MESSAGE" and X.pendingCast then
+      local pending = X.pendingCast
+      if GetTime() - pending.time < 4 then
+        local message = type(arg1) == "string" and arg1 or ""
+        for i = 1, select("#", ...) do
+          local part = select(i, ...)
+          if type(part) == "string" then message = message .. " " .. part end
+        end
+        local losError = _G.SPELL_FAILED_LINE_OF_SIGHT or _G.ERR_SPELL_FAILED_LINE_OF_SIGHT
+        local hasLocalizedError = type(losError) == "string" and message:find(losError, 1, true)
+        local hasEnglishError = message:lower():find("line of sight", 1, true)
+        if hasLocalizedError or hasEnglishError then
+          if X.SkipPendingCast() then Soon() end
+        end
+      end
+      return
     end
     if event ~= "UNIT_SPELLCAST_SUCCEEDED" or arg1 ~= "player" then return end
     if arg1 == "player" and X.pendingCast and db then
@@ -5664,6 +5738,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       if name and name == X.pendingCast.spell and GetTime() - X.pendingCast.time < 3 then
         local pk, pg, pw = X.pendingCast.key, X.pendingCast.guid, X.pendingCast.who
         X.pendingCast = nil
+        X.failedTargets[pg] = nil
         X.sessionCasts = X.sessionCasts + 1
         db.castsTotal = (db.castsTotal or 0) + 1
         db.stats = db.stats or {}
@@ -5742,6 +5817,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     driver:UnregisterEvent("ADDON_LOADED")  -- one-off
     BuffRadarDB = SanitizeDB(BuffRadarDB)
     db = BuffRadarDB
+    db.showOutOfRange, db.hideInCombat = false, true
     local preVersion = db.dbVersion or 0  -- the version the save came from (1.9.0 wizard gate)
     Ignore.Rebuild()
     -- Settings shared with the Forever edition: Classic-only choices fall back
@@ -5841,14 +5917,25 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if X.edge and X.edge.isSizing then X.EndEdgeDrag(X.edge) end
     if nextBtn then nextBtn.bGuid, nextBtn.isClear = nil, false end  -- driver clears it
     if X.groupBtn then X.groupBtn.bGuid, X.groupBtn.isClear = nil, false end
-    -- Fallback when the secure combat driver isn't available: this event still runs
-    -- just before combat lockdown starts, so the key can be disarmed here.
+    -- Fallback when a secure combat driver isn't available.
     if not nextCombatDriver then ClearNext() end
     if not X.groupCombatDriver then ClearGroup() end
-    -- Hide in combat (1.8.0): the window steps aside for the fight; the
-    -- post-combat refresh below decides whether it comes back.
-    if db and db.hideInCombat and frame
-       and (frame:IsShown() or (X.pill and X.pill:IsShown())) then
+    for i = 1, MAX_ROWS do
+      local row = rows[i]
+      if row and not row.combatDriver then
+        row:SetAttribute("type", nil)
+        row:SetAttribute("spell", nil)
+        row:SetAttribute("unit", nil)
+        row:SetAttribute("macrotext", nil)
+        row:SetAttribute("shift-type1", nil)
+        row:SetAttribute("shift-spell1", nil)
+        row:SetAttribute("shift-unit1", nil)
+        row:SetAttribute("shift-macrotext1", nil)
+      end
+    end
+    -- Keep the out-of-combat list from implying that any buff can be cast
+    -- during combat. The post-combat refresh rebuilds it.
+    if frame and (frame:IsShown() or (X.pill and X.pill:IsShown())) then
       X.combatHid = true
       frame:Hide()
       if X.pill then X.pill:Hide() end

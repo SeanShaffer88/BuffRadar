@@ -559,18 +559,16 @@ step("Earth Shield: offered to one tank at a time (retail)", function()
   O.Aura = nil
   cleanup()
 end)
-step("out-of-range rows: marker shown, and class color back when in range", function()
+step("out-of-range players are never listed, then appear in range", function()
   local cleanup = twoTanks()
+  env.IsSpellInRange = function() return 0 end
   refresh()
-  local r = shownRows()
-  local row = assert(r.nameplate1, "tank 1 not listed").row
-  assert(row.far and row.far.shown, "no 'out of range' marker on a greyed row")
-  assert(row.name.color and row.name.color[1] < 0.6, "out-of-range name not greyed")
-  env.IsSpellInRange = function() return 1 end   -- now in range
+  assert(not shownRows().nameplate1 and not shownRows().nameplate2,
+    "an out-of-range player appeared in the list")
+  env.IsSpellInRange = function() return 1 end
   refresh()
-  row = assert(shownRows().nameplate1, "tank 1 not listed in range").row
+  local row = assert(shownRows().nameplate1, "tank 1 not listed in range").row
   assert(not row.far.shown, "'out of range' marker still shown in range")
-  assert(row.name.color and row.name.color[1] > 0.9, "name still grey after coming into range")
   env.IsSpellInRange = nil
   cleanup()
 end)
@@ -608,6 +606,43 @@ local function partyOfTwo(suffix)
     env.IsSpellInRange = nil
   end
 end
+step("combat targets and caster are never eligible", function()
+  local cleanup = partyOfTwo("C")
+  local O = env.__over
+  env.IsSpellInRange = function() return 1 end
+  O.UnitAffectingCombat = function(u) return u == "party2" end
+  refresh()
+  local rows = shownRows()
+  assert(rows.party1 and not rows.party2, "a target in combat was listed")
+  O.UnitAffectingCombat = function(u) return u == "player" end
+  refresh()
+  assert(not shownRows().party1 and not shownRows().party2,
+    "targets remained listed while the caster was in combat")
+  O.UnitAffectingCombat = nil
+  cleanup()
+end)
+step("line-of-sight failures skip that target for the session window", function()
+  local cleanup = partyOfTwo("L")
+  local O = env.__over
+  env.IsSpellInRange = function() return 1 end
+  refresh()
+  local guid = "Player-1-P1L"
+  NS.X.pendingCast = {
+    spell = "Skyfury", time = env.GetTime(), guid = guid,
+    key = "SKYFURY", who = "Aaron",
+  }
+  fire("UI_ERROR_MESSAGE", 1, "Target is not in line of sight")
+  assert(NS.X.failedTargets[guid], "line-of-sight failure did not mark the target")
+  assert(NS.X.pendingCast == nil, "failed cast remained pending")
+  refresh()
+  local rows = shownRows()
+  assert(not rows.party1 and rows.party2,
+    "failed target stayed listed or the next eligible target disappeared")
+  NS.X.failedTargets[guid] = nil
+  refresh()
+  assert(shownRows().party1, "target did not return after its temporary skip cleared")
+  cleanup()
+end)
 step("coverage line: progress and per-buff counts (1.4.0)", function()
   if env.__forever then return end  -- coverage math is edition-independent; retail covers it
   local cleanup = partyOfTwo()
@@ -1168,7 +1203,7 @@ end)
 step("shipped presets set window and behavior only (1.6.0)", function()
   local db = env.BuffRadarDB
   env.SlashCmdList.BUFFRADAR("preset raid")
-  assert(db.sortMode == "role" and db.groupCast == true and db.showOutOfRange == true,
+  assert(db.sortMode == "role" and db.groupCast == true,
     "raid preset not applied")
   env.SlashCmdList.BUFFRADAR("preset solo")
   assert(db.sortMode == "name" and db.groupCast == false and db.pauseInCities == false,
@@ -1611,18 +1646,14 @@ step("color themes set the window colors (1.8.0)", function()
   assert(db.theme == "midnight", "theme not restored")
 end)
 
-step("hide in combat steps aside for the fight (1.8.0)", function()
-  local db = env.BuffRadarDB
-  env.SlashCmdList.BUFFRADAR("combat")
-  assert(db.hideInCombat == true, "hideInCombat setting not stored")
+step("combat always hides the list and restores it afterward", function()
   local frame = env.BuffRadarFrame
   frame:Show()
   fire("PLAYER_REGEN_DISABLED")
   assert(not frame:IsShown(), "window still shown after combat started")
   fire("PLAYER_REGEN_ENABLED")
   timerTick()
-  env.SlashCmdList.BUFFRADAR("combat")
-  assert(db.hideInCombat == false, "hideInCombat not toggled off")
+  assert(frame:IsShown(), "window did not return after combat ended")
 end)
 
 step("name finder filters the list (1.8.0)", function()
@@ -1684,22 +1715,24 @@ step("raid marker badge shows on the row (1.8.0)", function()
   cleanup()
 end)
 
-step("range band text calls a near player near (1.8.0)", function()
+step("out-of-range group members stay off the list (1.8.0)", function()
   local cleanup = partyOfTwo("R")
-  local O = env.__over
   env.IsSpellInRange = function(_, u) if u == "party2" then return 0 end return 1 end
-  env.UnitInRange = function(u) if u == "party2" then return true, true end end
-  env.SlashCmdList.BUFFRADAR("range")
   refresh()
-  local row = shownRows().party2 and shownRows().party2.row
-  assert(row, "Zed not listed as a greyed row")
-  assert(row.far.text == "near" or row.far.text == "in der Nähe",
-    "greyed row does not read 'near': " .. tostring(row.far.text))
-  env.SlashCmdList.BUFFRADAR("range")
+  assert(not shownRows().party2, "out-of-range party member appeared in the list")
+  env.IsSpellInRange = function() return 1 end
   refresh()
-  assert(row.far.text == "out of range" or row.far.text == "außer Reichweite",
-    "greyed row label not restored: " .. tostring(row.far.text))
-  env.UnitInRange = nil
+  assert(shownRows().party2, "party member did not appear after moving into range")
+  local selected = {}
+  env.IsSpellInRange = function(spell) return spell == "Short-range buff" and 1 or 0 end
+  assert(NS.X.FilterInRange("party2", { "Long-range buff", "Short-range buff" }, selected) == 1
+    and selected[1] == "Short-range buff",
+    "range filtering did not keep only castable buffs")
+  env.IsSpellInRange = nil
+  env.C_Spell = { IsSpellInRange = function() return nil end }
+  assert(NS.X.FilterInRange("party2", { "Unknown-range buff" }, selected) == 0,
+    "unknown spell-specific range was treated as safe")
+  env.C_Spell = nil
   cleanup()
 end)
 

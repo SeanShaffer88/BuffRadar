@@ -1,6 +1,6 @@
 # BuffRadar — Features (Forever edition)
 
-The full feature list for BuffRadar 1.15.1 (Forever edition) for
+The full feature list for BuffRadar 1.15.2 (Forever edition) for
 WoW: Forever (Interface 16001). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
@@ -78,14 +78,12 @@ each needs in-game evidence or a sharper definition, recorded in
   (green / yellow under 15m / red under 5m).
 - **Grow upward** (`/br growup`): the list can grow up from a
   bottom anchor instead of down.
-- **Hide in combat** (`/br combat`): window and pill hide during
-  combat and return when it ends.
+- **Combat safety:** the window and pill hide during combat, buff buttons
+  are disabled, and targets in combat never appear.
 - **Color themes** (`/br theme`): Midnight, Crimson, Forest and
   Parchment window schemes; a custom color makes the theme Custom.
 - **Raid target markers** (`/br markers`): rows show the raid
   marker currently on that player.
-- **Range in words** (`/br range`): rows just out of range say
-  *near* instead of out of range.
 - **Group pets** (`/br pets`): party/raid pets get rows when
   missing Fortitude, Mark of the Wild or Arcane Intellect; pets
   stay out of every report and announcement.
@@ -347,12 +345,10 @@ stays hidden on those characters.
 
 ## Not in this version
 
-- No buffing during combat: the game doesn't let addons change
-  click-to-cast buttons in combat, so the list freezes until combat
-  ends and the keybind/macro do nothing in combat. Show/hide changes
-  made in combat apply when combat ends.
-- No line-of-sight check: addons can't check it in advance; a failed
-  cast reports the game's own "Target not in line of sight" error.
+- No buffing during combat: the window is hidden, secure buff buttons
+  are disabled, and players in combat are excluded.
+- No pre-cast line-of-sight check: when the game reports a failed cast,
+  that target is temporarily skipped so the next keybind press moves on.
 - No discovery beyond group, target, mouseover and friendly
   nameplates — there is no API for a general nearby-player list.
 
@@ -370,6 +366,16 @@ stays hidden on those characters.
   1.15.1, which is itself Unverified in game. The Retail edition ended at 1.7.0
   (Interface 120105), a separate zip from the same source with its
   own feature list.
+
+## Fixed in 1.15.2
+
+- List only players currently in cast range who can benefit from a known
+  buff and are out of combat; targets in combat are excluded.
+- Hide and disarm buff buttons during combat.
+- Detect the game's line-of-sight failure message and temporarily skip
+  that target so the next keybind press can move on.
+- Remove the range-display and combat-hide toggles, which no longer
+  match the safe eligibility rules.
 
 ## Fixed in 1.15.1
 

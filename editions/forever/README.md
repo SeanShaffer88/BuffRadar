@@ -52,9 +52,9 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
 - **Group-cast offers:** when enough of your party or raid needs the same buff,
   BuffRadar offers the group version (Prayer of Fortitude, Gift of the Wild…)
   instead — one cast for everyone.
-- **Out-of-range players** can stay listed, greyed and marked *out of range*, so you
-  see who's coming into range. **Right-click a row** to ignore a player who doesn't
-  want buffs.
+- **Only eligible players appear:** the current character must know a useful buff,
+  the target must be in cast range and out of combat, and the caster must be out of
+  combat. **Right-click a row** to ignore a player who doesn't want buffs.
 - **Role ordering** option: you, tanks and leaders first.
 - **Rezzed players first** (after you): someone who just came back from the dead
   has lost every buff, so their row jumps up with a *recently rezzed* marker.
@@ -238,10 +238,11 @@ Hover over a name to see exactly what will be cast and what they still need.
 
 ## Good to know
 
-- **Combat:** the game doesn't let addons change click-to-cast buttons during combat,
-  so the list freezes until combat ends. The keybind and macro do nothing in combat.
-- **Line of sight:** addons can't check line of sight in advance. If a cast fails with
-  *"Target not in line of sight"*, move and try again.
+- **Combat:** the window hides and buff buttons are disabled while your character is
+  in combat; it returns when combat ends.
+- **Line of sight:** addons can't reliably check it before casting. When the game
+  reports a line-of-sight failure, BuffRadar temporarily skips that target so the next
+  keybind press can continue to the next eligible player.
 - **Targeting:** party and raid members are buffed directly, without touching your
   target. To buff a player outside your group, BuffRadar targets them by name,
   casts, then switches back to your previous target.
@@ -254,8 +255,6 @@ Hover over a name to see exactly what will be cast and what they still need.
 - **Major cities:** Stormwind, Ironforge, Darnassus, Orgrimmar, Thunder Bluff, Undercity,
   The Exodar, Silvermoon and Shattrath. If a city isn't detected, `/br debug` shows the
   zone and map ID BuffRadar sees.
-- **Show / hide in combat:** the game doesn't allow it, so the keybind applies the
-  change as soon as combat ends.
 - **Cast counter:** the session count resets on login or `/reload`. The all-time count
   is shared by all your characters.
 - **Languages:** the main window, its tooltips and the minimap tooltips are in German
