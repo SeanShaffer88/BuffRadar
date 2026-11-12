@@ -2,6 +2,15 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.2 — 2026-11-11 — Shared safety update
+
+- Only list targets who can currently receive a useful buff: the target
+  and caster must be out of combat, and the target must be in cast range.
+- Hide the window and disable buff buttons during combat.
+- Detect line-of-sight cast failures and temporarily skip that target,
+  allowing the next keybind press to continue to another eligible player.
+- Remove obsolete range-display and combat-hide controls and commands.
+
 ## 1.7.0 — 2026-10-25 — Retail edition
 
 Ten more enhancements from the 50-item list, in the shared source

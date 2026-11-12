@@ -222,11 +222,11 @@ X.BLESSING_PRIORITY = {
 
 -- Shipped presets (1.6.0): one-click window/behavior setups.
 X.PRESETS = {
-  raid = { sortMode = "role", groupCast = true, showOutOfRange = true,
+  raid = { sortMode = "role", groupCast = true,
            groupOnly = false, pauseInCities = true },
-  dungeon = { sortMode = "need", groupCast = true, showOutOfRange = false,
+  dungeon = { sortMode = "need", groupCast = true,
               groupOnly = true, pauseInCities = true },
-  solo = { sortMode = "name", groupCast = false, showOutOfRange = false,
+  solo = { sortMode = "name", groupCast = false,
            groupOnly = false, pauseInCities = false },
 }
 

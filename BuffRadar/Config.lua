@@ -478,11 +478,6 @@ local function BuildConfig()
     function(v) db.growUp = v; X.ApplyAnchor(); Refresh() end)
   cfg.growCheck:SetPoint("TOPLEFT", 250, -288)
 
-  cfg.combatCheck = MakeCheck(look, L["Hide the window in combat"],
-    function() return db.hideInCombat end,
-    function(v) db.hideInCombat = v end)
-  cfg.combatCheck:SetPoint("TOPLEFT", 250, -320)
-
   cfg.twoColCheck = MakeCheck(look, L["Two columns when the list is long"],
     function() return db.twoCol end,
     function(v) db.twoCol = v; X.cols = nil; Refresh() end)
@@ -821,11 +816,6 @@ local function BuildConfig()
     castY = 82
   end
 
-  cfg.oorCheck = MakeCheck(beh, L["Show out-of-range players (greyed)"],
-    function() return db.showOutOfRange end,
-    function(v) db.showOutOfRange = v; Refresh() end)
-  cfg.oorCheck:SetPoint("TOPLEFT", 296, -112 + castY)
-
   cfg.sortBtn = MakeButton(beh, "Sort: name", 130, function()
     if db.sortMode == "name" then db.sortMode = "role"
     elseif db.sortMode == "role" then db.sortMode = "distance"
@@ -1109,7 +1099,6 @@ local function BuildConfig()
   Tip(resetLook, "Reset look", "Restores the default color, opacity, title, border, scale and width. Your position and other settings are kept.")
   Tip(cfg.minimapCheck, "Minimap button", "Left-click it to show or hide the window, right-click for settings, drag it around the minimap. The addon compartment (minimap menu) works either way.")
   Tip(cfg.growCheck, "Grow the list upward", "The window stands on its bottom edge and the list grows upward instead of down — handy when the window sits low on the screen. The saved position remembers the form. Same as /br growup.")
-  Tip(cfg.combatCheck, "Hide the window in combat", "The window (and the pill) hide when combat starts and come back when it ends. Same as /br combat.")
   Tip(cfg.twoColCheck, "Two columns when the list is long", "With more than 8 people on the list, the rows split into two side-by-side columns and the window widens, instead of growing one tall column. Same as /br twocol.")
   Tip(cfg.themeBtn, "Color theme", "Click to cycle the window's color themes: Midnight, Crimson, Forest, Parchment — plus any themes you saved yourself. Picking a custom background color afterwards switches back to a custom theme. Same as /br theme <name>.")
   Tip(cfg.saveThemeBtn, "Save as theme", "Saves the window's current background and border colors as your own theme, so it joins the theme cycle. It is named automatically; /br theme save <name> saves under your own name, /br theme delete <name> removes one. Up to 4 saved themes.")
@@ -1137,8 +1126,7 @@ local function BuildConfig()
   Tip(cfg.taxiCheck, "Pause on flight paths", "While you're on a flight path you can't cast anyway, so the list pauses (like the city pause) instead of showing buffs you can't hand out. Same as /br taxi.")
   Tip(cfg.groupCastCheck, "Offer group buffs", "When enough group members need a buff, offer its group version (one cast covers the party).")
   Tip(cfg.gcSlider, "Group buff threshold", "How many group members must need the buff before the group version is offered.")
-  Tip(cfg.oorCheck, "Show out-of-range players", "Keep players who are too far away on the list, greyed out and not clickable, so you see who's coming.")
-  Tip(cfg.sortBtn, "List order", "Click to switch: name = alphabetical; role = you, then tanks, then group leaders; distance = nearest first (in range, then in group range, then the rest); need = whoever is missing the most buffs first. After that, players in range come first, then group members, then by name.")
+  Tip(cfg.sortBtn, "List order", "Click to switch: name = alphabetical; role = you, then tanks, then group leaders; distance = nearest first; need = whoever is missing the most castable buffs first.")
   Tip(cfg.syncCheck, "Cast sync", "When you or another BuffRadar user in your group casts a buff, everyone's list marks that player as being buffed for a few seconds, so two of you don't cast the same buff on the same player.")
   Tip(cfg.requestsCheck, "Chat buff requests", "A player on your list who whispers you (or says nearby) asking for a buff gets an 'asked for a buff' marker on their row.")
   Tip(cfg.digestCheck, "Group join summary", "One line in chat when you join a group: how many people are missing buffs and how many casts that is. Also prints when a Mythic+ run starts.")
@@ -1243,10 +1231,6 @@ local function BuildConfig()
     function() return db.raidMarkers end,
     function(v) db.raidMarkers = v; InvalidateRows(); Refresh() end)
   cfg.markersCheck:SetPoint("TOPLEFT", 246, -342)
-  cfg.rangeCheck = MakeCheck(dpanel, "Range words on greyed rows",
-    function() return db.rangeText end,
-    function(v) db.rangeText = v; InvalidateRows(); Refresh() end)
-  cfg.rangeCheck:SetPoint("TOPLEFT", 16, -368)
   cfg.focusCheck = MakeCheck(dpanel, "Focus target watch line",
     function() return db.focusWatch end,
     function(v) db.focusWatch = v; Refresh() end)
@@ -1254,7 +1238,6 @@ local function BuildConfig()
 
   Tip(cfg.barsCheck, "Duration bars", "A thin bar along each row's bottom edge: how much of a 30-minute span the expiring buff has left. Green over 15 minutes, yellow under it, red under 5. Same as /br bars.")
   Tip(cfg.markersCheck, "Raid markers", "Show each player's raid target icon (star, circle, ...) on their row, over the portrait. Same as /br markers.")
-  Tip(cfg.rangeCheck, "Range words", "On greyed out-of-range rows, a player who is still in group range reads 'near' instead of 'out of range', so you can tell who is almost reachable. Same as /br range.")
   Tip(cfg.focusCheck, "Focus watch", "A line above the coverage line about your focus target: what they still need, or that they're buffed. Same as /br focus.")
   cfg.viewCheck = MakeCheck(dpanel, "Group rows by buff (one row per buff still needed)",
     function() return db.viewMode == "buffs" end,
@@ -1378,7 +1361,6 @@ RefreshConfig = function()
   cfg.groupCastCheck:Update()
   cfg.gcSlider:SetValue(db.groupCastMin or 3)
   cfg.gcValue:SetText(tostring(db.groupCastMin or 3))
-  cfg.oorCheck:Update()
   cfg.sortBtn:SetText("Sort: " .. tostring(db.sortMode))
   if cfg.syncCheck then cfg.syncCheck:Update() end
   if cfg.requestsCheck then cfg.requestsCheck:Update() end
@@ -1393,7 +1375,6 @@ RefreshConfig = function()
   if cfg.throttleCheck then cfg.throttleCheck:Update() end
   if cfg.growCheck then cfg.growCheck:Update() end
   if cfg.twoColCheck then cfg.twoColCheck:Update() end
-  if cfg.combatCheck then cfg.combatCheck:Update() end
   if cfg.themeBtn then
     local th = X.ThemeDef(db.theme)
     cfg.themeBtn:SetText("Theme: " .. (th and th.label or "Custom"))
@@ -1407,7 +1388,6 @@ RefreshConfig = function()
   if cfg.findCheck then cfg.findCheck:Update() end
   if cfg.barsCheck then cfg.barsCheck:Update() end
   if cfg.markersCheck then cfg.markersCheck:Update() end
-  if cfg.rangeCheck then cfg.rangeCheck:Update() end
   if cfg.focusCheck then cfg.focusCheck:Update() end
 
   -- Ignore list: one removable cell per name, the overflow counted in the summary

@@ -173,6 +173,10 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
   env.UnitLevel = function() return 80 end
   env.UnitIsPlayer = over("UnitIsPlayer", function(u) return u == "player" end)
   env.UnitIsDeadOrGhost = over("UnitIsDeadOrGhost", function() return false end)
+  env.UnitAffectingCombat = over("UnitAffectingCombat", function(u)
+    return u == "player" and env.__combat or false
+  end)
+  env.UnitInRange = over("UnitInRange", function() return true, true end)
   env.__sent = {}
   env.SendChatMessage = function(msg, chattype) env.__sent[#env.__sent + 1] = { msg = msg, chattype = chattype } end
   env.__addonSent = {}

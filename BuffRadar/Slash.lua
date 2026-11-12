@@ -854,9 +854,6 @@ local function HandleSlash(msg)
     Print("Two columns when the list is long " .. OnOff(db.twoCol)
       .. " — on: past 8 rows the list splits into two columns.")
     Refresh()
-  elseif cmd == "combat" then
-    db.hideInCombat = not db.hideInCombat
-    Print("Hide the window in combat " .. OnOff(db.hideInCombat))
   elseif cmd == "find" then
     if rest == "" or rest:lower() == "off" then
       X.search = ""
@@ -883,12 +880,6 @@ local function HandleSlash(msg)
     db.raidMarkers = not db.raidMarkers
     InvalidateRows()
     Print("Raid markers on rows " .. OnOff(db.raidMarkers))
-    Refresh()
-  elseif cmd == "range" then
-    db.rangeText = not db.rangeText
-    InvalidateRows()
-    Print("Range words on greyed rows " .. OnOff(db.rangeText)
-      .. " — a player in group range reads 'near' instead of 'out of range'.")
     Refresh()
   elseif cmd == "focus" then
     db.focusWatch = not db.focusWatch
@@ -1323,9 +1314,10 @@ local function HandleSlash(msg)
     Print("  /br pin <name>  - keep a player at the top   /br pin none  - clear the pin")
     Print("  /br weapon  - watch your weapon enchant   /br enterflash  - instance-entry reminder")
     Print("  /br history  - your recent casts   /br throttle  - halve the rescan rate in big groups")
-    Print("  /br growup  - list grows upward   /br combat  - hide in combat   /br theme <name>  - color theme")
+    Print("  /br growup  - list grows upward   /br theme <name>  - color theme")
+    Print("  Combat safety: the list hides and buff buttons are disabled until combat ends.")
     Print("  /br find <text> | findbox  - name finder   /br bars  - duration bars   /br markers  - raid markers")
-    Print("  /br range  - range words   /br focus  - focus target watch line")
+    Print("  /br focus  - focus target watch line")
     Print("  /br pets  - list group pets   /br context KEY raid|instance|always  - limit a buff")
     if CLASSIC_FEATURES then
       Print("  /br aura  - aura/aspect watch   /br worldbuff  - world-buff watch   /br drink  - drinking healers")
