@@ -29,7 +29,7 @@ as the situation calls for. When everyone is buffed, the list empties and
 gets out of your way. It costs nothing, asks for nothing, and never talks to
 anything outside the game.
 
-Version 1.15.3 · Interface 16001 · GPLv3. The fixes in this release were field-tested on Forever build 1.60.1.70888.
+Version 1.15.4 · Interface 16001 · GPLv3. The 1.15.3 settings fixes were field-tested on Forever build 1.60.1.70888; the self-buff fix passed offline checks and is unverified in game.
 
 **Forever-only from 1.8.0:** the Retail edition ended at 1.7.0 (dropped
 2026-10-25). Both editions were built from the same source; this zip's `.toc`
