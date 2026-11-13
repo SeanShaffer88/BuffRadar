@@ -219,6 +219,10 @@ X.BLESSING_PRIORITY = {
   DEMONHUNTER = { "KINGS", "MIGHT" },
   EVOKER      = { "KINGS", "WISDOM" },
 }
+X.BLESSING_CLASS_ORDER = { "DRUID", "HUNTER", "MAGE", "PALADIN", "PRIEST", "ROGUE", "SHAMAN", "WARLOCK", "WARRIOR" }
+X.BLESSING_CLASSES = {}
+for _, class in ipairs(X.BLESSING_CLASS_ORDER) do X.BLESSING_CLASSES[class] = true end
+X.BLESSING_KEYS = { "KINGS", "MIGHT", "WISDOM", "SALVATION", "LIGHT", "SANCTUARY" }
 
 -- Shipped presets (1.6.0): one-click window/behavior setups.
 X.PRESETS = {

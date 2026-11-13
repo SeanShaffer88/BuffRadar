@@ -13,7 +13,7 @@ editions; editions differ only in their `.toc` and bundled docs
 (`BuffRadar/` = Retail docs, `editions/forever/` = Forever docs). Every feature
 is reachable as a `/br` slash command — the slash surface is the operation
 registry — as well as through its settings control where it has one.
-SavedVariables are versioned (`dbVersion`, currently 15) with a tested migration
+SavedVariables are versioned (`dbVersion`, currently 16) with a tested migration
 chain; adding or changing a setting is a format change and updates the migration
 smoke fixtures in the same change.
 

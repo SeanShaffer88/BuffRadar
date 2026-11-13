@@ -133,6 +133,7 @@ local DEFAULTS = {
   alertSound = "droplet", -- alert sound: "droplet", "system" or "none"
   alertSounds = {},     -- per-alert-kind sound: new/drop/ask/fall -> a sound name (empty = use alertSound)
   buffPrio = {},        -- your buff order: buff keys, first offered first (empty = normal order)
+  blessingPreferences = {}, -- class token -> preferred blessing key
   clickThrough = false, -- while locked, let clicks pass through the window to the game
   muteInInstance = false, -- no alert sound while in a dungeon, raid or battleground
   showMinimap = true,  -- minimap button (the addon compartment works regardless)
@@ -208,6 +209,11 @@ local DEFAULTS = {
   stats = {},          -- all-time casts per spell name: name -> count
 }
 local db
+local PROFILE_MAX_BYTES = 4000
+
+local function IsProfileName(name)
+  return type(name) == "string" and #name <= 40 and name:match("^[%w_%-]+$") ~= nil
+end
 
 -- SavedVariables sanity check: anything missing, mistyped, out of range or left over
 -- from an older layout is repaired or dropped, so a damaged WTF file can't break the addon.
@@ -238,6 +244,12 @@ local function IsNumber(v)
   return type(v) == "number" and v == v and v ~= math_huge and v ~= -math_huge
 end
 local function Clamp(v, lo, hi) return math_max(lo, math_min(hi, v)) end
+
+function X.ProfileScalarValid(key, value)
+  if key == "theme" then return #value >= 1 and #value <= 24 end
+  local choices = ENUMS[key]
+  return not choices or choices[value] == true
+end
 
 function SanitizeDB(saved)
   if type(saved) ~= "table" then saved = {} end
@@ -274,6 +286,15 @@ function SanitizeDB(saved)
               clean[#clean + 1] = key
               if #clean >= 24 then break end
             end
+          end
+        end
+        v = clean
+      elseif k == "blessingPreferences" then
+        local clean = {}
+        if v then
+          for class, key in pairs(v) do
+            if type(class) == "string" and type(key) == "string"
+               and X.BLESSING_CLASSES[class] and BLESSINGS[key] then clean[class] = key end
           end
         end
         v = clean
@@ -329,7 +350,7 @@ function SanitizeDB(saved)
         local clean = {}
         if v then
           for name, s in pairs(v) do
-            if type(name) == "string" and #name <= 40 and type(s) == "string" and #s <= 4000 then
+            if IsProfileName(name) and type(s) == "string" and #s <= PROFILE_MAX_BYTES then
               clean[name] = s
             end
           end
@@ -485,9 +506,16 @@ local L = {
   ["Paused in a major city."] = "Paused in a major city.",
   ["Paused in a battleground."] = "Paused in a battleground.",
   ["Everyone nearby is buffed."] = "Everyone nearby is buffed.",
+  ["Some buff information is unavailable."] = "Some buff information is unavailable.",
+  ["Estimated range"] = "Estimated range",
   ["Friendly nameplates are off."] = "Friendly nameplates are off.",
   ["No supported buffs in your spellbook."] = "No supported buffs in your spellbook.",
   ["combat"] = "combat",
+  ["Blessings by class"] = "Blessings by class",
+  ["Default (%s)"] = "Default (%s)",
+  ["Default blessing"] = "Default blessing",
+  ["Previously selected blessing unavailable"] = "Previously selected blessing unavailable",
+  ["An active group blessing plan takes precedence."] = "An active group blessing plan takes precedence.",
   ["+%d more"] = "+%d more",
   ["Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time"] =
     "Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time",
@@ -665,17 +693,30 @@ end
 -- Non-group players are only visible to addons through friendly nameplates,
 -- so this CVar decides whether strangers can be listed at all. Returns
 -- true/false when the client answers, nil when it can't say.
-local function FriendlyPlatesOn()
-  if GetCVarBool then
-    local ok, v = pcall(GetCVarBool, "nameplateShowFriends")
-    if ok and v ~= nil then return v and true or false end
-  end
-  if GetCVar then
-    local ok, v = pcall(GetCVar, "nameplateShowFriends")
-    if ok and v ~= nil then return v == "1" or v == 1 or v == true end
-  end
-  return nil
+function X.ReadBooleanCVar(name)
+  local reader = (C_CVar and C_CVar.GetCVar) or GetCVar
+  if not reader then return nil end
+  local ok, value = pcall(reader, name)
+  if not ok then return nil end
+  if value == "1" or value == 1 or value == true then return true end
+  if value == "0" or value == 0 or value == false then return false end
 end
+
+function X.FriendlyPlatesOn()
+  for _, name in ipairs(X.friendlyPlateCVars) do
+    local value = X.ReadBooleanCVar(name)
+    if value ~= nil then return value, name end
+  end
+  if not ((C_CVar and C_CVar.GetCVar) or GetCVar) and GetCVarBool then
+    -- A boolean-only client can establish an enabled CVar. False can also
+    -- mean that the name is unsupported.
+    for _, name in ipairs(X.friendlyPlateCVars) do
+      local ok, value = pcall(GetCVarBool, name)
+      if ok and value == true then return true, name end
+    end
+  end
+end
+X.friendlyPlateCVars = { "nameplateShowFriendlyPlayers", "nameplateShowFriends" }
 
 -- Major cities. Matched by map ID (both the classic-era and modern ID sets, since the
 -- Forever client could use either) and by zone name as a fallback.
@@ -734,6 +775,13 @@ local function Readable(v)
   return true
 end
 
+function X.IsSelf(unit)
+  if not Readable(unit) or type(unit) ~= "string" then return nil end
+  if unit == "player" then return true end
+  local ok, same = pcall(UnitIsUnit, unit, "player")
+  if ok and Readable(same) and type(same) == "boolean" then return same end
+end
+
 do
   local function RangeResult(value)
     if not Readable(value) then return nil end
@@ -747,10 +795,6 @@ do
   end
 
   local function InRange(spell, unit)
-    if unit == "player" then return true end
-    local isSelf = UnitIsUnit(unit, "player")
-    if Readable(isSelf) and isSelf == true then return true end
-
     local modern = C_Spell and C_Spell.IsSpellInRange
     local legacy = IsSpellInRange
     if modern then
@@ -761,32 +805,36 @@ do
       local result = QueryRange(legacy, spell, unit)
       if result ~= nil then return result end
     end
-    -- An unknown spell range is not safe to replace with an approximate range.
-    if modern or legacy then return false end
-
+    -- Some Forever clients expose spell range without a readable answer.
+    -- Use a checked group/interaction distance only when neither API answered.
     if UnitInRange then
       local ok, inRange, checked = pcall(UnitInRange, unit)
       if ok and RangeResult(checked) == true then
         local result = RangeResult(inRange)
-        if result ~= nil then return result end
+        if result ~= nil then return result, true end
       end
     end
     if CheckInteractDistance then
-      return QueryRange(CheckInteractDistance, unit, 4) == true
+      return QueryRange(CheckInteractDistance, unit, 4) == true, true
     end
     return false
   end
 
-  function X.FilterInRange(unit, source, out)
+  function X.FilterInRange(unit, source, out, isSelf)
     wipe(out)
-    local n = 0
+    if isSelf == nil then isSelf = X.IsSelf(unit) end
+    if isSelf == nil then return 0 end
+    local n, approximate = 0, false
     for i = 1, #source do
-      if InRange(source[i], unit) then
+      local inRange, estimated
+      if isSelf then inRange = true else inRange, estimated = InRange(source[i], unit) end
+      if inRange then
         n = n + 1
         out[n] = source[i]
+        if n == 1 then approximate = estimated or false end
       end
     end
-    return n
+    return n, approximate
   end
 end
 
@@ -806,10 +854,17 @@ local function SafeString(v)
   return ok and s or nil
 end
 
-local function SafeNumber(v)
-  if not Readable(v) then return nil end
-  local ok, n = pcall(tonumber, v)
-  return ok and n or nil
+function X.ReadUnitNumber(api, ...)
+  if type(api) ~= "function" then return nil end
+  local ok, value = pcall(api, ...)
+  if ok and Readable(value) and type(value) == "number" and value == value
+      and value > -math_huge and value < math_huge then return value end
+end
+
+function X.LowMana()
+  local power = X.ReadUnitNumber(_G.UnitPower, "player", 0)
+  local maximum = X.ReadUnitNumber(_G.UnitPowerMax, "player", 0)
+  return power ~= nil and maximum ~= nil and maximum > 0 and power / maximum * 100 < db.lowMana
 end
 
 -- Group role the player picked (dungeon finder / role check): "TANK", "HEALER"
@@ -824,61 +879,106 @@ end
 
 local function GetField(t, k) return t[k] end  -- shared pcall target (no per-call closures)
 
-local function ReadBuff(unit, i)
-  -- returns: done (no more buffs), name, expirationTime
-  if C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
-    local ok, a = pcall(C_UnitAuras.GetBuffDataByIndex, unit, i)
-    if not ok then return true end
-    if a == nil then return true end
-    local okN, n = pcall(GetField, a, "name")
-    local okE, e = pcall(GetField, a, "expirationTime")
-    local sn = okN and SafeString(n) or nil
-    if not sn then X.hid = GetTime() end
-    return false, sn, okE and SafeNumber(e) or nil
-  elseif UnitBuff then
-    local ok, n, _, _, _, _, e = pcall(UnitBuff, unit, i)
-    if not ok or n == nil then return true end
-    local sn = SafeString(n)
-    if not sn then X.hid = GetTime() end
-    return false, sn, SafeNumber(e)
+do
+  -- A restricted named lookup returns zero values. An explicit nil is
+  -- the normal result when the requested aura is absent.
+  local function FirstResult(...)
+    return select("#", ...), ...
   end
-  return true
-end
-
--- Index-scan fallback: one reused table, filled at most once per unit per check.
-local scanCache, scanUnit = {}, nil
-local function ScanInto(unit)
-  wipe(scanCache)
-  scanUnit = unit
-  local now = GetTime()
-  for i = 1, 40 do
-    local done, name, exp = ReadBuff(unit, i)
-    if done then break end
-    if name then  -- unreadable buffs are skipped, not fatal
-      local remaining = (exp and exp > 0) and (exp - now) or math_huge
-      local cur = scanCache[name]
-      if not cur or remaining > cur then scanCache[name] = remaining end
+  local function Call(lookup, unit, name, filter)
+    return FirstResult(lookup(unit, name, filter))
+  end
+  function X.QueryNamedAura(lookup, unit, name, filter)
+    local ok, count, aura = pcall(Call, lookup, unit, name, filter)
+    if ok and count > 0 then
+      if type(aura) == "nil" then return nil, true end
+      if Readable(aura) and type(aura) == "table" then return aura, true end
     end
+    return nil, false
   end
 end
 
--- Seconds left on the named buff (math.huge = no expiry), or nil when absent.
--- Modern clients answer this with one direct lookup instead of walking every aura.
-local GetAuraByName = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
-local function Remaining(unit, name)
-  if GetAuraByName then
-    local ok, a = pcall(GetAuraByName, unit, name, "HELPFUL")
-    if ok then
-      if a == nil then return nil end
-      local okE, e = pcall(GetField, a, "expirationTime")
-      e = okE and SafeNumber(e) or nil
-      if e and e > 0 then return e - GetTime() end
-      return math_huge
+do
+  local function AuraExpiration(a)
+    local ok, expiry = pcall(GetField, a, "expirationTime")
+    if ok and Readable(expiry) and type(expiry) == "number" and expiry >= 0 and expiry < math_huge then
+      return expiry
     end
-    -- lookup refused (restricted value): fall through to the index scan
   end
-  if scanUnit ~= unit then ScanInto(unit) end
-  return scanCache[name]
+
+  function X.ReadBuff(unit, i)
+    -- done, name, expirationTime, complete (only when done)
+    local name, expiry
+    if C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
+      local ok, aura = pcall(C_UnitAuras.GetBuffDataByIndex, unit, i)
+      if not ok then return true, nil, nil, false end
+      if type(aura) == "nil" then return true, nil, nil, true end
+      if Readable(aura) and type(aura) == "table" then
+        local nameOK, value = pcall(GetField, aura, "name")
+        if nameOK then name = value end
+        expiry = AuraExpiration(aura)
+      end
+    elseif UnitBuff then
+      local ok, value, _, _, _, _, expiration = pcall(UnitBuff, unit, i)
+      if not ok then return true, nil, nil, false end
+      if type(value) == "nil" then return true, nil, nil, true end
+      name, expiry = value, expiration
+    else
+      return true, nil, nil, false
+    end
+    if not Readable(name) or type(name) ~= "string" then
+      X.hid = GetTime()
+      return false
+    end
+    if not Readable(expiry) or type(expiry) ~= "number" or not (expiry >= 0 and expiry < math_huge) then expiry = nil end
+    return false, name, expiry
+  end
+
+  local function SecondsLeft(expiry, now)
+    if expiry == nil then return nil end
+    if expiry == 0 then return math_huge end
+    return expiry - now
+  end
+
+  -- Index fallback reuses its cache for one unit during a single scan.
+  local scanCache, uncertainExpiry, complete = {}, {}, false
+  local function ScanInto(unit)
+    wipe(scanCache)
+    wipe(uncertainExpiry)
+    X.scanUnit, complete = unit, false
+    local now, namesReadable = GetTime(), true
+    for i = 1, 40 do
+      local done, name, expiry, ended = X.ReadBuff(unit, i)
+      if done then
+        complete = ended and namesReadable
+        break
+      elseif name then
+        local seconds = SecondsLeft(expiry, now)
+        local cached = scanCache[name]
+        if seconds and (not cached or seconds > cached) then scanCache[name] = seconds end
+        if seconds == nil then uncertainExpiry[name] = true end
+      else
+        namesReadable = false
+      end
+    end
+  end
+
+  function X.Remaining(unit, name)
+    -- Seconds left (math.huge = permanent), presence, unknown alternate timer.
+    local lookup = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
+    if lookup then
+      local aura, definitive = X.QueryNamedAura(lookup, unit, name, "HELPFUL")
+      if definitive then
+        if not aura then return nil, "absent" end
+        return SecondsLeft(AuraExpiration(aura), GetTime()), "present"
+      end
+    end
+    if X.scanUnit ~= unit then ScanInto(unit) end
+    if scanCache[name] or uncertainExpiry[name] then
+      return scanCache[name], "present", uncertainExpiry[name] or not complete
+    end
+    return nil, complete and "absent" or "unknown"
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -890,34 +990,36 @@ end
 -- name, unknown id, missing cache -- answers "relevant", and the caller
 -- does the normal full refresh. Never answers from a guess.
 ---------------------------------------------------------------------------
-function X.AuraRelevant(unit, info)
+function X.AuraRelevant(unit, added, updated, removed)
   local watch = X.watchNames
   if not watch then return true end
   local cache = X.auraIds or {}; X.auraIds = cache
   local byUnit = cache[unit]
+  local function validID(id)
+    return Readable(id) and type(id) == "number" and id > 0 and id == math_floor(id)
+  end
   local function remember(id, nm)
     if id and nm then
       if not byUnit then byUnit = {}; cache[unit] = byUnit end
       byUnit[id] = nm
     end
   end
-  local added = GetField(info, "addedAuras")
-  if type(added) == "table" then
+  if added then
     for _, a in ipairs(added) do
-      if type(a) ~= "table" then return true end
-      local nm = SafeString(GetField(a, "name"))
-      remember(GetField(a, "auraInstanceID"), nm)
-      if not nm then return true end
-      if watch[nm] then return true end
+      if not Readable(a) or type(a) ~= "table" then return true end
+      local name, id = a.name, a.auraInstanceID
+      if not Readable(name) or type(name) ~= "string" or not validID(id) then return true end
+      remember(id, name)
+      if watch[name] then return true end
     end
   end
-  local updated = GetField(info, "updatedAuraInstanceIDs")
-  if type(updated) == "table" then
+  if updated then
     for _, id in ipairs(updated) do
+      if not validID(id) then return true end
       local nm = byUnit and byUnit[id]
       if not nm and C_UnitAuras and C_UnitAuras.GetAuraDataByAuraInstanceID then
         local ok, d = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, unit, id)
-        if ok and type(d) == "table" then
+        if ok and Readable(d) and type(d) == "table" then
           nm = SafeString(GetField(d, "name")); remember(id, nm)
         end
       end
@@ -925,9 +1027,9 @@ function X.AuraRelevant(unit, info)
       if watch[nm] then return true end
     end
   end
-  local removed = GetField(info, "removedAuraInstanceIDs")
-  if type(removed) == "table" then
+  if removed then
     for _, id in ipairs(removed) do
+      if not validID(id) then return true end
       local nm = byUnit and byUnit[id]
       if byUnit then byUnit[id] = nil end
       if not nm then return true end
@@ -937,12 +1039,59 @@ function X.AuraRelevant(unit, info)
   return false
 end
 
+do
+  local function ValidAuraField(value, expectedType)
+    return type(value) == "nil" or (Readable(value) and type(value) == expectedType)
+  end
+
+  local function InspectAuraEvent(unit, info)
+    if not Readable(info) or type(info) ~= "table" then return true end
+    local full, added = info.isFullUpdate, info.addedAuras
+    local removed, updated = info.removedAuraInstanceIDs, info.updatedAuraInstanceIDs
+    if not ValidAuraField(full, "boolean") or not ValidAuraField(added, "table")
+      or not ValidAuraField(removed, "table") or not ValidAuraField(updated, "table") then
+      return true
+    end
+    if not full and not added and not removed and not updated then return false end
+    local probe = X.auraProbe or {}; X.auraProbe = probe
+    probe.seen = (probe.seen or 0) + 1
+    if full then
+      probe.full = (probe.full or 0) + 1
+      if X.auraIds then X.auraIds[unit] = nil end
+    end
+    if added then probe.added = (probe.added or 0) + 1 end
+    if removed then probe.removed = (probe.removed or 0) + 1 end
+    if updated then probe.updated = (probe.updated or 0) + 1 end
+    if db and db.fastAura and not full and not X.AuraRelevant(unit, added, updated, removed) then
+      probe.skipped = (probe.skipped or 0) + 1
+      return false
+    end
+    return true
+  end
+
+  function X.AuraEventNeedsRefresh(unit, info)
+    if not Readable(unit) or type(unit) ~= "string" then return true end
+    if unit ~= "player" and unit ~= "target" and unit ~= "mouseover"
+      and not unit:find("^party%d+$") and not unit:find("^raid%d+$")
+      and not (unit:find("^nameplate%d+$") and UnitIsPlayer(unit)) then return false end
+    local ok, refresh = pcall(InspectAuraEvent, unit, info)
+    if not ok and X.auraIds then X.auraIds[unit] = nil end
+    return not ok or refresh
+  end
+end
+
 local function HasAny(unit, names, minLeft)
   minLeft = minLeft or db.rebuff or 0
+  local unknown = false
   for i = 1, #names do
-    local rem = Remaining(unit, names[i])
+    local rem, presence, uncertainTimer = X.Remaining(unit, names[i])
     if rem and rem > minLeft then return true end
+    if presence == "present" and rem == nil and minLeft == 0 then return true end
+    if presence == "unknown" or (presence == "present" and (rem == nil or uncertainTimer)) then
+      unknown = true
+    end
   end
+  if unknown then return nil end
   return false
 end
 
@@ -1123,7 +1272,7 @@ function BuildBuffList()
       for _, n in ipairs(cd.names or {}) do watch[n] = true end
       if cd.sub then watch[cd.sub] = true end
     end
-    for _, b in pairs(myBlessing) do
+    for _, b in pairs(blessKnown) do
       if type(b) == "table" then
         if b.name then watch[b.name] = true end
         for _, n in ipairs(b.names or {}) do watch[n] = true end
@@ -1131,9 +1280,45 @@ function BuildBuffList()
     end
     X.watchNames = watch
   end
-  hasAnyBuff = (#myBuffs > 0) or (next(myBlessing) ~= nil)
+  hasAnyBuff = (#myBuffs > 0) or (CLASSIC_FEATURES and next(blessKnown) ~= nil)
 end
 end -- BuildBuffList block
+
+function X.HasKnownBlessings()
+  return CLASSIC_FEATURES and next(blessKnown) ~= nil
+end
+
+function X.BlessingOptions(class)
+  if not X.BLESSING_CLASSES[class] then return {} end
+  local list = { { key = "DEFAULT", name = myBlessing[class] and myBlessing[class].name } }
+  for _, key in ipairs(X.BLESSING_KEYS) do
+    local knownBlessing = blessKnown[key]
+    if knownBlessing then list[#list + 1] = { key = key, name = knownBlessing.name } end
+  end
+  return list
+end
+
+function X.BlessingPreference(class)
+  return db.blessingPreferences[class] or "DEFAULT"
+end
+
+function X.SetBlessingPreference(class, key)
+  if not CLASSIC_FEATURES or not X.BLESSING_CLASSES[class] then return false end
+  if key == "DEFAULT" then
+    db.blessingPreferences[class] = nil
+  elseif blessKnown[key] then
+    db.blessingPreferences[class] = key
+  else
+    return false
+  end
+  return true
+end
+
+function X.BlessingForClass(class)
+  local plan = X.blessPlan[class]
+  if plan then return plan.mine and blessKnown[plan.key] or nil end
+  return blessKnown[db.blessingPreferences[class]] or myBlessing[class]
+end
 
 local function IsOn(key, default)
   local v = db.enabled[key]
@@ -1237,12 +1422,12 @@ function X.WorldBuffsText()
   if not CLASSIC_FEATURES then return nil end
   local found = {}
   for i = 1, 40 do
-    local done, name = ReadBuff("player", i)
+    local done, name = X.ReadBuff("player", i)
     if done then break end
     if name then
       for _, w in ipairs(X.WORLD_BUFFS) do
         if (w.name and name == w.name) or (w.sub and name:find(w.sub, 1, true)) then
-          local left = Remaining("player", name)
+          local left = X.Remaining("player", name)
           local when = ""
           if left and left < math_huge then
             when = left >= 3600 and string_format(" ~%dh", math_floor(left / 3600))
@@ -1259,17 +1444,20 @@ function X.WorldBuffsText()
 end
 
 function X.ConsHas(unit, def)
+  local complete = true
   for i = 1, 40 do
-    local done, name = ReadBuff(unit, i)
-    if done then break end
+    local done, name, _, ended = X.ReadBuff(unit, i)
+    if done then
+      if ended and complete then return false end
+      return nil
+    end
     if name then
       if def.sub and name:find(def.sub, 1, true) then return true end
       if def.names then
         for _, nm in ipairs(def.names) do if name == nm then return true end end
       end
-    end
+    else complete = false end
   end
-  return false
 end
 X.listedBefore = X.listA  -- guid -> true for names on the board last refresh
 
@@ -1290,30 +1478,32 @@ function X.TrackDeaths(list, extra)
   if extra then X.Track(extra) end
 end
 
-local function Missing(unit, out, isGroup)
+local function Missing(unit, out, isGroup, isSelf)
   wipe(out)
+  X.remainTmp, X.auraUnknown = nil, nil
   local _, class = UnitClass(unit)
   class = SafeString(class)  -- used as a table key below; protected values can't be
   if not class then return 0 end
-  local isSelf = UnitIsUnit(unit, "player")
-  X.remainTmp = nil
-  if isGroup then X.tallyUnits = X.tallyUnits + 1 end
   if isGroup and db.consumables then
     for _, cd in ipairs(X.CONS_DEFS) do
       local t = X.consTally[cd.key]
       if not t then t = { total = 0, miss = 0 }; X.consTally[cd.key] = t end
-      t.total = t.total + 1
-      if not X.ConsHas(unit, cd) then t.miss = t.miss + 1 end
+      local has = X.ConsHas(unit, cd)
+      if has ~= nil then t.total = t.total + 1 end
+      if has == false then t.miss = t.miss + 1 end
     end
   end
-  scanUnit = nil  -- force a fresh index scan (fallback path) for this unit
+  X.scanUnit = nil  -- force a fresh index scan (fallback path) for this unit
   local n = 0
   local role, roleRead = nil, false  -- assigned role, read once and only if a buff needs it
+  local lookup = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
   for i = 1, #myBuffs do
     local b = myBuffs[i]
-    if b.single and not isSelf and not Single.holder[b.key] and GetAuraByName then
-      local ok, a = pcall(GetAuraByName, unit, b.name, "HELPFUL|PLAYER")
-      if ok and a ~= nil then Single.holder[b.key], Single.spell[b.key] = unit, b.name end
+    if b.single and not isSelf and not Single.holder[b.key] and lookup then
+      local aura = X.QueryNamedAura(lookup, unit, b.name, "HELPFUL|PLAYER")
+      if aura then
+        Single.holder[b.key], Single.spell[b.key] = unit, b.name
+      end
     end
     local applies
     if b.self then
@@ -1327,30 +1517,32 @@ local function Missing(unit, out, isGroup)
       end
     end
     if applies and IsOn(b.key, b.default) and X.ContextOK(b.key) then
+      local thr = (db.rebuffPer and db.rebuffPer[b.key]) or db.rebuff
+      local has = HasAny(unit, b.names, thr)
+      if has == nil then X.auraUnknown = true end
       local t
-      if isGroup then
+      if isGroup and has ~= nil then
         t = X.tally[b.key]
         if not t then t = { total = 0, miss = 0 }; X.tally[b.key] = t end
         t.total = t.total + 1
       end
       if not OnCooldown(b.name) then
-        local thr = (db.rebuffPer and db.rebuffPer[b.key]) or db.rebuff
-        if not HasAny(unit, b.names, thr) then
+        if has == false then
           n = n + 1
           out[n] = b.name
           if t then t.miss = t.miss + 1 end
           if n == 1 then  -- still present but inside its rebuff window?
             for _, nm2 in ipairs(b.names) do
-              local r = Remaining(unit, nm2)
+              local r = X.Remaining(unit, nm2)
               if r and r > 0 and r < math_huge then X.remainTmp = r break end
             end
           end
-        elseif isGroup then
+        elseif isGroup and has == true then
           -- Group expiry watch (1.7.0): the buff is up, but inside its
           -- last five minutes — count it toward the coverage warning.
           local soonest = math_huge
           for _, nm2 in ipairs(b.names) do
-            local r = Remaining(unit, nm2)
+            local r = X.Remaining(unit, nm2)
             if r and r < soonest then soonest = r end
           end
           if soonest <= 300 then
@@ -1360,45 +1552,44 @@ local function Missing(unit, out, isGroup)
       end
     end
   end
-  local bl = myBlessing[class]
-  -- Blessing plan (1.6.0): a class another paladin covers drops off your
-  -- list entirely; a class planned to you uses the planned blessing even
-  -- when the priority list would pick a different one. (plan.mine was
-  -- resolved when the plan was set -- Ignore isn't in scope here.)
-  local plan = X.blessPlan[class]
-  if plan then
-    if not plan.mine then bl = nil
-    elseif blessKnown[plan.key] then bl = blessKnown[plan.key] end
-  end
+  local bl = CLASSIC_FEATURES and X.BlessingForClass(class)
   if bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf)
      and X.ContextOK("BLESSINGS") then
+    local has = HasAny(unit, bl.names)
+    if has == nil then X.auraUnknown = true end
     local t
-    if isGroup then
+    if isGroup and has ~= nil then
       t = X.tally.BLESSINGS
       if not t then t = { total = 0, miss = 0 }; X.tally.BLESSINGS = t end
       t.total = t.total + 1
     end
-    if not HasAny(unit, bl.names) then
+    if has == false then
       n = n + 1
       out[n] = bl.name
       if t then t.miss = t.miss + 1 end
       if n == 1 then
         for _, nm2 in ipairs(bl.names) do
-          local r = Remaining(unit, nm2)
+          local r = X.Remaining(unit, nm2)
           if r and r > 0 and r < math_huge then X.remainTmp = r break end
         end
       end
-    elseif isGroup then
+    elseif isGroup and has == true then
       -- Blessings count toward the group expiry watch too (1.7.0).
       local soonest = math_huge
       for _, nm2 in ipairs(bl.names) do
-        local r = Remaining(unit, nm2)
+        local r = X.Remaining(unit, nm2)
         if r and r < soonest then soonest = r end
       end
       if soonest <= 300 then
         X.expiryTally.BLESSINGS = (X.expiryTally.BLESSINGS or 0) + 1
       end
     end
+  end
+  if isGroup and not X.auraUnknown then
+    X.tallyUnits = X.tallyUnits + 1
+    if n > 0 then X.tallyMissingUnits = X.tallyMissingUnits + 1 end
+  elseif isGroup then
+    X.tallyUnknownUnits = X.tallyUnknownUnits + 1
   end
   return n
 end
@@ -1414,7 +1605,8 @@ local function Valid(unit)
   if not UnitExists(unit) or not UnitIsPlayer(unit) then return false end
   if UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit) then return false end
   -- Self is inherently assistable; some Classic clients reject this API check.
-  if not UnitIsUnit(unit, "player") and not UnitCanAssist("player", unit) then return false end
+  local isSelf = X.IsSelf(unit)
+  if isSelf == nil or (not isSelf and not UnitCanAssist("player", unit)) then return false end
   if not UnitAffectingCombat then return false end
   local okPlayer, playerCombat = pcall(UnitAffectingCombat, "player")
   if not okPlayer or not Readable(playerCombat) or playerCombat ~= false then return false end
@@ -1435,7 +1627,7 @@ local function Valid(unit)
       if not okPlayerPvP or not Readable(playerFlagged) or playerFlagged ~= true then return false end
     end
   end
-  return true
+  return true, isSelf
 end
 
 -- Your buff priority (1.10.0): db.buffPrio holds buff keys in the
@@ -1486,15 +1678,18 @@ end
 -- everyone else. Tanks are players with the TANK group role (retail role
 -- check / dungeon finder) or the raid MAINTANK/MAINASSIST flag — never a
 -- guess from class.
-local function RoleOf(unit)
-  if UnitIsUnit(unit, "player") then return 0 end
+local function RoleOf(unit, isSelf)
+  if isSelf then return 0 end
   if AssignedRole(unit) == "TANK" then return 1 end
   local idx = unit:match("^raid(%d+)$")
   if idx and GetRaidRosterInfo then
     local ok, _, _, _, _, _, _, _, _, role = pcall(GetRaidRosterInfo, tonumber(idx))
     if ok and (role == "MAINTANK" or role == "MAINASSIST") then return 1 end
   end
-  if UnitIsGroupLeader and UnitIsGroupLeader(unit) then return 2 end
+  if UnitIsGroupLeader then
+    local ok, leader = pcall(UnitIsGroupLeader, unit)
+    if ok and Readable(leader) and leader == true then return 2 end
+  end
   return 3
 end
 
@@ -1603,7 +1798,8 @@ function X.SessionHas(full, short)
 end
 
 local function Consider(unit, isGroup)
-  if not Valid(unit) then return end
+  local valid, isSelf = Valid(unit)
+  if not valid then return end
   -- The GUID is a table key (seen[], the listed sets) and gets compared; a
   -- protected one can't be either, so that unit is skipped.
   local guid = SafeString(UnitGUID(unit))
@@ -1618,13 +1814,14 @@ local function Consider(unit, isGroup)
   if next(X.session) and X.SessionHas(full, nm) then return end  -- session-only ignore
   if X.applyFilter and isGroup and db.roleFilter ~= "ALL"
      and _G.UnitGroupRolesAssigned  -- clients without assigned roles: no filtering
-     and not UnitIsUnit(unit, "player")
+     and not isSelf
      and AssignedRole(unit) ~= db.roleFilter then return end  -- role filter (window only)
   seen[guid] = true
   -- Healer drinking (1.8.0, Forever): anyone in the group with a Drink
   -- aura is marked; healing classes also feed the coverage line count.
+  X.scanUnit = nil
   if isGroup and db.drinkWatch and CLASSIC_FEATURES
-     and Remaining(unit, "Drink") ~= nil then
+     and select(2, X.Remaining(unit, "Drink")) == "present" then
     X.drinkSet[guid] = true
     local _, dclass = UnitClass(unit)
     dclass = SafeString(dclass)
@@ -1641,10 +1838,11 @@ local function Consider(unit, isGroup)
     entries[slot] = e
   end
   if not e.allMissing then e.allMissing = {} end
-  local allN = Missing(unit, e.allMissing, isGroup)
+  local allN = Missing(unit, e.allMissing, isGroup, isSelf)
+  local auraUnknown = X.auraUnknown
   e.remain1 = X.remainTmp
-  if isGroup and allN == 0 then X.missNow[guid] = {} end  -- clean baseline for expiry checks
-  local n = X.FilterInRange(unit, e.allMissing, e.missing)
+  if isGroup and not auraUnknown and allN == 0 then X.missNow[guid] = {} end
+  local n, approximate = X.FilterInRange(unit, e.allMissing, e.missing, isSelf)
   if allN > 0 and n == 0 and db.rangeWatch then X.farNow[guid] = nm or UnitName(unit) or true end
   if n == 0 then return end  -- only list targets with a buff currently in range
   nEntries = slot
@@ -1653,10 +1851,11 @@ local function Consider(unit, isGroup)
   -- sorting uses sortName and the class goes through SafeString (table key).
   e.unit, e.guid, e.name, e.class, e.group = unit, guid, nm or UnitName(unit), SafeString(class), isGroup
   e.fullName, e.sortName = full, nm or ""
-  e.isSelf = UnitIsUnit(unit, "player")
+  e.isSelf = isSelf
   e.rangeBucket = 0
+  e.approximateRange = approximate
   e.marker = X.ReadRaidMarker(unit)
-  if isGroup then
+  if isGroup and not auraUnknown then
     -- Expiry tracking: a buff that was not missing last scan, is missing
     -- now, and is truly gone (not just inside its rebuff window) expired,
     -- was dispelled, or went away with a death.
@@ -1666,7 +1865,7 @@ local function Consider(unit, isGroup)
       if key then
         keys[key] = true
         local prev = X.missPrev[guid]
-        if prev and not prev[key] and not HasAny(unit, { e.allMissing[j] }, 0) then
+        if prev and not prev[key] and HasAny(unit, { e.allMissing[j] }, 0) == false then
           expired = true
           if not Single.spell[key] then fallExpired = true end
         end
@@ -1690,7 +1889,7 @@ local function Consider(unit, isGroup)
   e.rezzed = (rz and GetTime() - rz < 60) or nil
   e.outOfRange = false
   e.groupCast = false
-  e.role = RoleOf(unit)
+  e.role = RoleOf(unit, isSelf)
   e.pet = nil
 end
 
@@ -1700,13 +1899,14 @@ end
 -- coverage tallies -- this writes only the entry's missing list.
 function X.PetMissing(unit, out)
   wipe(out)
+  X.scanUnit = nil
   local n = 0
   for i = 1, #myBuffs do
     local b = myBuffs[i]
     if b.pets and not b.self and IsOn(b.key, b.default) and X.ContextOK(b.key)
        and not OnCooldown(b.name) then
       local thr = (db.rebuffPer and db.rebuffPer[b.key]) or db.rebuff
-      if not HasAny(unit, b.names, thr) then
+      if HasAny(unit, b.names, thr) == false then
         n = n + 1
         out[n] = b.name
       end
@@ -1721,6 +1921,8 @@ end
 function X.ConsiderPet(petUnit, ownerUnit)
   if not UnitExists(petUnit) or UnitIsDeadOrGhost(petUnit) then return end
   if not UnitCanAssist("player", petUnit) then return end
+  local isSelf = X.IsSelf(petUnit)
+  if isSelf == nil then return end
   local guid = SafeString(UnitGUID(petUnit))
   if not guid or seen[guid] then return end
   seen[guid] = true
@@ -1736,7 +1938,7 @@ function X.ConsiderPet(petUnit, ownerUnit)
   if not e.allMissing then e.allMissing = {} end
   local allN = X.PetMissing(petUnit, e.allMissing)
   if allN == 0 then return end
-  local n = X.FilterInRange(petUnit, e.allMissing, e.missing)
+  local n, approximate = X.FilterInRange(petUnit, e.allMissing, e.missing, isSelf)
   if n == 0 then return end
   nEntries = slot
   local _, oclass = UnitClass(ownerUnit)
@@ -1746,6 +1948,7 @@ function X.ConsiderPet(petUnit, ownerUnit)
   e.class = SafeString(oclass)
   e.group, e.isSelf, e.pet = true, false, true
   e.rangeBucket = 0
+  e.approximateRange = approximate
   e.marker = X.ReadRaidMarker(petUnit)
   e.remain1 = nil
   e.expired, e.rezzed = nil, nil
@@ -1767,7 +1970,7 @@ local function CollectEntries()
   wipe(X.expiryTally)
   wipe(X.drinkSet)
   X.drinkHealers = 0
-  X.tallyUnits = 0
+  X.tallyUnits, X.tallyMissingUnits, X.tallyUnknownUnits = 0, 0, 0
   X.missPrev, X.missNow = X.missNow, {}
   wipe(X.missNow)
   X.fallPending = nil
@@ -2196,6 +2399,161 @@ function X.Import(text)
   return true, "Settings imported."
 end
 
+-- BR2 is the named profile format. Keep BR1 exports readable by older clients.
+-- Profile data is deliberately limited to preferences rather than account data,
+-- such as stored profiles, custom definitions, character anchors and cast history.
+do
+  local legacyMaps = { enabled = true, rebuffPer = true, ignored = true }
+  local profileMaps = {
+    enabled = "boolean", rebuffPer = "number", ignored = "boolean",
+    alertSounds = "sound", buffPrio = "priority", coverParts = "boolean",
+    rowColors = "color", buffContext = "context", specScales = "number",
+    blessingPreferences = "blessing",
+  }
+  local scalarKeys, scalarList, legacyScalars = {}, {}, {}
+  for _, key in ipairs(X.EXPORT_KEYS) do
+    if type(DEFAULTS[key]) ~= "table" then
+      scalarKeys[key], legacyScalars[key] = true, true
+      scalarList[#scalarList + 1] = key
+    end
+  end
+  for _, key in ipairs({
+    "compact", "textScale", "charPoint", "pauseInBG", "pauseTaxi", "watchDrop",
+    "minimapAngle", "rangeText", "pinned",
+  }) do
+    scalarKeys[key] = true
+    scalarList[#scalarList + 1] = key
+  end
+
+  local function Encode(value)
+    if type(value) == "boolean" then return value and "1" or "0" end
+    if type(value) == "table" then return table.concat(value, ",", 1, 3) end
+    return Esc(value)
+  end
+
+  function X.ProfileSnapshot()
+    local parts = { "bgColor=" .. Encode(db.bgColor), "blessingPreferences=1" }
+    for _, key in ipairs(scalarList) do
+      parts[#parts + 1] = key .. "=" .. Encode(db[key])
+    end
+    local bytes = #"BR2;" + #table.concat(parts, ";")
+    for map in pairs(profileMaps) do
+      for key, value in pairs(db[map]) do
+        local field = map .. "." .. Esc(key) .. "=" .. Encode(value)
+        bytes = bytes + 1 + #field
+        if bytes > PROFILE_MAX_BYTES then return nil end
+        parts[#parts + 1] = field
+      end
+    end
+    if bytes > PROFILE_MAX_BYTES then return nil end
+    table_sort(parts)
+    return "BR2;" .. table.concat(parts, ";")
+  end
+
+  local function Number(raw)
+    local n = tonumber(raw)
+    if n and n == n and n ~= math_huge and n ~= -math_huge then return n end
+  end
+
+  local function Decode(kind, key, raw)
+    if kind == "boolean" then
+      if raw == "1" then return true end
+      if raw == "0" then return false end
+    elseif kind == "number" then
+      return Number(raw)
+    elseif kind == "string" then
+      return Unesc(raw)
+    elseif kind == "color" then
+      local r, g, b = raw:match("^([^,]+),([^,]+),([^,]+)$")
+      r, g, b = Number(r), Number(g), Number(b)
+      if r and g and b and r >= 0 and r <= 1 and g >= 0 and g <= 1 and b >= 0 and b <= 1 then
+        return { r, g, b }
+      end
+    elseif kind == "sound" then
+      if (key == "new" or key == "drop" or key == "ask" or key == "fall")
+         and (raw == "droplet" or raw == "system" or raw == "none") then return raw end
+    elseif kind == "priority" then
+      local buff = Unesc(raw)
+      if #buff > 0 and #buff <= 40 then return buff end
+    elseif kind == "context" then
+      if raw == "raid" or raw == "instance" then return raw end
+    elseif kind == "blessing" then
+      if X.BLESSING_CLASSES[key] and BLESSINGS[raw] then return raw end
+    end
+  end
+
+  function X.ParseProfile(body)
+    if type(body) ~= "string" or #body > PROFILE_MAX_BYTES then return nil end
+    local version, payload = body:match("^(BR[12]);(.+)$")
+    if not version then return nil end
+    local modern = version == "BR2"
+    local patch, count, scalarFields, priorityKeys = {}, 0, {}, {}
+    for map in pairs(modern and profileMaps or legacyMaps) do patch[map] = {} end
+    for field in (payload .. ";"):gmatch("(.-);") do
+      local key, raw = field:match("^([^=]+)=(.*)$")
+      if not key then return nil end
+      local map, member = key:match("^(%a+)%.(.*)$")
+      local kind = map and profileMaps[map]
+      if kind and (modern or legacyMaps[map]) then
+        member = Unesc(member)
+        if member == "" then return nil end
+        if map == "buffPrio" then
+          member = Number(member)
+          if not member or member < 1 or member > 24 or member ~= math_floor(member) then return nil end
+        elseif map == "rowColors" and member ~= "mine" and member ~= "tank"
+           and member ~= "expiring" and member ~= "buddy" then return nil
+        end
+        local value = Decode(kind, member, raw)
+        if value == nil or patch[map][member] ~= nil or (map == "rebuffPer" and value < 0) then
+          return nil
+        end
+        if map == "buffPrio" then
+          if priorityKeys[value] then return nil end
+          priorityKeys[value] = true
+        end
+        patch[map][member] = value
+        count = count + 1
+      elseif modern and key == "blessingPreferences" then
+        if raw ~= "1" or scalarFields[key] then return nil end
+        scalarFields[key] = true
+      elseif key == "bgColor" or (modern and scalarKeys[key]) or legacyScalars[key] then
+        local value = Decode(key == "bgColor" and "color" or type(DEFAULTS[key]), key, raw)
+        if value == nil or scalarFields[key] or not X.ProfileScalarValid(key, value) then return nil end
+        patch[key], scalarFields[key] = value, true
+        count = count + 1
+      elseif modern then
+        return nil
+      end
+    end
+    if count == 0 then return nil end
+    if modern then
+      if not scalarFields.blessingPreferences then
+        if next(patch.blessingPreferences) then return nil end
+        patch.blessingPreferences = nil  -- older BR2 profiles leave the preference alone
+      end
+      if not patch.bgColor then return nil end
+      for _, key in ipairs(scalarList) do if not scalarFields[key] then return nil end end
+      local highest, priorityCount = 0, 0
+      for index in pairs(patch.buffPrio) do
+        highest, priorityCount = math_max(highest, index), priorityCount + 1
+      end
+      if highest ~= priorityCount then return nil end
+    end
+    return patch
+  end
+
+  function X.ApplyProfile(patch)
+    -- Normalize the complete proposed state before changing the live settings.
+    local candidate = {}
+    for key, value in pairs(db) do candidate[key] = value end
+    for key, value in pairs(patch) do candidate[key] = value end
+    SanitizeDB(candidate)
+    for key in pairs(patch) do db[key] = candidate[key] end
+    X.prioDirty = true
+    Ignore.Rebuild()
+  end
+end
+
 -- Buff plan strings (1.8.0): the group's plan — assignments, the
 -- blessing plan and the auto-profile map — as one copyable string, so a
 -- plan built on one character can be handed to another BuffRadar user.
@@ -2280,18 +2638,21 @@ end
 -- settings string. Importing stores it under that name, unapplied.
 function X.ProfileShareText(name)
   local s = db.profiles[name]
-  if type(s) ~= "string" then return nil end
+  if not IsProfileName(name) or not X.ParseProfile(s) then return nil end
   return "BuffRadar profile: " .. name .. "\n" .. s
 end
 
 function X.ProfileImport(text)
   if type(text) ~= "string" then return false, "Nothing to import." end
-  local name, body = text:match("^BuffRadar profile: ([%w_%-]+)\n(.+)$")
-  if not name then
+  if #text > PROFILE_MAX_BYTES + #"BuffRadar profile: " + 42 then
+    return false, "That shared profile is too large."
+  end
+  local name, body = text:match("^BuffRadar profile: ([%w_%-]+)\r?\n(.+)$")
+  if not IsProfileName(name) then
     return false, "That doesn't look like a shared BuffRadar profile."
   end
   body = body:match("^%s*(.-)%s*$")
-  if body:sub(1, 3) ~= "BR1" then
+  if not X.ParseProfile(body) then
     return false, "The profile's settings string is damaged."
   end
   db.profiles[name] = body
@@ -2300,20 +2661,24 @@ function X.ProfileImport(text)
     .. " — /br profile load " .. name .. " applies it."
 end
 
--- Named settings profiles (1.5.0): a profile is just a settings string
--- (the same format /br export makes) stored under a name in the save, so
--- loading one can never touch the other profiles.
 function X.SaveProfile(name)
-  if type(name) ~= "string" or #name > 40 or not name:match("^[%w_%-]+$") then return false end
-  db.profiles[name] = X.Export()
+  if not IsProfileName(name) then
+    return false, "Profile names use letters, numbers, - and _ (max 40)."
+  end
+  local body = X.ProfileSnapshot()
+  if not body then return false, "These settings are too large to save as a profile." end
+  if not X.ParseProfile(body) then return false, "The current settings cannot be saved as a profile." end
+  db.profiles[name] = body
   return true
 end
 
 function X.LoadProfile(name)
   local s = db.profiles[name]
   if type(s) ~= "string" then return false end
-  local ok = X.Import(s)
-  return ok
+  local patch = X.ParseProfile(s)
+  if not patch then return false, "The profile's settings string is damaged." end
+  X.ApplyProfile(patch)
+  return true
 end
 
 function X.DeleteProfile(name)
@@ -2398,14 +2763,14 @@ local function LevelLearned(id)
   if not id then return nil end
   local fn = (C_Spell and C_Spell.GetSpellLevelLearned) or GetSpellLevelLearned
   if not fn then return nil end
-  local ok, lvl = pcall(fn, id)
-  if ok and type(lvl) == "number" and lvl > 0 then return lvl end
+  local lvl = X.ReadUnitNumber(fn, id)
+  if lvl and lvl > 0 then return lvl end
 end
 
 local function PickRank(name, unit)
   local list = ranks[name]
   if not list or #list == 0 then return nil end
-  local targetLevel = unit and UnitLevel(unit) or 0
+  local targetLevel = unit and X.ReadUnitNumber(UnitLevel, unit) or 0
   local pick = list[#list]
   if targetLevel and targetLevel > 0 then
     for k = #list, 1, -1 do
@@ -2447,7 +2812,7 @@ local function GroupSpellFor(spell)
 end
 X.GroupSpellFor = GroupSpellFor
 
-function Bind(btn, unit, spell)
+function Bind(btn, unit, spell, isSelf)
   local pick = PickRank(spell, unit)
   local gspell = (db.modClick and CLASSIC_FEATURES) and GroupSpellFor(spell) or nil
   btn:SetAttribute("shift-type1", nil)
@@ -2469,7 +2834,7 @@ function Bind(btn, unit, spell)
     btn:SetAttribute("unit", nil)
     btn:SetAttribute("spell", nil)
     btn:SetAttribute("macrotext", nil)
-    if UnitIsUnit(unit, "player") then
+    if isSelf then
       btn:SetAttribute("type", "spell")
       btn:SetAttribute("spell", spell)
       btn:SetAttribute("unit", "player")
@@ -2695,7 +3060,7 @@ function X.AmLead()
   if _G.UnitIsGroupAssistant and _G.UnitIsGroupAssistant("player") then return true end
   if InRaid() and GetRaidRosterInfo then
     for i = 1, 40 do
-      if UnitIsUnit(RAID[i], "player") then
+      if X.IsSelf(RAID[i]) == true then
         local ok, _, rank = pcall(GetRaidRosterInfo, i)
         if ok and rank and rank >= 1 then return true end
       end
@@ -3080,7 +3445,7 @@ local function Row_OnEnter(self)
       local nm = def.name
       if nm and not seenHave[nm] and not missSet[nm] then
         seenHave[nm] = true
-        local left = Remaining(e.unit, nm)
+        local left = X.Remaining(e.unit, nm)
         if left and left < math_huge and left > 0 then
           have[#have + 1] = { name = nm, left = left }
         end
@@ -3101,6 +3466,7 @@ local function Row_OnEnter(self)
     if e.class then bits[#bits + 1] = e.class:sub(1, 1) .. e.class:sub(2):lower() end
     bits[#bits + 1] = e.group and "In your group" or "Nearby, not in your group"
     if not e.outOfRange then bits[#bits + 1] = "in cast range"
+    elseif e.approximateRange then bits[#bits + 1] = L["Estimated range"]
     elseif e.rangeBucket == 1 then bits[#bits + 1] = "near — just out of range" end
     GameTooltip:AddLine(table.concat(bits, " · "), 0.7, 0.7, 0.7)
     -- Which other classes could cast the first missing buff: scanned
@@ -3135,6 +3501,14 @@ local function IconInset()
   return MAX_ICONS * (isz + 2) + 4
 end
 
+function X.InstallCombatDriver(button, snippet)
+  if not RegisterStateDriver then return false end
+  local ok, accepted = pcall(button.SetAttribute, button, "_onstate-combat", snippet)
+  if not ok or accepted == false then return false end
+  ok, accepted = pcall(RegisterStateDriver, button, "combat", "[combat] combat; nocombat")
+  return ok and accepted ~= false
+end
+
 local function CreateRow(i)
   local b = CreateFrame("Button", "BuffRadarRow" .. i, frame,
                         "SecureActionButtonTemplate,SecureHandlerStateTemplate")
@@ -3156,7 +3530,7 @@ local function CreateRow(i)
   -- action the template doesn't know, so a right-click casts nothing.
   -- Bind() never touches "type2", so this holds for the row's lifetime.
   b:SetAttribute("type2", "buffradarignore")
-  local stateOK = pcall(b.SetAttribute, b, "_onstate-combat", [[
+  b.combatDriver = X.InstallCombatDriver(b, [[
     if newstate == "combat" then
       self:SetAttribute("type", nil)
       self:SetAttribute("spell", nil)
@@ -3168,9 +3542,6 @@ local function CreateRow(i)
       self:SetAttribute("shift-macrotext1", nil)
     end
   ]])
-  if stateOK and RegisterStateDriver then
-    b.combatDriver = pcall(RegisterStateDriver, b, "combat", "[combat] combat; nocombat")
-  end
 
   b.portrait = b:CreateTexture(nil, "ARTWORK")
   b.portrait:SetSize(ROW_H - 2, ROW_H - 2)
@@ -3409,8 +3780,13 @@ local function ApplyAppearance()
   X.appearancePending = nil
   X.flashPending = nil
   -- Window layer (1.10.0): the main frame and the pill share a strata.
-  if frame.SetFrameStrata then frame:SetFrameStrata(db.strata or "MEDIUM") end
-  if X.pill and X.pill.SetFrameStrata then X.pill:SetFrameStrata(db.strata or "MEDIUM") end
+  local strata = db.strata or "MEDIUM"
+  for _, surface in ipairs({ frame, X.pill }) do
+    if surface.SetFrameStrata and surface.appliedStrata ~= strata then
+      local ok = pcall(surface.SetFrameStrata, surface, strata)
+      if ok then surface.appliedStrata = strata else X.appearancePending = true end
+    end
+  end
   local c = db.bgColor or DEFAULTS.bgColor
   local bc = X.ThemeBorder()
   if frame.SetBackdropColor then
@@ -3715,17 +4091,22 @@ function X.Why(name)
     Print(disp .. " is ignored for this session only (Shift+right-click on a row). It clears when you reload.")
     return
   end
-  if not Valid(unit) then
+  local valid, isSelf = Valid(unit)
+  if not valid then
     Print(disp .. " can't be buffed right now (dead, offline, in combat, charmed or in another phase), so they are not listed.")
     return
   end
   local allMiss, miss = {}, {}
-  local n = Missing(unit, allMiss, isGroup)
+  local n = Missing(unit, allMiss, isGroup, isSelf)
   if n == 0 then
-    Print(disp .. " already has every buff you can give them.")
+    if X.auraUnknown then
+      Print(disp .. ": buff information is unavailable.")
+    else
+      Print(disp .. " already has every buff you can give them.")
+    end
     return
   end
-  local inRange = X.FilterInRange(unit, allMiss, miss)
+  local inRange = X.FilterInRange(unit, allMiss, miss, isSelf)
   if inRange == 0 then
     Print(disp .. " needs " .. table.concat(allMiss, ", ") .. " but none are in cast range; move closer before buffing.")
     return
@@ -3753,18 +4134,25 @@ function X.Why(name)
 end
 
 function X.CheckDrops()
+  local lookup = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
+  local uncertain = {}
   if db.watchDrop then
     for key, prev in pairs(X.prevHolder) do
-      if not Single.holder[key] and prev.unit and UnitExists(prev.unit) then
-        Print(string_format("%s dropped off %s.", Single.spell[key] or key, prev.name))
-        PlayAlert("drop")
-        X.Flash()
+      if not Single.holder[key] and prev.unit and UnitExists(prev.unit) and lookup then
+        local aura, definitive = X.QueryNamedAura(lookup, prev.unit, Single.spell[key] or key, "HELPFUL|PLAYER")
+        if definitive and not aura then
+          Print(string_format("%s dropped off %s.", Single.spell[key] or key, prev.name))
+          PlayAlert("drop")
+          X.Flash()
+        else
+          uncertain[key] = prev
+        end
       end
     end
   end
-  wipe(X.prevHolder)
+  X.prevHolder = uncertain
   for key, unit in pairs(Single.holder) do
-    X.prevHolder[key] = { unit = unit, name = UnitName(unit) or unit }
+    X.prevHolder[key] = { unit = unit, name = SafeString(UnitName(unit)) or unit }
   end
 end
 
@@ -3841,13 +4229,9 @@ function X.DiscordText()
   CollectEntries()
   X.applyFilter = keep
   local lines = { "**BuffRadar — group buff check**" }
-  if X.tallyUnits > 1 then
-    local listed = 0
-    for i = 1, nEntries do
-      if entries[i].group and not entries[i].pet then listed = listed + 1 end
-    end
+  if X.tallyUnits > 1 or (X.tallyUnits > 0 and X.tallyUnknownUnits > 0) then
     lines[#lines + 1] = string_format("%d/%d fully buffed",
-      X.tallyUnits - listed, X.tallyUnits)
+      X.tallyUnits - X.tallyMissingUnits, X.tallyUnits)
   end
   local people = {}
   for i = 1, nEntries do
@@ -3857,9 +4241,9 @@ function X.DiscordText()
         .. " — " .. table.concat(e.missing, ", ")
     end
   end
-  if #people == 0 then
+  if #people == 0 and X.tallyUnknownUnits == 0 then
     lines[#lines + 1] = "Everyone is buffed."
-  else
+  elseif #people > 0 then
     lines[#lines + 1] = "Still needs buffs:"
     for _, p in ipairs(people) do lines[#lines + 1] = "- " .. p end
   end
@@ -4136,7 +4520,7 @@ X.ClearGroup = ClearGroup
 -- Mirrors Bind's cast-method branches for the single spell it writes;
 -- Bind itself is untouched (rows and the next-buff button keep their
 -- proven path).
-local function BindGroup(btn, unit, spell)
+local function BindGroup(btn, unit, spell, isSelf)
   local gspell = (CLASSIC_FEATURES and X.GroupSpellFor(spell)) or spell
   local pick = X.PickRank(gspell, unit)
   local method = db.castMethod
@@ -4145,7 +4529,7 @@ local function BindGroup(btn, unit, spell)
     btn:SetAttribute("unit", nil)
     btn:SetAttribute("spell", nil)
     btn:SetAttribute("macrotext", nil)
-    if UnitIsUnit(unit, "player") then
+    if isSelf then
       btn:SetAttribute("type", "spell")
       btn:SetAttribute("spell", gspell)
       btn:SetAttribute("unit", "player")
@@ -4178,39 +4562,64 @@ local function BindGroup(btn, unit, spell)
 end
 
 local function BindGroupCached(btn, unit, spell, guid)
+  if not btn.combatDriver then return false end
+  local isSelf = X.IsSelf(unit)
+  if isSelf == nil then ClearGroup(); return false end
   local gspell = (CLASSIC_FEATURES and X.GroupSpellFor(spell)) or spell
   local method = db.castMethod
-  local lvl = SafeNumber(UnitLevel(unit)) or 0
+  local lvl = X.ReadUnitNumber(UnitLevel, unit) or 0
   if btn.bGuid == guid and btn.bUnit == unit and btn.bSpell == gspell
-     and btn.bMethod == method and btn.bLevel == lvl then
-    return
+     and btn.bMethod == method and btn.bLevel == lvl and btn.bSelf == isSelf then
+    return btn:GetAttribute("type") ~= nil
   end
-  BindGroup(btn, unit, spell)
+  BindGroup(btn, unit, spell, isSelf)
   btn.bGuid, btn.bUnit, btn.bSpell, btn.bMethod, btn.bLevel = guid, unit, gspell, method, lvl
+  btn.bSelf = isSelf
   btn.isClear = false
+  return btn:GetAttribute("type") ~= nil
+end
+
+function X.ClearRowCast(btn)
+  if InCombatLockdown() then return end
+  btn:SetAttribute("type", nil)
+  btn:SetAttribute("spell", nil)
+  btn:SetAttribute("unit", nil)
+  btn:SetAttribute("macrotext", nil)
+  btn:SetAttribute("shift-type1", nil)
+  btn:SetAttribute("shift-spell1", nil)
+  btn:SetAttribute("shift-unit1", nil)
+  btn:SetAttribute("shift-macrotext1", nil)
+  btn.bGuid = nil
 end
 
 -- Secure attribute writes only when what the button should cast actually changed.
 local function BindCached(btn, unit, spell, guid)
-  local method = db.castMethod
-  local lvl = SafeNumber(UnitLevel(unit)) or 0  -- compared below
-  if btn.bGuid == guid and btn.bUnit == unit and btn.bSpell == spell
-     and btn.bMethod == method and btn.bLevel == lvl
-     and btn.bMod == (db.modClick and true or false) then
-    return
+  if not btn.combatDriver then return false end
+  local isSelf = X.IsSelf(unit)
+  if isSelf == nil then
+    if btn.bGuid ~= nil then X.ClearRowCast(btn) end
+    return false
   end
-  Bind(btn, unit, spell)
+  local method = db.castMethod
+  local lvl = X.ReadUnitNumber(UnitLevel, unit) or 0
+  if btn.bGuid == guid and btn.bUnit == unit and btn.bSpell == spell
+     and btn.bMethod == method and btn.bLevel == lvl and btn.bSelf == isSelf
+     and btn.bMod == (db.modClick and true or false) then
+    return btn:GetAttribute("type") ~= nil
+  end
+  Bind(btn, unit, spell, isSelf)
   btn.bGuid, btn.bUnit, btn.bSpell, btn.bMethod, btn.bLevel = guid, unit, spell, method, lvl
+  btn.bSelf = isSelf
   btn.bMod = db.modClick and true or false
   btn.isClear = false
+  return btn:GetAttribute("type") ~= nil
 end
 
 -- Arm the group button with the head row (called from Refresh, which is
 -- at its upvalue ceiling and reaches the button only through X).
 function X.ArmGroupBtn(first)
   if not X.groupBtn then return end
-  BindGroupCached(X.groupBtn, first.unit, first.missing[1], first.guid)
-  X.groupBtn.entry = first
+  X.groupBtn.entry = BindGroupCached(X.groupBtn, first.unit, first.missing[1], first.guid) and first or nil
 end
 
 local function BuildNextButton()
@@ -4223,9 +4632,8 @@ local function BuildNextButton()
   nextBtn:Show()
   ApplyNextRegistration()
   -- Secure snippets clear the button the instant combat starts and right after each use.
-  -- Some Forever builds reject secure snippets; if so, fall back to plain events
-  -- (see PLAYER_REGEN_DISABLED and PostClick below) instead of failing.
-  pcall(nextBtn.SetAttribute, nextBtn, "_onstate-combat", [[
+  -- Leave casting disarmed if the client cannot install combat clearing.
+  nextCombatDriver = X.InstallCombatDriver(nextBtn, [[
     if newstate == "combat" then
       self:SetAttribute("type", nil)
       self:SetAttribute("spell", nil)
@@ -4237,9 +4645,7 @@ local function BuildNextButton()
       self:SetAttribute("shift-macrotext1", nil)
     end
   ]])
-  if RegisterStateDriver then
-    nextCombatDriver = pcall(RegisterStateDriver, nextBtn, "combat", "[combat] combat; nocombat")
-  end
+  nextBtn.combatDriver = nextCombatDriver
   if SecureHandlerWrapScript then
     nextWrapped = pcall(SecureHandlerWrapScript, nextBtn, "OnClick", nextBtn, [[ return nil, true ]], [[
       self:SetAttribute("type", nil)
@@ -4278,7 +4684,7 @@ local function BuildGroupButton()
   btn:EnableMouse(false)
   btn:Show()
   ApplyNextRegistration()
-  pcall(btn.SetAttribute, btn, "_onstate-combat", [[
+  X.groupCombatDriver = X.InstallCombatDriver(btn, [[
     if newstate == "combat" then
       self:SetAttribute("type", nil)
       self:SetAttribute("spell", nil)
@@ -4286,9 +4692,7 @@ local function BuildGroupButton()
       self:SetAttribute("macrotext", nil)
     end
   ]])
-  if RegisterStateDriver then
-    X.groupCombatDriver = pcall(RegisterStateDriver, btn, "combat", "[combat] combat; nocombat")
-  end
+  btn.combatDriver = X.groupCombatDriver
   if SecureHandlerWrapScript then
     X.groupWrapped = pcall(SecureHandlerWrapScript, btn, "OnClick", btn, [[ return nil, true ]], [[
       self:SetAttribute("type", nil)
@@ -4344,9 +4748,8 @@ function X.PlaceScaled(g, ns)
 end
 
 function X.EndEdgeDrag(e)
-  if not e or not e.isSizing then return end
+  if not e or not e.isSizing or InCombatLockdown() then return end
   e.isSizing = false
-  if InCombatLockdown() then return end
   frame:StopMovingOrSizing()
   local cols = X.cols or 1
   local w = (frame:GetWidth() - (cols - 1) * 6) / cols
@@ -4374,15 +4777,26 @@ end
 
 function X.EndScaleDrag(g)
   if not g or not g.isSizing then return end
-  g.isSizing = false
   g:SetScript("OnUpdate", nil)
+  if InCombatLockdown() then return end
+  g.isSizing = false
   local ns = math_floor((db.scale or 1) * 100 + 0.5) / 100
   db.scale = ns
-  if not InCombatLockdown() then
-    X.PlaceScaled(g, ns)
+  X.PlaceScaled(g, ns)
+  SavePosition()
+  if RefreshConfig then RefreshConfig() end
+end
+
+function X.EndWindowDrags()
+  if InCombatLockdown() then return end
+  if frame and frame.isMoving then
+    frame:StopMovingOrSizing()
+    frame.isMoving = false
     SavePosition()
   end
-  if RefreshConfig then RefreshConfig() end
+  X.EndScaleDrag(grip)
+  X.EndScaleDrag(X.gripL)
+  X.EndEdgeDrag(X.edge)
 end
 
 local function BuildUI()
@@ -4392,6 +4806,7 @@ local function BuildUI()
                       BackdropTemplateMixin and "BackdropTemplate" or nil)
   frame:SetSize(db.width or WIDTH, HEADER_H + 30)
   frame:SetFrameStrata("MEDIUM")
+  frame.appliedStrata = "MEDIUM"
   frame:SetClampedToScreen(true)
   frame:SetMovable(true)
   frame:SetResizable(true)
@@ -4493,6 +4908,7 @@ local function BuildUI()
   pill:SetSize(150, 22)
   pill:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
   pill:SetFrameStrata("MEDIUM")
+  pill.appliedStrata = "MEDIUM"
   if pill.SetBackdrop then
     pill:SetBackdrop({
       bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -4693,10 +5109,18 @@ end
 do
 local minimapBtn
 
+local function MinimapRadii()
+  local w = Minimap.GetWidth and Minimap:GetWidth()
+  local h = Minimap.GetHeight and Minimap:GetHeight()
+  return w and w > 0 and w / 2 + 5 or 80, h and h > 0 and h / 2 + 5 or 80
+end
+
 local function PositionMinimapButton()
   if not minimapBtn then return end
   local angle = math.rad((db and db.minimapAngle) or 215)
-  minimapBtn:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * 80, math.sin(angle) * 80)
+  local rx, ry = MinimapRadii()
+  minimapBtn:ClearAllPoints()
+  minimapBtn:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * rx, math.sin(angle) * ry)
 end
 
 function RefreshMinimapButton()
@@ -4746,14 +5170,17 @@ BuildMinimapButton = function()
   b:SetScript("OnUpdate", function(self)
     if not self.dragging or not db then return end
     local mx, my = Minimap:GetCenter()
+    if not mx or not my then return end
     local cx, cy = GetCursorPosition()
     local scale = (Minimap.GetEffectiveScale and Minimap:GetEffectiveScale()) or 1
     cx, cy = cx / scale, cy / scale
+    local rx, ry = MinimapRadii()
     local atan2 = math.atan2 or math.atan
-    db.minimapAngle = math.deg(atan2(cy - my, cx - mx)) % 360
+    db.minimapAngle = math.deg(atan2((cy - my) / ry, (cx - mx) / rx)) % 360
     PositionMinimapButton()
   end)
   minimapBtn = b
+  if Minimap.HookScript then Minimap:HookScript("OnSizeChanged", PositionMinimapButton) end
   RefreshMinimapButton()
 
   -- Addon compartment (the minimap's addon menu): same clicks as the minimap
@@ -4996,17 +5423,7 @@ local function RenderRow(row, e)
     -- Greyed placeholder row: no live binding behind the click, and the
     -- cached binding is cleared so a reused row can't cast a stale target.
     row:SetAlpha(0.6)
-    if row.bGuid ~= nil then
-      row:SetAttribute("type", nil)
-      row:SetAttribute("spell", nil)
-      row:SetAttribute("unit", nil)
-      row:SetAttribute("macrotext", nil)
-      row:SetAttribute("shift-type1", nil)
-      row:SetAttribute("shift-spell1", nil)
-      row:SetAttribute("shift-unit1", nil)
-      row:SetAttribute("shift-macrotext1", nil)
-      row.bGuid = nil
-    end
+    if row.bGuid ~= nil then X.ClearRowCast(row) end
   else
     row:SetAlpha(1)
     BindCached(row, e.unit, m[1], e.guid)
@@ -5087,7 +5504,7 @@ function X.BuildBuffView(list, n)
         if (not e.outOfRange and (g.unit == nil or g.outOfRange)) or g.unit == nil then
           g.unit, g.class = e.unit, e.class
           g.outOfRange = e.outOfRange and true or false
-          g.rangeBucket = e.rangeBucket
+          g.rangeBucket, g.approximateRange = e.rangeBucket, e.approximateRange
         end
       end
     end
@@ -5104,6 +5521,9 @@ function X.BuildBuffView(list, n)
   end
   return order, #order
 end
+
+X.IsMajorCity, X.CurrentInstance = InMajorCity, InInstanceNow
+X.BindCached = BindCached
 
 local function Refresh()
   if not built or InCombatLockdown() then return end
@@ -5131,7 +5551,7 @@ local function Refresh()
   local groupHidden = db.groupOnly and not InGroup()
 
   -- No scanning in major cities
-  if db.pauseInCities and InMajorCity() then
+  if db.pauseInCities and X.IsMajorCity() then
     refreshIdle = true
     ClearNext()
     X.ClearGroup()
@@ -5146,7 +5566,7 @@ local function Refresh()
   end
 
   -- No scanning in battlegrounds / arenas (optional; flag rules make lists noisy)
-  local instType = InInstanceNow()
+  local instType = X.CurrentInstance()
   if db.pauseInBG and (instType == "pvp" or instType == "arena") then
     refreshIdle = true
     ClearNext()
@@ -5180,12 +5600,9 @@ local function Refresh()
   end
 
   -- Low-mana pause (optional): don't offer buffs you can't afford to cast.
-  if db.lowMana and db.lowMana > 0 then
-    local pow = _G.UnitPower and _G.UnitPower("player")
-    local powMax = _G.UnitPowerMax and _G.UnitPowerMax("player")
-    if pow and powMax and powMax > 0 and (pow / powMax * 100) < db.lowMana then
+  if db.lowMana and db.lowMana > 0 and X.LowMana() then
       ClearNext()
-    X.ClearGroup()
+      X.ClearGroup()
       wipe(X.listedBefore)
       for i = 1, MAX_ROWS do ClearRow(rows[i]) end
       if db.hidden or groupHidden or db.autoHide then
@@ -5194,7 +5611,6 @@ local function Refresh()
         ShowStatus(L["Low mana -- buffing paused."])
       end
       return
-    end
   end
 
   local n = CollectEntries()
@@ -5242,8 +5658,7 @@ local function Refresh()
   -- Keybind / macro target: first player in the list, their next missing buff.
   if n > 0 and nextBtn and not entries[1].outOfRange then
     local first = entries[1]
-    BindCached(nextBtn, first.unit, first.missing[1], first.guid)
-    nextBtn.entry = first
+    nextBtn.entry = X.BindCached(nextBtn, first.unit, first.missing[1], first.guid) and first or nil
     X.ArmGroupBtn(first)
   else
     ClearNext()
@@ -5306,7 +5721,9 @@ local function Refresh()
   if wasAfterCombat and n > 0 and X.Flash then X.Flash() end
 
   SetTextIfChanged(countText, n > 0 and n or "")
-  if n == 0 and FriendlyPlatesOn() == false then
+  if n == 0 and X.tallyUnknownUnits > 0 then
+    SetTextIfChanged(emptyText, L["Some buff information is unavailable."])
+  elseif n == 0 and X.FriendlyPlatesOn() == false then
     -- Honest empty state: with friendly nameplates off, the client shows us
     -- nobody outside the group, so "everyone is buffed" would be a lie.
     SetTextIfChanged(emptyText, L["Friendly nameplates are off."])
@@ -5332,12 +5749,10 @@ local function Refresh()
   -- Coverage / progress line: shown while grouped (even when the list is
   -- empty -- "15/15 fully buffed" is the good-news form of the same line).
   local coverShown = false
-  if X.tallyUnits > 1 then
-    local listedGroup = 0
-    for i = 1, n do if entries[i].group and not entries[i].pet then listedGroup = listedGroup + 1 end end
+  if X.tallyUnits > 1 or (X.tallyUnits > 0 and X.tallyUnknownUnits > 0) then
     local parts = {}
     if CoverOn("progress") then
-      parts[#parts + 1] = string_format("%d/%d fully buffed", X.tallyUnits - listedGroup, X.tallyUnits)
+      parts[#parts + 1] = string_format("%d/%d fully buffed", X.tallyUnits - X.tallyMissingUnits, X.tallyUnits)
     end
     if CoverOn("buffs") then
     for _, b in ipairs(myBuffs) do
@@ -5374,8 +5789,10 @@ local function Refresh()
     -- Coverage uptime (1.6.0): the share of grouped scans this run that
     -- found nobody missing anything. A scan-based score, reset when a
     -- Mythic+ run starts and when the group ends.
-    X.upTotal = X.upTotal + 1
-    if listedGroup == 0 then X.upFull = X.upFull + 1 end
+    if X.tallyUnknownUnits == 0 then
+      X.upTotal = X.upTotal + 1
+      if X.tallyMissingUnits == 0 then X.upFull = X.upFull + 1 end
+    end
     if X.upTotal >= 10 and CoverOn("uptime") then
       parts[#parts + 1] = string_format("Uptime %d%%",
         math_floor(100 * X.upFull / X.upTotal + 0.5))
@@ -5471,7 +5888,7 @@ local function Refresh()
       if left > 0 then parts[#parts + 1] = string_format("Pull in %ds", left) end
     end
     SetTextIfChanged(coverText, table.concat(parts, "  ·  "))
-    X.coverFrac = string_format("%d/%d", X.tallyUnits - listedGroup, X.tallyUnits)
+    X.coverFrac = string_format("%d/%d", X.tallyUnits - X.tallyMissingUnits, X.tallyUnits)
     coverShown = #parts > 0
   end
   SetShownIfChanged(coverText, coverShown)
@@ -5480,19 +5897,21 @@ local function Refresh()
   -- line above the coverage line. Missing() runs with isGroup=false, so
   -- the focus never touches the coverage tallies.
   local focusShown = false
-  if db.focusWatch and X.focusText and UnitExists("focus") and Valid("focus") then
+  local focusValid, focusSelf
+  if db.focusWatch and X.focusText then focusValid, focusSelf = Valid("focus") end
+  if focusValid then
     local fname = SafeString(UnitName("focus"))
     if fname then
-      local fn = Missing("focus", X.focusMiss, false)
+      local fn = Missing("focus", X.focusMiss, false, focusSelf)
       if fn > 0 then
         local fparts = {}
         for i = 1, math_min(fn, 3) do fparts[#fparts + 1] = X.focusMiss[i] end
         SetTextIfChanged(X.focusText, "Focus " .. fname .. ": needs "
           .. table.concat(fparts, ", ") .. (fn > 3 and (" +" .. (fn - 3)) or ""))
-      else
+      elseif not X.auraUnknown then
         SetTextIfChanged(X.focusText, "Focus " .. fname .. ": buffed")
       end
-      focusShown = true
+      focusShown = fn > 0 or not X.auraUnknown
     end
   end
   if X.focusText then SetShownIfChanged(X.focusText, focusShown) end
@@ -5633,6 +6052,7 @@ local function RebuildNow()
   X.prioDirty = true
   if built then InvalidateRows() end
   if built then X.ApplyRowLayout() end
+  if RefreshConfig then RefreshConfig() end
   Soon()
 end
 local function ScheduleRebuild()
@@ -5697,37 +6117,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   if event == "UNIT_AURA" or event == "NAME_PLATE_UNIT_ADDED" or event == "NAME_PLATE_UNIT_REMOVED"
      or event == "UPDATE_MOUSEOVER_UNIT" then
     if InCombatLockdown() then return end
-    if event == "UNIT_AURA" then
-      -- Incremental payload (12.x aura updates): nothing added, removed or
-      -- changed and not a full update -> nothing for us to rescan.
-      local info = ...
-      if type(info) == "table" and not info.isFullUpdate and info.addedAuras == nil
-         and info.removedAuraInstanceIDs == nil and info.updatedAuraInstanceIDs == nil then
-        return
-      end
-      -- Brief 2 probe (1.14.0): count payload shapes so /br apicheck can
-      -- prove what this client sends before anything depends on it.
-      if type(info) == "table" then
-        local probe = X.auraProbe or {}; X.auraProbe = probe
-        probe.seen = (probe.seen or 0) + 1
-        if info.isFullUpdate then probe.full = (probe.full or 0) + 1 end
-        if info.addedAuras then probe.added = (probe.added or 0) + 1 end
-        if info.removedAuraInstanceIDs then probe.removed = (probe.removed or 0) + 1 end
-        if info.updatedAuraInstanceIDs then probe.updated = (probe.updated or 0) + 1 end
-        -- Fast aura (Brief 2): an incremental payload that touches no
-        -- watched buff needs no rescan. Any doubt -> relevant -> rescan.
-        if db and db.fastAura and not info.isFullUpdate
-           and type(arg1) == "string" and not X.AuraRelevant(arg1, info) then
-          probe.skipped = (probe.skipped or 0) + 1
-          return
-        end
-      end
-    end
-    if event == "UNIT_AURA" and type(arg1) == "string" and arg1 ~= "player" and arg1 ~= "target"
-       and arg1 ~= "mouseover" and not arg1:find("^party%d") and not arg1:find("^raid%d")
-       and not (arg1:find("^nameplate%d") and UnitIsPlayer(arg1)) then
-      return
-    end
+    if event == "UNIT_AURA" and not X.AuraEventNeedsRefresh(arg1, ...) then return end
     Soon()
     return
   end
@@ -5792,6 +6182,11 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if arg1 == "ActionButtonUseKeyDown" or arg1 == "ACTION_BUTTON_USE_KEY_DOWN" then
       ApplyNextRegistration()
       if db then pcall(MakeMacro, true) end -- keep an existing BuffRadar macro in sync
+    elseif type(arg1) == "string" then
+      local name = arg1:lower()
+      if name == "nameplateshowfriendlyplayers" or name == "nameplateshowfriends" or name == "nameplateshowall" then
+        Soon()
+      end
     end
     return
   elseif event == "UPDATE_BINDINGS" then
@@ -5905,6 +6300,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if (db.dbVersion or 0) < 15 then
       db.dbVersion = 15       -- 1.15.0: fallSound / customGroup take their defaults (fallSound off)
     end
+    if (db.dbVersion or 0) < 16 then
+      db.dbVersion = 16       -- Per-class blessing preferences start with the default priority.
+    end
     X.SpecSwap()
   elseif event == "PLAYER_LOGIN" then
     driver:UnregisterEvent("PLAYER_LOGIN")  -- one-off
@@ -5926,7 +6324,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if not db.wizardSeen then
       Print("New to BuffRadar? /br wizard runs a one-minute setup.")
     end
-    if FriendlyPlatesOn() == false then
+    if X.FriendlyPlatesOn() == false then
       Print("friendly nameplates are |cffff4040off|r - nearby players outside your group can't be listed until they're on. Type /br plates to turn them on (or press Shift+V).")
     end
     if not hasAnyBuff then
@@ -5937,44 +6335,23 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   elseif event == "PLAYER_REGEN_DISABLED" then
     X.combatStart = GetTime()  -- the wipe report times the fight from here (1.9.0)
     if combatText then combatText:Show() end
-    -- Lockdown hasn't started yet inside this handler: finish any window drag now.
-    if frame and frame.isMoving then
-      frame:StopMovingOrSizing()
-      frame.isMoving = false
-      SavePosition()
-    end
-    -- Same for a scale drag in progress.
-    if grip and grip.isSizing then X.EndScaleDrag(grip) end
-    if X.gripL and X.gripL.isSizing then X.EndScaleDrag(X.gripL) end
-    if X.edge and X.edge.isSizing then X.EndEdgeDrag(X.edge) end
-    if nextBtn then nextBtn.bGuid, nextBtn.isClear = nil, false end  -- driver clears it
-    if X.groupBtn then X.groupBtn.bGuid, X.groupBtn.isClear = nil, false end
-    -- Fallback when a secure combat driver isn't available.
-    if not nextCombatDriver then ClearNext() end
-    if not X.groupCombatDriver then ClearGroup() end
-    for i = 1, MAX_ROWS do
-      local row = rows[i]
-      if row and not row.combatDriver then
-        row:SetAttribute("type", nil)
-        row:SetAttribute("spell", nil)
-        row:SetAttribute("unit", nil)
-        row:SetAttribute("macrotext", nil)
-        row:SetAttribute("shift-type1", nil)
-        row:SetAttribute("shift-spell1", nil)
-        row:SetAttribute("shift-unit1", nil)
-        row:SetAttribute("shift-macrotext1", nil)
-      end
-    end
-    -- Secure drivers own combat hiding. Older clients can hide here only
-    -- if the event arrives before their lockdown starts.
+    -- Drivers clear cast attributes in combat; protected drag and visibility
+    -- work can run here only if the client has not started lockdown.
     if not InCombatLockdown() then
+      X.EndWindowDrags()
       if frame and not frame.visibilityDriver then frame:Hide() end
       if X.pill and not X.pill.visibilityDriver then X.pill:Hide() end
     end
   elseif event == "PLAYER_REGEN_ENABLED" then
     X.afterCombat = true  -- Refresh() pulses the border if work is waiting
+    if InCombatLockdown() then return end
+    X.EndWindowDrags()
     if combatText then combatText:Hide() end
     BuildUI()
+    -- Secure snippets cleared the attributes behind the display cache.
+    for i = 1, #rows do rows[i].bGuid = nil end
+    if nextBtn then nextBtn.bGuid, nextBtn.isClear = nil, false end
+    if X.groupBtn then X.groupBtn.bGuid, X.groupBtn.isClear = nil, false end
     ApplyGeometry()  -- a scale/width change made during combat lands now
     if X.appearancePending or X.flashPending then ApplyAppearance() end
     X.ApplyRowLayout()
@@ -6131,7 +6508,7 @@ X.slashAPI = {
   Print = Print, Refresh = Refresh, RefreshConfig = RefreshConfig, OpenConfig = OpenConfig,
   PlayAlert = PlayAlert, ApplyAppearance = ApplyAppearance, ApplyGeometry = ApplyGeometry,
   BuildBuffList = BuildBuffList, BuildUI = BuildUI, InvalidateRows = InvalidateRows,
-  IsOn = IsOn, FriendlyPlatesOn = FriendlyPlatesOn, InGroup = InGroup,
+  IsOn = IsOn, FriendlyPlatesOn = X.FriendlyPlatesOn, InGroup = InGroup,
   InInstanceNow = InInstanceNow, InMajorCity = InMajorCity, MakeMacro = MakeMacro,
   OpenKeybinds = OpenKeybinds, RefreshMinimapButton = RefreshMinimapButton,
   RestorePosition = RestorePosition, SpellName = SpellName, UpdateCounter = UpdateCounter,

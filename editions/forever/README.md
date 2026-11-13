@@ -62,9 +62,13 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
 - **Group-cast offers:** when enough of your party or raid needs the same buff,
   BuffRadar offers the group version (Prayer of Fortitude, Gift of the Wild…)
   instead — one cast for everyone.
-- **Only eligible players appear:** the current character must know a useful buff,
-  the target must be in cast range and out of combat, and the caster must be out of
-  combat. **Right-click a row** to ignore a player who doesn't want buffs.
+- **Only eligible players appear:** your character must know a useful buff, and
+  both characters must be out of combat. When Forever cannot report spell-specific
+  range, BuffRadar uses the client's proximity estimate. **Right-click a row**
+  to ignore a player who doesn't want buffs.
+- **Paladin blessings by class:** choose a known blessing for each class from
+  the Buffs tab, or use `/br bless prefer <CLASS> <BLESSING|DEFAULT>`. An active
+  group blessing plan takes precedence.
 - **Role ordering** option: you, tanks and leaders first.
 - **Rezzed players first** (after you): someone who just came back from the dead
   has lost every buff, so their row jumps up with a *recently rezzed* marker.

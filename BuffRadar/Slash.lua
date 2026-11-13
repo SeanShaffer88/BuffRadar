@@ -507,18 +507,19 @@ local function HandleSlash(msg)
     local sub, pname = rest:match("^(%S*)%s*(.-)%s*$")
     sub = (sub or ""):lower()
     if sub == "save" then
-      if X.SaveProfile(pname) then Print("Profile saved: " .. pname)
-      else Print("Usage: /br profile save <name> (letters, numbers, - and _, max 40 characters)") end
+      local ok, err = X.SaveProfile(pname)
+      if ok then Print("Profile saved: " .. pname) else Print(err) end
       if RefreshConfig then RefreshConfig() end
     elseif sub == "load" then
-      if X.LoadProfile(pname) then
+      local ok, err = X.LoadProfile(pname)
+      if ok then
         Print("Profile loaded: " .. pname)
         ApplyGeometry()
         ApplyAppearance()
         X.ApplyRowLayout()
         if RefreshConfig then RefreshConfig() end
         Refresh()
-      else Print("No profile named '" .. pname .. "'. /br profile list shows them.") end
+      else Print(err or "No profile named '" .. pname .. "'. /br profile list shows them.") end
     elseif sub == "delete" or sub == "del" then
       if X.DeleteProfile(pname) then Print("Profile deleted: " .. pname)
       else Print("No profile named '" .. pname .. "'.") end
@@ -1032,7 +1033,18 @@ local function HandleSlash(msg)
       local cls, bkey, bname = rest:match("^(%S*)%s*(%S*)%s*(.-)%s*$")
       cls = (cls or ""):upper()
       bkey = (bkey or ""):upper()
-      if cls == "" then
+      if cls == "PREFER" then
+        local key = bname:upper()
+        if bkey == "" or key == "" then
+          Print("Usage: /br bless prefer <CLASS> <BLESSING|DEFAULT>.")
+        elseif X.SetBlessingPreference(bkey, key) then
+          Print("Blessing preference: " .. bkey .. " = " .. key .. ".")
+          if RefreshConfig then RefreshConfig() end
+          Refresh()
+        else
+          Print("Choose a Forever class and a blessing you know, or DEFAULT.")
+        end
+      elseif cls == "" then
         local parts = {}
         for c, p in pairs(X.blessPlan) do
           parts[#parts + 1] = c .. ": " .. p.key .. " (" .. p.name .. ")"
@@ -1256,11 +1268,26 @@ local function HandleSlash(msg)
       Print(rest .. " isn't ignored for this session.")
     end
   elseif cmd == "plates" then
-    if SetCVar then
-      if InCombatLockdown() then Print("Can't change nameplate settings during combat."); return end
-      SetCVar("nameplateShowFriends", 1)
-      Print("Friendly nameplates turned on, so nearby non-group players can be listed.")
+    if InCombatLockdown() then Print("Can't change nameplate settings during combat."); return end
+    local enabled, name = FriendlyPlatesOn()
+    local setter = (C_CVar and C_CVar.SetCVar) or SetCVar
+    if not name or not setter then
+      Print("Couldn't find a supported friendly nameplate setting on this client.")
+      return
     end
+    if not enabled then pcall(setter, name, "1") end
+    if FriendlyPlatesOn() ~= true then
+      Print("Couldn't turn on friendly nameplates. Check the game's nameplate settings.")
+      return
+    end
+    if X.ReadBooleanCVar("nameplateShowAll") == false then
+      pcall(setter, "nameplateShowAll", "1")
+      if X.ReadBooleanCVar("nameplateShowAll") == false then
+        Print("Friendly nameplates are enabled. The game may still hide them outside combat.")
+        return
+      end
+    end
+    Print("Friendly nameplates turned on, so nearby non-group players can be listed.")
   elseif X.ext[cmd] then
     X.ext[cmd](rest)
   else

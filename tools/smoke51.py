@@ -20,6 +20,11 @@ env.UnitIsUnit = function(a, b)
   if env.__over.UnitIsUnit then return env.__over.UnitIsUnit(a, b) end
   return unitIsUnit(a, b)
 end
+local unitLevel = env.UnitLevel
+env.UnitLevel = function(unit)
+  if env.__over.UnitLevel then return env.__over.UnitLevel(unit) end
+  return unitLevel(unit)
+end
 local unitCanAssist = env.UnitCanAssist
 env.UnitCanAssist = function(a, b)
   if env.__over.UnitCanAssist then return env.__over.UnitCanAssist(a, b) end
@@ -120,6 +125,54 @@ step("ADDON_LOADED", function() fire("ADDON_LOADED", "BuffRadar") end)
 step("PLAYER_LOGIN", function() fire("PLAYER_LOGIN") end)
 step("window exists", function() assert(env.BuffRadarFrame, "BuffRadarFrame not created") end)
 step("minimap button exists", function() assert(env.BuffRadarMinimapButton, "no minimap button") end)
+step("minimap button follows both axes after the map is resized", function()
+  local map, button, db = env.Minimap, env.BuffRadarMinimapButton, env.BuffRadarDB
+  local oldWidth, oldHeight, oldAngle, oldCursor = map.GetWidth, map.GetHeight, db.minimapAngle, env.GetCursorPosition
+  map.GetWidth, map.GetHeight = function() return 240 end, function() return 160 end
+  db.minimapAngle = 0
+  NS.X.cfgAPI.RefreshMinimapButton()
+  local p = button.points[#button.points]
+  local horizontal = #button.points == 1 and math.abs(p[4] - 125) < 0.01
+  map.GetWidth, map.GetHeight = function() return 300 end, function() return 200 end
+  local resized = map:GetScript("OnSizeChanged")
+  if resized then resized(map, 300, 200) end
+  p = button.points[#button.points]
+  local followsSize = math.abs(p[4] - 155) < 0.01
+  env.GetCursorPosition = function() return 655, 505 end
+  button:GetScript("OnDragStart")(button)
+  button:GetScript("OnUpdate")(button)
+  button:GetScript("OnDragStop")(button)
+  local angle = db.minimapAngle
+  map.GetWidth, map.GetHeight, db.minimapAngle, env.GetCursorPosition = oldWidth, oldHeight, oldAngle, oldCursor
+  NS.X.cfgAPI.RefreshMinimapButton()
+  assert(horizontal and followsSize and math.abs(angle - 45) < 0.01, "minimap geometry ignored an axis or resize")
+end)
+step("friendly nameplates select the supported CVar and verify changes", function()
+  local vars = { nameplateShowFriendlyPlayers = "0", nameplateShowAll = "0" }
+  local oldCVar, oldGet, oldBool, oldSet = env.C_CVar, env.GetCVar, env.GetCVarBool, env.SetCVar
+  env.GetCVar, env.GetCVarBool, env.SetCVar = nil, function() return false end, nil
+  env.C_CVar = {
+    GetCVar = function(key) return vars[key] end,
+    SetCVar = function(key, value) if vars[key] then vars[key] = value end end,
+  }
+  local friendly = NS.X.FriendlyPlatesOn
+  local initiallyOff = friendly and friendly() == false
+  env.SlashCmdList.BUFFRADAR("plates")
+  local modernSet = vars.nameplateShowFriendlyPlayers == "1" and vars.nameplateShowAll == "1"
+  vars.nameplateShowFriendlyPlayers, vars.nameplateShowFriends = nil, "1"
+  local legacy, name
+  if friendly then legacy, name = friendly() end
+  vars.nameplateShowFriends = nil
+  local unknown = friendly and friendly() == nil
+  vars.nameplateShowFriendlyPlayers = "0"
+  env.C_CVar.SetCVar = function() return true end
+  local n = #chat
+  env.SlashCmdList.BUFFRADAR("plates")
+  local reportsFailure = #chat > n and not chat[#chat]:find("Friendly nameplates turned on", 1, true)
+  env.C_CVar, env.GetCVar, env.GetCVarBool, env.SetCVar = oldCVar, oldGet, oldBool, oldSet
+  assert(initiallyOff and modernSet and legacy and name == "nameplateShowFriends" and unknown and reportsFailure,
+    "friendly nameplate CVar selection or readback failed")
+end)
 step("slash command registered", function()
   assert(env.SLASH_BUFFRADAR1 == "/br" and env.SlashCmdList.BUFFRADAR, "no /br")
 end)
@@ -835,7 +888,8 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 15, "dbVersion not migrated to 15: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 16, "dbVersion not migrated to 16: " .. tostring(d.dbVersion))
+  assert(next(d.blessingPreferences) == nil, "existing character got a blessing override")
   assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
   if env.__forever then  -- 1.8.0 (#32): shadow protection defaults to instances
     assert(d.buffContext.SHADOW_PROT == "instance",
@@ -857,7 +911,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 15 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 16 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
   -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
@@ -865,7 +919,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = { dbVersion = 9 }
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 15 and d.wizardSeen == true,
+  assert(d.dbVersion == 16 and d.wizardSeen == true,
     "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
   d.wizardSeen = false  -- leave the save as the rest of the suite expects
 end)
@@ -1842,10 +1896,106 @@ step("appearance changes and delayed border restore wait for combat to end", fun
     assert(not X.flashPending, "appearance replay left a redundant fallback border restore")
     fire("PLAYER_REGEN_ENABLED")
     assert(frameWrites == 1 and pillWrites == 1, "appearance replay repeated without a pending change")
+    X.cfgAPI.ApplyAppearance()
+    assert(frameWrites == 1 and pillWrites == 1, "unchanged layer caused protected writes")
+    frame.SetFrameStrata = function() error("client refused layer update") end
+    db.strata = "LOW"
+    X.cfgAPI.ApplyAppearance()
+    assert(frame.strata == "HIGH" and pill.strata == "LOW" and X.appearancePending,
+      "a rejected main layer change did not leave a retry pending")
+    frame.SetFrameStrata = restoreFrame
+    fire("PLAYER_REGEN_ENABLED")
+    assert(frame.strata == "LOW" and not X.appearancePending, "pending layer did not apply on regen")
   end)
   env.__combat = false
   frame.SetFrameStrata, pill.SetFrameStrata, db.reduceMotion = restoreFrame, restorePill, oldMotion
   env.SlashCmdList.BUFFRADAR("strata " .. string.lower(oldStrata))
+  assert(ok, err)
+end)
+
+step("Lightning Shield secure actions rearm after combat and failed setup stays disarmed", function()
+  if not env.__forever then return end
+  local X, db, O = NS.X, NS.X.GetDB(), env.__over
+  local oldClass, oldKnown = O.UnitClass, env.IsPlayerSpell
+  local oldNames, oldInfo, oldTab = env.GetSpellBookItemName, env.GetSpellBookItemInfo, env.GetSpellTabInfo
+  local oldHidden, oldGroup, oldSelf, oldCity = db.hidden, db.groupOnly, db.includeSelf, db.pauseInCities
+  local oldMethod, oldShield = db.castMethod, db.enabled.SHAMAN_SHIELD
+  local frame, nextButton = env.BuffRadarFrame, env.BuffRadarNextButton
+  local oldStop = frame.StopMovingOrSizing
+  local row, oldWrite, oldDriver
+  local ok, err = pcall(function()
+    O.UnitClass = function(unit) if unit == "player" then return "Shaman", "SHAMAN" end end
+    env.IsPlayerSpell = function(id) return id == 324 end
+    env.GetSpellBookItemName = function(i) if i == 1 then return "Lightning Shield", "Rank 1" end end
+    env.GetSpellBookItemInfo = function(i) if i == 1 then return "SPELL", 324 end end
+    env.GetSpellTabInfo = function() return "General", nil, 0, 1 end
+    db.hidden, db.groupOnly, db.includeSelf, db.pauseInCities = false, false, true, false
+    db.castMethod, db.enabled.SHAMAN_SHIELD = "target", true
+    X.cfgAPI.BuildBuffList()
+    X.Refresh()
+    local listed = assert(shownRows().player, "Lightning Shield self row is absent")
+    row = listed.row
+    assert(listed["Lightning Shield"], "Lightning Shield is not the active shaman spell")
+    oldWrite, oldDriver = row.SetAttribute, row.combatDriver
+    assert(row:GetAttribute("spell") == "Lightning Shield" and nextButton:GetAttribute("unit") == "player",
+      "Lightning Shield row or next button started disarmed")
+    -- Secure driver writes are modeled by clearing both attributes without
+    -- touching the addon's normal binding caches.
+    row:SetAttribute("type", nil)
+    nextButton:SetAttribute("type", nil)
+    row.SetAttribute = function(self, key, value)
+      assert(not env.__combat, "addon tried to write locked cast attributes")
+      oldWrite(self, key, value)
+    end
+    frame.StopMovingOrSizing = function(self)
+      assert(not env.__combat, "addon tried to stop a protected drag during lockdown")
+      oldStop(self)
+    end
+    frame.isMoving = true
+    row.combatDriver = false
+    env.__combat = true
+    fire("PLAYER_REGEN_DISABLED")
+    fire("PLAYER_REGEN_ENABLED")
+    assert(frame.isMoving and not row:GetAttribute("type"), "locked regen attempted cleanup or rearm")
+    env.__combat = false
+    fire("PLAYER_REGEN_ENABLED")
+    X.Refresh()
+    assert(not frame.isMoving and not row:GetAttribute("type"), "unavailable driver allowed row to arm")
+    row.combatDriver = oldDriver
+    fire("PLAYER_REGEN_ENABLED")
+    X.Refresh()
+    assert(row:GetAttribute("spell") == "Lightning Shield" and row:GetAttribute("type") == "spell"
+      and nextButton:GetAttribute("type") == "spell", "post-combat Lightning Shield cast was not rearmed")
+  end)
+  env.__combat = false
+  if row then row.SetAttribute, row.combatDriver = oldWrite, oldDriver end
+  frame.StopMovingOrSizing, frame.isMoving = oldStop, false
+  O.UnitClass, env.IsPlayerSpell = oldClass, oldKnown
+  env.GetSpellBookItemName, env.GetSpellBookItemInfo, env.GetSpellTabInfo = oldNames, oldInfo, oldTab
+  db.hidden, db.groupOnly, db.includeSelf, db.pauseInCities = oldHidden, oldGroup, oldSelf, oldCity
+  db.castMethod, db.enabled.SHAMAN_SHIELD = oldMethod, oldShield
+  X.cfgAPI.BuildBuffList()
+  assert(ok, err)
+end)
+
+step("combat cast driver requires both secure setup operations to accept", function()
+  local X = NS.X
+  local previousRegister = env.RegisterStateDriver
+  local registrations, snippetResult, driverResult = 0, false, nil
+  local button = { SetAttribute = function() return snippetResult end }
+  local ok, err = pcall(function()
+    env.RegisterStateDriver = function()
+      registrations = registrations + 1
+      return driverResult
+    end
+    assert(not X.InstallCombatDriver(button, ""), "explicit snippet refusal armed the control")
+    assert(registrations == 0, "driver installed after the snippet failed")
+    snippetResult, driverResult = nil, false
+    assert(not X.InstallCombatDriver(button, ""), "explicit driver refusal armed the control")
+    snippetResult, driverResult = nil, nil
+    assert(X.InstallCombatDriver(button, "") and registrations == 2, "successful void calls did not arm")
+  end)
+  env.RegisterStateDriver = previousRegister
   assert(ok, err)
 end)
 
@@ -1944,13 +2094,16 @@ step("out-of-range group members stay off the list (1.8.0)", function()
     "range filtering did not keep only castable buffs")
   env.IsSpellInRange = nil
   env.C_Spell = { IsSpellInRange = function() return nil end }
+  local previousGroup, previousInteract = env.UnitInRange, env.CheckInteractDistance
+  env.UnitInRange, env.CheckInteractDistance = nil, nil
   assert(NS.X.FilterInRange("party2", { "Unknown-range buff" }, selected) == 0,
-    "unknown spell-specific range was treated as safe")
+    "unknown spell-specific range without a fallback was treated as safe")
+  env.UnitInRange, env.CheckInteractDistance = previousGroup, previousInteract
   env.C_Spell = nil
   cleanup()
 end)
 
-step("range checks ignore inaccessible results without guessing spell range", function()
+step("range uses checked distance only when both spell range answers are unavailable", function()
   local previousModern, previousLegacy = env.C_Spell, env.IsSpellInRange
   local previousGroup, previousInteract = env.UnitInRange, env.CheckInteractDistance
   local previousCanAccess, previousUnitIsUnit = env.canaccessvalue, env.__over.UnitIsUnit
@@ -1971,7 +2124,14 @@ step("range checks ignore inaccessible results without guessing spell range", fu
     assert(listed(), "readable legacy result did not replace failed modern query")
     env.C_Spell.IsSpellInRange, env.IsSpellInRange = inaccessible, inaccessible
     env.UnitInRange = function() return true, true end
-    assert(not listed(), "approximate range overrode unreadable spell results")
+    local count, approximate = NS.X.FilterInRange("party2", spells, selected)
+    assert(count == 1 and approximate, "checked group distance did not fill in for unreadable spell results")
+    env.UnitInRange = function() return false, true end
+    env.CheckInteractDistance = function() return true end
+    assert(not listed(), "checked group false was overridden by interaction distance")
+    env.UnitInRange = function() return false, false end
+    count, approximate = NS.X.FilterInRange("party2", spells, selected)
+    assert(count == 1 and approximate, "interaction distance did not fill in for unchecked group range")
 
     -- Lua 5.1 has no secret primitives. Mask values that would otherwise
     -- normalize as in range so the assertions exercise the readability guard.
@@ -2004,12 +2164,140 @@ step("range checks ignore inaccessible results without guessing spell range", fu
     env.UnitInRange = function() return false, true end
     assert(not listed(), "explicit group out-of-range result was replaced by interact range")
     env.__over.UnitIsUnit = function(unit) if unit == "target" then return true end return protected end
+    env.CheckInteractDistance = function() return true end
+    env.UnitInRange = function() return true, true end
     assert(not listed(), "unreadable self comparison was treated as self")
     assert(listed("player") and listed("target"), "self or self alias failed range check")
   end)
   env.C_Spell, env.IsSpellInRange = previousModern, previousLegacy
   env.UnitInRange, env.CheckInteractDistance = previousGroup, previousInteract
   env.canaccessvalue, env.__over.UnitIsUnit = previousCanAccess, previousUnitIsUnit
+  assert(ok, err)
+end)
+
+step("unreadable rank levels and mana remain safe", function()
+  local cleanup = partyOfTwo("Q")
+  local X, db, O = NS.X, NS.X.GetDB(), env.__over
+  local oldAccess, oldPower, oldMax, oldMana = env.canaccessvalue, env.UnitPower, env.UnitPowerMax, db.lowMana
+  local protected = {}
+  local ok, err = pcall(function()
+    env.canaccessvalue = function(v) return v ~= protected end
+    O.UnitLevel = function(unit) if unit == "party1" then return protected end return 60 end
+    assert(not X.ReadUnitNumber(env.UnitLevel, "party1"), "unreadable level escaped numeric adapter")
+    if env.__forever then
+      local rank = X.PickRank("Power Word: Fortitude", "party1")
+      assert(rank and rank.id == 1244, "unreadable level changed the default rank")
+      O.UnitLevel = function(unit) if unit == "party1" then error("level unavailable") end return 60 end
+      rank = X.PickRank("Power Word: Fortitude", "party1")
+      assert(rank and rank.id == 1244, "level refusal changed the default rank")
+    end
+    db.lowMana = 25
+    env.UnitPower = function(unit, powerType)
+      assert(unit == "player" and powerType == 0, "mana queried without the mana power type")
+      return protected
+    end
+    env.UnitPowerMax = function() return 100 end
+    assert(not X.LowMana(), "unreadable mana paused the list")
+    env.UnitPower = function() return 10 end
+    assert(X.LowMana(), "readable low mana did not pause the list")
+    env.UnitPowerMax = function() error("maximum mana unavailable") end
+    assert(not X.LowMana(), "refused maximum mana paused the list")
+    X.Refresh()
+    assert(shownRows().party1, "guarded power refusal removed a valid row")
+  end)
+  env.canaccessvalue, env.UnitPower, env.UnitPowerMax, db.lowMana = oldAccess, oldPower, oldMax, oldMana
+  cleanup()
+  assert(ok, err)
+end)
+
+step("unit identity failures skip the unknown unit while allowing known self and allies", function()
+  local cleanup = partyOfTwo("I")
+  local oldAccess = env.canaccessvalue
+  local function check(comparison, readable, label)
+    env.__over.UnitIsUnit = function(unit, other)
+      if unit == "party1" then return comparison() end
+      return unit == other
+    end
+    env.canaccessvalue = readable
+    NS.X.Refresh()
+    local rows = shownRows()
+    assert(rows.player and rows.party2 and not rows.party1, label)
+  end
+  local ok, err = pcall(function()
+    check(function() error("incomparable tokens") end, nil, "comparison refusal stopped another row")
+    local protectedTrue, protectedFalse = {}, {}
+    local function readable(v) return v ~= protectedTrue and v ~= protectedFalse end
+    check(function() return protectedTrue end, readable, "hidden true produced a target")
+    check(function() return protectedFalse end, readable, "hidden false produced a target")
+    env.canaccessvalue, env.__over.UnitIsUnit = nil, function(a, b) return a == b end
+    NS.X.Refresh()
+    assert(shownRows().party1, "readable identity did not restore target")
+  end)
+  env.canaccessvalue = oldAccess
+  cleanup()
+  assert(ok, err)
+end)
+
+step("restricted aura reads never offer an unverified recast or coverage result", function()
+  local cleanup = partyOfTwo("U")
+  local X, O = NS.X, env.__over
+  local oldAccess, oldRebuff = env.canaccessvalue, X.GetDB().rebuff
+  local protected = {}
+  local ok, err = pcall(function()
+    X.GetDB().rebuff = 30
+    local function refreshAura()
+      X.Refresh()
+      return shownRows().party1
+    end
+    assert(refreshAura(), "readable empty aura list did not offer a buff")
+    O.Aura = function(unit) if unit == "party1" then error("by-name restricted") end end
+    O.AuraList = function(unit) if unit == "party1" then error("index restricted") end end
+    assert(not refreshAura() and X.tallyUnknownUnits == 1, "restricted aura was treated as missing or known")
+    O.Aura = function(unit) if unit == "party1" then return end return nil end
+    assert(not refreshAura() and X.tallyUnknownUnits == 1, "zero-result aura refusal was treated as absence")
+    O.Aura = function() return nil end
+    assert(refreshAura() and X.tallyUnknownUnits == 0, "explicit nil aura absence required indexed access")
+    O.Aura = function(unit) if unit == "party1" then return end return nil end
+    env.canaccessvalue = function(v) return v ~= protected end
+    O.AuraList = function(unit) if unit == "party1" then return {{ name = protected, expirationTime = 0 }} end end
+    assert(not refreshAura(), "unreadable indexed aura name was treated as missing")
+    O.AuraList = function() return {} end
+    assert(refreshAura(), "known empty index fallback did not restore a missing row")
+    O.Aura = function(unit) if unit == "party1" then return { expirationTime = protected } end end
+    assert(not refreshAura() and X.tallyUnknownUnits == 1, "unreadable expiry was treated as a usable timer")
+    X.GetDB().rebuff = 0
+    assert(not refreshAura() and X.tallyUnknownUnits == 0, "known presence was discarded at a zero threshold")
+    O.Aura = function(unit) if unit == "party1" then return { expirationTime = 0 } end end
+    assert(not refreshAura() and X.tallyUnknownUnits == 0, "permanent aura did not count as present")
+  end)
+  env.canaccessvalue, X.GetDB().rebuff = oldAccess, oldRebuff
+  cleanup()
+  assert(ok, err)
+end)
+
+step("restricted aura event values coalesce a conservative refresh", function()
+  if not env.__timers then return end
+  local X, db = NS.X, NS.X.GetDB()
+  local oldAccess, oldFast = env.canaccessvalue, db.fastAura
+  local protected = {}
+  local inaccessible = setmetatable({}, { __index = function() error("restricted aura payload") end })
+  local ok, err = pcall(function()
+    runQueued()
+    db.fastAura = false
+    fire("UNIT_AURA", "player", {})
+    assert(#env.__timers == 0, "ordinary empty payload queued a refresh")
+    fire("UNIT_AURA", "player", inaccessible)
+    fire("UNIT_AURA", "player", inaccessible)
+    assert(#env.__timers == 1, "unreadable payload did not coalesce a refresh")
+    runQueued()
+    db.fastAura = true
+    env.canaccessvalue = function(v) return v ~= protected end
+    fire("UNIT_AURA", "player", { addedAuras = {{ name = "Unwatched", auraInstanceID = protected }} })
+    assert(#env.__timers == 1, "secret aura instance ID did not trigger a rescan")
+    assert(not (X.auraIds and X.auraIds.player and X.auraIds.player[protected]), "secret ID was cached")
+    runQueued()
+  end)
+  env.canaccessvalue, db.fastAura = oldAccess, oldFast
   assert(ok, err)
 end)
 
@@ -2218,7 +2506,7 @@ step("a single profile can be shared and imported (1.8.0)", function()
   local text = env.BuffRadarExportFrame.editBox.text
   assert(type(text) == "string" and text:find("BuffRadar profile: shareme", 1, true),
     "share text has no header: " .. tostring(text))
-  assert(text:find("\nBR1;", 1, true), "share text carries no settings string")
+  assert(text:find("\nBR2;", 1, true), "share text carries no versioned profile")
   env.SlashCmdList.BUFFRADAR("profile delete shareme")
   assert(db.profiles.shareme == nil, "profile not deleted before import")
   env.SlashCmdList.BUFFRADAR("profile import")
@@ -2807,6 +3095,51 @@ step("auto profile switches with the context (1.6.0)", function()
   env.SlashCmdList.BUFFRADAR("scale 1")
 end)
 
+step("per-class blessing choices persist and defer to the group plan", function()
+  if not env.__forever then return end
+  local X, db = NS.X, env.BuffRadarDB
+  local oldKnown, oldPreferences, oldPlan = env.IsPlayerSpell, db.blessingPreferences, X.blessPlan.MAGE
+  local function cleanup()
+    env.IsPlayerSpell, db.blessingPreferences, X.blessPlan.MAGE = oldKnown, oldPreferences, oldPlan
+    X.DeleteProfile("AuditBlessing")
+    X.cfgAPI.BuildBuffList()
+    if env.BuffRadarBlessingPreferences then env.BuffRadarBlessingPreferences:Hide() end
+    if X.RefreshConfig then X.RefreshConfig() end
+  end
+  local ok, err = pcall(function()
+    env.IsPlayerSpell = function(id) return id == 19740 or id == 19742 or oldKnown(id) end
+    db.blessingPreferences, X.blessPlan.MAGE = {}, nil
+    X.cfgAPI.BuildBuffList()
+    assert(X.BlessingForClass("MAGE").name == "Blessing of Wisdom", "default blessing changed")
+    local sent = #env.__addonSent
+    env.SlashCmdList.BUFFRADAR("bless prefer MAGE MIGHT")
+    assert(X.BlessingForClass("MAGE").name == "Blessing of Might", "preference did not select a known blessing")
+    assert(#env.__addonSent == sent, "private preference broadcast to the group")
+    assert(not X.SetBlessingPreference("MAGE", "KINGS"), "unlearned blessing became a new preference")
+    X.blessPlan.MAGE = { key = "WISDOM", mine = true }
+    assert(X.BlessingForClass("MAGE").name == "Blessing of Wisdom", "group plan did not override preference")
+    X.blessPlan.MAGE.mine = false
+    assert(X.BlessingForClass("MAGE") == nil, "other paladin's assignment was ignored")
+    X.blessPlan.MAGE = nil
+    assert(X.SaveProfile("AuditBlessing"), "could not save preferred blessing")
+    env.SlashCmdList.BUFFRADAR("bless prefer MAGE DEFAULT")
+    assert(db.blessingPreferences.MAGE == nil, "default did not clear the preference")
+    assert(X.LoadProfile("AuditBlessing") and db.blessingPreferences.MAGE == "MIGHT",
+      "named profile did not restore preferred blessing")
+    local cfg = env.BuffRadarConfig
+    X.RefreshConfig()
+    assert(cfg.blessingButton.shown, "known blessings did not expose the settings button")
+    cfg.blessingButton:GetScript("OnClick")(cfg.blessingButton)
+    assert(env.BuffRadarBlessingPreferences.shown and #cfg.blessingSelectors == 9,
+      "blessing settings did not show one control per Forever class")
+    env.IsPlayerSpell = function(id) return id == 19742 or oldKnown(id) end
+    X.cfgAPI.BuildBuffList()
+    assert(X.BlessingForClass("MAGE").name == "Blessing of Wisdom" and db.blessingPreferences.MAGE == "MIGHT",
+      "an unavailable saved preference did not fall back without clearing it")
+  end)
+  cleanup()
+  assert(ok, err)
+end)
 step("blessing plan: set, broadcast, receive, list (1.6.0)", function()
   if not env.__forever then return end
   local cleanup = partyOfTwo("L")
@@ -2849,6 +3182,44 @@ step("named settings profiles save, load, list, delete (1.5.0)", function()
   env.SlashCmdList.BUFFRADAR("profile delete RaidNight")
   assert(db.profiles.RaidNight == nil, "profile not deleted")
   env.SlashCmdList.BUFFRADAR("scale " .. tostring(keepScale or 1))
+end)
+step("profiles restore window and buff settings and retain old saves", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local keep = { compact = db.compact, alertSounds = db.alertSounds, buffPrio = db.buffPrio }
+  db.compact, db.alertSounds, db.buffPrio = true, { drop = "droplet" }, { "THORNS", "MOTW" }
+  assert(X.SaveProfile("AuditProfile"), "could not save a profile")
+  db.compact, db.alertSounds, db.buffPrio = false, { drop = "system", ask = "system" }, { "MOTW" }
+  local loaded = X.LoadProfile("AuditProfile")
+  local restored = db.compact and db.alertSounds.drop == "droplet" and not db.alertSounds.ask
+    and db.buffPrio[1] == "THORNS" and db.buffPrio[2] == "MOTW"
+  local keepScale = db.scale
+  assert(X.ProfileImport("BuffRadar profile: AuditLegacy\nBR1;scale=1.25"), "valid legacy profile was refused")
+  local legacy = X.LoadProfile("AuditLegacy") and db.scale == 1.25 and db.alertSounds.drop == "droplet"
+  db.compact, db.alertSounds, db.buffPrio, db.scale = keep.compact, keep.alertSounds, keep.buffPrio, keepScale
+  X.prioDirty = true
+  X.DeleteProfile("AuditProfile")
+  X.DeleteProfile("AuditLegacy")
+  assert(loaded and restored, "profile omitted window settings, alert sounds, or ordered buff priorities")
+  assert(legacy, "legacy profile did not preserve newer settings")
+end)
+step("profile limits and validation preserve an existing save", function()
+  local X, db = NS.X, env.BuffRadarDB
+  assert(X.SaveProfile("AuditProfile"), "could not save a profile")
+  local before = db.profiles.AuditProfile
+  local prefix = "BuffRadar profile: AuditProfile\n"
+  local rejected = not X.ProfileImport(prefix .. "BR1garbage")
+  local rejectedEmpty = not X.ProfileImport(prefix .. "BR1")
+  local rejectedMalformed = not X.ProfileImport(prefix .. "BR1;scale=1.25;locked=maybe")
+  local rejectedEnum = not X.ProfileImport(prefix .. "BR1;scale=1.25;sortMode=unknown")
+  local rejectedOversize = not X.ProfileImport(prefix .. "BR1;ignored." .. string.rep("A", 4000) .. "=1")
+  local keepIgnored = db.ignored
+  db.ignored = { [string.rep("B", 4000)] = true }
+  local rejectedSave = not X.SaveProfile("AuditProfile")
+  db.ignored = keepIgnored
+  local unchanged = db.profiles.AuditProfile == before
+  X.DeleteProfile("AuditProfile")
+  assert(rejected and rejectedEmpty and rejectedMalformed and rejectedEnum, "invalid input was accepted as a profile")
+  assert(rejectedOversize and rejectedSave and unchanged, "oversized input replaced an existing profile")
 end)
 step("single-target buff dropping off its holder alerts once (1.5.0)", function()
   if env.__forever then return end
@@ -3015,7 +3386,7 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 15"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 16"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
   assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
   assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")
