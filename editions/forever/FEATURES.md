@@ -1,6 +1,6 @@
 # BuffRadar — Features (Forever edition)
 
-The full feature list for BuffRadar 1.15.4 (Forever edition) for
+The full feature list for BuffRadar 1.15.5 (Forever edition) for
 WoW: Forever (Interface 16001). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
@@ -353,6 +353,8 @@ stays hidden on those characters.
   nameplates — there is no API for a general nearby-player list.
 
 ## Verification status
+
+**Current stable release:** the 1.15.4 field-test build (the same source tree as 1.15.5) was tested in-game on WoW Classic Forever and passed.
 
 - 1.2.2 and earlier were confirmed working live by SEAN on
   2026-10-20. **1.12.0 was verified in game by SEAN on Forever
