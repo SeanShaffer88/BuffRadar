@@ -20,6 +20,11 @@ env.UnitIsUnit = function(a, b)
   if env.__over.UnitIsUnit then return env.__over.UnitIsUnit(a, b) end
   return unitIsUnit(a, b)
 end
+local unitCanAssist = env.UnitCanAssist
+env.UnitCanAssist = function(a, b)
+  if env.__over.UnitCanAssist then return env.__over.UnitCanAssist(a, b) end
+  return unitCanAssist(a, b)
+end
 local unitIsPvP = env.UnitIsPVP
 env.UnitIsPVP = function(unit)
   if env.__over.UnitIsPVP then return env.__over.UnitIsPVP(unit) end
@@ -643,6 +648,31 @@ step("combat targets and caster are never eligible", function()
     "targets remained listed while the caster was in combat")
   O.UnitAffectingCombat = nil
   cleanup()
+end)
+step("self remains buffable when the assist API rejects self", function()
+  local cleanup = partyOfTwo("SELF")
+  local O, db = env.__over, env.BuffRadarDB
+  local oldInclude, oldMethod, oldRange = db.includeSelf, db.castMethod, env.IsSpellInRange
+  local ok, err = pcall(function()
+    db.includeSelf, db.castMethod = true, "target"
+    env.IsSpellInRange = function() return 1 end
+    O.UnitCanAssist = function(source, unit)
+      if source == "player" and unit == "player" then return false end
+      return true
+    end
+    refresh()
+    local selfRow = assert(shownRows().player, "self was omitted when assist check rejected the player")
+    local row = selfRow.row
+    assert(row.entry.isSelf, "player row was not marked as self")
+    assert(row.attrs.type == "spell" and row.attrs.unit == "player",
+      "self row was not armed to cast directly on player")
+    assert(row.attrs.spell == row.entry.missing[1], "self row was bound to a different buff")
+  end)
+  O.UnitCanAssist = nil
+  env.IsSpellInRange = oldRange
+  db.includeSelf, db.castMethod = oldInclude, oldMethod
+  cleanup()
+  assert(ok, err)
 end)
 step("unreadable unit eligibility results never offer a buff", function()
   local cleanup = partyOfTwo("VE")
