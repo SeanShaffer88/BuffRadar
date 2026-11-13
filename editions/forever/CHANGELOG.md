@@ -3,6 +3,14 @@
 All notable changes to BuffRadar are listed here. Newest first.
 
 
+## 1.15.5 — 2026-11-13 — Forever stable field test
+
+- Harden Forever target discovery and aura checks against restricted game data, preserve safe buff actions through combat, and improve settings-profile restoration and Paladin blessing preferences.
+- Promote the 1.15.4 field-test source tree as a stable release after its successful in-game test.
+
+**Verification:** tested in-game on WoW Classic Forever and passed.
+
+
 ## 1.15.4 — 2026-11-12 — Forever self-buff fix
 
 - Keep your own character eligible for the list even when the game says it cannot assist itself; clicks on your row target `player` directly.
