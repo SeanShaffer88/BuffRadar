@@ -1413,7 +1413,8 @@ for i = 1, 4 do PARTY[i] = "party" .. i end
 local function Valid(unit)
   if not UnitExists(unit) or not UnitIsPlayer(unit) then return false end
   if UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit) then return false end
-  if not UnitCanAssist("player", unit) then return false end
+  -- Self is inherently assistable; some Classic clients reject this API check.
+  if not UnitIsUnit(unit, "player") and not UnitCanAssist("player", unit) then return false end
   if not UnitAffectingCombat then return false end
   local okPlayer, playerCombat = pcall(UnitAffectingCombat, "player")
   if not okPlayer or not Readable(playerCombat) or playerCombat ~= false then return false end
