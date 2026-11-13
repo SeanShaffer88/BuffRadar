@@ -2,6 +2,14 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+
+## 1.15.4 — 2026-11-12 — Forever self-buff fix
+
+- Keep your own character eligible for the list even when the game says it cannot assist itself; clicks on your row target `player` directly.
+- Add an offline regression check for self-row eligibility and its secure cast target.
+
+**Verification:** the full offline gate passes; this self-buff fix is unverified in game.
+
 ## 1.15.3 — 2026-11-12 — Forever fixes
 
 - Safely handle hidden range, combat, charm, and PvP results from the
