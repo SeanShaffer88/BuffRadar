@@ -22,12 +22,12 @@ local BuildBuffList, InvalidateRows, UpdateCounter = A.BuildBuffList, A.Invalida
 local IsOn = A.IsOn
 local KeybindText, OpenKeybinds, MakeMacro = A.KeybindText, A.OpenKeybinds, A.MakeMacro
 local RefreshMinimapButton = A.RefreshMinimapButton
-local myBuffs, myBlessing = A.myBuffs, A.myBlessing
+local myBuffs = A.myBuffs
 local Ignore = A.Ignore
 local DEFAULTS, SCALE_PRESETS = A.DEFAULTS, A.SCALE_PRESETS
 local CLASSIC_FEATURES = A.CLASSIC_FEATURES
 local NEXT_BINDING = A.NEXT_BINDING
-local pairs, ipairs, next, type, tonumber, tostring, pcall = pairs, ipairs, next, type, tonumber, tostring, pcall
+local pairs, ipairs, type, tonumber, tostring, pcall = pairs, ipairs, type, tonumber, tostring, pcall
 local math_floor, math_min = math.floor, math.min
 local table_sort = table.sort
 local wipe = wipe or function(t) for k in pairs(t) do t[k] = nil end return t end
@@ -244,6 +244,7 @@ end
 local function SelectTab(key)
   cfg.curTab = key
   if cfg.displayPanel then cfg.displayPanel:Hide() end
+  if cfg.blessingPanel then cfg.blessingPanel:Hide() end
   cfg.searchFooter:Show()
   for k, panel in pairs(cfg.panels) do panel:SetShown(k == key) end
   if cfg.nativeTabs then
@@ -253,6 +254,96 @@ local function SelectTab(key)
       if k == key then btn:LockHighlight() else btn:UnlockHighlight() end
     end
   end
+end
+
+local function BlessingOptionLabel(option)
+  if option.key ~= "DEFAULT" then return option.name end
+  if option.name then return string.format(L["Default (%s)"], option.name) end
+  return L["Default blessing"]
+end
+
+local function MakeBlessingSelector(parent, class)
+  local function choose(key)
+    if X.SetBlessingPreference(class, key) then RefreshConfig(); Refresh() end
+  end
+  local ok, dd = pcall(CreateFrame, "DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
+  if ok and dd and dd.SetupMenu then
+    dd:SetWidth(290)
+    dd:SetupMenu(function(_, root)
+      for _, option in ipairs(X.BlessingOptions(class)) do
+        root:CreateRadio(BlessingOptionLabel(option),
+          function(key) return X.BlessingPreference(class) == key end, choose, option.key)
+      end
+    end)
+    dd.Update = function(self)
+      if self.SetDefaultText then self:SetDefaultText(L["Previously selected blessing unavailable"]) end
+      if self.GenerateMenu then self:GenerateMenu() end
+    end
+    return dd
+  end
+  local button = MakeButton(parent, "", 290, function()
+    local current = X.BlessingPreference(class)
+    local options = X.BlessingOptions(class)
+    local following = options[1]
+    for i, option in ipairs(options) do
+      if option.key == current then following = options[i + 1] or options[1]; break end
+    end
+    choose(following.key)
+  end)
+  button.Update = function(self)
+    local current = X.BlessingPreference(class)
+    for _, option in ipairs(X.BlessingOptions(class)) do
+      if option.key == current then self:SetText(BlessingOptionLabel(option)); return end
+    end
+    self:SetText(L["Previously selected blessing unavailable"])
+  end
+  return button
+end
+
+local function OpenBlessingPanel()
+  if not cfg.blessingPanel then
+    local panel = CreateFrame("Frame", "BuffRadarBlessingPreferences", cfg,
+                              BackdropTemplateMixin and "BackdropTemplate" or nil)
+    cfg.blessingPanel, cfg.blessingSelectors = panel, {}
+    panel:SetPoint("CENTER", cfg, "CENTER")
+    panel:SetSize(490, 372)
+    panel:SetFrameStrata("DIALOG")
+    panel:SetFrameLevel((cfg:GetFrameLevel() or 0) + 10)
+    panel:EnableMouse(true)
+    if panel.SetBackdrop then
+      panel:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 14,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 },
+      })
+      panel:SetBackdropColor(0.05, 0.06, 0.1, 0.98)
+    end
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 20, -18)
+    title:SetText(L["Blessings by class"])
+    local close = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", -5, -5)
+    close:SetScript("OnClick", function() panel:Hide() end)
+    for i, class in ipairs(X.BLESSING_CLASS_ORDER) do
+      local y = -52 - (i - 1) * 30
+      local label = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+      label:SetPoint("TOPLEFT", 22, y - 5)
+      local classNames = _G.LOCALIZED_CLASS_NAMES_MALE
+      label:SetText((classNames and classNames[class]) or class)
+      local selector = MakeBlessingSelector(panel, class)
+      selector:SetPoint("TOPLEFT", 158, y)
+      cfg.blessingSelectors[i] = selector
+    end
+    local hint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    hint:SetPoint("TOPLEFT", 22, -330)
+    hint:SetWidth(442)
+    hint:SetJustifyH("LEFT")
+    hint:SetText(L["An active group blessing plan takes precedence."])
+    if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarBlessingPreferences") end
+  end
+  cfg.blessingPanel:Show()
+  RefreshConfig()
 end
 
 local function BuildConfig()
@@ -735,6 +826,8 @@ local function BuildConfig()
   local prioHint = buffs:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   prioHint:SetPoint("LEFT", prioReset, "RIGHT", 8, 0)
   prioHint:SetText("Your own buff order: /br prio")
+  cfg.blessingButton = MakeButton(buffs, L["Blessings by class"], 190, OpenBlessingPanel)
+  cfg.blessingButton:SetPoint("TOPRIGHT", -15, -346)
 
   cfg.rebuffHeads = {}
   for c = 1, 2 do
@@ -1048,7 +1141,7 @@ local function BuildConfig()
   section(data, "Settings profiles", 10, -330)
   local profHint = data:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   profHint:SetPoint("TOPLEFT", 14, -352)
-  profHint:SetText("Save all your settings under a name; load them here or with /br profile.")
+  profHint:SetText("Save window, alert and buff preferences to load here or with /br profile.")
   cfg.profileBox = CreateFrame("EditBox", nil, data, "InputBoxTemplate")
   cfg.profileBox:SetSize(170, 20)
   cfg.profileBox:SetPoint("TOPLEFT", 18, -374)
@@ -1061,21 +1154,22 @@ local function BuildConfig()
   end
   local profSave = MakeButton(data, "Save", 62, function()
     local name = profName()
-    if X.SaveProfile(name) then Print("Profile saved: " .. name)
-    else Print("Profile names use letters, numbers, - and _ (max 40).") end
+    local ok, err = X.SaveProfile(name)
+    if ok then Print("Profile saved: " .. name) else Print(err) end
     RefreshConfig()
   end)
   profSave:SetPoint("LEFT", cfg.profileBox, "RIGHT", 10, 0)
   local profLoad = MakeButton(data, "Load", 62, function()
     local name = profName()
-    if X.LoadProfile(name) then
+    local ok, err = X.LoadProfile(name)
+    if ok then
       Print("Profile loaded: " .. name)
       ApplyGeometry()
       ApplyAppearance()
       X.ApplyRowLayout()
       RefreshConfig()
       Refresh()
-    else Print("No profile named '" .. name .. "'.") end
+    else Print(err or "No profile named '" .. name .. "'.") end
   end)
   profLoad:SetPoint("LEFT", profSave, "RIGHT", 6, 0)
   local profDel = MakeButton(data, "Delete", 62, function()
@@ -1487,7 +1581,15 @@ RefreshConfig = function()
   for _, b in ipairs(myBuffs) do
     items[#items + 1] = { key = b.key, default = b.default, label = b.name, who = b.who }
   end
-  if next(myBlessing) then
+  cfg.blessingButton:SetShown(X.HasKnownBlessings())
+  if cfg.blessingPanel and cfg.blessingPanel:IsShown() then
+    if X.HasKnownBlessings() then
+      for _, selector in ipairs(cfg.blessingSelectors) do selector:Update() end
+    else
+      cfg.blessingPanel:Hide()
+    end
+  end
+  if X.HasKnownBlessings() then
     items[#items + 1] = { key = "BLESSINGS", default = true, label = "Blessings", who = "one per class" }
   end
   for i, cb in ipairs(cfg.buffChecks) do

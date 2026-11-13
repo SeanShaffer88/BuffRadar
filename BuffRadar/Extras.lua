@@ -191,8 +191,19 @@ local function Parse(text)
 end
 
 function X.SettingsDiff(text)
-  if type(text) ~= "string" or text:sub(1, 3) ~= "BR1" then return nil, "Not a BuffRadar settings string." end
-  local want, have = Parse(text), Parse(X.Export())
+  if type(text) ~= "string" then return nil, "Not a BuffRadar settings string." end
+  local profile = text:match("^BR2;") ~= nil
+  if (profile and not X.ParseProfile(text)) or (not profile and not text:match("^BR1;")) then
+    return nil, "Not a BuffRadar settings string."
+  end
+  local current
+  if profile then
+    current = X.ProfileSnapshot()
+    if not current then return nil, "Current settings exceed the profile size limit." end
+  else
+    current = X.Export()
+  end
+  local want, have = Parse(text), Parse(current)
   local lines = {}
   local keys = {}
   for k in pairs(want) do keys[k] = true end
@@ -201,9 +212,9 @@ function X.SettingsDiff(text)
   for k in pairs(keys) do names[#names + 1] = k end
   table.sort(names)
   for _, k in ipairs(names) do
-    if k:find("^ignored%.") or k:find("^enabled%.") or k:find("^rebuffPer%.") or not k:find("%.") then
+    if profile or k:find("^ignored%.") or k:find("^enabled%.") or k:find("^rebuffPer%.") or not k:find("%.") then
       local a, b = have[k], want[k]
-      if a ~= b and (b ~= nil) then
+      if a ~= b and (profile or b ~= nil) then
         lines[#lines + 1] = string.format("%s: %s -> %s", k, tostring(a), tostring(b))
       end
     end
