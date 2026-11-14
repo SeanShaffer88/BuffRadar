@@ -3,6 +3,17 @@
 All notable changes to BuffRadar are listed here. Newest first.
 
 
+## 1.15.11 — 2026-11-14 — Forever update
+
+- Browse lists with more than 15 rows using the mouse wheel or
+  `/br scroll up` and `/br scroll down`. The window shows the visible row range.
+- Scrolling keeps each clickable row bound to the player it displays. Cast Next Buff
+  still selects the first eligible player in the full queue.
+- Rows disarm in combat and rebind after combat.
+
+The maintainer confirmed live verification of scrollable rows in WoW: Forever
+on 2026-11-14 using field-test build `650f5c603781`.
+
 ## 1.15.10 — 2026-11-14 — Forever update
 
 - Fast aura updates cache only watched buffs. An unrecognized removal triggers
