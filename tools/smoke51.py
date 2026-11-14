@@ -5093,6 +5093,8 @@ step("Forever assignment preview and why explain winning rules without changing 
   local X, O, db = NS.X, env.__over, env.BuffRadarDB
   local oldRole, oldRules, oldMode = env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled
   local oldSize = env.GetNumGroupMembers
+  local oldCount, oldTip = env.C_Item.GetItemCount, env.GameTooltip
+  local oldIncludeSelf, oldGroupCast, oldClickThrough = db.includeSelf, db.groupCast, db.clickThrough
   local ok, err = pcall(function()
     local role = "DAMAGER"
     env.GetNumGroupMembers = function() return 3 end
@@ -5102,6 +5104,12 @@ step("Forever assignment preview and why explain winning rules without changing 
       return role
     end
     env.IsSpellInRange = function() return 1 end
+    env.C_Item.GetItemCount = function() return 2 end
+    X.InvalidateReagents()
+    O.Aura = function(unit)
+      if unit == "player" then return { expirationTime = env.GetTime() + 600 } end
+    end
+    db.includeSelf, db.groupCast, db.clickThrough = false, false, false
     db.buffAssignments = {}
     assert(X.SetAssignmentEnabled(true))
     assert(X.SetAssignment("MAGE", "ALL", { FORTITUDE = true }))
@@ -5109,6 +5117,7 @@ step("Forever assignment preview and why explain winning rules without changing 
     assert(X.SetAssignment("MAGE", "WORLD", { DIVINE_SPIRIT = true }))
     refresh()
     local nextButton = env.BuffRadarNextButton
+    local groupButton = env.BuffRadarGroupButton
     local entry, target = nextButton.entry, nextButton:GetAttribute("unit")
     local conflicts, tally = X.assignmentGroupConflicts, X.tallyUnits
     local function preview()
@@ -5120,8 +5129,19 @@ step("Forever assignment preview and why explain winning rules without changing 
     local mage, warrior = preview()
     assert(mage.name == "Aaron-TestRealm" and mage.rule:find("DPS rule", 1, true)
       and mage.rule:find("None", 1, true) and #mage.buffs == 0, "preview ignored explicit None")
-    assert(warrior.group and warrior.group:find("conflict with an assignment", 1, true),
-      "preview lost group fallback reason")
+    assert(warrior.group and warrior.group:find("Prayer of Fortitude would reach Aaron-TestRealm", 1, true)
+      and warrior.group:find("DPS rule", 1, true) and warrior.group:find("None", 1, true),
+      "preview lost the group spell, blocking member, or winning rule: " .. tostring(warrior.group))
+    assert(groupButton:GetAttribute("unit") == "party2"
+      and groupButton:GetAttribute("spell") == "Power Word: Fortitude", "blocked group key did not use single-target cast")
+    local lines = {}
+    env.GameTooltip = { SetOwner = function() end, Show = function() end, Hide = function() end,
+      AddLine = function(_, line) lines[#lines + 1] = line end }
+    X.ShowNextPreview({})
+    assert(groupButton.bOfferReason and warrior.group:find(groupButton.bOfferReason, 1, true)
+      and table.concat(lines, "\n"):find(groupButton.bOfferReason, 1, true),
+      "next-cast tooltip and assignment preview disagreed on the blocker")
+    env.GameTooltip = oldTip
     assert(X.assignmentGroupConflicts == conflicts, "preview changed the live group conflict cache")
     local before = #chat
     env.SlashCmdList.BUFFRADAR("why Aaron")
@@ -5139,13 +5159,27 @@ step("Forever assignment preview and why explain winning rules without changing 
       "preview changed the cast queue or coverage tallies: entry=" .. tostring(nextButton.entry == entry)
       .. " target=" .. tostring(nextButton:GetAttribute("unit") == target) .. " tally=" .. tostring(X.tallyUnits == tally))
     local exists = O.UnitExists
-    O.UnitExists = function(unit) if unit ~= "party2" then return exists(unit) end error("protected existence") end
+    O.UnitExists = function(unit) if unit ~= "party1" then return exists(unit) end error("protected existence") end
+    mage, warrior = preview()
+    assert(mage.rule == "Rule unavailable" and mage.status == "Player details unavailable" and not mage.evaluated,
+      "preview claimed unreadable member was evaluated")
+    assert(warrior.group and warrior.group:find("roster information is unavailable", 1, true)
+      and not warrior.group:find("Aaron", 1, true) and not warrior.group:find("party1", 1, true),
+      "unreadable roster presented a named blocker: " .. tostring(warrior.group))
+    O.UnitExists = exists
+    O.Aura = function(unit)
+      if unit == "player" or unit == "party1" then return { expirationTime = env.GetTime() + 600 } end
+    end
+    refresh()
     _, warrior = preview()
-    assert(warrior.rule == "Rule unavailable" and warrior.status == "Player details unavailable"
-      and not warrior.evaluated, "preview claimed unreadable member was evaluated")
+    assert(warrior.group and warrior.group:find("Group option: Prayer of Fortitude", 1, true)
+      and groupButton:GetAttribute("spell") == "Prayer of Fortitude" and not groupButton.bOfferReason,
+      "group cast or explanation stayed stale after the assignment changed")
   end)
   env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled = oldRole, oldRules, oldMode
-  env.GetNumGroupMembers = oldSize
+  env.GetNumGroupMembers, env.C_Item.GetItemCount, env.GameTooltip = oldSize, oldCount, oldTip
+  db.includeSelf, db.groupCast, db.clickThrough = oldIncludeSelf, oldGroupCast, oldClickThrough
+  X.InvalidateReagents()
   cleanup()
   refresh()
   assert(ok, err)
@@ -5180,8 +5214,11 @@ step("Forever session role overrides share the cast rules and retire with the ro
     local before = #chat
     env.SlashCmdList.BUFFRADAR("why Aaron")
     assert(chatSince(before, row.rule), "why omitted manual provenance")
-    assert(select(4, X.GroupOffer("Power Word: Fortitude", "party2")) == "assignment",
-      "group cast ignored a manual restriction")
+    local offer, item, count, reason, _, detail = X.GroupOffer("Power Word: Fortitude", "party2")
+    assert(not offer and reason == "assignment", "group cast ignored a manual restriction")
+    local explanation = X.GroupOfferReason(item, count, reason, detail)
+    assert(explanation and explanation:find("Aaron-TestRealm", 1, true)
+      and explanation:find("Manual role: Tank", 1, true), "manual role omitted from blocker explanation")
     role = "DAMAGER"
     fire("PLAYER_ROLES_ASSIGNED")
     refresh()
@@ -5402,8 +5439,13 @@ step("Forever blessing exceptions follow group GUIDs and preserve class plans", 
     env.SlashCmdList.BUFFRADAR("bless player target WISDOM")
     assert(X.BlessingForClass("MAGE", "party1").name == "Blessing of Wisdom",
       "local blessing exception was not applied")
-    local greater, _, _, reason = X.GroupOffer("Blessing of Wisdom", "party1")
+    local greater, item, count, reason, _, detail = X.GroupOffer("Blessing of Wisdom", "party1")
     assert(not greater and reason == "exception", "exception could publish a conflicting Greater cast")
+    local explanation = X.GroupOfferReason(item, count, reason, detail)
+    assert(explanation and explanation:find("Greater Blessing of Wisdom", 1, true)
+      and explanation:find("Aaron-TestRealm", 1, true)
+      and explanation:find("individual blessing exception", 1, true),
+      "Greater fallback omitted the member with an individual blessing exception: " .. tostring(explanation))
     displaced = "unknown"
     X.PruneBlessingExceptions()
     displaced = nil

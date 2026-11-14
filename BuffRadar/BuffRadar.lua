@@ -612,6 +612,14 @@ local L = {
   ["Class & Role Assignments enabled."] = "Class & Role Assignments enabled.",
   ["Class & Role Assignments disabled."] = "Class & Role Assignments disabled.",
   ["Group buff would conflict with an assignment."] = "Group buff would conflict with an assignment.",
+  ["%s would reach %s, whose assignment excludes %s (%s)."] = "%s would reach %s, whose assignment excludes %s (%s).",
+  ["%s conflicts with %s's individual blessing exception (%s)."] = "%s conflicts with %s's individual blessing exception (%s).",
+  ["%s is blocked because %s has a different group-plan blessing (%s)."] = "%s is blocked because %s has a different group-plan blessing (%s).",
+  ["%s is blocked because %s's blessing is assigned to another Paladin."] = "%s is blocked because %s's blessing is assigned to another Paladin.",
+  ["%s could not be verified because roster information is unavailable."] = "%s could not be verified because roster information is unavailable.",
+  ["%s could not be verified because its group coverage is unknown."] = "%s could not be verified because its group coverage is unknown.",
+  ["A group member"] = "A group member",
+  ["Using %s on one player instead."] = "Using %s on one player instead.",
   ["Preview Current Group"] = "Preview Current Group",
   ["Refresh Preview"] = "Refresh Preview",
   ["No group to preview."] = "No group to preview.",
@@ -2991,12 +2999,13 @@ end
 
 -- Broad spells use single-target fallback if the observed affected roster
 -- includes someone excluded by an assignment.
-local function GroupAssignmentConflict(spell, unit, greater, baseID, cache)
+local function GroupAssignmentConflict(spell, groupSpell, unit, greater, baseID, cache)
   if not X.AssignmentEnabled() or not next(db.buffAssignments) then return false end
-  if not baseID then return true end -- custom pair scope cannot be determined
-  if not (X.IsSelf(unit) or unit:match("^party%d+$") or unit:match("^raid%d+$")) then return true end
+  if not baseID or not (X.IsSelf(unit) or unit:match("^party%d+$") or unit:match("^raid%d+$")) then
+    return { kind = "scope", spell = groupSpell, single = spell }
+  end
   local targetClass = greater and UnitClassFile(unit)
-  if greater and not targetClass then return true end
+  if greater and not targetClass then return { kind = "roster", spell = groupSpell, single = spell } end
   local scope = targetClass and spell .. ":" .. targetClass or spell
   cache = cache or X.assignmentGroupConflicts
   if cache and cache[scope] ~= nil then return cache[scope] end
@@ -3005,22 +3014,26 @@ local function GroupAssignmentConflict(spell, unit, greater, baseID, cache)
     for _, buff in ipairs(myBuffs) do
       if buff.name == spell and not buff.custom then buffKey = buff.key; break end
     end
-    if not buffKey then return true end
+    if not buffKey then return { kind = "scope", spell = groupSpell, single = spell } end
   end
   local conflict = false
   X.ForReportRoster(function(member, exists)
     if conflict or (exists and X.IsSelf(member)) then return end
     local class = exists and UnitClassFile(member)
-    if not class then conflict = true; return end
+    if not class then conflict = { kind = "roster", spell = groupSpell, single = spell }; return end
     if greater and class ~= targetClass then return end
-    local assignment = X.AssignmentForUnit(class, member, true, false)
+    local assignment, source, role, _, manual = X.AssignmentForUnit(class, member, true, false)
     if assignment == nil then return end
+    local kind, blessing
     if greater then
-      local blessing = X.BlessingForClass(class, member, assignment)
-      conflict = not blessing or blessing.name ~= spell
-    else
-      conflict = not assignment or not assignment[buffKey]
+      local selected, owner = X.BlessingForClass(class, member, assignment)
+      if selected and selected.name == spell then return end
+      kind, blessing = owner, selected and selected.name
+    elseif assignment and assignment[buffKey] then
+      return
     end
+    conflict = { kind = kind or "rule", spell = groupSpell, single = spell, name = Ignore.UnitNames(member),
+      rule = X.AssignmentRuleText(class, role, source, assignment, true, manual), blessing = blessing }
   end)
   if cache then cache[scope] = conflict end
   return conflict
@@ -3035,8 +3048,9 @@ function X.GroupOffer(spell, unit, preview)
   local pick = X.BindingRank(name, unit, X.ReadUnitNumber(UnitLevel, unit), db.castMethod)
   if pick == false or (baseID and not known[name] and not X.ReadUnitBool(_G.IsPlayerSpell, baseID)
       and not X.ReadUnitBool(_G.IsSpellKnown, baseID)) then return nil end
-  if GroupAssignmentConflict(spell, unit, greater, baseID, preview and preview.conflicts) then
-    return nil, nil, nil, "assignment"
+  local blocker = GroupAssignmentConflict(spell, name, unit, greater, baseID, preview and preview.conflicts)
+  if blocker then
+    return nil, nil, nil, "assignment", nil, blocker
   end
   if greater and X.blessingExceptions and next(X.blessingExceptions) then
     local class, conflict = UnitClassFile(unit), false
@@ -3045,9 +3059,13 @@ function X.GroupOffer(spell, unit, preview)
       local ok, guid = pcall(UnitGUID, member)
       local key = ok and SafeString(guid)
       local exception = key and X.blessingExceptions[key]
-      if exception and blessKnown[exception] and (member == unit or blessKnown[exception].name ~= spell) then conflict = true end
+      local blessing = exception and blessKnown[exception]
+      if blessing and (member == unit or blessing.name ~= spell) then
+        conflict = { kind = "exception", spell = name, single = spell,
+          name = Ignore.UnitNames(member), blessing = blessing.name }
+      end
     end)
-    if conflict then return nil, nil, nil, "exception" end
+    if conflict then return nil, nil, nil, "exception", nil, conflict end
   end
   local exact = db.castMethod ~= "macro" and pick
   local item = X.groupReagents[(exact and exact.id) or (list and list[#list].id) or baseID]
@@ -3065,7 +3083,28 @@ local function ReagentName(item)
   return tostring(item)
 end
 
-function X.GroupOfferReason(item, count, reason)
+function X.GroupOfferReason(item, count, reason, blocker)
+  if blocker then
+    local name = blocker.name or L["A group member"]
+    local text
+    if blocker.kind == "roster" then
+      text = string_format(L["%s could not be verified because roster information is unavailable."], blocker.spell)
+    elseif blocker.kind == "scope" then
+      text = string_format(L["%s could not be verified because its group coverage is unknown."], blocker.spell)
+    elseif blocker.kind == "exception" then
+      text = string_format(L["%s conflicts with %s's individual blessing exception (%s)."],
+        blocker.spell, name, blocker.blessing or blocker.single)
+    elseif blocker.kind == "other" then
+      text = string_format(L["%s is blocked because %s's blessing is assigned to another Paladin."], blocker.spell, name)
+    elseif blocker.kind == "plan" then
+      text = string_format(L["%s is blocked because %s has a different group-plan blessing (%s)."],
+        blocker.spell, name, blocker.blessing or L["Rule unavailable"])
+    else
+      text = string_format(L["%s would reach %s, whose assignment excludes %s (%s)."],
+        blocker.spell, name, blocker.single, blocker.rule)
+    end
+    return text .. " " .. string_format(L["Using %s on one player instead."], blocker.single)
+  end
   if reason == "assignment" then return L["Group buff would conflict with an assignment."] end
   if reason == "exception" then return L["Group blessing would conflict with a player exception."] end
   if reason == "reagent" then
@@ -3120,10 +3159,10 @@ function X.AssignmentPreview()
       if detail.blessing then row.rule = row.rule .. " · " .. detail.blessing end
       local group = {}
       for _, spell in ipairs(row.available) do
-        local offer, item, count, reason = X.GroupOffer(spell, unit, groupPreview)
-        local text = X.GroupOfferReason(item, count, reason)
+        local offer, item, count, reason, _, blocker = X.GroupOffer(spell, unit, groupPreview)
+        local text = X.GroupOfferReason(item, count, reason, blocker)
         if offer then group[#group + 1] = string_format(L["Group option: %s"], offer)
-        elseif text then group[#group + 1] = spell .. " · " .. text end
+        elseif text then group[#group + 1] = blocker and text or spell .. " · " .. text end
       end
       if #group > 0 then row.group = table.concat(group, " · ") end
     end
@@ -4149,7 +4188,7 @@ local function Row_OnEnter(self)
       if gs then
         GameTooltip:AddLine(string_format(L["Shift-click to cast: %s"], "|cff00ff00" .. gs .. "|r"))
       end
-      if self.bOfferReason then GameTooltip:AddLine(self.bOfferReason, 1, 0.7, 0.3) end
+      if self.bOfferReason then GameTooltip:AddLine(self.bOfferReason, 1, 0.7, 0.3, true) end
     end
   end
   if e.groupCast then
@@ -5407,14 +5446,14 @@ local function BindGroupCached(btn, unit, spell, guid)
   if not btn.combatDriver then return false end
   local isSelf = X.IsSelf(unit)
   if isSelf == nil then ClearGroup(); return false end
-  local offer, item, count, reason = X.GroupOffer(spell, unit)
+  local offer, item, count, reason, _, blocker = X.GroupOffer(spell, unit)
   local gspell = offer or spell
   local method = db.castMethod
   local lvl = X.ReadUnitNumber(UnitLevel, unit) or 0
   local pick = X.BindingRank(gspell, unit, lvl, method)
   if pick == false then ClearGroup(); return false end
   local id = pick and pick.id
-  btn.bOfferReason = X.GroupOfferReason(item, count, reason)
+  btn.bOfferReason = X.GroupOfferReason(item, count, reason, blocker)
   if btn.bGuid == guid and btn.bUnit == unit and btn.bSpell == gspell
      and btn.bMethod == method and btn.bLevel == lvl and btn.bSelf == isSelf and btn.bRankID == id then
     return btn:GetAttribute("type") ~= nil
@@ -5453,12 +5492,15 @@ local function BindCached(btn, unit, spell, guid)
   local lvl = X.ReadUnitNumber(UnitLevel, unit) or 0
   local pick = X.BindingRank(spell, unit, lvl, method)
   if pick == false then X.ClearRowCast(btn); return false end
-  local gspell, item, count, reason
-  if db.modClick then gspell, item, count, reason = X.GroupOffer(spell, unit) end
+  local gspell, item, count, reason, blocker
+  if db.modClick then
+    local _
+    gspell, item, count, reason, _, blocker = X.GroupOffer(spell, unit)
+  end
   if reason then gspell = spell end -- explicit Shift fallback mirrors the primary binding
   local gpick = gspell and X.BindingRank(gspell, unit, lvl, method)
   local id, gid = pick and pick.id, gpick and gpick.id
-  btn.bOfferReason = X.GroupOfferReason(item, count, reason)
+  btn.bOfferReason = X.GroupOfferReason(item, count, reason, blocker)
   if btn.bGuid == guid and btn.bUnit == unit and btn.bSpell == spell
      and btn.bMethod == method and btn.bLevel == lvl and btn.bSelf == isSelf
      and btn.bRankID == id and btn.bGroupSpell == gspell and btn.bGroupRankID == gid then
@@ -5484,9 +5526,13 @@ function X.ArmGroupBtn(first)
   X.groupBtn.entry = BindGroupCached(X.groupBtn, first.unit, first.missing[1], first.guid) and first or nil
 end
 
-function X.NoCastReason()
-  return X.groupFallback
-    or (X.groupBtn and X.groupBtn.entry and X.groupBtn.bOfferReason)
+function X.NoCastReason(entry)
+  local group = X.groupBtn
+  if not entry then return X.groupFallback or (group and group.entry and group.bOfferReason) end
+  if group and group.entry == entry and group.bOfferReason then
+    return group.bOfferReason
+  end
+  if X.groupFallbackEntry == entry then return X.groupFallback end
 end
 
 function X.ShowNextPreview(owner)
@@ -5497,10 +5543,10 @@ function X.ShowNextPreview(owner)
   GameTooltip:AddLine(string_format(L["Next buff: %s — %s"], entry.fullName or entry.name,
     nextBtn.bSpellText or entry.missing[1]), 1, 1, 1, true)
   local group = X.groupBtn
-  if group and group.entry and group.bSpellText then
+  if group and group.entry == entry and group.bSpellText then
     GameTooltip:AddLine(string_format(L["Group buff key: %s"], group.bSpellText), 0.8, 0.9, 1, true)
   end
-  local reason = X.NoCastReason()
+  local reason = X.NoCastReason(entry)
   if reason then GameTooltip:AddLine(reason, 1, 0.7, 0.3, true) end
   GameTooltip:Show()
 end
@@ -6711,7 +6757,7 @@ local function Refresh()
       return
   end
 
-  X.rowView, X.groupFallback = nil, nil
+  X.rowView, X.groupFallback, X.groupFallbackEntry = nil, nil, nil
   local n = CollectEntries()
   X.CheckDrops()
   X.CheckRange()
@@ -6745,13 +6791,14 @@ local function Refresh()
         for _, b in ipairs(myBuffs) do
           if b.name == e.missing[1] and b.groupName
              and (tally[b.key] or 0) >= (db.groupCastMin or 3) then
-            local offer, item, count, reason = X.GroupOffer(b.name, e.unit)
+            local offer, item, count, reason, _, blocker = X.GroupOffer(b.name, e.unit)
             if offer then
               e.missing[1] = offer
               e.groupCast = true
               converted = true
             else
-              X.groupFallback = X.GroupOfferReason(item, count, reason)
+              X.groupFallback = X.GroupOfferReason(item, count, reason, blocker)
+              X.groupFallbackEntry = X.groupFallback and e or nil
             end
             break
           end

@@ -2,6 +2,18 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.21 Group-Cast Explanations
+
+- With a group buff and its reagent available, make one group member's
+  assignment exclude the spell. Run `/br buffassign preview` and hover
+  the main window footer. Confirm both identify the blocking player and
+  rule, and the prepared cast stays single-target. Change the rule and
+  verify the group option returns.
+- Repeat with a Paladin's individual blessing exception and a class-wide
+  Greater Blessing. Check the explanation identifies the exception.
+- If roster data is unavailable, check the explanation describes the
+  uncertainty without naming a player the client could not identify.
+
 ## 1.15.20 Group Preview Refresh
 
 - Open the group preview on page two or later in a raid. Change an assigned

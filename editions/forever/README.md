@@ -89,7 +89,8 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
   table and its on/off setting. Use named profile sharing to transfer these
   rules. The legacy `/br export` format omits the table. If a group version
   would conflict with another member's assignment, BuffRadar offers a
-  single-target cast.
+  single-target cast. The assignment preview and next-cast tooltip
+  explain which player and rule blocked the group spell when available.
 - **Preview Current Group** in Class & Role Assignments shows the effective
   rule and buff information for each group member. Open it with
   `/br buffassign preview` or check one player with `/br why <name>`.

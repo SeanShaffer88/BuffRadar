@@ -2,6 +2,16 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.21 — Forever test build
+
+- Explain why a group cast was skipped in the assignment preview and
+  next-cast tooltip. Show the affected player and rule or blessing
+  exception when those details are available.
+- Show when group-cast safety cannot be verified because roster data or
+  the spell's coverage is unavailable.
+
+In-game verification is pending for this build.
+
 ## 1.15.20 — Forever test build
 
 - Refresh the open group assignment preview when members or group roles
@@ -9,7 +19,8 @@ All notable changes to BuffRadar are listed here. Newest first.
   editor if its selected member leaves or can no longer be edited.
 - Add regression coverage for class and role assignments in a mixed raid.
 
-In-game verification is pending for this build.
+The maintainer confirmed live verification of the 1.15.20 field-test
+build `131a423b1504` in WoW: Forever.
 
 ## 1.15.19 — Forever test build
 
