@@ -1336,7 +1336,8 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 17, "dbVersion not migrated to 17: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 18, "dbVersion not migrated to 18: " .. tostring(d.dbVersion))
+  assert(d.assignmentEnabled == false and next(d.buffAssignments) == nil, "migration activated assignments")
   assert(next(d.blessingPreferences) == nil, "existing character got a blessing override")
   assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
   if env.__forever then  -- 1.8.0 (#32): shadow protection defaults to instances
@@ -1359,7 +1360,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 17 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 18 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
   -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
@@ -1367,7 +1368,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = { dbVersion = 9 }
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 17 and d.wizardSeen == true,
+  assert(d.dbVersion == 18 and d.wizardSeen == true,
     "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
   d.wizardSeen = false  -- leave the save as the rest of the suite expects
 end)
@@ -3630,6 +3631,68 @@ step("settings search counts only visible controls and clears on close", functio
     "changing tabs did not restore search appearance")
 end)
 
+step("class and role assignment table supports mouse, keyboard and settings search", function()
+  local X, cfg, slash = NS.X, env.BuffRadarConfig, env.SlashCmdList.BUFFRADAR
+  if not env.__forever then
+    slash("buffassign")
+    assert(not env.BuffRadarAssignments and not cfg.assignmentButton,
+      "assignment settings appeared on the other edition")
+    return
+  end
+  local savedEnabled, savedRule = X.AssignmentEnabled(), X.GetAssignment("DRUID", "TANK")
+  local ok, err = pcall(function()
+    slash("buffassign")
+    local panel, input = env.BuffRadarAssignments, cfg.navInput
+    local cell = panel.cells.DRUID.TANK
+    assert(panel:IsVisible() and not cfg.searchToggle:IsShown(), "assignment table did not take modal focus")
+    assert(#X.BLESSING_CLASS_ORDER == 9 and panel.cells.WARRIOR.WORLD, "assignment table missing class or slot")
+    slash("buffassign on")
+    assert(X.AssignmentEnabled() and panel.enabled:GetChecked(), "slash opt-in did not update the checkbox")
+    slash("config navigate")
+    local function advanceTo(widget)
+      for _ = 1, 50 do
+        if cfg.navOutline.shown and cfg.navOutline.points[1][2] == widget then return end
+        input.scripts.OnTabPressed(input)
+      end
+      error("could not focus the assignment control")
+    end
+    advanceTo(cell)
+    input.scripts.OnSpacePressed(input)
+    local picker = panel.picker
+    assert(picker:IsShown() and picker.class == "DRUID" and picker.slot == "TANK",
+      "keyboard opened the wrong cell")
+    local option = picker.options[1]
+    assert(option:IsVisible() and option.option, "known targeted buffs were not offered")
+    advanceTo(option)
+    input.scripts.OnEnterPressed(input)
+    assert(X.GetAssignment("DRUID", "TANK")[option.option.key], "keyboard selection did not persist")
+    input.scripts.OnEnterPressed(input)
+    assert(X.GetAssignment("DRUID", "TANK") == false, "clearing a cell restored defaults instead of None")
+    advanceTo(picker.defaultButton)
+    input.scripts.OnEnterPressed(input)
+    assert(not picker:IsShown() and X.GetAssignment("DRUID", "TANK") == nil,
+      "Default did not restore inheritance and return to the table")
+    cell:Click()
+    assert(picker:IsShown(), "mouse click did not reopen the cell editor")
+    picker.noneButton:Click()
+    assert(not picker:IsShown() and X.GetAssignment("DRUID", "TANK") == false,
+      "None did not explicitly suppress assigned buffs")
+    cell:Click()
+    slash("config find")
+    assert(not panel:IsShown() and not picker:IsShown() and cfg.searchBox:HasFocus(),
+      "settings search did not close the assignment editor")
+    cfg.searchBox.scripts.OnEscapePressed(cfg.searchBox)
+    assert(cfg.searchToggle:IsShown(), "closing assignment editor did not restore settings search")
+  end)
+  if cfg.navInput:HasFocus() then cfg.navInput.scripts.OnEscapePressed(cfg.navInput) end
+  cfg.tabBtns.look:Click()
+  X.SetAssignment("DRUID", "TANK", savedRule)
+  X.SetAssignmentEnabled(savedEnabled)
+  X.RefreshConfig()
+  X.Refresh()
+  assert(ok, err)
+end)
+
 step("keyboard settings navigation changes tabs, checkboxes, sliders, and choices", function()
   local cfg = env.BuffRadarConfig
   cfg.tabBtns.look:Click()
@@ -4763,6 +4826,103 @@ step("Forever uses the eligible rank and falls back from an unaffordable group c
   refresh()
   assert(ok, err)
 end)
+step("Forever assignment rules route casts and coverage with safe group fallback", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("Assign")
+  local X, db = NS.X, env.BuffRadarDB
+  local oldRole, oldRules, oldMode = env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled
+  local oldCount = env.C_Item.GetItemCount
+  local ok, err = pcall(function()
+    local roles = { party1 = "DAMAGER", party2 = "TANK" }
+    env.UnitGroupRolesAssigned = function(unit)
+      if roles[unit] == "THROW" then error("protected role") end
+      return roles[unit]
+    end
+    local stock = 0
+    env.C_Item.GetItemCount = function() return stock end
+    X.InvalidateReagents()
+    db.buffAssignments = {}
+    assert(X.SetAssignment("MAGE", "ALL", { FORTITUDE = true }))
+    assert(X.SetAssignment("MAGE", "DAMAGER", false))
+    assert(X.SetAssignment("MAGE", "WORLD", { DIVINE_SPIRIT = true }))
+    assert(X.SetAssignment("WARRIOR", "TANK", { FORTITUDE = true }))
+    assert(X.SetAssignmentEnabled(false))
+    refresh()
+    assert(shownRows().party1, "disabled grid changed stock eligibility")
+    assert(X.SetAssignmentEnabled(true))
+    refresh()
+    assert(not shownRows().party1 and shownRows().party2, "explicit None failed to override All")
+    local report = X.GroupBuffReport(false, true)
+    for _, member in ipairs(report.members) do
+      if member.unit == "party1" then assert(#member.missing == 0, "coverage ignored None") end
+    end
+    local offer, _, stockCount, reason = X.GroupOffer("Power Word: Fortitude", "party2")
+    assert(offer == nil and reason == "assignment", "empty bags masked an assignment conflict")
+    roles.party1 = "THROW"
+    fire("PLAYER_ROLES_ASSIGNED")
+    refresh()
+    local group = X.GroupBuffReport()
+    local mage
+    for _, member in ipairs(group.people) do if member.unit == "party1" then mage = member end end
+    assert(mage and #mage.buffs == 1 and mage.buffs[1] == "Divine Spirit",
+      "unreadable role did not choose World")
+    assert(X.SetAssignment("MAGE", "WORLD", nil))
+    refresh()
+    offer, _, stockCount, reason = X.GroupOffer("Power Word: Fortitude", "party2")
+    assert(offer == nil and stockCount == 0 and reason == "reagent", "compatible roster ignored empty bags")
+    stock = 2
+    X.InvalidateReagents()
+    assert(X.GroupOffer("Power Word: Fortitude", "party2") == "Prayer of Fortitude",
+      "safe group cast stayed suppressed")
+    assert(not X.SetAssignment("MAGE", "ALL", { DAMPEN_MAGIC = true, AMPLIFY_MAGIC = true }))
+    assert(not X.SetAssignment("MAGE", "ALL", { BLESS_KINGS = true, BLESS_MIGHT = true }))
+    assert(not X.SetAssignment("MAGE", "ALL", { CUSTOM123 = true }))
+    assert(X.GetAssignment("MAGE", "ALL").FORTITUDE, "invalid edits changed the saved cell")
+  end)
+  env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled = oldRole, oldRules, oldMode
+  env.C_Item.GetItemCount = oldCount
+  X.InvalidateReagents()
+  cleanup()
+  refresh()
+  assert(ok, err)
+end)
+step("Forever assignment profiles round-trip full grids, explicit None and old BR2", function()
+  if not env.__forever then return end
+  local X, db = NS.X, env.BuffRadarDB
+  local oldRules, oldMode = db.buffAssignments, db.assignmentEnabled
+  local saved = assert(X.ProfileSnapshot())
+  local ok, err = pcall(function()
+    db.buffAssignments = {}
+    X.SetAssignmentEnabled(true)
+    for _, class in ipairs(X.BLESSING_CLASS_ORDER) do
+      for _, slot in ipairs(X.ASSIGNMENT_SLOTS) do
+        assert(X.SetAssignment(class, slot, { ARCANE_INTELLECT = true, DAMPEN_MAGIC = true, FORTITUDE = true,
+          DIVINE_SPIRIT = true, FEAR_WARD = true, SHADOW_PROT = true, MARK_OF_THE_WILD = true,
+          THORNS = true, EARTH_SHIELD = true, WATER_BREATHING = true, UNENDING_BREATH = true,
+          DETECT_INVIS = true, BLESS_SANCTUARY = true }))
+      end
+    end
+    assert(X.SetAssignment("DRUID", "TANK", false))
+    local profile = assert(X.ProfileSnapshot(), "full assignment grid exceeded the profile limit")
+    local patch = assert(X.ParseProfile(profile))
+    assert(patch.assignmentEnabled and patch.buffAssignments.DRUID.TANK == false)
+    assert(patch.buffAssignments.WARRIOR.WORLD.BLESS_SANCTUARY)
+    assert(not X.ParseProfile(profile .. ";a.DRUID.TANK=0"), "duplicate assignment accepted")
+    assert(not X.ParseProfile(profile:gsub("a%.DRUID%.TANK=0", "a.DRUID.TANK=6")), "conflicting magic accepted")
+    assert(not X.ParseProfile(profile:gsub("a%.DRUID%.TANK=0", "a.DRUID.TANK=524288")), "unknown bit accepted")
+    local legacy = saved:gsub(";buffAssignments=[01]", ""):gsub(";a%.[A-Z]+%.[A-Z]+=%d+", "")
+    local older = assert(X.ParseProfile(legacy))
+    assert(older.assignmentEnabled == nil and older.buffAssignments == nil)
+    X.SetAssignmentEnabled(false)
+    X.SetAssignment("DRUID", "TANK", nil)
+    X.ApplyProfile(patch)
+    assert(X.AssignmentEnabled() and X.GetAssignment("DRUID", "TANK") == false)
+  end)
+  X.ApplyProfile(assert(X.ParseProfile(saved)))
+  db.buffAssignments, db.assignmentEnabled = oldRules, oldMode
+  refresh()
+  assert(ok, err)
+end)
 step("Forever blessing exceptions follow group GUIDs and preserve class plans", function()
   if not env.__forever then return end
   local cleanup = partyOfTwo("BlessingException")
@@ -4896,7 +5056,7 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 17"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 18"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
   assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
   assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")

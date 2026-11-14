@@ -2,6 +2,26 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.17 Assignment Table
+
+- Upgrade from 1.15.16. Confirm the table is off and the same eligible players
+  and buffs appear. Open Buffs → Class & Role Assignments and enable it.
+- Choose different targeted buffs for All, World, and a group role in the
+  same class. Verify a known role uses its cell, World handles a nearby
+  stranger or unavailable role, and an unset cell uses All before falling
+  back to the standard rules. Change a live group role between fights.
+- Verify None skips managed targeted buffs and Default restores inheritance.
+  Test a Paladin blessing exception and a synced class plan in the same group.
+  As a Mage, confirm the picker prevents selecting both magic variants.
+- With reagents in bags, make one potential recipient ineligible for the
+  group buff. Confirm the row, Shift-click, and group keybind do not broaden
+  the cast to override the table. Repeat after entering and leaving combat.
+- Save a named profile, reload, and switch settings before restoring it.
+  Check search, Tab, activation, narration and Escape on the table and picker,
+  including smaller settings scales and German labels if available.
+
+## General Release Checks
+
 - **Empty list:** with no missing buffs, confirm the fully-buffed message. Disable friendly nameplates and confirm the explicit warning. On a client that does not answer range checks, confirm the list warns that range cannot be verified instead of claiming everyone is buffed.
 - **Eligibility:** confirm a player appears only when a known buff benefits them and they are in spell range, alive, and out of combat. Toggle include-self and verify the character can buff itself.
 - **Cast attribution:** outside combat, use `/br clicks` to turn on diagnostics.

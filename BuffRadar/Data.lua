@@ -234,6 +234,83 @@ X.BLESSING_CLASSES = {}
 for _, class in ipairs(X.BLESSING_CLASS_ORDER) do X.BLESSING_CLASSES[class] = true end
 X.BLESSING_KEYS = { "KINGS", "MIGHT", "WISDOM", "SALVATION", "LIGHT", "SANCTUARY" }
 
+X.ASSIGNMENT_SLOTS = { "ALL", "WORLD", "TANK", "HEALER", "DAMAGER" }
+
+do
+  local keys, slots = {}, {}
+  -- BR2 assigns bits by this order. Append new keys without reordering.
+  local profileKeys = {
+    "ARCANE_INTELLECT", "DAMPEN_MAGIC", "AMPLIFY_MAGIC", "FORTITUDE", "DIVINE_SPIRIT",
+    "FEAR_WARD", "SHADOW_PROT", "MARK_OF_THE_WILD", "THORNS", "EARTH_SHIELD",
+    "WATER_BREATHING", "UNENDING_BREATH", "DETECT_INVIS", "BLESS_KINGS",
+    "BLESS_MIGHT", "BLESS_WISDOM", "BLESS_SALVATION", "BLESS_LIGHT", "BLESS_SANCTUARY",
+  }
+  for _, slot in ipairs(X.ASSIGNMENT_SLOTS) do slots[slot] = true end
+  for _, key in ipairs(profileKeys) do keys[key] = true end
+
+  function X.ValidAssignmentCell(class, slot)
+    return X.BLESSING_CLASSES[class] == true and slots[slot] == true
+  end
+
+  -- Return a fresh, bounded value. Reject invalid and conflicting choices
+  -- atomically so corrupt empty cells never replace the inherited defaults.
+  function X.CopyAssignment(value)
+    if value == false then return false end
+    if type(value) ~= "table" then return nil end
+    local copy, blessing = {}, nil
+    for key, selected in pairs(value) do
+      if not keys[key] or selected ~= true then return nil end
+      if key:sub(1, 6) == "BLESS_" then
+        if blessing then return nil end
+        blessing = key
+      end
+      copy[key] = true
+    end
+    if copy.AMPLIFY_MAGIC and copy.DAMPEN_MAGIC then return nil end
+    if next(copy) then return copy end
+  end
+
+  function X.CopyAssignments(value)
+    local copy = {}
+    if not CLASSIC_FEATURES or type(value) ~= "table" then return copy end
+    for _, class in ipairs(X.BLESSING_CLASS_ORDER) do
+      local row = value[class]
+      if type(row) == "table" then
+        for _, slot in ipairs(X.ASSIGNMENT_SLOTS) do
+          local cell = X.CopyAssignment(row[slot])
+          if cell ~= nil then
+            copy[class] = copy[class] or {}
+            copy[class][slot] = cell
+          end
+        end
+      end
+    end
+    return copy
+  end
+
+  function X.EncodeAssignment(cell)
+    if cell == false then return "0" end
+    local mask = 0
+    for index, key in ipairs(profileKeys) do
+      if cell[key] then mask = mask + 2 ^ (index - 1) end
+    end
+    return tostring(mask)
+  end
+
+  function X.DecodeAssignment(raw)
+    local mask = tonumber(raw)
+    if not mask or not raw:match("^%d+$") or raw ~= tostring(mask)
+      or mask < 0 or mask >= 2 ^ #profileKeys then return nil end
+    if mask == 0 then return false end
+    local cell = {}
+    for _, key in ipairs(profileKeys) do
+      if mask % 2 == 1 then cell[key] = true end
+      mask = math.floor(mask / 2)
+    end
+    return X.CopyAssignment(cell)
+  end
+end
+
 -- Shipped presets (1.6.0): one-click window/behavior setups.
 X.PRESETS = {
   raid = { sortMode = "role", groupCast = true,

@@ -60,7 +60,10 @@ function K.Available(entry)
 end
 
 function K.Modal()
-  return cfg.blessingPanel and cfg.blessingPanel:IsShown() and cfg.blessingPanel
+  local assignments = cfg.assignmentPanel
+  return assignments and assignments:IsShown()
+    and (assignments.picker:IsShown() and assignments.picker or assignments)
+    or cfg.blessingPanel and cfg.blessingPanel:IsShown() and cfg.blessingPanel
     or cfg.displayPanel and cfg.displayPanel:IsShown() and cfg.displayPanel
 end
 
@@ -596,6 +599,7 @@ local function SelectTab(key)
   cfg.curTab = key
   if cfg.displayPanel then cfg.displayPanel:Hide() end
   if cfg.blessingPanel then cfg.blessingPanel:Hide() end
+  if cfg.assignmentPanel then cfg.assignmentPanel:Hide() end
   for k, panel in pairs(cfg.panels) do panel:SetShown(k == key) end
   if cfg.searchToggle and cfg.panels[key] then
     cfg.searchToggle:ClearAllPoints()
@@ -706,6 +710,238 @@ local function OpenBlessingPanel()
   CloseSearch()
   cfg.blessingPanel:Show()
   RefreshConfig()
+end
+
+local AssignmentUI = {
+  labels = { ALL = L["All Roles"], WORLD = L["World"], TANK = L["Tank"],
+    HEALER = L["Heal"], DAMAGER = L["DPS"] },
+}
+
+function AssignmentUI.CellLabel(class, slot)
+  local names = _G.LOCALIZED_CLASS_NAMES_MALE
+  return (names and names[class] or class) .. ", " .. AssignmentUI.labels[slot]
+end
+
+function AssignmentUI.CellText(class, slot, options)
+  local rule = X.GetAssignment(class, slot)
+  if rule == nil then return L["Default"] end
+  if rule == false then return L["None"] end
+  local names, known = {}, {}
+  local count = 0
+  for _, option in ipairs(options) do
+    if rule[option.key] then names[#names + 1] = option.name end
+    known[option.key] = true
+  end
+  local unavailable = 0
+  for key in pairs(rule) do
+    count = count + 1
+    if not known[key] then unavailable = unavailable + 1 end
+  end
+  if unavailable > 0 then names[#names + 1] = string.format(L["%d unavailable"], unavailable) end
+  return string.format(L["%d selected"], count), table.concat(names, ", ")
+end
+
+function AssignmentUI.Update()
+  local panel = cfg.assignmentPanel
+  if not panel or not panel:IsShown() then return end
+  panel.enabled:Update()
+  local options = X.AssignmentOptions()
+  for class, row in pairs(panel.cells) do
+    for slot, button in pairs(row) do
+      local count, descriptions = AssignmentUI.CellText(class, slot, options)
+      button:SetText(count)
+      button.assignmentText = descriptions or count
+    end
+  end
+  local picker = panel.picker
+  if not picker:IsShown() then return end
+  local rule = X.GetAssignment(picker.class, picker.slot)
+  picker.state:SetText(rule == nil and L["Default"] or rule == false and L["None"] or L["Custom"])
+  picker.noSpells:SetShown(#options == 0)
+  for index, button in ipairs(picker.options) do
+    local option = options[index]
+    button.option = option
+    if option then
+      button.label:SetText(option.name)
+      button:SetChecked(type(rule) == "table" and rule[option.key] == true)
+      button.icon:SetTexture(option.icon)
+      button.icon:SetShown(option.icon ~= nil)
+      button:FitLabel()
+    end
+    button:SetShown(option ~= nil)
+  end
+end
+
+function AssignmentUI.Save(picker, value)
+  if InCombatLockdown() or X.PlayerSuspended() then return false end
+  if X.SetAssignment(picker.class, picker.slot, value) then
+    AssignmentUI.Update()
+    Refresh()
+    return true
+  end
+  AssignmentUI.Update()
+  return false
+end
+
+function AssignmentUI.ToggleOption(picker, key, checked)
+  local current = X.GetAssignment(picker.class, picker.slot)
+  local nextRule = {}
+  if type(current) == "table" then
+    for selected in pairs(current) do nextRule[selected] = true end
+  end
+  if checked and key:match("^BLESS_") then
+    for selected in pairs(nextRule) do
+      if selected:match("^BLESS_") then nextRule[selected] = nil end
+    end
+  elseif checked and key == "DAMPEN_MAGIC" then nextRule.AMPLIFY_MAGIC = nil
+  elseif checked and key == "AMPLIFY_MAGIC" then nextRule.DAMPEN_MAGIC = nil end
+  nextRule[key] = checked and true or nil
+  if next(nextRule) then AssignmentUI.Save(picker, nextRule)
+  else AssignmentUI.Save(picker, false) end
+end
+
+function AssignmentUI.CreatePanel(parent, name, width, height, level)
+  local panel = CreateFrame("Frame", name, parent)
+  panel:SetSize(width, height)
+  panel:SetPoint("CENTER")
+  panel:SetFrameLevel(level)
+  panel:EnableMouse(true)
+  local bg = panel:CreateTexture(nil, "BACKGROUND")
+  bg:SetAllPoints(panel)
+  bg:SetColorTexture(0.06, 0.065, 0.095, 1)
+  panel:Hide()
+  return panel
+end
+
+function AssignmentUI.CloseButton(panel, onClose)
+  local close = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
+  close:SetPoint("TOPRIGHT", -4, -4)
+  close:SetScript("OnClick", onClose)
+  K.Register(close, panel, L["Close"], "button")
+end
+
+function AssignmentUI.BuildPicker(panel)
+  local picker = AssignmentUI.CreatePanel(panel, "BuffRadarAssignmentPicker", 574, 405, panel:GetFrameLevel() + 5)
+  picker.title = picker:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  picker.title:SetPoint("TOPLEFT", 16, -14)
+  picker.title:SetPoint("TOPRIGHT", -45, -14)
+  picker.title:SetJustifyH("LEFT")
+  AssignmentUI.CloseButton(picker, function() picker:Hide() end)
+  picker.state = picker:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  picker.state:SetPoint("TOPLEFT", 16, -40)
+  local hint = picker:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  hint:SetPoint("TOPLEFT", 16, -63)
+  hint:SetPoint("TOPRIGHT", -16, -63)
+  hint:SetJustifyH("LEFT")
+  hint:SetText(L["Select spells for this cell. Changes apply immediately."])
+  picker.noSpells = picker:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  picker.noSpells:SetPoint("TOPLEFT", 16, -112)
+  picker.noSpells:SetText(L["No known targeted buffs."])
+  picker.options = {}
+  for i = 1, 18 do
+    local button
+    button = MakeCheck(picker, "", function() return false end, function(checked)
+      if button.option then AssignmentUI.ToggleOption(picker, button.option.key, checked) end
+    end)
+    button:SetPoint("TOPLEFT", i % 2 == 1 and 12 or 290, -91 - math_floor((i - 1) / 2) * 27)
+    button.label:SetJustifyH("LEFT")
+    button.label:SetWordWrap(false)
+    button.icon = button:CreateTexture(nil, "ARTWORK")
+    button.icon:SetSize(16, 16)
+    button.icon:SetPoint("LEFT", button, "RIGHT", 4, 0)
+    button.label:ClearAllPoints()
+    button.label:SetPoint("LEFT", button, "RIGHT", 24, 1)
+    button.label.maxWidth = 220
+    button.label:SetWidth(220)
+    function button:FitLabel()
+      self:SetHitRectInsets(0, -(24 + math_min(self.label.maxWidth, self.label:GetStringWidth())), 0, 0)
+    end
+    Tip(button, function() return button.label:GetText() end)
+    picker.options[i] = button
+  end
+  picker.defaultButton = MakeButton(picker, L["Default"], 112, function()
+    if AssignmentUI.Save(picker, nil) then picker:Hide() end
+  end)
+  picker.defaultButton:SetPoint("BOTTOMLEFT", 16, 12)
+  Tip(picker.defaultButton, L["Default"], L["Inherit from All Roles or the built-in rules."])
+  picker.noneButton = MakeButton(picker, L["None"], 112, function()
+    if AssignmentUI.Save(picker, false) then picker:Hide() end
+  end)
+  picker.noneButton:SetPoint("LEFT", picker.defaultButton, "RIGHT", 8, 0)
+  Tip(picker.noneButton, L["None"], L["Offer no assigned buffs for this cell."])
+  return picker
+end
+
+function AssignmentUI.Build()
+  local panel = AssignmentUI.CreatePanel(cfg, "BuffRadarAssignments", 574, 405, cfg:GetFrameLevel() + 8)
+  local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  title:SetPoint("TOPLEFT", 15, -14)
+  title:SetPoint("TOPRIGHT", -45, -14)
+  title:SetJustifyH("LEFT")
+  title:SetText(L["Class & Role Assignments"])
+  AssignmentUI.CloseButton(panel, function() panel:Hide() end)
+  panel.enabled = MakeCheck(panel, L["Use Class & Role Assignments"], X.AssignmentEnabled, function(value)
+    if InCombatLockdown() or X.PlayerSuspended() then return end
+    X.SetAssignmentEnabled(value)
+    Refresh()
+  end)
+  panel.enabled:SetPoint("TOPLEFT", 11, -39)
+  local hint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  hint:SetPoint("TOPLEFT", 15, -67)
+  hint:SetPoint("TOPRIGHT", -15, -67)
+  hint:SetJustifyH("LEFT")
+  hint:SetText(L["World applies to nearby players and unknown roles. A role or World rule takes priority over All Roles. Only enabled buffs are offered."])
+  panel.cells = {}
+  for column, slot in ipairs(X.ASSIGNMENT_SLOTS) do
+    local heading = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    heading:SetPoint("TOP", panel, "TOPLEFT", 166 + (column - 1) * 87, -110)
+    heading:SetText(AssignmentUI.labels[slot])
+  end
+  local classNames = _G.LOCALIZED_CLASS_NAMES_MALE
+  for index, class in ipairs(X.BLESSING_CLASS_ORDER) do
+    local y = -130 - (index - 1) * 29
+    local label = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    label:SetPoint("TOPLEFT", 15, y - 4)
+    label:SetWidth(107)
+    label:SetJustifyH("LEFT")
+    label:SetText(classNames and classNames[class] or class)
+    panel.cells[class] = {}
+    for column, slot in ipairs(X.ASSIGNMENT_SLOTS) do
+      local button = MakeButton(panel, "", 82, function()
+        panel.picker.class, panel.picker.slot = class, slot
+        panel.picker.title:SetText(AssignmentUI.CellLabel(class, slot))
+        panel.picker:Show()
+        AssignmentUI.Update()
+      end)
+      button:SetPoint("TOPLEFT", 125 + (column - 1) * 87, y)
+      local function labelText() return AssignmentUI.CellLabel(class, slot) end
+      local function valueText() return button.assignmentText end
+      K.Register(button, panel, labelText, "button", valueText)
+      Tip(button, labelText, valueText)
+      panel.cells[class][slot] = button
+    end
+  end
+  panel.picker = AssignmentUI.BuildPicker(panel)
+  panel:HookScript("OnHide", function()
+    panel.picker:Hide()
+    cfg.searchToggle:Show()
+    GameTooltip:Hide()
+  end)
+  panel.picker:HookScript("OnHide", function() GameTooltip:Hide() end)
+  if UISpecialFrames then
+    table.insert(UISpecialFrames, "BuffRadarAssignments")
+  end
+  return panel
+end
+
+function X.OpenAssignments()
+  if not CLASSIC_FEATURES or X.PlayerSuspended() or InCombatLockdown() then return end
+  OpenConfig(true)
+  SelectTab("buffs")
+  cfg.assignmentPanel = cfg.assignmentPanel or AssignmentUI.Build()
+  cfg.searchToggle:Hide()
+  cfg.assignmentPanel:Show()
+  AssignmentUI.Update()
 end
 
 local function BuildConfig()
@@ -1207,6 +1443,10 @@ local function BuildConfig()
   prioHint:SetText("Your own buff order: /br prio")
   cfg.blessingButton = MakeButton(buffs, L["Blessings by class"], 190, OpenBlessingPanel)
   cfg.blessingButton:SetPoint("TOPRIGHT", -15, -346)
+  if CLASSIC_FEATURES then
+    cfg.assignmentButton = MakeButton(buffs, L["Class & Role Assignments"], 275, X.OpenAssignments)
+    cfg.assignmentButton:SetPoint("TOPLEFT", 14, -379)
+  end
 
   cfg.rebuffHeads = {}
   for c = 1, 2 do
@@ -1834,12 +2074,18 @@ local function BuildConfig()
   end)
   K.Build()
   Tip(cfg.navButton, L["Keyboard Navigation"], navigationHelp)
-  cfg:HookScript("OnHide", function() K.Stop(true); CloseSearch() end)
+  cfg:HookScript("OnHide", function()
+    K.Stop(true)
+    CloseSearch()
+    if cfg.assignmentPanel then cfg.assignmentPanel:Hide() end
+  end)
   cfg:RegisterEvent("DISPLAY_SIZE_CHANGED")
   cfg:RegisterEvent("UI_SCALE_CHANGED")
   cfg:RegisterEvent("PLAYER_REGEN_DISABLED")
   cfg:SetScript("OnEvent", function(_, event)
-    if event == "PLAYER_REGEN_DISABLED" then K.Stop(true)
+    if event == "PLAYER_REGEN_DISABLED" then
+      K.Stop(true)
+      if cfg.assignmentPanel then cfg.assignmentPanel:Hide() end
     elseif cfg:IsShown() then ApplyConfigScale() end
   end)
   SelectTab("look")
@@ -2024,6 +2270,7 @@ RefreshConfig = function()
   if not cfg.rebuffDefault:HasFocus() then cfg.rebuffDefault:Revert() end
   cfg.noBuffs:SetShown(#items == 0)
   cfg.selfCheck:Update()
+  AssignmentUI.Update()
   if cfg.searchFooter:IsShown() then UpdateSearch() end
   if K.active and not K.edit and not K.InScope(K.current) then K.Move(1) end
 end
@@ -2039,8 +2286,7 @@ end
 function X.OpenSettingsSearch()
   if X.PlayerSuspended() then return end
   OpenConfig(true)
-  if (cfg.displayPanel and cfg.displayPanel:IsShown())
-    or (cfg.blessingPanel and cfg.blessingPanel:IsShown()) then
+  if K.Modal() then
     SelectTab(cfg.curTab or "look")
   end
   OpenSearch()

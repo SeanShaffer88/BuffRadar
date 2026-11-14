@@ -134,6 +134,8 @@ local DEFAULTS = {
   alertSounds = {},     -- per-alert-kind sound: new/drop/ask/fall -> a sound name (empty = use alertSound)
   buffPrio = {},        -- your buff order: buff keys, first offered first (empty = normal order)
   blessingPreferences = {}, -- class token -> preferred blessing key
+  assignmentEnabled = false,
+  buffAssignments = {},
   clickThrough = false, -- while locked, let clicks pass through the window to the game
   muteInInstance = false, -- no alert sound while in a dungeon, raid or battleground
   showMinimap = true,  -- minimap button (the addon compartment works regardless)
@@ -290,6 +292,8 @@ function SanitizeDB(saved)
           end
         end
         v = clean
+      elseif k == "buffAssignments" then
+        v = X.CopyAssignments(v)
       elseif k == "blessingPreferences" then
         local clean = {}
         if v then
@@ -587,6 +591,27 @@ local L = {
   ["No supported buffs in your spellbook."] = "No supported buffs in your spellbook.",
   ["combat"] = "combat",
   ["Blessings by class"] = "Blessings by class",
+  ["Class & Role Assignments"] = "Class & Role Assignments",
+  ["Use Class & Role Assignments"] = "Use Class & Role Assignments",
+  ["All Roles"] = "All Roles",
+  ["World"] = "World",
+  ["Tank"] = "Tank",
+  ["Heal"] = "Heal",
+  ["DPS"] = "DPS",
+  ["Default"] = "Default",
+  ["None"] = "None",
+  ["Custom"] = "Custom",
+  ["%d selected"] = "%d selected",
+  ["%d unavailable"] = "%d unavailable",
+  ["World applies to nearby players and unknown roles. A role or World rule takes priority over All Roles. Only enabled buffs are offered."] = "World applies to nearby players and unknown roles. A role or World rule takes priority over All Roles. Only enabled buffs are offered.",
+  ["Select spells for this cell. Changes apply immediately."] = "Select spells for this cell. Changes apply immediately.",
+  ["No known targeted buffs."] = "No known targeted buffs.",
+  ["Inherit from All Roles or the built-in rules."] = "Inherit from All Roles or the built-in rules.",
+  ["Offer no assigned buffs for this cell."] = "Offer no assigned buffs for this cell.",
+  ["Class & Role Assignments are available in WoW: Forever."] = "Class & Role Assignments are available in WoW: Forever.",
+  ["Class & Role Assignments enabled."] = "Class & Role Assignments enabled.",
+  ["Class & Role Assignments disabled."] = "Class & Role Assignments disabled.",
+  ["Group buff would conflict with an assignment."] = "Group buff would conflict with an assignment.",
   ["Default (%s)"] = "Default (%s)",
   ["Default blessing"] = "Default blessing",
   ["Previously selected blessing unavailable"] = "Previously selected blessing unavailable",
@@ -1451,7 +1476,65 @@ function X.SetBlessingPreference(class, key)
   return true
 end
 
-function X.BlessingForClass(class, unit)
+function X.AssignmentEnabled()
+  return CLASSIC_FEATURES and db and db.assignmentEnabled == true or false
+end
+
+function X.SetAssignmentEnabled(enabled)
+  if not CLASSIC_FEATURES or not db or type(enabled) ~= "boolean" then return false end
+  db.assignmentEnabled = enabled
+  X.assignmentGroupConflicts = nil
+  return true
+end
+
+function X.GetAssignment(class, slot)
+  local row = db and db.buffAssignments[class]
+  if row then return X.CopyAssignment(row[slot]) end
+end
+
+function X.SetAssignment(class, slot, value)
+  if not CLASSIC_FEATURES or not db or not X.ValidAssignmentCell(class, slot) then return false end
+  local cell = X.CopyAssignment(value)
+  if value ~= nil and cell == nil then return false end
+  local row = db.buffAssignments[class]
+  if cell ~= nil then
+    row = row or {}
+    row[slot], db.buffAssignments[class] = cell, row
+  elseif row then
+    row[slot] = nil
+    if not next(row) then db.buffAssignments[class] = nil end
+  end
+  X.assignmentGroupConflicts = nil
+  return true
+end
+
+function X.AssignmentOptions()
+  local options = {}
+  if not CLASSIC_FEATURES then return options end
+  for _, buff in ipairs(myBuffs) do
+    if not buff.self and not buff.custom then
+      options[#options + 1] = { key = buff.key, name = buff.name, icon = SpellIcon(buff.name) }
+    end
+  end
+  for _, key in ipairs(X.BLESSING_KEYS) do
+    local blessing = blessKnown[key]
+    if blessing then
+      options[#options + 1] = { key = "BLESS_" .. key, name = blessing.name, icon = SpellIcon(blessing.name) }
+    end
+  end
+  return options
+end
+
+function X.ResolveAssignment(class, role)
+  local row = X.AssignmentEnabled() and db.buffAssignments[class]
+  if row then
+    local cell = row[role or "WORLD"]
+    if cell ~= nil then return cell end
+    return row.ALL
+  end
+end
+
+function X.BlessingForClass(class, unit, assignment)
   local plan = X.blessPlan[class]
   if plan and not plan.mine then return nil end
   if unit and X.blessingExceptions then
@@ -1461,6 +1544,14 @@ function X.BlessingForClass(class, unit)
     if exception then return blessKnown[exception] end
   end
   if plan then return blessKnown[plan.key] end
+  if assignment ~= nil then
+    if assignment then
+      for _, key in ipairs(X.BLESSING_KEYS) do
+        if assignment["BLESS_" .. key] then return blessKnown[key] end
+      end
+    end
+    return nil
+  end
   return blessKnown[db.blessingPreferences[class]] or myBlessing[class]
 end
 
@@ -1704,6 +1795,12 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
   local n = 0
   local unknown, checked
   local role, roleRead = nil, false  -- assigned role, read once and only if a buff needs it
+  local assignment
+  if not isSelf and X.AssignmentEnabled() then
+    if isGroup then role, roleRead = AssignedRole(unit), true end
+    assignment = X.ResolveAssignment(class, role)
+    if report == "why" then detail.assignment = assignment ~= nil end
+  end
   local lookup = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
   for i = 1, #myBuffs do
     local b = myBuffs[i]
@@ -1722,6 +1819,10 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
       if applies and b.role then
         if not roleRead then role, roleRead = AssignedRole(unit), true end
         if role and role ~= b.role then applies = false end  -- e.g. a DPS death knight
+      end
+      if assignment ~= nil and not b.custom then
+        applies = assignment and assignment[b.key] and (isGroup or not b.groupOnly)
+          and (not b.single or applies)
       end
     end
     if applies and IsOn(b.key, b.default) and X.ContextOK(b.key) then
@@ -1772,7 +1873,7 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
         end
       end
     end
-    local bl = CLASSIC_FEATURES and X.BlessingForClass(class, (isGroup or isSelf) and unit)
+    local bl = CLASSIC_FEATURES and X.BlessingForClass(class, (isGroup or isSelf) and unit, assignment)
     if bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf)
        and X.ContextOK("BLESSINGS") then
       local has = HasAny(unit, bl.names)
@@ -2739,6 +2840,43 @@ local function UnitClassFile(unit)
   return ok and SafeString(class)
 end
 
+-- Broad spells use single-target fallback if the observed affected roster
+-- includes someone excluded by an assignment.
+local function GroupAssignmentConflict(spell, unit, greater, baseID)
+  if not X.AssignmentEnabled() or not next(db.buffAssignments) then return false end
+  if not baseID then return true end -- custom pair scope cannot be determined
+  if not (X.IsSelf(unit) or unit:match("^party%d+$") or unit:match("^raid%d+$")) then return true end
+  local targetClass = greater and UnitClassFile(unit)
+  if greater and not targetClass then return true end
+  local scope = targetClass and spell .. ":" .. targetClass or spell
+  local cache = X.assignmentGroupConflicts
+  if cache and cache[scope] ~= nil then return cache[scope] end
+  local buffKey
+  if not greater then
+    for _, buff in ipairs(myBuffs) do
+      if buff.name == spell and not buff.custom then buffKey = buff.key; break end
+    end
+    if not buffKey then return true end
+  end
+  local conflict = false
+  X.ForReportRoster(function(member, exists)
+    if conflict or (exists and X.IsSelf(member)) then return end
+    local class = exists and UnitClassFile(member)
+    if not class then conflict = true; return end
+    if greater and class ~= targetClass then return end
+    local assignment = X.ResolveAssignment(class, AssignedRole(member))
+    if assignment == nil then return end
+    if greater then
+      local blessing = X.BlessingForClass(class, member, assignment)
+      conflict = not blessing or blessing.name ~= spell
+    else
+      conflict = not assignment or not assignment[buffKey]
+    end
+  end)
+  if cache then cache[scope] = conflict end
+  return conflict
+end
+
 -- Reapplied per roster/scan, shared by automatic, modifier and keybind offers.
 function X.GroupOffer(spell, unit)
   if not CLASSIC_FEATURES then return nil end
@@ -2748,6 +2886,7 @@ function X.GroupOffer(spell, unit)
   local pick = X.BindingRank(name, unit, X.ReadUnitNumber(UnitLevel, unit), db.castMethod)
   if pick == false or (baseID and not known[name] and not X.ReadUnitBool(_G.IsPlayerSpell, baseID)
       and not X.ReadUnitBool(_G.IsSpellKnown, baseID)) then return nil end
+  if GroupAssignmentConflict(spell, unit, greater, baseID) then return nil, nil, nil, "assignment" end
   if greater and X.blessingExceptions and next(X.blessingExceptions) then
     local class, conflict = UnitClassFile(unit), false
     X.ForReportRoster(function(member, exists)
@@ -2776,6 +2915,7 @@ local function ReagentName(item)
 end
 
 function X.GroupOfferReason(item, count, reason)
+  if reason == "assignment" then return L["Group buff would conflict with an assignment."] end
   if reason == "exception" then return L["Group blessing would conflict with a player exception."] end
   if reason == "reagent" then
     return string_format(count == false and L["Could not check reagent: %s."] or L["Missing reagent: %s."],
@@ -2785,6 +2925,7 @@ end
 
 function X.ReagentSummary(report)
   if not CLASSIC_FEATURES or not report then return nil end
+  X.assignmentGroupConflicts = X.AssignmentEnabled() and next(db.buffAssignments) and {} or nil
   local needed, scopes, unclassified = {}, {}, false
   for _, person in ipairs(report.people) do
     for _, spell in ipairs(person.buffs) do
@@ -4522,7 +4663,8 @@ function X.Why(name)
     elseif #detail.cooldown > 0 then
       Print(disp .. " needs " .. table.concat(detail.cooldown, ", ") .. ", but those spells are on cooldown.")
     elseif not checked then
-      Print(disp .. ": no enabled buffs apply to this player.")
+      Print(disp .. (detail.assignment and ": no enabled buffs apply under the selected class or role assignment."
+        or ": no enabled buffs apply to this player."))
     else
       Print(disp .. " already has every buff you can give them.")
     end
@@ -6250,6 +6392,7 @@ local function Refresh()
   end
   if InCombatLockdown() then return end
   if (X.rowViewCount or 0) > MAX_ROWS and X.RowMouseHeld() then return end
+  X.assignmentGroupConflicts = X.AssignmentEnabled() and next(db.buffAssignments) and {} or nil
   refreshIdle = false
   X.applyFilter = true  -- the window honors the role filter; reports turn it off
   local wasAfterCombat = X.afterCombat
@@ -6819,7 +6962,7 @@ end
 for _, ev in ipairs({
   "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
   "SPELLS_CHANGED", "LEARNED_SPELL_IN_TAB", "LEARNED_SPELL_IN_SKILL_LINE",
-  "GROUP_ROSTER_UPDATE", "PARTY_MEMBERS_CHANGED", "RAID_ROSTER_UPDATE",
+  "GROUP_ROSTER_UPDATE", "PARTY_MEMBERS_CHANGED", "RAID_ROSTER_UPDATE", "PLAYER_ROLES_ASSIGNED",
   "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "UNIT_AURA", "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
   "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED",
   "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED", "UI_ERROR_MESSAGE",
@@ -6890,6 +7033,12 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   elseif event == "UPDATE_BINDINGS" then
     if RefreshConfig then RefreshConfig() end
     return
+  elseif event == "PLAYER_ROLES_ASSIGNED" then
+    if X.AssignmentEnabled() then
+      X.assignmentGroupConflicts = nil
+      Soon()
+    end
+    return
   elseif event == "BAG_UPDATE_DELAYED" then
     X.InvalidateReagents()
     Soon()
@@ -6947,6 +7096,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     return
   end
   if event == "GROUP_ROSTER_UPDATE" then
+    X.assignmentGroupConflicts = nil
     if db then X.OnRoster() end
     if not InGroup() then X.ClearReadyCheck() end
     if db and X.AutoProfileCheck then X.AutoProfileCheck() end
@@ -7027,6 +7177,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     end
     if (db.dbVersion or 0) < 17 then
       db.dbVersion = 17       -- assumeRange takes its default (off)
+    end
+    if db.dbVersion < 18 then
+      db.dbVersion = 18       -- Class and role assignments start disabled.
     end
     X.SpecSwap()
   elseif event == "PLAYER_LOGIN" then

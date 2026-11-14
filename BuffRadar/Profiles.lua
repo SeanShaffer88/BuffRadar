@@ -112,6 +112,16 @@ do
       parts[#parts + 1] = key .. "=" .. Encode(db[key])
     end
     local bytes = #"BR2;" + #table.concat(parts, ";")
+    local mode = "buffAssignments=" .. (db.assignmentEnabled and "1" or "0")
+    parts[#parts + 1], bytes = mode, bytes + 1 + #mode
+    for class, row in pairs(db.buffAssignments) do
+      for slot, cell in pairs(row) do
+        local field = "a." .. class .. "." .. slot .. "=" .. X.EncodeAssignment(cell)
+        bytes = bytes + 1 + #field
+        if bytes > PROFILE_MAX_BYTES then return nil end
+        parts[#parts + 1] = field
+      end
+    end
     for map in pairs(profileMaps) do
       for key, value in pairs(db[map]) do
         local field = map .. "." .. Esc(key) .. "=" .. Encode(value)
@@ -163,6 +173,7 @@ do
     if not version or (directImport and version ~= "BR1") then return nil end
     local modern = version == "BR2"
     local patch, count, scalarFields, priorityKeys = {}, 0, {}, {}
+    local assignments = {}
     if modern then
       for map in pairs(profileMaps) do patch[map] = {} end
     end
@@ -173,7 +184,19 @@ do
       if not key then return nil end
       local map, member = key:match("^(%a+)%.(.*)$")
       local kind = map and profileMaps[map]
-      if kind and (modern or legacyMaps[map]) then
+      if modern and map == "a" then
+        local class, slot = member:match("^([A-Z]+)%.([A-Z]+)$")
+        if not X.ValidAssignmentCell(class, slot) then return nil end
+        local cell = X.DecodeAssignment(raw)
+        if cell == nil then return nil end
+        local row = assignments[class] or {}
+        if row[slot] ~= nil then return nil end
+        row[slot], assignments[class] = cell, row
+        count = count + 1
+      elseif modern and key == "buffAssignments" then
+        if (raw ~= "1" and raw ~= "0") or scalarFields[key] then return nil end
+        patch.assignmentEnabled, scalarFields[key] = raw == "1", true
+      elseif kind and (modern or legacyMaps[map]) then
         member = DecodeString(member)
         if not member or member == "" then return nil end
         patch[map] = patch[map] or {}
@@ -215,6 +238,11 @@ do
     end
     if count == 0 then return nil end
     if modern then
+      if scalarFields.buffAssignments then
+        patch.buffAssignments = assignments
+      elseif next(assignments) then
+        return nil
+      end
       if not scalarFields.blessingPreferences then
         if next(patch.blessingPreferences) then return nil end
         patch.blessingPreferences = nil  -- older BR2 profiles leave the preference alone
@@ -268,6 +296,7 @@ do
     for key, value in pairs(patch) do candidate[key] = value end
     SanitizeDB(candidate)
     for key in pairs(patch) do db[key] = candidate[key] end
+    X.assignmentGroupConflicts = nil
     X.prioDirty = true
     Ignore.Rebuild()
   end

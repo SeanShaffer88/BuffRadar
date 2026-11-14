@@ -2,6 +2,16 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.17 — Forever test build
+
+- Add an optional Class & Role Assignments table under Buffs. Choose
+  targeted buffs for recipients by class and role, with a World rule for
+  nearby strangers and recipients whose role is unavailable.
+- Save assignment rules in named profiles. The table starts off for
+  existing installations, and an unset cell uses the standard buff rules.
+
+In-game verification is pending for this build.
+
 ## 1.15.16 — 2026-11-14 — Forever update
 
 - Explain why a nearby player is missing from the list, including when

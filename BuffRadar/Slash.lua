@@ -175,7 +175,7 @@ local function HandleSlash(msg)
     if not ok then Print("|cffff4040error building window:|r " .. tostring(err)) end
   end
 
-  local needsOOC = { [""]=true, show=true, hide=true, reset=true, resetpos=true, scale=true, width=true, specscale=true, macro=true }
+  local needsOOC = { [""]=true, show=true, hide=true, reset=true, resetpos=true, scale=true, width=true, specscale=true, macro=true, buffassign=true }
   if needsOOC[cmd] and InCombatLockdown() then
     Print("Can't do that during combat.")
     return
@@ -206,6 +206,20 @@ local function HandleSlash(msg)
       X.OpenSettingsNavigation(subcommand == "narrate")
     else
       OpenConfig()
+    end
+  elseif cmd == "buffassign" then
+    if not CLASSIC_FEATURES then
+      Print(L["Class & Role Assignments are available in WoW: Forever."])
+    elseif not X.PlayerSuspended() then
+      local action = rest:lower()
+      if action == "on" or action == "off" then
+        X.SetAssignmentEnabled(action == "on")
+        X.RefreshConfig()
+        Refresh()
+        Print(X.AssignmentEnabled() and L["Class & Role Assignments enabled."] or L["Class & Role Assignments disabled."])
+      else
+        X.OpenAssignments()
+      end
     end
   elseif cmd == "group" then
     db.groupOnly = not db.groupOnly
@@ -1397,6 +1411,7 @@ local function HandleSlash(msg)
     Print("  /br autoprofile <context> <profile>  - load a profile by context")
     if CLASSIC_FEATURES then
       Print("  /br bless <CLASS> <BLESSING> [name]  - blessing planner")
+      Print("  /br buffassign [on|off]  - class and role buff assignments")
     end
     Print("  /br specscale  - remember the scale per specialization   /br snap  - Shift-snap the scale grips")
     Print("  /br tagsymbols | motion | rangewatch  - tag symbols, reduced motion, tell me when someone walks into range")

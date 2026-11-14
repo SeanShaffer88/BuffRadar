@@ -80,6 +80,16 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
   group blessing plan takes precedence. Use
   `/br bless player <target|name> <BLESSING|DEFAULT>` to set or clear a
   normal blessing exception for a member of your current group.
+- **Class & Role Assignments** (optional): from Settings → Buffs, open
+  **Class & Role Assignments** or type `/br buffassign`. A known group role
+  uses its class and role cell. Strangers and players whose role is
+  unavailable use the class's World cell. An unset cell falls back to All,
+  then to the normal rules. Choose **None** to skip managed targeted buffs
+  for a cell, or **Default** to restore inheritance. Named profiles save the
+  table and its on/off setting. Use named profile sharing to transfer these
+  rules. The legacy `/br export` format omits the table. If a group version
+  would conflict with another member's assignment, BuffRadar offers a
+  single-target cast.
 - **Role ordering** option: you, tanks and leaders first.
 - **Rezzed players first** (after you): someone who just came back from the dead
   has lost every buff, so their row jumps up with a *recently rezzed* marker.
