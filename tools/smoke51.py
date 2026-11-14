@@ -1852,7 +1852,7 @@ step("combat visibility leaves locked frames to the secure driver", function()
   frame.Hide, pill.Hide = hideFrame, hidePill
   assert(ok, err)
 end)
-step("appearance refresh never changes the frame layer and flash restore waits for combat", function() {
+step("appearance refresh never changes the frame layer and flash restore waits for combat", function()
   local X, db = NS.X, env.BuffRadarDB
   local frame, pill = env.BuffRadarFrame, X.pill
   local oldFrame, oldPill = frame.SetFrameStrata, pill.SetFrameStrata
