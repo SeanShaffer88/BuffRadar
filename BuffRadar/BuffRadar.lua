@@ -160,6 +160,7 @@ local DEFAULTS = {
   tagSymbols = false,  -- add a symbol to row tags so meaning never rests on color (1.12.0)
   reduceMotion = false, -- no idle fade, no border flash (1.12.0)
   rangeWatch = false,  -- say when a player who needs a buff walks into range (1.12.0)
+  assumeRange = false, -- list players the client refuses to place, flagged as estimated
   idleFade = 0,        -- fade the window by this % while the mouse is away (0 = off) (1.5.0)
   pill = false,        -- collapse to a small pill while everyone is buffed (1.6.0)
   queueTag = true,     -- tag the top row "up next" right after a cast lands (1.6.0)
@@ -819,8 +820,18 @@ do
       end
     end
     if CheckInteractDistance then
-      return QueryRange(CheckInteractDistance, unit, 4) == true, true
+      local result = QueryRange(CheckInteractDistance, unit, 4)
+      if result ~= nil then return result, true end
     end
+    -- Nothing answered. The default stays strict: an unknown range is not
+    -- replaced with a guess. On a client that never answers that empties the
+    -- window completely, so db.assumeRange opts into the other trade. A unit
+    -- only reaches this line as a tracked nameplate or a group member, and the
+    -- client has already filtered both by proximity, so the guess is a narrow
+    -- one; the row is flagged estimated and a cast that is really too far just
+    -- fails with the game's own out-of-range error.
+    X.rangeSilent = true
+    if db.assumeRange then return true, true end
     return false
   end
 
@@ -2362,7 +2373,7 @@ X.EXPORT_KEYS = { "locked", "includeSelf", "avoidPvP", "autoHide", "rebuff", "sc
   "focusWatch", "pets", "auraWatch", "worldWatch", "drinkWatch", "twoCol",
   "deathRecap", "wipeReport", "rowGap", "iconSize", "strata",
   "tooltipLevel", "viewMode", "classColors", "showRealm", "nameTrim",
-  "scalePerSpec", "gripSnap", "tagSymbols", "reduceMotion", "rangeWatch",
+  "scalePerSpec", "gripSnap", "tagSymbols", "reduceMotion", "rangeWatch", "assumeRange",
   "fastAura", "modClick", "pullFlash", "fallSound" }
 
 local function Esc(v) return (tostring(v):gsub("%%", "%%25"):gsub(";", "%%3B"):gsub("=", "%%3D")) end
@@ -6338,6 +6349,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     end
     if (db.dbVersion or 0) < 16 then
       db.dbVersion = 16       -- Per-class blessing preferences start with the default priority.
+    end
+    if (db.dbVersion or 0) < 17 then
+      db.dbVersion = 17       -- assumeRange takes its default (off)
     end
     X.SpecSwap()
   elseif event == "PLAYER_LOGIN" then

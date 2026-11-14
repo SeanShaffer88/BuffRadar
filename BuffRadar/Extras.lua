@@ -163,6 +163,7 @@ function X.ApiCheck(export)
   else
     out("  |cffff4040range verdict: no range API answers for this unit, so it cannot be listed.|r",
         "  range verdict: no range API answers for this unit, so it cannot be listed.")
+    out("    /br assumerange lists players anyway, with their range shown as estimated.")
   end
   -- UNIT_AURA payload probe (1.14.0, Brief 2): what this client actually
   -- sends, counted by the event driver since login.

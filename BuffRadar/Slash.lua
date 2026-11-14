@@ -133,8 +133,8 @@ function X.SelfTest()
     ccount, #(db.history or {})))
   local ocount = 0
   for _ in pairs(db.offenders) do ocount = ocount + 1 end
-  Print(string.format("  grow up %s · combat hide %s · theme %s · find %s · bars %s · markers %s · focus %s · pets %s · aura %s · world %s · drink %s · offenders %d",
-    OnOff(db.growUp), OnOff(db.hideInCombat), tostring(db.theme), OnOff(db.findBox),
+  Print(string.format("  grow up %s · assume range %s · theme %s · find %s · bars %s · markers %s · focus %s · pets %s · aura %s · world %s · drink %s · offenders %d",
+    OnOff(db.growUp), OnOff(db.assumeRange), tostring(db.theme), OnOff(db.findBox),
     OnOff(db.durationBars), OnOff(db.raidMarkers), OnOff(db.focusWatch), OnOff(db.pets),
     OnOff(db.auraWatch), OnOff(db.worldWatch), OnOff(db.drinkWatch), ocount))
   Print(string.format("  two columns %s · death recap %s · wipe report %s · wizard seen %s",
@@ -1203,6 +1203,11 @@ local function HandleSlash(msg)
   elseif cmd == "rangewatch" then
     db.rangeWatch = not db.rangeWatch
     Print("Range watch " .. OnOff(db.rangeWatch))
+  elseif cmd == "assumerange" then
+    db.assumeRange = not db.assumeRange
+    Print("Listing players the client will not place " .. OnOff(db.assumeRange)
+      .. " (their range shows as estimated)")
+    QueueRefresh()
   elseif cmd == "snap" then
     db.gripSnap = not db.gripSnap
     Print("Shift-snap on the scale grips " .. OnOff(db.gripSnap))
@@ -1364,6 +1369,7 @@ local function HandleSlash(msg)
     end
     Print("  /br specscale  - remember the scale per specialization   /br snap  - Shift-snap the scale grips")
     Print("  /br tagsymbols | motion | rangewatch  - tag symbols, reduced motion, tell me when someone walks into range")
+    Print("  /br assumerange  - list players when this client refuses to report range (see /br apicheck)")
     Print("  /br apicheck [export] | buffcheck | perf  - diagnostics   /br profile diff <name>  - what a profile would change")
     Print("  /br width <180-400>  - list width")
     Print("  /br resetpos  - reset the window position")
