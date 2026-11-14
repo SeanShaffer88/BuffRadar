@@ -1,15 +1,25 @@
 # BuffRadar — Features (Forever edition)
 
-The full feature list for BuffRadar 1.15.11 (Forever edition) for
+The feature list for BuffRadar (Forever edition) for
 WoW: Forever (Interface 16001). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
 Prepared 2026-10-24 from the shipped 1.3.2 Forever README and
-CHANGELOG; updated 2026-11-14 for 1.15.11. Since 1.3.2 both editions are built from one source —
+CHANGELOG; updated 2026-11-14 for 1.15.16. Since 1.3.2 both editions are built from one source —
 the addon picks the Forever buff set when it loads on the Forever
 client — and the Forever buff set itself is unchanged from 1.2.4.
 **From 1.8.0 BuffRadar is Forever-only**: Retail support was dropped
 2026-10-25, and 1.7.0 is the last Retail release.
+
+## 1.15.16
+
+- Diagnose why nearby players are absent from the buff list.
+- Preview the next target and selected spell rank.
+- Fall back to a single-target buff when a group reagent is missing.
+- Set a normal blessing exception for a member of the current group.
+- Review ready-check responses, buff status, and estimated reagent needs.
+
+See `CHANGELOG.md` and the in-game release checklist for verification status.
 
 ## New in 1.10.0
 
@@ -361,8 +371,11 @@ stays hidden on those characters.
 
 ## Verification status
 
-**Current stable release:** 1.15.11. The maintainer verified scrollable rows
-using field-test build `650f5c603781` in WoW: Forever on 2026-11-14.
+**Current stable release:** 1.15.16. The maintainer confirmed live verification
+in WoW: Forever on 2026-11-14 using field-test build `d05115bdb03d`.
+
+The maintainer verified scrollable rows for 1.15.11 using field-test build
+`650f5c603781` in WoW: Forever on 2026-11-14.
 
 The maintainer also verified the 1.15.10 field-test build `274b0298d250` in
 WoW: Forever on 2026-11-14.

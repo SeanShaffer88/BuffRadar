@@ -273,7 +273,11 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     env.GetSpellBookItemInfo = function(i) local b = book[i]; if b then return "SPELL", b[3] end end
     env.GetSpellTabInfo = function() return "Holy", nil, 0, #book end
     env.__over.UnitClass = function(u) if u == "player" then return "Priest", "PRIEST" end end
-    env.UnitLevel = function() return 60 end
+    env.UnitLevel = function(unit)
+      if env.__over.UnitLevel then return env.__over.UnitLevel(unit) end
+      return 60
+    end
+    env.C_Item = { GetItemCount = function() return 10 end }
   end
   if noTemplates then return env end
   -- Bottom tabs (PanelTabButtonTemplate helpers)
