@@ -93,7 +93,9 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
   players and their rules. The next-cast tooltip shows the count.
   Both indicate when roster information is incomplete. Use **Edit Rule**
   on a blocker to open its exact assignment cell or local blessing
-  exception. Return to see the updated blocker list.
+  exception. Use **Review Changes** to see who would gain or lose a buff
+  offer. **Apply** rechecks the current group before saving and refreshes
+  the blocker list.
 - **Preview Current Group** in Class & Role Assignments shows the effective
   rule and buff information for each group member. Open it with
   `/br buffassign preview` or check one player with `/br why <name>`.

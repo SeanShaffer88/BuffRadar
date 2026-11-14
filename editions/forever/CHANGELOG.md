@@ -2,12 +2,21 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.24 — Forever test build
+
+- Review staged blocker edits to see whose buff offers would change.
+- Recheck the current group on Apply and refresh the blocker list after
+  saving.
+
+In-game verification is pending for this build.
+
 ## 1.15.23 — Forever test build
 
 - Open the exact class and role rule or local blessing exception from an
   actionable group-cast blocker, then return to a refreshed blocker list.
 
-In-game verification is pending for this build.
+The maintainer confirmed live verification of the 1.15.23 field-test
+build `a07c748668ef` in WoW: Forever.
 
 ## 1.15.22 — Forever test build
 

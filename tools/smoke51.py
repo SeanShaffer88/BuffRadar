@@ -3834,15 +3834,16 @@ step("assignment preview edits session roles by identity and protects modal navi
   assert(ok, err)
 end)
 
-step("assignment blocker shortcuts edit the exact rule and return to the refreshed list", function()
+step("blocker shortcuts stage, review, recheck and refresh the exact edit", function()
   if not env.__forever then return end
   local X, cfg, slash = NS.X, env.BuffRadarConfig, env.SlashCmdList.BUFFRADAR
   local originalPreview, originalSetter = X.AssignmentPreview, X.SetAssignment
   local originalGetException, originalSetException = X.GetBlessingExceptionForGUID, X.SetBlessingExceptionForGUID
+  local originalReview, originalApply = X.ReviewBlockerEdit, X.ApplyBlockerEdit
   local ok, err = pcall(function()
     local rule = { kind = "rule", class = "DRUID", slot = "ALL", guid = "BlockerDruid" }
     local exception = { kind = "exception", guid = "BlockerPaladin", name = "Paladin" }
-    local edits, remaining, left = 0, true, false
+    local edits, remaining, left, revision, incomplete = 0, true, false, 1, false
     local function snapshot()
       local member = { name = "Warrior", identity = "PreviewWarrior", rule = "Tank", buffs = {}, available = {} }
       if remaining then
@@ -3868,6 +3869,27 @@ step("assignment blocker shortcuts edit the exact rule and return to the refresh
       remaining = false
       return "Paladin"
     end
+    X.ReviewBlockerEdit = function(action, value)
+      assert(action == rule or action == exception, "review used the wrong blocker action")
+      if action == rule then
+        assert(value == nil, "review lost the staged Default rule")
+      else
+        assert(value == "KINGS", "review lost the staged blessing")
+      end
+      local rows = { {
+        name = revision == 1 and "Mira" or "Dale", gains = { "Kings" }, losses = { "Wisdom" }
+      } }
+      for _, name in ipairs({ "Aaron", "Bela", "Celia", "Dora", "Eliza" }) do
+        rows[#rows + 1] = { name = name, gains = { "Kings" }, losses = {} }
+      end
+      return { revision = revision, incomplete = incomplete, rows = rows }
+    end
+    X.ApplyBlockerEdit = function(action, value, before)
+      if left and action == rule then return false end
+      if revision ~= before.revision then return false, X.ReviewBlockerEdit(action, value) end
+      if action == rule then return X.SetAssignment(action.class, action.slot, value) end
+      return X.SetBlessingExceptionForGUID(action.guid, value) ~= nil
+    end
     slash("buffassign preview")
     local assignments, preview = env.BuffRadarAssignments, env.BuffRadarAssignmentPreview
     preview.rows[1]:Click()
@@ -3891,6 +3913,28 @@ step("assignment blocker shortcuts edit the exact rule and return to the refresh
     assert(picker:IsVisible() and picker.backButton:IsVisible() and picker.class == "DRUID" and picker.slot == "ALL",
       "shortcut did not open the inherited All Roles picker")
     activate(picker.defaultButton)
+    assert(edits == 0 and picker:IsVisible(), "staging Default saved the rule immediately")
+    activate(picker.reviewButton)
+    local review = env.BuffRadarBlockerReview
+    assert(review:IsVisible() and review.rows[1].heading:GetText() == "Mira"
+      and review.rows[1].detail:GetText() == "Gains: Kings"
+      and review.rows[2].detail:GetText() == "Loses: Wisdom",
+      "review omitted the named impact")
+    activate(review.next)
+    assert(review.rows[2].heading:GetText() == "Eliza" and not review.next:IsShown(),
+      "end of the review was unreachable")
+    activate(review.previous)
+    activate(review.back)
+    assert(not review:IsShown() and picker:IsVisible(), "Back did not return to the draft")
+    activate(picker.reviewButton)
+    revision = 2
+    fire("GROUP_ROSTER_UPDATE")
+    runQueued()
+    assert(review:IsVisible(), "automatic roster refresh discarded the review")
+    activate(review.apply)
+    assert(edits == 0 and review:IsVisible() and review.rows[1].heading:GetText() == "Dale"
+      and review.notice:GetText():find("Review again", 1, true), "roster change did not require a fresh Apply")
+    activate(review.apply)
     assert(edits == 1 and not picker:IsShown() and blockers:IsVisible() and not blockers.rows[1].edit:IsShown(),
       "saving a rule did not return to the refreshed blocker list")
 
@@ -3898,9 +3942,11 @@ step("assignment blocker shortcuts edit the exact rule and return to the refresh
     preview.refresh:Click()
     preview.rows[1]:Click()
     blockers.rows[1].edit:Click()
-    left = true
     picker.defaultButton:Click()
-    assert(edits == 1 and not picker:IsShown() and not blockers.rows[1].edit:IsShown(),
+    picker.reviewButton:Click()
+    left = true
+    review.apply:Click()
+    assert(edits == 1 and not picker:IsShown() and not review:IsShown() and not blockers.rows[1].edit:IsShown(),
       "a departed member's stale rule was still editable")
 
     blockers.rows[3].edit:Click()
@@ -3908,11 +3954,36 @@ step("assignment blocker shortcuts edit the exact rule and return to the refresh
     assert(editor:IsVisible() and editor.choices[1]:IsVisible() and not editor.choices[2]:IsShown(),
       "local blessing options did not open")
     editor.choices[1]:Click()
+    assert(editor:IsVisible() and remaining, "selecting an exception wrote immediately")
+    incomplete = true
+    editor.reviewButton:Click()
+    assert(not review.apply:IsEnabled() and review.notice:GetText():find("could not be checked", 1, true),
+      "incomplete roster did not disable Apply with an explanation")
+    review.cancel:Click()
+    assert(not editor:IsShown() and not review:IsShown() and remaining, "Cancel saved or left a draft open")
+    incomplete = false
+    blockers.rows[3].edit:Click()
+    editor.choices[1]:Click()
+    editor.reviewButton:Click()
+    env.__combat = true
+    cfg:GetScript("OnEvent")(cfg, "PLAYER_REGEN_DISABLED")
+    env.__combat = false
+    assert(not assignments:IsShown() and not editor:IsShown() and not review:IsShown() and remaining,
+      "entering combat did not discard the draft")
+    slash("buffassign preview")
+    preview.rows[1]:Click()
+    blockers.rows[3].edit:Click()
+    assert(editor.draft == "WISDOM", "a cancelled exception draft leaked into the next edit")
+    editor.choices[1]:Click()
+    editor.reviewButton:Click()
+    review.apply:Click()
     assert(preview:IsVisible() and not blockers:IsShown() and not editor:IsShown(),
       "resolved blocker did not return to the preview")
   end)
   X.AssignmentPreview, X.SetAssignment = originalPreview, originalSetter
   X.GetBlessingExceptionForGUID, X.SetBlessingExceptionForGUID = originalGetException, originalSetException
+  X.ReviewBlockerEdit, X.ApplyBlockerEdit = originalReview, originalApply
+  env.__combat = false
   cfg:Hide()
   assert(ok, err)
 end)
@@ -5184,6 +5255,69 @@ step("Forever assignment rules route casts and coverage with safe group fallback
   refresh()
   assert(ok, err)
 end)
+step("Forever blocker review compares everyone sharing a rule and rechecks state on Apply", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("RuleReview")
+  local X, O, db = NS.X, env.__over, env.BuffRadarDB
+  local oldSize, oldRole = env.GetNumGroupMembers, env.UnitGroupRolesAssigned
+  local oldRules, oldMode = db.buffAssignments, db.assignmentEnabled
+  local ok, err = pcall(function()
+    local fullName, name, class, guid, exists = O.UnitFullName, O.UnitName, O.UnitClass, O.UnitGUID, O.UnitExists
+    local fourthGUID = "Player-Beth"
+    O.UnitExists = function(unit) return unit == "party3" or exists(unit) end
+    O.UnitIsPlayer = O.UnitExists
+    O.UnitGUID = function(unit) if unit == "party3" then return fourthGUID end return guid(unit) end
+    O.UnitName = function(unit) if unit == "party3" then return "Beth" end return name(unit) end
+    O.UnitFullName = function(unit) if unit == "party3" then return "Beth", "TestRealm" end return fullName(unit) end
+    O.UnitClass = function(unit) if unit == "party3" then return "Mage", "MAGE" end return class(unit) end
+    env.GetNumGroupMembers = function() return 4 end
+    env.UnitGroupRolesAssigned = function() return "NONE" end
+    env.IsSpellInRange = function() return 1 end
+    assert(X.SetAssignmentEnabled(true))
+    db.buffAssignments = {}
+    assert(X.SetAssignment("MAGE", "ALL", { DIVINE_SPIRIT = true }))
+    assert(X.SetAssignment("WARRIOR", "ALL", { FORTITUDE = true }))
+    local function action()
+      local source = X.AssignmentPreview()[3]
+      for _, candidate in pairs(source.groupActions or {}) do
+        if candidate.guid == guid("party1") and candidate.single == "Power Word: Fortitude" then return candidate end
+      end
+      error("missing Aaron's rule blocker")
+    end
+    local draft = { FORTITUDE = true }
+    local editing = action()
+    local review = assert(X.ReviewBlockerEdit(editing, draft))
+    assert(not review.incomplete and #review.rows == 2 and review.rows[1].name == "Aaron-TestRealm"
+      and review.rows[2].name == "Beth-TestRealm", "review omitted a second recipient on the same rule")
+    for _, row in ipairs(review.rows) do
+      assert(row.gains[1] == "Power Word: Fortitude" and row.losses[1] == "Divine Spirit", "wrong rule delta")
+    end
+    fourthGUID = "Player-NewBeth"
+    local applied, fresh = X.ApplyBlockerEdit(editing, draft, review)
+    assert(not applied and fresh and #fresh.rows == 2 and X.GetAssignment("MAGE", "ALL").DIVINE_SPIRIT,
+      "a replacement with the same display name skipped reconfirmation")
+    assert(X.SetAssignment("WARRIOR", "ALL", false))
+    applied, fresh = X.ApplyBlockerEdit(editing, draft, fresh)
+    assert(not applied and not fresh and X.GetAssignment("MAGE", "ALL").DIVINE_SPIRIT,
+      "an origin no longer eligible for Fortitude approved the edit")
+    assert(X.SetAssignment("WARRIOR", "ALL", { FORTITUDE = true }))
+    editing = action()
+    review = assert(X.ReviewBlockerEdit(editing, draft))
+    X.ApplyProfile(assert(X.ParseProfile(X.ProfileSnapshot())))
+    assert(not X.ApplyBlockerEdit(editing, draft, review) and X.GetAssignment("MAGE", "ALL").DIVINE_SPIRIT,
+      "replacing the profile accepted a draft opened under the previous profile")
+    editing = action()
+    review = assert(X.ReviewBlockerEdit(editing, draft))
+    assert(X.ApplyBlockerEdit(editing, draft, review) and X.GetAssignment("MAGE", "ALL").FORTITUDE,
+      "verified shared rule failed to apply")
+    assert(not next(X.AssignmentPreview()[3].groupActions or {}), "applied rule did not clear its blockers")
+  end)
+  env.GetNumGroupMembers, env.UnitGroupRolesAssigned = oldSize, oldRole
+  db.buffAssignments, db.assignmentEnabled = oldRules, oldMode
+  cleanup()
+  refresh()
+  assert(ok, err)
+end)
 step("Forever assignment preview and why explain winning rules without changing secure rows", function()
   if not env.__forever then return end
   local cleanup = partyOfTwo("Preview")
@@ -5559,6 +5693,8 @@ step("Forever blessing exceptions follow group GUIDs and preserve class plans", 
   if not env.__forever then return end
   local cleanup = partyOfTwo("BlessingException")
   local X, O = NS.X, env.__over
+  local db = env.BuffRadarDB
+  local oldSize, oldMode, oldRules = env.GetNumGroupMembers, db.assignmentEnabled, db.buffAssignments
   local oldName, oldInfo, oldTab = env.GetSpellBookItemName, env.GetSpellBookItemInfo, env.GetSpellTabInfo
   local oldPlan = X.blessPlan.MAGE
   local displaced
@@ -5594,6 +5730,31 @@ step("Forever blessing exceptions follow group GUIDs and preserve class plans", 
       and explanation:find("Aaron-TestRealm", 1, true)
       and explanation:find("individual blessing exception", 1, true),
       "Greater fallback omitted the member with an individual blessing exception: " .. tostring(explanation))
+    env.GetNumGroupMembers = function() return 3 end
+    env.IsSpellInRange = function() return 1 end
+    db.buffAssignments = {}
+    assert(X.SetAssignmentEnabled(true))
+    assert(X.SetAssignment("MAGE", "ALL", { BLESS_KINGS = true }))
+    local source = X.AssignmentPreview()[2]
+    local action
+    for _, candidate in pairs(source.groupActions or {}) do
+      if candidate.kind == "exception" then action = candidate; break end
+    end
+    assert(action, "assignment and exception overlap did not expose an exception action")
+    local review = assert(X.ReviewBlockerEdit(action, "DEFAULT"))
+    local row = review.rows[1]
+    assert(not review.incomplete and #review.rows == 1 and row.name == "Aaron-TestRealm"
+      and row.gains[1] == "Blessing of Kings" and row.losses[1] == "Blessing of Wisdom",
+      "exception review did not show the switch to the group-plan blessing")
+    assert(X.BlessingForClass("MAGE", "party1").name == "Blessing of Wisdom",
+      "review changed the exception before Apply")
+    env.GetNumGroupMembers = function() return 4 end
+    local applied, incomplete = X.ApplyBlockerEdit(action, "DEFAULT", review)
+    assert(not applied and incomplete and incomplete.incomplete, "unknown roster allowed exception Apply")
+    env.GetNumGroupMembers = function() return 3 end
+    assert(X.ApplyBlockerEdit(action, "DEFAULT", review), "verified exception could not be applied")
+    assert(X.BlessingForClass("MAGE", "party1").name == "Blessing of Kings", "Apply did not clear the exception")
+    assert(X.SetBlessingException("target", "WISDOM"))
     displaced = "unknown"
     X.PruneBlessingExceptions()
     displaced = nil
@@ -5606,6 +5767,7 @@ step("Forever blessing exceptions follow group GUIDs and preserve class plans", 
       "departed player exception was retained")
   end)
   env.GetSpellBookItemName, env.GetSpellBookItemInfo, env.GetSpellTabInfo = oldName, oldInfo, oldTab
+  env.GetNumGroupMembers, db.assignmentEnabled, db.buffAssignments = oldSize, oldMode, oldRules
   X.blessPlan.MAGE = oldPlan
   cleanup()
   X.PruneBlessingExceptions()

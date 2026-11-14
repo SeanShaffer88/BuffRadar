@@ -626,6 +626,17 @@ local L = {
   ["Group Cast Blockers"] = "Group Cast Blockers",
   ["Edit Rule"] = "Edit Rule",
   ["Return to Blockers"] = "Return to Blockers",
+  ["Review Changes"] = "Review Changes",
+  ["Apply"] = "Apply",
+  ["Back"] = "Back",
+  ["Cancel"] = "Cancel",
+  ["Edit the draft, then review the changes before applying."] = "Edit the draft, then review the changes before applying.",
+  ["Gains: %s"] = "Gains: %s",
+  ["Loses: %s"] = "Loses: %s",
+  ["No changes to group buff offers."] = "No changes to group buff offers.",
+  ["Some group members could not be checked."] = "Some group members could not be checked.",
+  ["The group or rules changed. Review again before applying."] = "The group or rules changed. Review again before applying.",
+  ["Review the changes before applying to the current group."] = "Review the changes before applying to the current group.",
   ["No group cast blockers are currently listed."] = "No group cast blockers are currently listed.",
   ["The blocker changed. Check the updated list."] = "The blocker changed. Check the updated list.",
   ["Edit Blessing Exception"] = "Edit Blessing Exception",
@@ -1069,11 +1080,11 @@ end
 -- Group role the player picked (dungeon finder / role check): "TANK", "HEALER"
 -- or "DAMAGER"; nil for strangers, unassigned players or an unreadable answer.
 local function AssignedRole(unit)
-  if not UnitGroupRolesAssigned then return nil end
+  if not UnitGroupRolesAssigned then return nil, true end
   local ok, r = pcall(UnitGroupRolesAssigned, unit)
-  r = ok and SafeString(r) or nil
-  if r == "TANK" or r == "HEALER" or r == "DAMAGER" then return r end
-  return nil
+  if not ok or (type(r) ~= "nil" and not Readable(r)) then return nil, false end
+  if r == "TANK" or r == "HEALER" or r == "DAMAGER" then return r, true end
+  return nil, true
 end
 
 local function GetField(t, k) return t[k] end  -- shared pcall target (no per-call closures)
@@ -1581,8 +1592,18 @@ function X.AssignmentOptions()
   return options
 end
 
-function X.ResolveAssignment(class, role)
-  local row = X.AssignmentEnabled() and db.buffAssignments[class]
+function X.ResolveAssignment(class, role, proposal)
+  if not X.AssignmentEnabled() then return nil, "DEFAULT" end
+  local row = db.buffAssignments[class]
+  if proposal and proposal.kind == "rule" and proposal.class == class then
+    local slot = role or "WORLD"
+    local roleCell, allCell = row and row[slot], row and row.ALL
+    if proposal.slot == slot then roleCell = proposal.value end
+    if proposal.slot == "ALL" then allCell = proposal.value end
+    if roleCell ~= nil then return roleCell, slot end
+    if allCell ~= nil then return allCell, "ALL" end
+    return nil, "DEFAULT"
+  end
   if row then
     local slot = role or "WORLD"
     local cell = row[slot]
@@ -1592,13 +1613,17 @@ function X.ResolveAssignment(class, role)
   return nil, "DEFAULT"
 end
 
-function X.BlessingForClass(class, unit, assignment)
+function X.BlessingForClass(class, unit, assignment, proposal, rosterMember)
   local plan = X.blessPlan[class]
   if plan and not plan.mine then return nil, "other" end
   if unit and X.blessingExceptions then
-    local ok, guid = pcall(UnitGUID, unit)
-    local key = ok and SafeString(guid)
+    local key = rosterMember and rosterMember.guid
+    if not rosterMember then
+      local ok, guid = pcall(UnitGUID, unit)
+      key = ok and SafeString(guid)
+    end
     local exception = key and X.blessingExceptions[key]
+    if proposal and proposal.kind == "exception" and proposal.guid == key then exception = proposal.value end
     if exception then return blessKnown[exception], "exception" end
   end
   if plan then return blessKnown[plan.key], "plan" end
@@ -1613,11 +1638,15 @@ function X.BlessingForClass(class, unit, assignment)
   return blessKnown[db.blessingPreferences[class]] or myBlessing[class]
 end
 
-function X.AssignmentForUnit(class, unit, isGroup, isSelf)
+function X.AssignmentForUnit(class, unit, isGroup, isSelf, proposal, rosterMember)
   if not class or isSelf ~= false or not X.AssignmentEnabled() then return nil, "DEFAULT" end
-  local role = isGroup and AssignedRole(unit) or nil
-  local manual = isGroup and X.GetAssignmentRoleOverride(unit) or nil
-  local assignment, source = X.ResolveAssignment(class, role or manual)
+  local role, manual
+  if rosterMember then
+    role, manual = rosterMember.role, rosterMember.manual
+  elseif isGroup then
+    role, manual = AssignedRole(unit), X.GetAssignmentRoleOverride(unit)
+  end
+  local assignment, source = X.ResolveAssignment(class, role or manual, proposal)
   return assignment, source, role, isGroup, manual
 end
 
@@ -1922,8 +1951,12 @@ end
 local function Missing(unit, out, isGroup, isSelf, report, detail)
   wipe(out)
   if not report then X.remainTmp, X.auraUnknown = nil, nil end
-  local ok, _, class = pcall(UnitClass, unit)
-  class = ok and SafeString(class) or nil  -- class is used as a table key
+  local reviewing = report == "assignmentReview"
+  local class = reviewing and detail.member.class
+  if not reviewing then
+    local ok, _, file = pcall(UnitClass, unit)
+    class = ok and SafeString(file) or nil  -- class is used as a table key
+  end
   if not class then
     if report == "why" then detail.rule = L["Rule unavailable"] end
     return 0, true, false
@@ -1937,10 +1970,13 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
       if has == false then t.miss = t.miss + 1 end
     end
   end
-  X.scanUnit = nil  -- force a fresh index scan (fallback path) for this unit
+  if not reviewing then X.scanUnit = nil end  -- fresh index scan for aura readers
   local n = 0
   local unknown, checked
-  local assignment, source, role, roleRead, manual = X.AssignmentForUnit(class, unit, isGroup, isSelf)
+  local proposal, member
+  if reviewing then proposal, member = detail.proposal, detail.member end
+  local assignment, source, role, roleRead, manual = X.AssignmentForUnit(class, unit, isGroup, isSelf, proposal, member)
+  if reviewing and not roleRead then role, roleRead = member.role, true end
   if report == "why" then
     detail.assignment = assignment ~= nil
     detail.rule = X.AssignmentRuleText(class, role, source, assignment, isGroup, manual)
@@ -1969,7 +2005,10 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
           and (not b.single or applies)
       end
     end
-    if applies and IsOn(b.key, b.default) and X.ContextOK(b.key) then
+    local eligible = applies and IsOn(b.key, b.default) and X.ContextOK(b.key)
+    if reviewing and eligible then
+      out[#out + 1] = b.name
+    elseif eligible then
       local thr = report and report ~= "why" and 0
         or (db.rebuffPer and db.rebuffPer[b.key]) or db.rebuff
       local has = HasAny(unit, b.names, thr)
@@ -2019,15 +2058,18 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
     end
     local bl, blessingSource
     if CLASSIC_FEATURES then
-      bl, blessingSource = X.BlessingForClass(class, (isGroup or isSelf) and unit, assignment)
+      bl, blessingSource = X.BlessingForClass(class, (isGroup or isSelf) and unit, assignment, proposal, member)
     end
     if report == "why" then
       if blessingSource == "exception" then detail.blessing = L["Blessing: player exception"]
       elseif blessingSource == "plan" then detail.blessing = L["Blessing: group plan"]
       elseif blessingSource == "other" then detail.blessing = L["Blessing assigned to another Paladin"] end
     end
-    if bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf)
-       and X.ContextOK("BLESSINGS") then
+    local blessingEligible = bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf)
+      and X.ContextOK("BLESSINGS")
+    if reviewing and blessingEligible then
+      out[#out + 1] = bl.name
+    elseif blessingEligible then
       local has = HasAny(unit, bl.names)
       if report then
         checked = true
@@ -3125,15 +3167,7 @@ local function GroupAssignmentConflict(spell, groupSpell, unit, greater, baseID,
   return conflict
 end
 
--- Reapplied per roster/scan, shared by automatic, modifier and keybind offers.
-function X.GroupOffer(spell, unit, preview)
-  if not CLASSIC_FEATURES then return nil end
-  local name, baseID, greater = GroupSpellFor(spell)
-  if not name then return nil end
-  local list = ranks[name]
-  local pick = X.BindingRank(name, unit, X.ReadUnitNumber(UnitLevel, unit), db.castMethod)
-  if pick == false or (baseID and not known[name] and not X.ReadUnitBool(_G.IsPlayerSpell, baseID)
-      and not X.ReadUnitBool(_G.IsSpellKnown, baseID)) then return nil end
+function X.GroupBlockersFor(spell, name, unit, greater, baseID, preview)
   local blocker = GroupAssignmentConflict(spell, name, unit, greater, baseID, preview and preview.conflicts)
   if greater and X.blessingExceptions and next(X.blessingExceptions) then
     local class = UnitClassFile(unit)
@@ -3157,16 +3191,29 @@ function X.GroupOffer(spell, unit, preview)
       local blessing = exception and blessKnown[exception]
       if blessing and (member == unit or blessing.name ~= spell) then
         AddGroupBlocker(report, member, { kind = "exception", spell = name, single = spell,
-          name = Ignore.UnitNames(member), blessing = blessing.name })
+          name = Ignore.UnitNames(member), blessing = blessing.name, class = memberClass })
       end
     end)
     if report.first then
       local size = X.ReadUnitNumber(GetNumGroupMembers)
       if size and rosterCount < size then report.incomplete = true end
-      return nil, nil, nil, blocker and "assignment" or "exception", nil, report
+      return report, blocker and "assignment" or "exception"
     end
   end
-  if blocker then return nil, nil, nil, "assignment", nil, blocker end
+  if blocker then return blocker, "assignment" end
+end
+
+-- Reapplied per roster/scan, shared by automatic, modifier and keybind offers.
+function X.GroupOffer(spell, unit, preview)
+  if not CLASSIC_FEATURES then return nil end
+  local name, baseID, greater = GroupSpellFor(spell)
+  if not name then return nil end
+  local list = ranks[name]
+  local pick = X.BindingRank(name, unit, X.ReadUnitNumber(UnitLevel, unit), db.castMethod)
+  if pick == false or (baseID and not known[name] and not X.ReadUnitBool(_G.IsPlayerSpell, baseID)
+      and not X.ReadUnitBool(_G.IsSpellKnown, baseID)) then return nil end
+  local blocker, reason = X.GroupBlockersFor(spell, name, unit, greater, baseID, preview)
+  if blocker then return nil, nil, nil, reason, nil, blocker end
   local exact = db.castMethod ~= "macro" and pick
   local item = X.groupReagents[(exact and exact.id) or (list and list[#list].id) or baseID]
   local count = item and ReagentCount(item, preview and preview.reagents)
@@ -3228,7 +3275,7 @@ function X.GroupOfferReason(item, count, reason, blockers, compact)
   end
 end
 
-local function GroupBlockerDetails(blockers, lines, actions)
+local function GroupBlockerDetails(blockers, lines, actions, origin)
   local first = blockers.first
   if #blockers.members == 0 or first.kind == "scope" then
     lines[#lines + 1] = GroupBlockerText(first)
@@ -3237,9 +3284,13 @@ local function GroupBlockerDetails(blockers, lines, actions)
     lines[#lines + 1] = GroupBlockerText(blocker)
     if blocker.guid and blocker.name and blocker.name ~= "" then
       if blocker.kind == "rule" and X.ValidAssignmentCell(blocker.class, blocker.slot) then
-        actions[#lines] = { kind = "rule", class = blocker.class, slot = blocker.slot, guid = blocker.guid }
+        actions[#lines] = { kind = "rule", class = blocker.class, slot = blocker.slot, guid = blocker.guid,
+          origin = origin, single = blocker.single, baseline = X.GetAssignment(blocker.class, blocker.slot),
+          profileRevision = X.blockerProfileRevision }
       elseif blocker.kind == "exception" then
-        actions[#lines] = { kind = "exception", guid = blocker.guid, name = blocker.name }
+        actions[#lines] = { kind = "exception", guid = blocker.guid, name = blocker.name, class = blocker.class,
+          origin = origin, single = blocker.single, baseline = X.blessingExceptions[blocker.guid],
+          profileRevision = X.blockerProfileRevision }
       end
     end
   end
@@ -3247,6 +3298,139 @@ local function GroupBlockerDetails(blockers, lines, actions)
     lines[#lines + 1] = L["The blocker list may be incomplete because some roster information is unavailable."]
   end
   lines[#lines + 1] = string_format(L["Using %s on one player instead."], first.single)
+end
+
+do
+local function SameSnapshot(a, b)
+  if type(a) ~= "table" or type(b) ~= "table" then return a == b end
+  for key, value in pairs(a) do
+    if not SameSnapshot(value, b[key]) then return false end
+  end
+  for key in pairs(b) do
+    if a[key] == nil then return false end
+  end
+  return true
+end
+
+local function ReviewRoster()
+  local raid = InRaid()
+  local size = X.ReadUnitNumber(GetNumGroupMembers)
+  local incomplete = not size or size < 2 or size > (raid and 40 or 5) or size ~= math_floor(size)
+  local roster, count = {}, 0
+  X.ForReportRoster(function(unit, exists)
+    if not exists then incomplete = true; return end
+    local ok, guid = pcall(UnitGUID, unit)
+    local class, isSelf = UnitClassFile(unit), X.IsSelf(unit)
+    local full, short = Ignore.UnitNames(unit)
+    local role, roleReadable = AssignedRole(unit)
+    if not ok or not Readable(guid) or type(guid) ~= "string" or guid == "" or roster[guid]
+      or not class or isSelf == nil or not full or full == "" then
+      incomplete = true
+      return
+    end
+    if not roleReadable then incomplete = true end
+    local eligible = Valid(unit) and not Ignore.Has(full, short) and not X.SessionHas(full, short)
+    roster[guid] = { unit = unit, guid = guid, name = full, class = class, isSelf = isSelf, role = role,
+      manual = X.assignmentRoleOverrides and X.assignmentRoleOverrides[guid], eligible = eligible }
+    count = count + 1
+  end)
+  return roster, incomplete or count ~= size, raid
+end
+
+local function StillBlocks(action, origin)
+  if not origin.eligible then return false end
+  local offers, offered = {}, false
+  Missing(origin.unit, offers, true, origin.isSelf, "assignmentReview", { member = origin })
+  for _, spell in ipairs(offers) do
+    if spell == action.single then offered = true; break end
+  end
+  if not offered then return false end
+  local name, baseID, greater = GroupSpellFor(action.single)
+  if not name or (baseID and not known[name] and not X.ReadUnitBool(_G.IsPlayerSpell, baseID)
+    and not X.ReadUnitBool(_G.IsSpellKnown, baseID)) then return false end
+  local report = X.GroupBlockersFor(action.single, name, origin.unit, greater, baseID, { conflicts = {} })
+  for _, blocker in ipairs(report and report.members or {}) do
+    if blocker.kind == action.kind and blocker.guid == action.guid and blocker.class == action.class
+      and (action.kind ~= "rule" or blocker.slot == action.slot) then return true end
+  end
+  return false
+end
+
+local function AddedOffers(before, after)
+  local prior, added = {}, {}
+  for _, spell in ipairs(before) do prior[spell] = true end
+  for _, spell in ipairs(after) do
+    if not prior[spell] then
+      added[#added + 1] = spell
+      prior[spell] = true
+    end
+  end
+  return added
+end
+
+-- Compare assignment offers before aura, range, and cooldown checks so those
+-- transient states cannot be mistaken for a buff gained or lost by an edit.
+function X.ReviewBlockerEdit(action, value)
+  if not CLASSIC_FEATURES or not db or not InGroup() or InCombatLockdown() or X.PlayerSuspended()
+    or type(action) ~= "table" or action.profileRevision ~= X.blockerProfileRevision
+    or type(action.guid) ~= "string" or not Readable(action.guid) or action.guid == ""
+    or type(action.origin) ~= "string" or not Readable(action.origin) or action.origin == ""
+    or type(action.single) ~= "string" or not Readable(action.single) or action.single == ""
+    or type(action.class) ~= "string" or not Readable(action.class) then return nil end
+  local proposal = { kind = action.kind, class = action.class, slot = action.slot, guid = action.guid }
+  if action.kind == "rule" then
+    if not X.AssignmentEnabled() or type(action.slot) ~= "string" or not Readable(action.slot)
+      or not X.ValidAssignmentCell(action.class, action.slot)
+      or not SameSnapshot(action.baseline, X.GetAssignment(action.class, action.slot)) then return nil end
+    proposal.value = X.CopyAssignment(value)
+    if type(value) ~= "nil" and proposal.value == nil then return nil end
+  elseif action.kind == "exception" then
+    local key = X.blessingExceptions and X.blessingExceptions[action.guid]
+    local plan = X.blessPlan[action.class]
+    if not key or action.baseline ~= key or not Readable(value) or type(value) ~= "string"
+      or (value ~= "DEFAULT" and (not blessKnown[value] or (plan and not plan.mine))) then return nil end
+    if value ~= "DEFAULT" then proposal.value = value end
+  else
+    return nil
+  end
+
+  local roster, incomplete, raid = ReviewRoster()
+  local target, origin = roster[action.guid], roster[action.origin]
+  if target and target.class ~= action.class then return nil end
+  if not incomplete and (not target or not origin or not StillBlocks(action, origin)) then return nil end
+  local review = { action = action, proposal = proposal, incomplete = incomplete, rows = {},
+    state = { raid = raid, spec = X.spec, members = {} } }
+  for guid, member in pairs(roster) do
+    local before, after = {}, {}
+    if member.eligible then
+      Missing(member.unit, before, true, member.isSelf, "assignmentReview", { member = member })
+      Missing(member.unit, after, true, member.isSelf, "assignmentReview", { member = member, proposal = proposal })
+    end
+    local assignment, source = X.AssignmentForUnit(member.class, member.unit, true, member.isSelf, nil, member)
+    local plan = X.blessPlan[member.class]
+    review.state.members[guid] = { class = member.class, name = member.name, isSelf = member.isSelf,
+      role = member.role, manual = member.manual, eligible = member.eligible, source = source,
+      assignment = X.CopyAssignment(assignment), plan = plan and { key = plan.key, name = plan.name, mine = plan.mine },
+      exception = X.blessingExceptions and X.blessingExceptions[guid], before = before, after = after }
+    local gains, losses = AddedOffers(before, after), AddedOffers(after, before)
+    if #gains > 0 or #losses > 0 then
+      review.rows[#review.rows + 1] = { name = member.name, gains = gains, losses = losses }
+    end
+  end
+  table_sort(review.rows, function(a, b) return a.name < b.name end)
+  return review
+end
+
+function X.ApplyBlockerEdit(action, value, previous)
+  if not previous or previous.action ~= action or previous.incomplete then return false end
+  local fresh = X.ReviewBlockerEdit(action, value)
+  if not fresh then return false end
+  if fresh.incomplete or not SameSnapshot(previous.proposal, fresh.proposal)
+    or not SameSnapshot(previous.state, fresh.state) then return false, fresh end
+  if InCombatLockdown() or X.PlayerSuspended() then return false end
+  if action.kind == "rule" then return X.SetAssignment(action.class, action.slot, fresh.proposal.value) end
+  return X.SetBlessingExceptionForGUID(action.guid, fresh.proposal.value or "DEFAULT") ~= nil
+end
 end
 
 -- Out-of-combat snapshot, separate from the live queue and secure cast rows.
@@ -3297,7 +3481,7 @@ function X.AssignmentPreview()
       for _, spell in ipairs(row.available) do
         local offer, item, count, reason, _, blocker = X.GroupOffer(spell, unit, groupPreview)
         local text = X.GroupOfferReason(item, count, reason, blocker, true)
-        if blocker then GroupBlockerDetails(blocker, details, actions) end
+        if blocker then GroupBlockerDetails(blocker, details, actions, guid) end
         if offer then group[#group + 1] = string_format(L["Group option: %s"], offer)
         elseif text then group[#group + 1] = blocker and text or spell .. " · " .. text end
       end

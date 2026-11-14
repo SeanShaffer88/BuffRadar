@@ -2,6 +2,20 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.24 Review Blocker Edits
+
+- From a blocker, edit an All Roles cell affecting multiple members with
+  different roles. Change multiple buff selections in that cell, then
+  verify Review Changes lists the affected players and their gained or
+  lost buff offers.
+- Change a member's role or replace a roster member before Apply. Confirm
+  BuffRadar shows the updated impact and requires review again. If the
+  original cast target leaves or its rule no longer offers the spell,
+  confirm the stale edit is discarded.
+- Cancel a draft, then apply an edit and compare the refreshed blocker list
+  with the next-cast tooltip. Repeat for a local blessing exception and
+  confirm the review works with mouse and keyboard.
+
 ## 1.15.23 Edit Blocker Rules
 
 - Open a blocked cast in `/br buffassign preview` and choose **Edit Rule**.

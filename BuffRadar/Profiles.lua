@@ -296,6 +296,7 @@ do
     for key, value in pairs(patch) do candidate[key] = value end
     SanitizeDB(candidate)
     for key in pairs(patch) do db[key] = candidate[key] end
+    X.blockerProfileRevision = (X.blockerProfileRevision or 0) + 1
     X.assignmentGroupConflicts = nil
     X.prioDirty = true
     Ignore.Rebuild()
