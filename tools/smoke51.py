@@ -3706,6 +3706,11 @@ step("assignment preview opens, pages without scanning, and closes with settings
     for i = 1, 16 do
       members[i] = { name = "Member" .. i, rule = "Druid role", evaluated = true, buffs = { "Thorns" }, available = {} }
     end
+    members[1].group = "Prayer of Fortitude is blocked by 40 group members."
+    members[1].groupDetails = {}
+    for i = 1, 40 do
+      members[1].groupDetails[i] = "Blocker " .. i .. " · Druid tank rule excludes Fortitude"
+    end
     members[2] = { name = "Member2", rule = "Rule unavailable", status = "Player details unavailable" }
     X.AssignmentPreview = function() scans = scans + 1; return members end
     slash("buffassign")
@@ -3728,6 +3733,15 @@ step("assignment preview opens, pages without scanning, and closes with settings
     advanceTo(preview.rows[1])
     input.scripts.OnEnterPressed(input)
     assert(scans == 1 and preview.rows[1].name == "Member1", "activating a member changed the snapshot")
+    local blockers = assert(env.BuffRadarAssignmentBlockers)
+    assert(blockers:IsVisible() and blockers.rows[1].text:GetText() == members[1].groupDetails[1],
+      "opening the preview row did not show the first blocker")
+    for _ = 1, 6 do blockers.next:Click() end
+    assert(blockers.rows[4].text:GetText() == members[1].groupDetails[40] and not blockers.next:IsShown(),
+      "paged blocker view did not reach the end of a full raid")
+    blockers:Hide()
+    assert(cfg.navOutline.shown and cfg.navOutline.points[1][2] == preview.rows[1],
+      "closing blocker details did not restore focus to the source row")
     advanceTo(preview.next)
     input.scripts.OnEnterPressed(input)
     assert(preview.rows[1].name == "Member8" and scans == 1, "keyboard paging scanned or selected the wrong page")
@@ -5129,18 +5143,20 @@ step("Forever assignment preview and why explain winning rules without changing 
     local mage, warrior = preview()
     assert(mage.name == "Aaron-TestRealm" and mage.rule:find("DPS rule", 1, true)
       and mage.rule:find("None", 1, true) and #mage.buffs == 0, "preview ignored explicit None")
-    assert(warrior.group and warrior.group:find("Prayer of Fortitude would reach Aaron-TestRealm", 1, true)
-      and warrior.group:find("DPS rule", 1, true) and warrior.group:find("None", 1, true),
-      "preview lost the group spell, blocking member, or winning rule: " .. tostring(warrior.group))
+    local details = table.concat(warrior.groupDetails or {}, "\n")
+    assert(details:find("Prayer of Fortitude would reach Aaron-TestRealm", 1, true)
+      and details:find("DPS rule", 1, true) and details:find("None", 1, true),
+      "preview lost the group spell, blocking member, or winning rule: " .. details)
     assert(groupButton:GetAttribute("unit") == "party2"
       and groupButton:GetAttribute("spell") == "Power Word: Fortitude", "blocked group key did not use single-target cast")
     local lines = {}
     env.GameTooltip = { SetOwner = function() end, Show = function() end, Hide = function() end,
       AddLine = function(_, line) lines[#lines + 1] = line end }
     X.ShowNextPreview({})
-    assert(groupButton.bOfferReason and warrior.group:find(groupButton.bOfferReason, 1, true)
-      and table.concat(lines, "\n"):find(groupButton.bOfferReason, 1, true),
-      "next-cast tooltip and assignment preview disagreed on the blocker")
+    local tooltip = table.concat(lines, "\n")
+    assert(tooltip:find("Prayer of Fortitude is blocked by 1 group member.", 1, true),
+      "next-cast tooltip did not count the blocker: " .. tooltip)
+    assert(not tooltip:find("Aaron-TestRealm", 1, true), "tooltip displayed the full blocker list")
     env.GameTooltip = oldTip
     assert(X.assignmentGroupConflicts == conflicts, "preview changed the live group conflict cache")
     local before = #chat
@@ -5175,6 +5191,34 @@ step("Forever assignment preview and why explain winning rules without changing 
     assert(warrior.group and warrior.group:find("Group option: Prayer of Fortitude", 1, true)
       and groupButton:GetAttribute("spell") == "Prayer of Fortitude" and not groupButton.bOfferReason,
       "group cast or explanation stayed stale after the assignment changed")
+
+    local fullName, name, class, guid = O.UnitFullName, O.UnitName, O.UnitClass, O.UnitGUID
+    O.UnitExists = function(unit) return unit == "party3" or unit == "party4" or exists(unit) end
+    O.UnitIsPlayer = function(unit) return unit == "party3" or exists(unit) end
+    O.UnitName = function(unit) if unit == "party3" then return "Blair" end return name(unit) end
+    O.UnitFullName = function(unit) if unit == "party3" then return "Blair", "TestRealm" end return fullName(unit) end
+    O.UnitClass = function(unit) if unit == "party3" then return "Rogue", "ROGUE" end return class(unit) end
+    O.UnitGUID = function(unit) if unit == "party3" then return "Player-1-Blocker3" end return guid(unit) end
+    env.GetNumGroupMembers = function() return 5 end
+    role = "DAMAGER"
+    assert(X.SetAssignment("ROGUE", "DAMAGER", false))
+    fire("PLAYER_ROLES_ASSIGNED")
+    X.Refresh()
+    warrior = X.AssignmentPreview()[3]
+    details = table.concat(warrior.groupDetails or {}, "\n")
+    assert(details:find("Aaron-TestRealm", 1, true) and details:find("Blair-TestRealm", 1, true)
+      and details:find("incomplete", 1, true) and not details:find("party4", 1, true),
+      "preview lost named blockers or roster uncertainty: " .. details)
+    lines = {}
+    env.GameTooltip = { SetOwner = function() end, Show = function() end, Hide = function() end,
+      AddLine = function(_, line) lines[#lines + 1] = line end }
+    X.ShowNextPreview({})
+    tooltip = table.concat(lines, "\n")
+    assert(tooltip:find("Prayer of Fortitude is blocked by 2 group members.", 1, true)
+      and tooltip:find("incomplete", 1, true)
+      and not tooltip:find("Aaron-TestRealm", 1, true) and not tooltip:find("Blair-TestRealm", 1, true),
+      "compact tooltip lost the known count or partial coverage: " .. tooltip)
+    assert(groupButton:GetAttribute("spell") == "Power Word: Fortitude", "multi-blocker list changed fallback cast")
   end)
   env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled = oldRole, oldRules, oldMode
   env.GetNumGroupMembers, env.C_Item.GetItemCount, env.GameTooltip = oldSize, oldCount, oldTip

@@ -2,6 +2,15 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.22 — Forever test build
+
+- List all known group-cast blockers in the assignment preview, with
+  the player and applicable rule or blessing exception.
+- Show the known blocker count in the next-cast tooltip, with a warning
+  when some roster information is unavailable.
+
+In-game verification is pending for this build.
+
 ## 1.15.21 — Forever test build
 
 - Explain why a group cast was skipped in the assignment preview and
@@ -10,7 +19,8 @@ All notable changes to BuffRadar are listed here. Newest first.
 - Show when group-cast safety cannot be verified because roster data or
   the spell's coverage is unavailable.
 
-In-game verification is pending for this build.
+The maintainer confirmed live verification of the 1.15.21 field-test
+build `570be5d20ae2` in WoW: Forever.
 
 ## 1.15.20 — Forever test build
 

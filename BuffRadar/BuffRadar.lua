@@ -620,6 +620,10 @@ local L = {
   ["%s could not be verified because its group coverage is unknown."] = "%s could not be verified because its group coverage is unknown.",
   ["A group member"] = "A group member",
   ["Using %s on one player instead."] = "Using %s on one player instead.",
+  ["%s is blocked by %d group member."] = "%s is blocked by %d group member.",
+  ["%s is blocked by %d group members."] = "%s is blocked by %d group members.",
+  ["The blocker list may be incomplete because some roster information is unavailable."] = "The blocker list may be incomplete because some roster information is unavailable.",
+  ["Group Cast Blockers"] = "Group Cast Blockers",
   ["Preview Current Group"] = "Preview Current Group",
   ["Refresh Preview"] = "Refresh Preview",
   ["No group to preview."] = "No group to preview.",
@@ -2997,15 +3001,27 @@ local function UnitClassFile(unit)
   return ok and SafeString(class)
 end
 
+local function AddGroupBlocker(report, member, blocker)
+  if not report.first then report.first = blocker end
+  local ok, guid = pcall(UnitGUID, member)
+  local key = ok and Readable(guid) and type(guid) == "string" and guid ~= "" and guid or member
+  if report.seen[key] then return end
+  report.seen[key] = true
+  report.members[#report.members + 1] = blocker
+  blocker.memberKey = key
+end
+
 -- Broad spells use single-target fallback if the observed affected roster
 -- includes someone excluded by an assignment.
 local function GroupAssignmentConflict(spell, groupSpell, unit, greater, baseID, cache)
   if not X.AssignmentEnabled() or not next(db.buffAssignments) then return false end
   if not baseID or not (X.IsSelf(unit) or unit:match("^party%d+$") or unit:match("^raid%d+$")) then
-    return { kind = "scope", spell = groupSpell, single = spell }
+    return { first = { kind = "scope", spell = groupSpell, single = spell }, members = {} }
   end
   local targetClass = greater and UnitClassFile(unit)
-  if greater and not targetClass then return { kind = "roster", spell = groupSpell, single = spell } end
+  if greater and not targetClass then
+    return { first = { kind = "roster", spell = groupSpell, single = spell }, members = {}, incomplete = true }
+  end
   local scope = targetClass and spell .. ":" .. targetClass or spell
   cache = cache or X.assignmentGroupConflicts
   if cache and cache[scope] ~= nil then return cache[scope] end
@@ -3014,13 +3030,19 @@ local function GroupAssignmentConflict(spell, groupSpell, unit, greater, baseID,
     for _, buff in ipairs(myBuffs) do
       if buff.name == spell and not buff.custom then buffKey = buff.key; break end
     end
-    if not buffKey then return { kind = "scope", spell = groupSpell, single = spell } end
+    if not buffKey then return { first = { kind = "scope", spell = groupSpell, single = spell }, members = {} } end
   end
-  local conflict = false
+  local report = { members = {}, seen = {} }
+  local rosterCount = 0
   X.ForReportRoster(function(member, exists)
-    if conflict or (exists and X.IsSelf(member)) then return end
+    rosterCount = rosterCount + 1
+    if exists and X.IsSelf(member) then return end
     local class = exists and UnitClassFile(member)
-    if not class then conflict = { kind = "roster", spell = groupSpell, single = spell }; return end
+    if not class then
+      report.incomplete = true
+      if not report.first then report.first = { kind = "roster", spell = groupSpell, single = spell } end
+      return
+    end
     if greater and class ~= targetClass then return end
     local assignment, source, role, _, manual = X.AssignmentForUnit(class, member, true, false)
     if assignment == nil then return end
@@ -3032,9 +3054,16 @@ local function GroupAssignmentConflict(spell, groupSpell, unit, greater, baseID,
     elseif assignment and assignment[buffKey] then
       return
     end
-    conflict = { kind = kind or "rule", spell = groupSpell, single = spell, name = Ignore.UnitNames(member),
-      rule = X.AssignmentRuleText(class, role, source, assignment, true, manual), blessing = blessing }
+    AddGroupBlocker(report, member, { kind = kind or "rule", spell = groupSpell, single = spell,
+      name = Ignore.UnitNames(member), rule = X.AssignmentRuleText(class, role, source, assignment, true, manual),
+      blessing = blessing })
   end)
+  local conflict = false
+  if report.first then
+    local size = X.ReadUnitNumber(GetNumGroupMembers)
+    if size and rosterCount < size then report.incomplete = true end
+    conflict = report
+  end
   if cache then cache[scope] = conflict end
   return conflict
 end
@@ -3049,24 +3078,38 @@ function X.GroupOffer(spell, unit, preview)
   if pick == false or (baseID and not known[name] and not X.ReadUnitBool(_G.IsPlayerSpell, baseID)
       and not X.ReadUnitBool(_G.IsSpellKnown, baseID)) then return nil end
   local blocker = GroupAssignmentConflict(spell, name, unit, greater, baseID, preview and preview.conflicts)
-  if blocker then
-    return nil, nil, nil, "assignment", nil, blocker
-  end
   if greater and X.blessingExceptions and next(X.blessingExceptions) then
-    local class, conflict = UnitClassFile(unit), false
+    local class = UnitClassFile(unit)
+    local report = { first = blocker and blocker.first, members = {}, seen = {}, incomplete = blocker and blocker.incomplete }
+    local rosterCount = 0
+    if blocker then
+      for _, member in ipairs(blocker.members) do
+        report.members[#report.members + 1] = member
+        report.seen[member.memberKey] = true
+      end
+    end
     X.ForReportRoster(function(member, exists)
-      if conflict or not exists or UnitClassFile(member) ~= class then return end
+      rosterCount = rosterCount + 1
+      local memberClass = exists and UnitClassFile(member)
+      if not memberClass then report.incomplete = true end
+      if not exists or memberClass ~= class then return end
       local ok, guid = pcall(UnitGUID, member)
       local key = ok and SafeString(guid)
+      if not key or key == "" then report.incomplete = true end
       local exception = key and X.blessingExceptions[key]
       local blessing = exception and blessKnown[exception]
       if blessing and (member == unit or blessing.name ~= spell) then
-        conflict = { kind = "exception", spell = name, single = spell,
-          name = Ignore.UnitNames(member), blessing = blessing.name }
+        AddGroupBlocker(report, member, { kind = "exception", spell = name, single = spell,
+          name = Ignore.UnitNames(member), blessing = blessing.name })
       end
     end)
-    if conflict then return nil, nil, nil, "exception", nil, conflict end
+    if report.first then
+      local size = X.ReadUnitNumber(GetNumGroupMembers)
+      if size and rosterCount < size then report.incomplete = true end
+      return nil, nil, nil, blocker and "assignment" or "exception", nil, report
+    end
   end
+  if blocker then return nil, nil, nil, "assignment", nil, blocker end
   local exact = db.castMethod ~= "macro" and pick
   local item = X.groupReagents[(exact and exact.id) or (list and list[#list].id) or baseID]
   local count = item and ReagentCount(item, preview and preview.reagents)
@@ -3083,27 +3126,42 @@ local function ReagentName(item)
   return tostring(item)
 end
 
-function X.GroupOfferReason(item, count, reason, blocker)
-  if blocker then
-    local name = blocker.name or L["A group member"]
+local function GroupBlockerText(blocker)
+  local name = blocker.name and blocker.name ~= "" and blocker.name or L["A group member"]
+  if blocker.kind == "roster" then
+    return string_format(L["%s could not be verified because roster information is unavailable."], blocker.spell)
+  elseif blocker.kind == "scope" then
+    return string_format(L["%s could not be verified because its group coverage is unknown."], blocker.spell)
+  elseif blocker.kind == "exception" then
+    return string_format(L["%s conflicts with %s's individual blessing exception (%s)."],
+      blocker.spell, name, blocker.blessing or blocker.single)
+  elseif blocker.kind == "other" then
+    return string_format(L["%s is blocked because %s's blessing is assigned to another Paladin."], blocker.spell, name)
+  elseif blocker.kind == "plan" then
+    return string_format(L["%s is blocked because %s has a different group-plan blessing (%s)."],
+      blocker.spell, name, blocker.blessing or L["Rule unavailable"])
+  else
+    return string_format(L["%s would reach %s, whose assignment excludes %s (%s)."],
+      blocker.spell, name, blocker.single, blocker.rule)
+  end
+end
+
+function X.GroupOfferReason(item, count, reason, blockers, compact)
+  if blockers then
+    local first, total = blockers.first, #blockers.members
     local text
-    if blocker.kind == "roster" then
-      text = string_format(L["%s could not be verified because roster information is unavailable."], blocker.spell)
-    elseif blocker.kind == "scope" then
-      text = string_format(L["%s could not be verified because its group coverage is unknown."], blocker.spell)
-    elseif blocker.kind == "exception" then
-      text = string_format(L["%s conflicts with %s's individual blessing exception (%s)."],
-        blocker.spell, name, blocker.blessing or blocker.single)
-    elseif blocker.kind == "other" then
-      text = string_format(L["%s is blocked because %s's blessing is assigned to another Paladin."], blocker.spell, name)
-    elseif blocker.kind == "plan" then
-      text = string_format(L["%s is blocked because %s has a different group-plan blessing (%s)."],
-        blocker.spell, name, blocker.blessing or L["Rule unavailable"])
+    if compact and total > 0 then
+      local template = total == 1 and L["%s is blocked by %d group member."]
+        or L["%s is blocked by %d group members."]
+      text = string_format(template, first.spell, total)
+      if blockers.incomplete then
+        text = text .. " " .. L["The blocker list may be incomplete because some roster information is unavailable."]
+      end
+      if first.kind == "scope" then text = text .. " " .. GroupBlockerText(first) end
     else
-      text = string_format(L["%s would reach %s, whose assignment excludes %s (%s)."],
-        blocker.spell, name, blocker.single, blocker.rule)
+      text = GroupBlockerText(first)
     end
-    return text .. " " .. string_format(L["Using %s on one player instead."], blocker.single)
+    return text .. " " .. string_format(L["Using %s on one player instead."], first.single)
   end
   if reason == "assignment" then return L["Group buff would conflict with an assignment."] end
   if reason == "exception" then return L["Group blessing would conflict with a player exception."] end
@@ -3111,6 +3169,20 @@ function X.GroupOfferReason(item, count, reason, blocker)
     return string_format(count == false and L["Could not check reagent: %s."] or L["Missing reagent: %s."],
       ReagentName(item))
   end
+end
+
+local function GroupBlockerDetails(blockers, lines)
+  local first = blockers.first
+  if #blockers.members == 0 or first.kind == "scope" then
+    lines[#lines + 1] = GroupBlockerText(first)
+  end
+  for _, blocker in ipairs(blockers.members) do
+    lines[#lines + 1] = GroupBlockerText(blocker)
+  end
+  if blockers.incomplete and (#blockers.members > 0 or first.kind ~= "roster") then
+    lines[#lines + 1] = L["The blocker list may be incomplete because some roster information is unavailable."]
+  end
+  lines[#lines + 1] = string_format(L["Using %s on one player instead."], first.single)
 end
 
 -- Out-of-combat snapshot, separate from the live queue and secure cast rows.
@@ -3157,14 +3229,16 @@ function X.AssignmentPreview()
         for _, spell in ipairs(detail.cooldown) do row.buffs[#row.buffs + 1] = spell end
       end
       if detail.blessing then row.rule = row.rule .. " · " .. detail.blessing end
-      local group = {}
+      local group, details = {}, {}
       for _, spell in ipairs(row.available) do
         local offer, item, count, reason, _, blocker = X.GroupOffer(spell, unit, groupPreview)
-        local text = X.GroupOfferReason(item, count, reason, blocker)
+        local text = X.GroupOfferReason(item, count, reason, blocker, true)
+        if blocker then GroupBlockerDetails(blocker, details) end
         if offer then group[#group + 1] = string_format(L["Group option: %s"], offer)
         elseif text then group[#group + 1] = blocker and text or spell .. " · " .. text end
       end
       if #group > 0 then row.group = table.concat(group, " · ") end
+      if #details > 0 then row.groupDetails = details end
     end
   end, limit)
   -- The index fallback is a one-unit scratch buffer. Invalidate it after
@@ -5454,6 +5528,7 @@ local function BindGroupCached(btn, unit, spell, guid)
   if pick == false then ClearGroup(); return false end
   local id = pick and pick.id
   btn.bOfferReason = X.GroupOfferReason(item, count, reason, blocker)
+  btn.bOfferSummary = blocker and X.GroupOfferReason(item, count, reason, blocker, true) or btn.bOfferReason
   if btn.bGuid == guid and btn.bUnit == unit and btn.bSpell == gspell
      and btn.bMethod == method and btn.bLevel == lvl and btn.bSelf == isSelf and btn.bRankID == id then
     return btn:GetAttribute("type") ~= nil
@@ -5530,9 +5605,9 @@ function X.NoCastReason(entry)
   local group = X.groupBtn
   if not entry then return X.groupFallback or (group and group.entry and group.bOfferReason) end
   if group and group.entry == entry and group.bOfferReason then
-    return group.bOfferReason
+    return group.bOfferSummary
   end
-  if X.groupFallbackEntry == entry then return X.groupFallback end
+  if X.groupFallbackEntry == entry then return X.groupFallbackSummary end
 end
 
 function X.ShowNextPreview(owner)
@@ -6757,7 +6832,7 @@ local function Refresh()
       return
   end
 
-  X.rowView, X.groupFallback, X.groupFallbackEntry = nil, nil, nil
+  X.rowView, X.groupFallback, X.groupFallbackEntry, X.groupFallbackSummary = nil, nil, nil, nil
   local n = CollectEntries()
   X.CheckDrops()
   X.CheckRange()
@@ -6798,6 +6873,7 @@ local function Refresh()
               converted = true
             else
               X.groupFallback = X.GroupOfferReason(item, count, reason, blocker)
+              X.groupFallbackSummary = blocker and X.GroupOfferReason(item, count, reason, blocker, true) or X.groupFallback
               X.groupFallbackEntry = X.groupFallback and e or nil
             end
             break

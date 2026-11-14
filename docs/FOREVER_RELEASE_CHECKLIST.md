@@ -2,6 +2,17 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.22 Group-Cast Blocker Lists
+
+- With reagents available, configure two group members to exclude the same
+  group spell. Use `/br buffassign preview` to read both players and their
+  rules, then hover the main window footer and confirm the count is two.
+- Remove one conflict, then the other. Confirm the count drops and the
+  group cast returns after the final conflict clears.
+- Repeat with a class-wide Greater Blessing and individual exceptions.
+  Verify the same player counts once. When roster details are unavailable,
+  verify the UI distinguishes known blockers from incomplete information.
+
 ## 1.15.21 Group-Cast Explanations
 
 - With a group buff and its reagent available, make one group member's

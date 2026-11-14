@@ -64,7 +64,8 @@ function K.Modal()
   local preview = assignments and assignments.preview
   return assignments and assignments:IsShown()
     and (preview and preview:IsShown()
-        and (preview.roleEditor and preview.roleEditor:IsShown() and preview.roleEditor or preview)
+        and (preview.roleEditor and preview.roleEditor:IsShown() and preview.roleEditor
+          or preview.blockers and preview.blockers:IsShown() and preview.blockers or preview)
       or assignments.picker:IsShown() and assignments.picker or assignments)
     or cfg.blessingPanel and cfg.blessingPanel:IsShown() and cfg.blessingPanel
     or cfg.displayPanel and cfg.displayPanel:IsShown() and cfg.displayPanel
@@ -875,6 +876,69 @@ function AssignmentUI.BuildPicker(panel)
   return picker
 end
 
+function AssignmentUI.UpdateBlockers(panel)
+  local lines = panel.member.groupDetails
+  local pages = math.max(1, math.ceil(#lines / #panel.rows))
+  panel.page = math_min(pages, math.max(1, panel.page))
+  local first = (panel.page - 1) * #panel.rows + 1
+  panel.previous:SetShown(panel.page > 1)
+  panel.next:SetShown(panel.page < pages)
+  for i, row in ipairs(panel.rows) do
+    local line = lines[first + i - 1]
+    row.text:SetText(line or "")
+    row:SetShown(line ~= nil)
+  end
+end
+
+function AssignmentUI.OpenBlockers(preview, member)
+  if InCombatLockdown() or X.PlayerSuspended() or not member or not member.groupDetails or #member.groupDetails == 0 then return end
+  local panel = preview.blockers
+  if not panel then
+    panel = AssignmentUI.CreatePanel(preview, "BuffRadarAssignmentBlockers", 574, 405, preview:GetFrameLevel() + 5)
+    preview.blockers = panel
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 16, -14)
+    title:SetText(L["Group Cast Blockers"])
+    AssignmentUI.CloseButton(panel, function() panel:Hide() end)
+    panel.rows = {}
+    local function move(delta)
+      panel.page = panel.page + delta
+      AssignmentUI.UpdateBlockers(panel)
+      if K.active and not K.edit and not K.InScope(K.current) then K.Move(1) end
+    end
+    panel:EnableMouseWheel(true)
+    panel:SetScript("OnMouseWheel", function(_, delta) move(delta > 0 and -1 or 1) end)
+    for i = 1, 6 do
+      local row = CreateFrame("Button", nil, panel)
+      row:SetSize(542, 50)
+      row:SetPoint("TOPLEFT", 16, -45 - (i - 1) * 53)
+      row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+      row.text:SetPoint("TOPLEFT")
+      row.text:SetPoint("TOPRIGHT")
+      row.text:SetJustifyH("LEFT")
+      row.text:SetWordWrap(true)
+      K.Register(row, panel, function() return row.text:GetText() end, "detail")
+      panel.rows[i] = row
+    end
+    panel.previous = MakeButton(panel, L["Previous"], 110, function() move(-1) end)
+    panel.previous:SetPoint("BOTTOMLEFT", 16, 12)
+    panel.next = MakeButton(panel, L["Next"], 110, function() move(1) end)
+    panel.next:SetPoint("LEFT", panel.previous, "RIGHT", 8, 0)
+    panel:HookScript("OnHide", function()
+      local sourceRow = panel.sourceRow
+      panel.member, panel.sourceRow = nil, nil
+      if K.active and not K.edit and preview:IsVisible() then
+        K.Focus(sourceRow and sourceRow.navigation or preview.refresh.navigation)
+      end
+    end)
+    if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarAssignmentBlockers") end
+  end
+  panel.member, panel.page = member, 1
+  AssignmentUI.UpdateBlockers(panel)
+  panel:Show()
+  if K.active and not K.edit then K.Move(1) end
+end
+
 function AssignmentUI.UpdatePreview(preview, editorClosed)
   local members = preview.members
   local focusChanged = editorClosed
@@ -906,7 +970,9 @@ function AssignmentUI.UpdatePreview(preview, editorClosed)
       if member.group then parts[#parts + 1] = member.group end
       row.name = member.name
       row.heading:SetText(member.name .. " · " .. member.rule)
+      local action = member.groupDetails and #member.groupDetails > 0
       row.description = member.rule .. "\n" .. table.concat(parts, "\n")
+        .. (action and "\n" .. L["Group Cast Blockers"] or "")
       row.detail:SetText(table.concat(parts, " · "))
       if member.roleEditable then
         row.roleButton:SetText(member.roleOverride and L["Change Role"] or L["Set Role"])
@@ -928,6 +994,7 @@ function AssignmentUI.RefreshPreview(preview)
   if InCombatLockdown() or X.PlayerSuspended() or not preview:IsVisible() then return end
   preview.pendingRefresh = nil
   preview.members = X.AssignmentPreview()
+  if preview.blockers and preview.blockers:IsShown() then preview.blockers:Hide() end
   local editor = preview.roleEditor
   local editorClosed
   if editor and editor:IsVisible() then
@@ -1056,6 +1123,10 @@ function AssignmentUI.BuildPreview(panel)
     row:EnableMouse(true)
     row:EnableMouseWheel(true)
     row:SetScript("OnMouseWheel", onWheel)
+    row:SetScript("OnClick", function()
+      AssignmentUI.OpenBlockers(preview, row.member)
+      if preview.blockers and preview.blockers:IsShown() then preview.blockers.sourceRow = row end
+    end)
     row.heading = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     row.heading:SetPoint("TOPLEFT", 3, -3)
     row.heading:SetPoint("TOPRIGHT", -3, -3)
@@ -1073,7 +1144,7 @@ function AssignmentUI.BuildPreview(panel)
       function() return AssignmentUI.labels[row.member.roleOverride] end)
     local function name() return row.name end
     local function description() return row.description end
-    K.Register(row, preview, name, "detail", description)
+    K.Register(row, preview, name, "button", description)
     Tip(row, name, description)
     preview.rows[index] = row
   end
@@ -1083,6 +1154,7 @@ function AssignmentUI.BuildPreview(panel)
   preview.next:SetPoint("LEFT", preview.previous, "RIGHT", 8, 0)
   preview:HookScript("OnHide", function()
     if preview.roleEditor then preview.roleEditor:Hide() end
+    if preview.blockers then preview.blockers:Hide() end
     preview.pendingRefresh, preview.members = nil, {}
     for _, row in ipairs(preview.rows) do row.member = nil end
     GameTooltip:Hide()
