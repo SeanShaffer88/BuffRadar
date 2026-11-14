@@ -29,7 +29,8 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     end
     function methods.Show(self) local was = self.shown; self.shown = true
       if not was and self.scripts.OnShow then self.scripts.OnShow(self) end end
-    function methods.Hide(self) self.shown = false end
+    function methods.Hide(self) local was = self.shown; self.shown = false
+      if was and self.scripts.OnHide then self.scripts.OnHide(self) end end
     function methods.SetShown(self, v) if v then self:Show() else self:Hide() end end
     function methods.IsShown(self) return self.shown end
     function methods.IsVisible(self) return self.shown end

@@ -36,10 +36,17 @@ env.UnitIsPVP = function(unit)
   return unitIsPvP(unit)
 end
 local visibilityDrivers = {}
+local castDrivers = {}
 local registerStateDriver = env.RegisterStateDriver
 env.RegisterStateDriver = function(target, state, condition)
-  if state ~= "visibility" then return registerStateDriver(target, state, condition) end
-  assert(condition == "[combat] hide", "visibility driver must not force a show outside combat")
+  if state ~= "visibility" then
+    if state == "combat" then
+      assert(condition == "[@player,dead][combat] combat; nocombat", "cast driver must stop on player death or combat")
+      castDrivers[target] = true
+    end
+    return registerStateDriver(target, state, condition)
+  end
+  assert(condition == "[@player,dead][combat] hide", "visibility driver must hide on death without forcing a show on recovery")
   if noTemplates then error("visibility driver unavailable in fallback setup") end
   visibilityDrivers[target] = (visibilityDrivers[target] or 0) + 1
 end
@@ -134,12 +141,33 @@ step("find event frame", function() assert(driver, "no frame registered ADDON_LO
 if not driver then return results, chat end
 local fire = function(ev, ...)
   driver.scripts.OnEvent(driver, ev, ...)
-  if ev == "PLAYER_REGEN_DISABLED" then
+  if ev == "PLAYER_REGEN_DISABLED" or (ev == "PLAYER_DEAD" and env.__combat) then
     for target in pairs(visibilityDrivers) do target.shown = false end
+    for target in pairs(castDrivers) do
+      for _, attribute in ipairs({ "type", "spell", "unit", "macrotext", "shift-type1",
+          "shift-spell1", "shift-unit1", "shift-macrotext1" }) do
+        target.attrs[attribute] = nil
+      end
+    end
   end
 end
 step("ADDON_LOADED", function() fire("ADDON_LOADED", "BuffRadar") end)
-step("PLAYER_LOGIN", function() fire("PLAYER_LOGIN") end)
+step("PLAYER_LOGIN while dead starts with all buff surfaces hidden and disarmed", function()
+  env.__over.UnitIsDeadOrGhost = function(u) return u == "player" end
+  local db = env.BuffRadarDB
+  local oldMinimap = db.showMinimap
+  db.showMinimap = true
+  fire("PLAYER_LOGIN")
+  assert(not env.BuffRadarFrame:IsShown() and not NS.X.pill:IsShown(), "dead login showed a buff surface")
+  assert(not env.BuffRadarMinimapButton:IsShown() and db.showMinimap, "dead login changed minimap preference")
+  assert(not env.BuffRadarNextButton:GetAttribute("type") and not env.BuffRadarGroupButton:GetAttribute("type"),
+    "dead login armed a cast binding")
+  env.__over.UnitIsDeadOrGhost = nil
+  fire("PLAYER_ALIVE")
+  assert(env.BuffRadarMinimapButton:IsShown(), "living player did not regain configured minimap button")
+  db.showMinimap = oldMinimap
+  NS.X.cfgAPI.RefreshMinimapButton()
+end)
 step("window exists", function() assert(env.BuffRadarFrame, "BuffRadarFrame not created") end)
 step("minimap button exists", function() assert(env.BuffRadarMinimapButton, "no minimap button") end)
 step("minimap button follows both axes after the map is resized", function()
@@ -1699,13 +1727,19 @@ step("cover-me handoff: duties pass while a buddy is away (1.7.0)", function()
     if env.__addonSent[i].msg:find("COVER;", 1, true) then coverMsg = true end
   end
   assert(coverMsg, "my death did not announce a cover")
-  env.__over.UnitIsDeadOrGhost = function() return false end
   fire("PLAYER_ALIVE")
+  local releaseSent = #env.__addonSent
+  for i = sent0 + 1, releaseSent do
+    assert(not env.__addonSent[i].msg:find("BACK;", 1, true), "releasing sent a premature return")
+  end
+  fire("PLAYER_UNGHOST")
+  env.__over.UnitIsDeadOrGhost = function() return false end
+  timerTick()
   local backMsg
-  for i = sent0 + 1, #env.__addonSent do
+  for i = releaseSent + 1, #env.__addonSent do
     if env.__addonSent[i].msg:find("BACK;", 1, true) then backMsg = true end
   end
-  assert(backMsg, "my return was not announced")
+  assert(backMsg, "my return was not announced after the living flag recovered")
   env.__over.UnitIsDeadOrGhost = nil
   env.UnitIsGroupLeader = nil
   cleanup()
@@ -1971,6 +2005,52 @@ step("combat always hides the list and restores it afterward", function()
   timerTick()
   assert(frame:IsShown(), "window did not return after combat ended")
 end)
+step("close control follows hover without reserving titleless header space", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local frame, close = env.BuffRadarFrame, NS.X.closeButton
+  local oldTitle, oldLocked, oldClick = db.showTitle, db.locked, db.clickThrough
+  local oldMouse, oldCloseMouse, oldTop = env.__mouseOver, close.IsMouseOver, env.UIParent.GetTop
+  local ok, err = pcall(function()
+    db.showTitle, db.locked, db.clickThrough = true, false, false
+    env.__mouseOver = false
+    X.ApplyRowLayout()
+    local titledTop = X.topH
+    frame:Show()
+    X.UpdateFade()
+    assert(not close:IsShown(), "close control is visible without hover")
+    env.__mouseOver = true
+    frame:GetScript("OnEnter")(frame)
+    assert(close:IsShown() and close.hoverAnchor == "TOPRIGHT", "titled window hover did not reveal close")
+    env.UIParent.GetTop = function() return 1000 end
+    db.showTitle = false
+    X.ApplyRowLayout()
+    X.UpdateFade()
+    assert(titledTop - X.topH == 24, "titleless rows still reserve the title header")
+    assert(close.hoverAnchor == "BOTTOMRIGHT", "titleless close does not float above its rows")
+    env.__mouseOver = false
+    close.IsMouseOver = function() return true end
+    frame:GetScript("OnLeave")(frame)
+    assert(close:IsShown(), "moving onto the floating button hid it")
+    env.UIParent.GetTop = function() return 605 end
+    X.UpdateFade()
+    assert(close.hoverAnchor == "TOPRIGHT", "close went outside a window near the screen edge")
+    db.locked, db.clickThrough = true, true
+    X.ApplyClickThrough()
+    assert(not close:IsShown(), "locked click-through window intercepted hover")
+    db.locked, db.clickThrough = false, false
+    env.__mouseOver = true
+    X.ApplyClickThrough()
+    assert(close:IsShown(), "close did not reappear when click-through ended")
+    frame:Hide()
+    assert(not close:IsShown(), "close remained visible on a hidden frame")
+  end)
+  db.showTitle, db.locked, db.clickThrough = oldTitle, oldLocked, oldClick
+  env.__mouseOver, close.IsMouseOver, env.UIParent.GetTop = oldMouse, oldCloseMouse, oldTop
+  X.ApplyRowLayout()
+  X.ApplyClickThrough()
+  timerTick()
+  assert(ok, err)
+end)
 step("combat visibility leaves locked frames to the secure driver", function()
   local frame, pill = env.BuffRadarFrame, NS.X.pill
   local db = env.BuffRadarDB
@@ -2004,6 +2084,80 @@ step("combat visibility leaves locked frames to the secure driver", function()
   end)
   env.__combat, db.hidden = false, oldHidden
   frame.Hide, pill.Hide = hideFrame, hidePill
+  assert(ok, err)
+end)
+step("death suspends the window, settings and casts through release and combat exit", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local frame, pill, button = env.BuffRadarFrame, X.pill, env.BuffRadarMinimapButton
+  local oldHidden, oldMinimap, oldDead = db.hidden, db.showMinimap, env.__over.UnitIsDeadOrGhost
+  local oldHide = frame.Hide
+  local tooltip, oldOwner = env.GameTooltip, env.GameTooltip.GetOwner
+  local dead = true
+  local ok, err = pcall(function()
+    db.hidden, db.showMinimap = false, true
+    X.cfgAPI.RefreshMinimapButton()
+    X.OpenConfig(true)
+    local cfg = assert(env.BuffRadarConfig)
+    frame:Show()
+    pill:Show()
+    tooltip.GetOwner = function() return frame end
+    tooltip:Show()
+    frame.Hide = function(self)
+      assert(not env.__combat, "protected frame hidden by insecure code during combat")
+      oldHide(self)
+    end
+    env.__over.UnitIsDeadOrGhost = function(u) return u == "player" and dead end
+    env.__combat = not noTemplates
+    fire("PLAYER_DEAD")
+    assert(not frame:IsShown() and not pill:IsShown(), "death left a buff surface visible")
+    assert(not cfg:IsShown() and not button:IsShown(), "death left an auxiliary window visible")
+    assert(not tooltip:IsShown(), "death left a BuffRadar tooltip visible")
+    assert(not env.BuffRadarNextButton:GetAttribute("type") and not env.BuffRadarGroupButton:GetAttribute("type"),
+      "death left a cast binding armed")
+    for _, command in ipairs({ "announce", "summary", "discord", "why Aaron" }) do
+      local before = #chat
+      env.SlashCmdList.BUFFRADAR(command)
+      assert(#chat == before, "suspended report still ran: " .. command)
+    end
+    env.SlashCmdList.BUFFRADAR("")
+    env.BuffRadar_ToggleWindow()
+    X.OpenConfig(true)
+    assert(not db.hidden and db.showMinimap and not cfg:IsShown(), "dead interaction changed saved visibility or opened settings")
+    fire("PLAYER_ALIVE")
+    env.__combat = false
+    fire("PLAYER_REGEN_ENABLED")
+    timerTick()
+    assert(not frame:IsShown() and not pill:IsShown() and not button:IsShown(), "ghost or combat exit restored the UI")
+    fire("PLAYER_UNGHOST") -- a synchronous resurrection event may precede the unit flag
+    assert(not button:IsShown(), "stale dead flag was ignored before recovery")
+    dead = false
+    timerTick()
+    timerTick()
+    assert(button:IsShown(), "late living flag did not restore configured minimap button")
+    assert(not cfg:IsShown(), "recovery reopened dismissed settings")
+    db.hidden, db.showMinimap = true, false
+    dead = true
+    tooltip.GetOwner = function() return env.UIParent end
+    tooltip:Show()
+    fire("PLAYER_DEAD")
+    assert(tooltip:IsShown(), "death dismissed another addon's tooltip")
+    dead, env.__combat = false, true
+    fire("PLAYER_ALIVE") -- accepted resurrection without becoming a ghost
+    timerTick()
+    assert(not frame:IsShown(), "resurrection reopened the buff window during combat")
+    env.__combat = false
+    fire("PLAYER_REGEN_ENABLED")
+    timerTick()
+    assert(not frame:IsShown() and not pill:IsShown() and not button:IsShown(),
+      "resurrection or combat exit ignored visibility preferences")
+  end)
+  env.__combat, db.hidden, db.showMinimap = false, oldHidden, oldMinimap
+  frame.Hide, env.__over.UnitIsDeadOrGhost = oldHide, oldDead
+  tooltip.GetOwner = oldOwner
+  tooltip:Hide()
+  fire("PLAYER_ALIVE")
+  X.cfgAPI.RefreshMinimapButton()
+  timerTick()
   assert(ok, err)
 end)
 step("appearance refresh never changes the frame layer and flash restore waits for combat", function()
@@ -2932,6 +3086,7 @@ step("death recap snapshots the group when you die (1.9.0)", function()
   assert(db.deathRecap == false, "death recap not toggled off")
   env.SlashCmdList.BUFFRADAR("death")
   assert(db.deathRecap == true, "death recap not toggled back on")
+  fire("PLAYER_ALIVE")
   cleanup()
 end)
 
@@ -3384,6 +3539,7 @@ step("per-class blessing choices persist and defer to the group plan", function(
     assert(X.LoadProfile("AuditBlessing") and db.blessingPreferences.MAGE == "MIGHT",
       "named profile did not restore preferred blessing")
     local cfg = env.BuffRadarConfig
+    X.OpenConfig(true)
     X.RefreshConfig()
     assert(cfg.blessingButton.shown, "known blessings did not expose the settings button")
     cfg.blessingButton:GetScript("OnClick")(cfg.blessingButton)

@@ -493,7 +493,7 @@ local function BuildConfig()
 
   cfg.titleCheck = MakeCheck(look, L["Show BuffRadar title"],
     function() return db.showTitle end,
-    function(v) db.showTitle = v; ApplyAppearance() end)
+    function(v) db.showTitle = v; ApplyAppearance(); Refresh() end)
   cfg.titleCheck:SetPoint("TOPLEFT", 10, -116)
 
   cfg.borderCheck = MakeCheck(look, L["Show border"],
@@ -1635,9 +1635,14 @@ end
 
 -- Toggles the settings window; forceShow opens it without toggling it closed.
 OpenConfig = function(forceShow)
+  if X.PlayerSuspended() then return end
   db = X.GetDB()
   if not cfg then BuildConfig() end
   if cfg:IsShown() and not forceShow then cfg:Hide() else cfg:Show() end
+end
+
+function X.HideConfig()
+  if cfg and cfg:IsShown() then cfg:Hide() end
 end
 
 -- Esc > Options > AddOns > BuffRadar: a short page with a button that opens
@@ -1655,6 +1660,7 @@ if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOn
     "icon in the BuffRadar window, by right-clicking the minimap button or the addon menu " ..
     "entry, or with /br config.")
   local open = MakeButton(page, "Open BuffRadar settings", 200, function()
+    if X.PlayerSuspended() then return end
     if SettingsPanel and SettingsPanel:IsShown() and HideUIPanel then pcall(HideUIPanel, SettingsPanel) end
     OpenConfig(true)
   end)

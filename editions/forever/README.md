@@ -165,6 +165,12 @@ those characters.
 
 ## Installation
 
+BuffRadar hides its list, pill, settings and minimap button while your
+character is dead or a ghost. Casting resumes after you return to life and
+leave combat. Your saved visibility preferences still apply. Hover the buff
+window to reveal its close button. Turning off the title also removes the
+header space above the list.
+
 1. Download and unzip.
 2. Move the `BuffRadar` folder into your Forever `Interface\AddOns` folder, so the path
    is `Interface\AddOns\BuffRadar\BuffRadar.toc`.
