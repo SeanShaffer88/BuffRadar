@@ -3,14 +3,25 @@
 All notable changes to BuffRadar are listed here. Newest first.
 
 
-## Unreleased
+## 1.15.7 — 2026-11-14 — Forever update
 
-- Code only, no behaviour change: export/import strings, buff plans, saved profiles
-  and presets moved from `BuffRadar.lua` into a new `Profiles.lua` (file split
-  Slice E). `BuffRadar.lua` is about 360 lines shorter.
-- Code only, no behaviour change: the death recap and post-wipe report moved from
-  `BuffRadar.lua` into a new `Recaps.lua` (file split Slice D). The shared
-  missing-buff snapshot is now one helper (`X.SnapshotMissing`).
+- Load named profiles saved in 1.15.5 and reapply automatic profiles when
+  returning to a mapped context.
+- Validate settings and plan imports before applying them so malformed input
+  leaves existing settings and plans intact.
+- Validate party and raid sync messages against the current group roster and
+  check permissions for plan updates.
+- Hide BuffRadar and suspend buff scanning and casting while dead or a ghost.
+  Restore the player's display preferences after resurrection.
+- Show the main window's close button on hover. Hiding the title removes the
+  unused header.
+- Add contributor setup instructions, issue templates, and a CI badge.
+
+- Move profile, import/export, plan, and preset code into `Profiles.lua`.
+  Move the death recap and post-wipe report into `Recaps.lua`.
+
+The maintainer confirmed that field-test build `d5283de` passed live verification
+in WoW: Forever on 2026-11-14.
 
 ## 1.15.6 — 2026-11-14 — Forever update
 
