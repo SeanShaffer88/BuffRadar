@@ -342,23 +342,26 @@ function X.InitEditMode()
   local saved
   local function enter()
     local db, f = X.GetDB(), X.GetFrame()
-    if not db or not f or InCombatLockdown() then return end
+    if not db or not f or InCombatLockdown() or X.PlayerSuspended() then return end
     saved = { locked = db.locked, shown = f:IsShown() }
     db.locked = false
     f:Show()
     X.ApplyAppearance()
   end
-  local function leave()
+  local function leave(suspended)
     local db, f = X.GetDB(), X.GetFrame()
-    if not db or not f or not saved or InCombatLockdown() then return end
+    if not db or not f or not saved then return end
     db.locked = saved.locked
-    if not saved.shown and X.Refresh then X.Refresh() end
-    X.PositionSave()
-    X.ApplyAppearance()
+    if not suspended and not InCombatLockdown() then
+      if not saved.shown and X.Refresh then X.Refresh() end
+      X.PositionSave()
+      X.ApplyAppearance()
+    end
     saved = nil
   end
+  X.EndEditMode = leave
   pcall(hooksecurefunc, _G.EditModeManagerFrame, "EnterEditMode", enter)
-  pcall(hooksecurefunc, _G.EditModeManagerFrame, "ExitEditMode", leave)
+  pcall(hooksecurefunc, _G.EditModeManagerFrame, "ExitEditMode", function() leave(false) end)
 end
 
 ---------------------------------------------------------------------------

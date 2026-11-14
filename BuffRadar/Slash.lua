@@ -165,6 +165,10 @@ local function HandleSlash(msg)
   local cmd, rest = (msg or ""):match("^%s*(%S*)%s*(.-)%s*$")
   cmd = (cmd or ""):lower()
   if not db then Print("Settings not loaded yet."); return end
+  if (cmd == "" or cmd == "show" or cmd == "hide" or cmd == "announce"
+      or cmd == "summary" or cmd == "discord" or cmd == "why") and X.PlayerSuspended() then
+    return
+  end
   if not built and not InCombatLockdown() then
     local ok, err = pcall(BuildUI)
     if not ok then Print("|cffff4040error building window:|r " .. tostring(err)) end

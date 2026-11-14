@@ -884,6 +884,10 @@ function X.ReadUnitBool(api, ...)
   if t == "number" then return value ~= 0 end
 end
 
+function X.PlayerSuspended()
+  return X.playerDead == true or X.ReadUnitBool(_G.UnitIsDeadOrGhost, "player") == true
+end
+
 function X.ReadUnitNumber(api, ...)
   if type(api) ~= "function" then return nil end
   local ok, value = pcall(api, ...)
@@ -2277,6 +2281,7 @@ end
 -- READY_CHECK: a local summary (the group post is /br announce's job).
 -- X.DeathRecap and X.WipeCheck live in Recaps.lua since Slice D.
 function X.ReadyReport()
+  if X.PlayerSuspended() then return end
   local keep = X.applyFilter
   X.applyFilter = false
   CollectEntries()
@@ -2648,8 +2653,7 @@ function X.SendCover()
   if not db then return end
   local me = Ignore.UnitNames("player")
   if not me then return end
-  local covered = (UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") and true)
-    or (_G.UnitIsAFK and _G.UnitIsAFK("player") and true) or false
+  local covered = X.PlayerSuspended() or X.ReadUnitBool(_G.UnitIsAFK, "player") == true
   if X.myCover == covered and not covered then return end
   if X.myCover == covered and GetTime() - (X.coverSentAt or 0) < 120 then return end
   X.myCover = covered
@@ -2849,7 +2853,7 @@ end
 
 -- A whisper or a nearby "buff ..." marks that player's row while it is up.
 function X.OnChatAsk(text, author)
-  if not db or not db.requests then return end
+  if not db or not db.requests or X.PlayerSuspended() then return end
   if type(text) ~= "string" or type(author) ~= "string" then return end
   if not text:lower():find("buff", 1, true) then return end
   local short = author:match("^[^%-]+") or author
@@ -2908,7 +2912,8 @@ function X.InstanceCheck()
   if not db then return end
   local ctx = X.Context()
   local inside = ctx == "dungeon" or ctx == "raid" or ctx == "pvp"
-  if inside and not X.wasInside and db.enterFlash and InGroup() and hasAnyBuff then
+  if inside and not X.wasInside and db.enterFlash and InGroup() and hasAnyBuff
+     and not X.PlayerSuspended() then
     local keep = X.applyFilter
     X.applyFilter = false
     CollectEntries()
@@ -2931,7 +2936,7 @@ end
 -- One line in chat: how much buffing the group (or the run) still needs.
 -- Counts everyone, ignoring the window's role filter.
 function X.JoinDigest(why)
-  if not db or not InGroup() then return end
+  if not db or not InGroup() or X.PlayerSuspended() then return end
   local keep = X.applyFilter
   X.applyFilter = false
   CollectEntries()
@@ -3228,7 +3233,7 @@ function X.InstallCombatDriver(button, snippet)
   if not RegisterStateDriver then return false end
   local ok, accepted = pcall(button.SetAttribute, button, "_onstate-combat", snippet)
   if not ok or accepted == false then return false end
-  ok, accepted = pcall(RegisterStateDriver, button, "combat", "[combat] combat; nocombat")
+  ok, accepted = pcall(RegisterStateDriver, button, "combat", "[@player,dead][combat] combat; nocombat")
   return ok and accepted ~= false
 end
 
@@ -3516,6 +3521,7 @@ local function ApplyAppearance()
   if X.gripL then X.gripL:SetShown(not db.locked) end
   if X.edge then X.edge:SetShown(not db.locked) end
   title:SetShown(db.showTitle and true or false)
+  if X.titleLayoutState ~= db.showTitle then X.ApplyRowLayout() end
   combatText:ClearAllPoints()
   if db.showTitle then
     combatText:SetPoint("LEFT", title, "RIGHT", 6, 0)
@@ -3600,7 +3606,7 @@ function X.WizardPage(n)
 end
 
 function X.OpenWizard()
-  if not db then return end
+  if not db or X.PlayerSuspended() then return end
   if InCombatLockdown() then
     Print("The setup wizard can't open during combat — try again when it ends.")
     return
@@ -3970,6 +3976,7 @@ function X.DiscordText()
 end
 
 function X.ShowExport(text, forImport, titleText, mode)
+  if X.PlayerSuspended() then return end
   if InCombatLockdown() then Print("Can't open that during combat."); return end
   local f = X.exportFrame
   if not f then
@@ -4072,21 +4079,48 @@ function X.ApplyClickThrough()
     if row and row.EnableMouse then row:EnableMouse(mouse) end
   end
   if nextBtn and nextBtn.EnableMouse then nextBtn:EnableMouse(mouse) end
+  if X.UpdateFade then X.UpdateFade() end
 end
 
 function X.ApplyRowLayout()
   if not frame or InCombatLockdown() then return end
+  X.titleLayoutState = db.showTitle
   local h = db.compact and 16 or ROW_H
+  local header = db.showTitle and HEADER_H or 0
+  local barHeight = X.BarHeight()
   X.rowH = h
   if X.findBar then
     X.findBar:SetShown(db.findBox and true or false)
     X.findBar:ClearAllPoints()
-    X.findBar:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -HEADER_H - X.BarHeight())
-    X.findBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -HEADER_H - X.BarHeight())
+    X.findBar:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -header - barHeight)
+    X.findBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -header - barHeight)
   end
-  local top = HEADER_H + X.BarHeight() + (db.findBox and 16 or 0)
+  local top = header + barHeight + (db.findBox and 16 or 0)
   X.topH = top
-  if X.bar then X.bar:SetShown(X.BarHeight() > 0) end
+  if X.bar then
+    X.bar:SetShown(barHeight > 0)
+    X.bar:ClearAllPoints()
+    X.bar:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -header)
+    X.bar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -header)
+  end
+  if X.edge then
+    X.edge:ClearAllPoints()
+    X.edge:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -header)
+    X.edge:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 18)
+  end
+  emptyText:ClearAllPoints()
+  emptyText:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -top - 3)
+  countText:ClearAllPoints()
+  if db.showTitle then
+    countText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -24, -6)
+  else
+    countText:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -16, 6)
+  end
+  if X.footerText then
+    X.footerText:ClearAllPoints()
+    X.footerText:SetPoint("LEFT", X.gear, "RIGHT", 5, 0)
+    X.footerText:SetPoint("RIGHT", frame, "BOTTOMRIGHT", db.showTitle and -16 or -48, 13)
+  end
   -- Two-column layout (1.9.0): rows fill the first column top to
   -- bottom, then the second. X.cols / X.rowsPerCol are kept current by
   -- Refresh; with one column this is exactly the old anchoring.
@@ -4165,10 +4199,34 @@ end
 -- refresh ticker (no per-frame work).
 function X.UpdateFade()
   if not frame or not db then return end
+  local close = X.closeButton
+  local over = (frame.IsMouseOver and frame:IsMouseOver())
+    or (close and close:IsShown() and close.IsMouseOver and close:IsMouseOver())
+  if close and not InCombatLockdown() then
+    local visible = frame:IsShown() and over and not (db.clickThrough and db.locked)
+      and not X.PlayerSuspended()
+    if visible then
+      -- Above a titleless window where space permits; otherwise only the
+      -- hovered button overlays its corner.
+      local above = false
+      if not db.showTitle then
+        local ceiling, top = UIParent:GetTop(), frame:GetTop()
+        above = ceiling and top
+          and ceiling * UIParent:GetEffectiveScale() - top * frame:GetEffectiveScale()
+            >= 22 * close:GetEffectiveScale()
+      end
+      local anchor = above and "BOTTOMRIGHT" or "TOPRIGHT"
+      if close.hoverAnchor ~= anchor then
+        close.hoverAnchor = anchor
+        close:ClearAllPoints()
+        close:SetPoint(anchor, frame, "TOPRIGHT", 0, 0)
+      end
+    end
+    if close:IsShown() ~= (visible and true or false) then close:SetShown(visible and true or false) end
+  end
   local target = 1
   if db.idleFade and db.idleFade > 0 and not db.reduceMotion and not frame.isMoving and not (grip and grip.isSizing)
      and not (X.gripL and X.gripL.isSizing) and not (X.edge and X.edge.isSizing) then
-    local over = frame.IsMouseOver and frame:IsMouseOver()
     if not over then target = 1 - db.idleFade / 100 end
   end
   if X.curAlpha ~= target then
@@ -4519,6 +4577,7 @@ local function BuildUI()
 
   frame = CreateFrame("Frame", "BuffRadarFrame", UIParent,
                       BackdropTemplateMixin and "BackdropTemplate" or nil)
+  if X.PlayerSuspended() then frame:Hide() end
   frame:SetSize(db.width or WIDTH, HEADER_H + 30)
   -- Keep the client's default MEDIUM layer. Changing strata on the live
   -- frame can be blocked by some Forever clients and is not needed for casts.
@@ -4563,16 +4622,28 @@ local function BuildUI()
   title:SetText("|cff33ccffBuff|rRadar")
 
   local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+  X.closeButton = close
   close:SetSize(22, 22)
   close:SetPoint("TOPRIGHT", 0, 0)
+  close.hoverAnchor = "TOPRIGHT"
+  close:SetFrameLevel((frame:GetFrameLevel() or 0) + 10)
+  close:Hide()
   close:SetScript("OnClick", function()
-    if InCombatLockdown() then Print("Can't hide during combat."); return end
-    db.hidden = true
+    if X.PlayerSuspended() or InCombatLockdown() or (db.clickThrough and db.locked) then return end
+    db.hidden, sessionShow = true, false
     frame:Hide()
     Print("Hidden. Type /br to show it again.")
   end)
+  frame:HookScript("OnEnter", X.UpdateFade)
+  frame:HookScript("OnLeave", X.UpdateFade)
+  frame:HookScript("OnShow", X.UpdateFade)
+  frame:HookScript("OnHide", function()
+    if not InCombatLockdown() then close:Hide() end
+  end)
+  close:HookScript("OnLeave", X.UpdateFade)
 
   local gear = CreateFrame("Button", nil, frame)
+  X.gear = gear
   gear:SetSize(14, 14)
   gear:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 20, 6)
   gear:SetNormalTexture("Interface\\Buttons\\UI-OptionsButton")
@@ -4586,7 +4657,6 @@ local function BuildUI()
   gear:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
   countText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  countText:SetPoint("RIGHT", close, "LEFT", -2, 0)
 
   combatText = frame:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
   combatText:SetPoint("LEFT", title, "RIGHT", 6, 0)
@@ -4621,6 +4691,7 @@ local function BuildUI()
   -- window's top-left corner is; clicking it peeks at the full window.
   local pill = CreateFrame("Button", "BuffRadarPill", UIParent,
                            BackdropTemplateMixin and "BackdropTemplate" or nil)
+  if X.PlayerSuspended() then pill:Hide() end
   pill:SetSize(150, 22)
   pill:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
   if pill.SetBackdrop then
@@ -4798,10 +4869,12 @@ local function BuildUI()
 
   for i = 1, MAX_ROWS do CreateRow(i) end
 
-  -- Hide in combat; outside combat, Refresh decides what should be visible.
+  -- Hide securely during death or combat. Refresh owns the visible state.
   if RegisterStateDriver then
-    frame.visibilityDriver = pcall(RegisterStateDriver, frame, "visibility", "[combat] hide")
-    pill.visibilityDriver = pcall(RegisterStateDriver, pill, "visibility", "[combat] hide")
+    local ok, accepted = pcall(RegisterStateDriver, frame, "visibility", "[@player,dead][combat] hide")
+    frame.visibilityDriver = ok and accepted ~= false
+    ok, accepted = pcall(RegisterStateDriver, pill, "visibility", "[@player,dead][combat] hide")
+    pill.visibilityDriver = ok and accepted ~= false
   end
 
   local okNext, errNext = pcall(BuildNextButton)
@@ -4839,10 +4912,11 @@ end
 
 function RefreshMinimapButton()
   if not minimapBtn then return end
-  if db and db.showMinimap then
+  if db and db.showMinimap and not X.PlayerSuspended() then
     minimapBtn:Show()
     PositionMinimapButton()
   else
+    minimapBtn.dragging = false
     minimapBtn:Hide()
   end
 end
@@ -4914,7 +4988,7 @@ BuildMinimapButton = function()
         elseif BuffRadar_ToggleWindow then BuffRadar_ToggleWindow() end
       end,
       funcOnEnter = function(button)
-        if type(button) ~= "table" then return end
+        if type(button) ~= "table" or X.PlayerSuspended() then return end
         GameTooltip:SetOwner(button, "ANCHOR_LEFT")
         GameTooltip:AddLine("|cff33ccffBuff|rRadar")
         GameTooltip:AddLine(L["Left-click: show / hide the window"], 0.8, 0.8, 0.8)
@@ -4947,9 +5021,82 @@ local function SetHeightIfChanged(f, h)
   if f.cHeight ~= h then f.cHeight = h; f:SetHeight(h) end
 end
 
+local refreshIdle = false
 local function ClearRow(row)
   row.entry, row.guid = nil, nil
   if row:IsShown() then row:Hide() end
+end
+
+function X.HideOwnedTooltip()
+  if not GameTooltip or not GameTooltip.GetOwner then return end
+  local owner = GameTooltip:GetOwner()
+  if not owner then return end
+  local config = _G.BuffRadarConfig
+  while owner do
+    if owner == frame or owner == config or owner == _G.BuffRadarMinimapButton
+       or owner == X.pill or owner == X.wizardFrame or owner == X.exportFrame then
+      GameTooltip:Hide()
+      return
+    end
+    if not owner.GetParent then return end
+    owner = owner:GetParent()
+  end
+end
+
+function X.SuspendBuffUI()
+  refreshIdle = true
+  X.pendingCast, X.pillPeek = nil, nil
+  X.HideOwnedTooltip()
+  if X.HideConfig then X.HideConfig() end
+  if X.wizardFrame and X.wizardFrame:IsShown() then X.wizardFrame:Hide() end
+  if X.exportFrame and X.exportFrame:IsShown() then X.exportFrame:Hide() end
+  if X.EndEditMode then X.EndEditMode(true) end
+  if RefreshMinimapButton then RefreshMinimapButton() end
+
+  -- The state drivers hide and disarm protected frames during lockdown.
+  -- Clear the Lua-side click bookkeeping immediately in either case.
+  local locked = InCombatLockdown()
+  if nextBtn then nextBtn.entry = nil end
+  if X.groupBtn then X.groupBtn.entry = nil end
+  for i = 1, #rows do
+    rows[i].entry, rows[i].guid = nil, nil
+    if not locked then
+      X.ClearRowCast(rows[i])
+      ClearRow(rows[i])
+    end
+  end
+  if locked then return end
+  X.EndWindowDrags()
+  ClearNext()
+  X.ClearGroup()
+  if frame then SetShownIfChanged(frame, false) end
+  if X.pill then SetShownIfChanged(X.pill, false) end
+end
+
+function X.UpdatePlayerLife(event)
+  local wasDead = X.playerDead
+  if event == "PLAYER_DEAD" then
+    X.playerDead = true
+    X.lifeCheckPending = nil
+  else
+    local dead = X.ReadUnitBool(_G.UnitIsDeadOrGhost, "player")
+    if dead ~= nil then X.playerDead = dead end
+    if event == "PLAYER_UNGHOST" and dead == nil then X.playerDead = false end
+    if event == "PLAYER_UNGHOST" or event == "PLAYER_ALIVE" then
+      -- The synchronous event can precede the unit flag update. Recheck on
+      -- the existing tick until the client confirms that casting can resume.
+      X.lifeCheckPending = X.playerDead or nil
+    elseif not X.playerDead then
+      X.lifeCheckPending = nil
+    end
+  end
+  if X.playerDead then
+    X.SuspendBuffUI()
+  elseif wasDead then
+    if RefreshMinimapButton then RefreshMinimapButton() end
+    if QueueRefresh then QueueRefresh() end
+  end
+  if wasDead ~= X.playerDead and event ~= "PLAYER_LOGIN" then X.SendCover() end
 end
 
 local function InvalidateRows()
@@ -5200,7 +5347,6 @@ end
 -- supported buffs known, or scanning paused (city / battleground). The steady
 -- timer skips its refreshes then; events (zone changes, learning a spell,
 -- settings changes) still refresh right away and clear it.
-local refreshIdle = false
 
 -- Coverage-line parts (1.10.0): the line is assembled from parts, each
 -- with its own switch in db.coverParts; absent means on.
@@ -5254,7 +5400,12 @@ X.IsMajorCity, X.CurrentInstance = InMajorCity, InInstanceNow
 X.BindCached = BindCached
 
 local function Refresh()
-  if not built or InCombatLockdown() then return end
+  if not built then return end
+  if X.PlayerSuspended() then
+    if not refreshIdle or not X.playerDead then X.UpdatePlayerLife() end
+    return
+  end
+  if InCombatLockdown() then return end
   refreshIdle = false
   X.applyFilter = true  -- the window honors the role filter; reports turn it off
   local wasAfterCombat = X.afterCombat
@@ -5727,6 +5878,10 @@ if C_Timer and C_Timer.NewTicker and C_Timer.After then
   -- of range, buffs running low, cooldowns ending); it has nothing to do while
   -- Refresh() reports idle, and in combat, when Refresh() can't run anyway.
   local function TickRefresh()
+    if X.lifeCheckPending then
+      if X.ReadUnitBool(_G.UnitIsDeadOrGhost, "player") == false then X.UpdatePlayerLife() end
+    end
+    if X.playerDead then return end
     X.UpdateFade()
     if refreshIdle or InCombatLockdown() then return end
     if ScanThrottled() then
@@ -5747,6 +5902,10 @@ else
       elapsed = elapsed + dt
       if elapsed >= (ScanThrottled() and UPDATE_INTERVAL * 2 or UPDATE_INTERVAL) then
         elapsed = 0
+        if X.lifeCheckPending then
+          if X.ReadUnitBool(_G.UnitIsDeadOrGhost, "player") == false then X.UpdatePlayerLife() end
+        end
+        if X.playerDead then soonPending = false; return end
         X.UpdateFade()
         if soonPending or not refreshIdle then
           soonPending = false
@@ -5814,7 +5973,7 @@ end
 -- Register events one at a time and ignore any this client doesn't have
 -- (newer clients throw an error for unknown event names, which would stop the whole file).
 for _, ev in ipairs({
-  "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
+  "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
   "SPELLS_CHANGED", "LEARNED_SPELL_IN_TAB", "LEARNED_SPELL_IN_SKILL_LINE",
   "GROUP_ROSTER_UPDATE", "PARTY_MEMBERS_CHANGED", "RAID_ROSTER_UPDATE",
   "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "UNIT_AURA", "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
@@ -5838,7 +5997,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   --    nameplates, pets, bosses, arena opponents) -- those are dropped too.
   if event == "UNIT_AURA" or event == "NAME_PLATE_UNIT_ADDED" or event == "NAME_PLATE_UNIT_REMOVED"
      or event == "UPDATE_MOUSEOVER_UNIT" then
-    if InCombatLockdown() then return end
+    if InCombatLockdown() or X.playerDead then return end
     if event == "UNIT_AURA" and not X.AuraEventNeedsRefresh(arg1, ...) then return end
     Soon()
     return
@@ -5938,10 +6097,18 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if db then X.OnChatAsk(arg1, (select(1, ...))) end
     return
   end
-  if event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST"
-     or event == "PLAYER_FLAGS_CHANGED" then
-    if db then X.SendCover() end  -- cover-me handoff state may have changed (1.7.0)
+  if event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST" then
+    X.UpdatePlayerLife(event)
     if event == "PLAYER_DEAD" and db and X.DeathRecap then X.DeathRecap(db.deathRecap) end  -- (1.9.0)
+    return
+  end
+  if event == "PLAYER_FLAGS_CHANGED" then
+    if db then X.SendCover() end
+    return
+  end
+  if event == "PLAYER_ENTERING_WORLD" then
+    X.UpdatePlayerLife(event)
+    Soon()
     return
   end
   if event == "GROUP_ROSTER_UPDATE" then
@@ -6033,7 +6200,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       db = BuffRadarDB
       Ignore.Rebuild()
     end
+    X.UpdatePlayerLife(event)
     X.InitSync()
+    X.SendCover()
     X.inGroupPrev = InGroup()
     RequestSpellData()
     local ok, err = pcall(BuildBuffList)
@@ -6070,6 +6239,11 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     X.EndWindowDrags()
     if combatText then combatText:Hide() end
     BuildUI()
+    if X.PlayerSuspended() then
+      X.SuspendBuffUI()
+      if db and X.WipeCheck then X.WipeCheck() end
+      return
+    end
     -- Secure snippets cleared the attributes behind the display cache.
     for i = 1, #rows do rows[i].bGuid = nil end
     if nextBtn then nextBtn.bGuid, nextBtn.isClear = nil, false end
@@ -6098,7 +6272,7 @@ end)
 -- Keybind actions (Bindings.xml calls these)
 ---------------------------------------------------------------------------
 function BuffRadar_ToggleWindow()
-  if not db then return end
+  if not db or X.PlayerSuspended() then return end
   db.hidden = not db.hidden
   sessionShow = not db.hidden
   if InCombatLockdown() then
@@ -6112,7 +6286,7 @@ function BuffRadar_ToggleWindow()
 end
 
 function BuffRadar_ToggleSound()
-  if not db then return end
+  if not db or X.PlayerSuspended() then return end
   db.playSound = not db.playSound
   Print(db.playSound and "Sound |cff00ff00on|r" or "Sound |cffff4040muted|r")
   if RefreshConfig then RefreshConfig() end
@@ -6139,6 +6313,7 @@ function KeybindText(binding)
 end
 
 function OpenKeybinds()
+  if X.PlayerSuspended() then return end
   if InCombatLockdown() then Print("Can't open key bindings during combat."); return end
   local ok = false
   if Settings and Settings.OpenToCategory and Settings.KEYBINDINGS_CATEGORY_ID then
