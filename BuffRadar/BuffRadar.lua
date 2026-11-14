@@ -510,6 +510,7 @@ local L = {
   ["Some buff information is unavailable."] = "Some buff information is unavailable.",
   ["Estimated range"] = "Estimated range",
   ["Friendly nameplates are off."] = "Friendly nameplates are off.",
+  ["Range could not be confirmed; the list may be incomplete."] = "Range could not be confirmed; the list may be incomplete.",
   ["No supported buffs in your spellbook."] = "No supported buffs in your spellbook.",
   ["combat"] = "combat",
   ["Blessings by class"] = "Blessings by class",
