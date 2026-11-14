@@ -3755,6 +3755,71 @@ step("assignment preview opens, pages without scanning, and closes with settings
   assert(ok, err)
 end)
 
+step("assignment preview edits session roles by identity and protects modal navigation", function()
+  if not env.__forever then return end
+  local X, cfg, slash = NS.X, env.BuffRadarConfig, env.SlashCmdList.BUFFRADAR
+  local originalPreview, originalSet = X.AssignmentPreview, X.SetAssignmentRole
+  local ok, err = pcall(function()
+    local member = { name = "Mira", unit = "party1", guid = "Player-1-Mira", rule = "Druid World rule",
+      evaluated = true, buffs = {}, available = {}, roleEditable = true, roleCanSet = true }
+    local second = { name = "Dale", unit = "party2", guid = "Player-1-Dale", rule = "Warrior rule",
+      evaluated = true, buffs = {}, available = {}, roleEditable = false }
+    local writes, allow = 0, true
+    X.AssignmentPreview = function() return { member, second } end
+    X.SetAssignmentRole = function(unit, guid, role)
+      assert(unit == member.unit and guid == member.guid, "role editor selected a different member")
+      writes = writes + 1
+      if not allow then return false end
+      member.roleOverride = role
+      return true
+    end
+    slash("buffassign preview")
+    local preview = env.BuffRadarAssignmentPreview
+    local button = preview.rows[1].roleButton
+    assert(button:IsVisible() and not preview.rows[2].roleButton:IsVisible(), "role editor ignored member eligibility")
+    slash("config navigate")
+    local input = cfg.navInput
+    local function focus(widget)
+      for _ = 1, 15 do
+        if cfg.navOutline.shown and cfg.navOutline.points[1][2] == widget then return end
+        input.scripts.OnTabPressed(input)
+      end
+      error("could not focus a role control")
+    end
+    focus(button)
+    input.scripts.OnEnterPressed(input)
+    local editor = env.BuffRadarAssignmentRoleEditor
+    assert(editor:IsVisible() and editor.member == member, "keyboard did not open the selected member")
+    focus(editor.choices.TANK)
+    input.scripts.OnEnterPressed(input)
+    assert(not editor:IsShown() and member.roleOverride == "TANK" and writes == 1,
+      "role did not save through keyboard activation")
+    button:Click()
+    assert(editor.choices.TANK.navigation.value() ~= nil, "selection is not available for narration")
+    allow = false
+    editor.choices.HEALER:Click()
+    assert(not editor:IsShown() and member.roleOverride == "TANK" and writes == 2,
+      "a rejected stale role request was presented as saved")
+    allow, member.roleCanSet = true, false
+    preview.refresh:Click()
+    button:Click()
+    assert(not editor.choices.HEALER:IsVisible() and editor.choices.GAME:IsVisible(),
+      "editor allowed replacing a game role or hid the clear action")
+    editor.choices.GAME:Click()
+    assert(member.roleOverride == nil and writes == 3, "Use Game Role did not clear the override")
+    member.roleCanSet = true
+    preview.refresh:Click()
+    button:Click()
+    cfg.scripts.OnEvent(cfg, "PLAYER_REGEN_DISABLED")
+    assert(not editor:IsShown() and not editor.member and not preview.rows[1].member and writes == 3,
+      "combat retained the role editor or changed a role")
+  end)
+  X.AssignmentPreview, X.SetAssignmentRole = originalPreview, originalSet
+  if cfg.navInput:HasFocus() then cfg.navInput.scripts.OnEscapePressed(cfg.navInput) end
+  cfg.tabBtns.look:Click()
+  assert(ok, err)
+end)
+
 step("keyboard settings navigation changes tabs, checkboxes, sliders, and choices", function()
   local cfg = env.BuffRadarConfig
   cfg.tabBtns.look:Click()
@@ -5007,6 +5072,76 @@ step("Forever assignment preview and why explain winning rules without changing 
   end)
   env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled = oldRole, oldRules, oldMode
   env.GetNumGroupMembers = oldSize
+  cleanup()
+  refresh()
+  assert(ok, err)
+end)
+step("Forever session role overrides share the cast rules and retire with the roster", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("ManualRole")
+  local X, O, db = NS.X, env.__over, env.BuffRadarDB
+  local oldRule, oldRules, oldMode = env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled
+  local oldSize, oldCount, oldOverrides = env.GetNumGroupMembers, env.C_Item.GetItemCount, X.assignmentRoleOverrides
+  local ok, err = pcall(function()
+    local role, size, exists, guid = nil, 3, O.UnitExists, O.UnitGUID
+    local aaron = env.UnitGUID("party1")
+    env.UnitGroupRolesAssigned = function(unit) if unit == "party1" then return role end end
+    env.GetNumGroupMembers = function() return size end
+    env.C_Item.GetItemCount = function() return 2 end
+    env.IsSpellInRange = function() return 1 end
+    X.InvalidateReagents()
+    db.buffAssignments = {}
+    assert(X.SetAssignmentEnabled(true))
+    assert(X.SetAssignment("MAGE", "WORLD", { FORTITUDE = true }))
+    assert(X.SetAssignment("MAGE", "TANK", false))
+    assert(not X.SetAssignmentRole("party1", "stale-guid", "TANK"), "accepted stale preview identity")
+    assert(not X.SetAssignmentRole("player", env.UnitGUID("player"), "TANK"), "accepted self override")
+    assert(not X.SetAssignmentRole("target", aaron, "TANK"), "accepted non-roster token")
+    assert(not X.SetAssignmentRole("party1", aaron, "NONE"), "accepted invalid role")
+    assert(X.SetAssignmentRole("party1", aaron, "TANK"), "could not set role fallback")
+    refresh()
+    local row = X.AssignmentPreview()[2]
+    assert(row.roleOverride == "TANK" and row.roleCanSet and row.rule:find("Manual role: Tank", 1, true)
+      and row.rule:find("Tank rule", 1, true) and not shownRows().party1, "manual rule did not apply")
+    local before = #chat
+    env.SlashCmdList.BUFFRADAR("why Aaron")
+    assert(chatSince(before, row.rule), "why omitted manual provenance")
+    assert(select(4, X.GroupOffer("Power Word: Fortitude", "party2")) == "assignment",
+      "group cast ignored a manual restriction")
+    role = "DAMAGER"
+    fire("PLAYER_ROLES_ASSIGNED")
+    refresh()
+    row = X.AssignmentPreview()[2]
+    assert(row.roleEditable and not row.roleCanSet and row.rule:find("game role takes precedence", 1, true),
+      "readable role did not supersede the override")
+    assert(not X.SetAssignmentRole("party1", aaron, "HEALER"), "overrode a readable game role")
+    assert(X.SetAssignmentRole("party1", aaron, nil), "could not clear an inactive override")
+    role = nil
+    env.__combat = true
+    assert(not X.SetAssignmentRole("party1", aaron, "TANK"), "changed override during combat")
+    env.__combat = false
+    assert(X.SetAssignmentRole("party1", aaron, "TANK"))
+    size = nil
+    O.UnitGUID = function(unit) if unit == "party1" then error("protected GUID") end return guid(unit) end
+    fire("GROUP_ROSTER_UPDATE")
+    assert(X.assignmentRoleOverrides[aaron] == "TANK", "incomplete roster erased override")
+    size = 2
+    O.UnitExists = function(unit) return unit == "player" or unit == "party1" end
+    O.UnitGUID = function(unit) if unit == "party1" then return "Player-replacement" end return guid(unit) end
+    fire("GROUP_ROSTER_UPDATE")
+    assert(not X.assignmentRoleOverrides[aaron], "departed member retained an override")
+    assert(not X.SetAssignmentRole("party1", aaron, "TANK"), "stale roster token changed replacement")
+    assert(X.SetAssignmentRole("party1", "Player-replacement", "TANK"))
+    fire("GROUP_LEFT")
+    assert(X.assignmentRoleOverrides["Player-replacement"], "alternate group leave wiped active group")
+    size = 0
+    fire("GROUP_LEFT")
+    assert(not X.assignmentRoleOverrides, "group leave retained overrides")
+  end)
+  env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled = oldRule, oldRules, oldMode
+  env.__combat = false
+  env.GetNumGroupMembers, env.C_Item.GetItemCount, X.assignmentRoleOverrides = oldSize, oldCount, oldOverrides
+  X.InvalidateReagents()
   cleanup()
   refresh()
   assert(ok, err)

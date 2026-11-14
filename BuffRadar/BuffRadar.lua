@@ -642,6 +642,15 @@ local L = {
   ["No eligible rank or range"] = "No eligible rank or range",
   ["Out of cast range"] = "Out of cast range",
   ["Group option: %s"] = "Group option: %s",
+  ["%s · Manual role: %s"] = "%s · Manual role: %s",
+  ["%s · Manual role: %s (game role takes precedence)"] = "%s · Manual role: %s (game role takes precedence)",
+  ["Set Role"] = "Set Role",
+  ["Change Role"] = "Change Role",
+  ["Session Role for %s"] = "Session Role for %s",
+  ["Choose a fallback when the game does not report a role."] = "Choose a fallback when the game does not report a role.",
+  ["Use Game Role"] = "Use Game Role",
+  ["Current selection"] = "Current selection",
+  ["The member or role changed. Refresh and try again."] = "The member or role changed. Refresh and try again.",
   ["Default (%s)"] = "Default (%s)",
   ["Default blessing"] = "Default blessing",
   ["Previously selected blessing unavailable"] = "Previously selected blessing unavailable",
@@ -1590,23 +1599,34 @@ end
 function X.AssignmentForUnit(class, unit, isGroup, isSelf)
   if not class or isSelf ~= false or not X.AssignmentEnabled() then return nil, "DEFAULT" end
   local role = isGroup and AssignedRole(unit) or nil
-  local assignment, source = X.ResolveAssignment(class, role)
-  return assignment, source, role, isGroup
+  local manual = isGroup and X.GetAssignmentRoleOverride(unit) or nil
+  local assignment, source = X.ResolveAssignment(class, role or manual)
+  return assignment, source, role, isGroup, manual
 end
 
-function X.AssignmentRuleText(class, role, source, assignment, isGroup)
+function X.AssignmentRuleText(class, role, source, assignment, isGroup, manual)
   if not class then return L["Rule unavailable"] end
   local names = _G.LOCALIZED_CLASS_NAMES_MALE
   local name = names and names[class] or class
-  if not source or source == "DEFAULT" then return string_format(L["%s · Built-in rules"], name) end
-  local label = source == "ALL" and L["All Roles"] or source == "WORLD" and L["World"]
-    or source == "TANK" and L["Tank"] or source == "HEALER" and L["Heal"] or L["DPS"]
-  local format = L["%s · %s rule"]
-  if source == "WORLD" or (source == "ALL" and not role) then
-    format = isGroup and L["%s · %s rule (role unavailable)"] or L["%s · %s rule (nearby player)"]
+  local text
+  if not source or source == "DEFAULT" then
+    text = string_format(L["%s · Built-in rules"], name)
+  else
+    local label = source == "ALL" and L["All Roles"] or source == "WORLD" and L["World"]
+      or source == "TANK" and L["Tank"] or source == "HEALER" and L["Heal"] or L["DPS"]
+    local format = L["%s · %s rule"]
+    if source == "WORLD" or (source == "ALL" and not role and not manual) then
+      format = isGroup and L["%s · %s rule (role unavailable)"] or L["%s · %s rule (nearby player)"]
+    end
+    text = string_format(format, name, label)
+    if assignment == false then text = string_format(L["%s · None"], text) end
   end
-  local text = string_format(format, name, label)
-  return assignment == false and string_format(L["%s · None"], text) or text
+  if manual then
+    local manualLabel = manual == "TANK" and L["Tank"] or manual == "HEALER" and L["Heal"] or L["DPS"]
+    text = string_format(role and L["%s · Manual role: %s (game role takes precedence)"]
+      or L["%s · Manual role: %s"], text, manualLabel)
+  end
+  return text
 end
 
 function X.SetBlessingException(name, key)
@@ -1852,10 +1872,10 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
   X.scanUnit = nil  -- force a fresh index scan (fallback path) for this unit
   local n = 0
   local unknown, checked
-  local assignment, source, role, roleRead = X.AssignmentForUnit(class, unit, isGroup, isSelf)
+  local assignment, source, role, roleRead, manual = X.AssignmentForUnit(class, unit, isGroup, isSelf)
   if report == "why" then
     detail.assignment = assignment ~= nil
-    detail.rule = X.AssignmentRuleText(class, role, source, assignment, isGroup)
+    detail.rule = X.AssignmentRuleText(class, role, source, assignment, isGroup, manual)
   end
   local lookup = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
   for i = 1, #myBuffs do
@@ -2633,6 +2653,70 @@ function X.ReadyIdentity(unit)
   return ok and SafeString(guid) or nil, full, name
 end
 
+do
+  local function MemberGUID(unit)
+    local ok, guid = pcall(UnitGUID, unit)
+    if ok and type(guid) == "string" and Readable(guid) and guid ~= "" then return guid end
+  end
+
+  function X.GetAssignmentRoleOverride(unit)
+    if not X.assignmentRoleOverrides or not next(X.assignmentRoleOverrides) then return nil end
+    local guid = MemberGUID(unit)
+    return guid and X.assignmentRoleOverrides[guid]
+  end
+
+  function X.SetAssignmentRole(unit, guid, role)
+    if not X.AssignmentEnabled() or InCombatLockdown() or X.PlayerSuspended() or not InGroup()
+      or not Readable(unit) or type(unit) ~= "string"
+      or not Readable(guid) or type(guid) ~= "string" or guid == ""
+      or (type(role) ~= "nil" and (not Readable(role)
+        or (role ~= "TANK" and role ~= "HEALER" and role ~= "DAMAGER"))) then
+      return false
+    end
+    local matched = false
+    X.ForReportRoster(function(member, exists)
+      if exists and member == unit and X.IsSelf(member) == false
+        and MemberGUID(member) == guid and (role == nil or not AssignedRole(member)) then
+        matched = true
+      end
+    end)
+    if not matched then return false end
+    X.assignmentRoleOverrides = X.assignmentRoleOverrides or {}
+    X.assignmentRoleOverrides[guid] = role
+    X.assignmentGroupConflicts = nil
+    return true
+  end
+
+  function X.PruneAssignmentRoleOverrides()
+    if not X.assignmentRoleOverrides or not next(X.assignmentRoleOverrides) then return end
+    local size = X.ReadUnitNumber(GetNumGroupMembers)
+    if not size or size <= 0 then return end  -- GROUP_LEFT clears the entire session
+    local limit = math_floor(size) - (InRaid() and 0 or 1)
+    local rosterGUIDs, count, incomplete = {}, 0, false
+    X.ForReportRoster(function(member, exists)
+      local guid = exists and MemberGUID(member)
+      if guid and not rosterGUIDs[guid] then
+        rosterGUIDs[guid], count = true, count + 1
+      else
+        incomplete = true
+      end
+    end, limit)
+    if incomplete or count ~= size then return end
+    for guid in pairs(X.assignmentRoleOverrides) do
+      if not rosterGUIDs[guid] then X.assignmentRoleOverrides[guid] = nil end
+    end
+  end
+
+  function X.AssignmentRoleEditorState(unit, exists)
+    if not exists or not X.AssignmentEnabled() or X.IsSelf(unit) ~= false then return end
+    local guid = MemberGUID(unit)
+    if not guid then return end
+    local manual = X.assignmentRoleOverrides and X.assignmentRoleOverrides[guid]
+    local canSet = AssignedRole(unit) == nil
+    return guid, manual, canSet or manual ~= nil, canSet
+  end
+end
+
 -- Coverage is independent of cast distance, cooldowns and window filters.
 -- Keep the report out of the live entry pool so it cannot alter click metadata.
 function X.GroupBuffReport(survivorsOnly, details)
@@ -2929,7 +3013,7 @@ local function GroupAssignmentConflict(spell, unit, greater, baseID, cache)
     local class = exists and UnitClassFile(member)
     if not class then conflict = true; return end
     if greater and class ~= targetClass then return end
-    local assignment = X.ResolveAssignment(class, AssignedRole(member))
+    local assignment = X.AssignmentForUnit(class, member, true, false)
     if assignment == nil then return end
     if greater then
       local blessing = X.BlessingForClass(class, member, assignment)
@@ -3001,14 +3085,18 @@ function X.AssignmentPreview()
     local guid, full, short
     if exists then guid, full, short = X.ReadyIdentity(unit) end
     local row = { name = full or short or L["Player details unavailable"], buffs = {}, available = {} }
+    if full then
+      row.unit = unit
+      row.guid, row.roleOverride, row.roleEditable, row.roleCanSet = X.AssignmentRoleEditorState(unit, exists)
+    end
     members[#members + 1] = row
     local valid, isSelf = Valid(unit)
     if not exists or not guid or not full then
       row.rule, row.status = L["Rule unavailable"], L["Player details unavailable"]
     elseif not valid or Ignore.Has(full, short) or X.SessionHas(full, short) then
       local class = UnitClassFile(unit)
-      local assignment, source, role = X.AssignmentForUnit(class, unit, true, X.IsSelf(unit))
-      row.rule = X.AssignmentRuleText(class, role, source, assignment, true)
+      local assignment, source, role, _, manual = X.AssignmentForUnit(class, unit, true, X.IsSelf(unit))
+      row.rule = X.AssignmentRuleText(class, role, source, assignment, true, manual)
       row.status = valid and L["Ignored"] or L["Currently ineligible"]
     else
       local detail = { cooldown = {}, cooldowns = cooldowns }
@@ -3866,6 +3954,7 @@ end
 function X.OnRoster()
   local g = InGroup()
   X.PruneBlessingExceptions()
+  X.PruneAssignmentRoleOverrides()
   if db then X.SendCover() end  -- roster changes refresh a live cover (1.7.0)
   if X.inGroupPrev == false and g and db and db.joinDigest and hasAnyBuff then
     if C_Timer and C_Timer.After then
@@ -4771,8 +4860,8 @@ function X.Why(name)
   local function printInactiveRule()
     local ok, _, class = pcall(UnitClass, unit)
     class = ok and SafeString(class) or nil
-    local assignment, source, role = X.AssignmentForUnit(class, unit, isGroup, X.IsSelf(unit))
-    printRule({ rule = X.AssignmentRuleText(class, role, source, assignment, isGroup) })
+    local assignment, source, role, _, manual = X.AssignmentForUnit(class, unit, isGroup, X.IsSelf(unit))
+    printRule({ rule = X.AssignmentRuleText(class, role, source, assignment, isGroup, manual) })
   end
   if Ignore.Has(full, short) then
     printInactiveRule()
@@ -7099,7 +7188,7 @@ end
 for _, ev in ipairs({
   "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
   "SPELLS_CHANGED", "LEARNED_SPELL_IN_TAB", "LEARNED_SPELL_IN_SKILL_LINE",
-  "GROUP_ROSTER_UPDATE", "PARTY_MEMBERS_CHANGED", "RAID_ROSTER_UPDATE", "PLAYER_ROLES_ASSIGNED",
+  "GROUP_ROSTER_UPDATE", "PARTY_MEMBERS_CHANGED", "RAID_ROSTER_UPDATE", "PLAYER_ROLES_ASSIGNED", "GROUP_LEFT",
   "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "UNIT_AURA", "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
   "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED",
   "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED", "UI_ERROR_MESSAGE",
@@ -7175,6 +7264,16 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       X.assignmentGroupConflicts = nil
       Soon()
     end
+    return
+  elseif event == "GROUP_LEFT" then
+    local size = X.ReadUnitNumber(GetNumGroupMembers)
+    if (size and size <= 0) or (not size and not InGroup()) then
+      X.assignmentRoleOverrides = nil
+    else
+      X.PruneAssignmentRoleOverrides()
+    end
+    X.assignmentGroupConflicts = nil
+    Soon()
     return
   elseif event == "BAG_UPDATE_DELAYED" then
     X.InvalidateReagents()

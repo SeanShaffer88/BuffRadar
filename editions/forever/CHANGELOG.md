@@ -2,6 +2,15 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.19 — Forever test build
+
+- Set or clear a session-only assignment role from the current group
+  preview when Forever does not provide that member's role.
+- Show the manual role and the rule it selects in the preview and
+  `/br why <name>`. A role reported by the game takes precedence.
+
+In-game verification is pending for this build.
+
 ## 1.15.18 — Forever test build
 
 - Preview how the assignment table applies to each member of your current
@@ -9,7 +18,8 @@ All notable changes to BuffRadar are listed here. Newest first.
 - Show the effective assignment rule in `/br why <name>`, including
   inheritance and role information that Forever cannot provide.
 
-In-game verification is pending for this build.
+The maintainer confirmed live verification of the 1.15.18 field-test
+build `ab67482a16e0` in WoW: Forever.
 
 ## 1.15.17 — Forever test build
 

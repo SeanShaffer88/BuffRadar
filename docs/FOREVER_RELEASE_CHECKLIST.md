@@ -2,6 +2,21 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.19 Session Role Overrides
+
+- Open `/br buffassign preview` with an unassigned group member. Set Tank,
+  Heal, or DPS from their row and compare the effective rule, cast queue,
+  and `/br why <name>`. Clear it and verify fallback to World or All Roles.
+- Have Forever report a role for that member. Confirm the game role takes
+  precedence and that the preview explains the change.
+- Have a member leave and another take their roster slot. Confirm the new
+  member gets no override and the first member returns without one. Reload
+  the UI and confirm any remaining overrides clear.
+- Check mouse and keyboard controls. With group reagents available, change
+  an override to a role whose rule excludes the spell and verify the
+  group action falls back safely. Check Paladin class plans and individual
+  exceptions, then confirm combat closes the panel and disarms casting.
+
 ## 1.15.18 Assignment Preview
 
 - With a party or raid, open `/br buffassign preview`. Compare each row's

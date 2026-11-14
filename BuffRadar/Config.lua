@@ -61,8 +61,10 @@ end
 
 function K.Modal()
   local assignments = cfg.assignmentPanel
+  local preview = assignments and assignments.preview
   return assignments and assignments:IsShown()
-    and (assignments.preview and assignments.preview:IsShown() and assignments.preview
+    and (preview and preview:IsShown()
+        and (preview.roleEditor and preview.roleEditor:IsShown() and preview.roleEditor or preview)
       or assignments.picker:IsShown() and assignments.picker or assignments)
     or cfg.blessingPanel and cfg.blessingPanel:IsShown() and cfg.blessingPanel
     or cfg.displayPanel and cfg.displayPanel:IsShown() and cfg.displayPanel
@@ -885,6 +887,7 @@ function AssignmentUI.UpdatePreview(preview)
   preview.next:SetShown(preview.page < pages)
   for index, row in ipairs(preview.rows) do
     local member = members[first + index - 1]
+    row.member = member
     if member then
       local parts = {}
       if member.evaluated and (#member.buffs > 0 or not member.unknown) then
@@ -899,7 +902,13 @@ function AssignmentUI.UpdatePreview(preview)
       row.heading:SetText(member.name .. " · " .. member.rule)
       row.description = member.rule .. "\n" .. table.concat(parts, "\n")
       row.detail:SetText(table.concat(parts, " · "))
+      if member.roleEditable then
+        row.roleButton:SetText(member.roleOverride and L["Change Role"] or L["Set Role"])
+      end
     end
+    row.roleButton:SetShown(member ~= nil and member.roleEditable == true)
+    row.heading:SetPoint("TOPRIGHT", member and member.roleEditable and -132 or -3, -3)
+    row.detail:SetPoint("TOPRIGHT", member and member.roleEditable and -132 or -3, -20)
     row:SetShown(member ~= nil)
   end
   if K.active and not K.edit then
@@ -911,6 +920,66 @@ function AssignmentUI.RefreshPreview(preview)
   if InCombatLockdown() or X.PlayerSuspended() or not preview:IsVisible() then return end
   preview.members = X.AssignmentPreview()
   AssignmentUI.UpdatePreview(preview)
+end
+
+function AssignmentUI.BuildRoleEditor(preview)
+  local editor = AssignmentUI.CreatePanel(preview, "BuffRadarAssignmentRoleEditor", 574, 405,
+    preview:GetFrameLevel() + 5)
+  editor.title = editor:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  editor.title:SetPoint("TOPLEFT", 16, -14)
+  editor.title:SetPoint("TOPRIGHT", -45, -14)
+  editor.title:SetJustifyH("LEFT")
+  AssignmentUI.CloseButton(editor, function() editor:Hide() end)
+  local hint = editor:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  hint:SetPoint("TOPLEFT", 16, -62)
+  hint:SetPoint("TOPRIGHT", -16, -62)
+  hint:SetJustifyH("LEFT")
+  hint:SetText(L["Choose a fallback when the game does not report a role."])
+  editor.selection = editor:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  editor.selection:SetPoint("TOPLEFT", 16, -91)
+  local function choose(role)
+    local member = editor.member
+    if not editor:IsVisible() or not member or InCombatLockdown() or X.PlayerSuspended() then return end
+    local changed = X.SetAssignmentRole(member.unit, member.guid, role)
+    editor:Hide()
+    if changed then
+      Refresh()
+    else
+      Print(L["The member or role changed. Refresh and try again."])
+    end
+    AssignmentUI.RefreshPreview(preview)
+  end
+  editor.choices = {}
+  for index, role in ipairs({ "TANK", "HEALER", "DAMAGER", "GAME" }) do
+    local label = role == "GAME" and L["Use Game Role"] or AssignmentUI.labels[role]
+    local button = MakeButton(editor, label, 220, function()
+      if role == "GAME" then choose(nil) else choose(role) end
+    end)
+    button:SetPoint("TOPLEFT", 16, -119 - (index - 1) * 34)
+    button.navigation.value = function()
+      if editor.member and (editor.member.roleOverride or "GAME") == role then
+        return L["Current selection"]
+      end
+    end
+    editor.choices[role] = button
+  end
+  editor:HookScript("OnHide", function() editor.member = nil end)
+  if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarAssignmentRoleEditor") end
+  return editor
+end
+
+function AssignmentUI.OpenRoleEditor(preview, member)
+  if not member or not member.roleEditable or InCombatLockdown() or X.PlayerSuspended() then return end
+  preview.roleEditor = preview.roleEditor or AssignmentUI.BuildRoleEditor(preview)
+  local editor = preview.roleEditor
+  editor.member = member
+  editor.title:SetText(string.format(L["Session Role for %s"], member.name))
+  local label = AssignmentUI.labels[member.roleOverride] or L["Use Game Role"]
+  editor.selection:SetText(L["Current selection"] .. " · " .. label)
+  for role, button in pairs(editor.choices) do
+    button:SetShown(role == "GAME" and member.roleOverride ~= nil or role ~= "GAME" and member.roleCanSet == true)
+  end
+  editor:Show()
 end
 
 function AssignmentUI.BuildPreview(panel)
@@ -955,6 +1024,11 @@ function AssignmentUI.BuildPreview(panel)
     row.detail:SetPoint("TOPRIGHT", -3, -20)
     row.detail:SetJustifyH("LEFT")
     row.detail:SetWordWrap(false)
+    row.roleButton = MakeButton(row, "", 126, function() AssignmentUI.OpenRoleEditor(preview, row.member) end)
+    row.roleButton:SetPoint("RIGHT", -1, 0)
+    K.Register(row.roleButton, preview,
+      function() return row.roleButton:GetText() .. " · " .. row.name end, "button",
+      function() return AssignmentUI.labels[row.member.roleOverride] end)
     local function name() return row.name end
     local function description() return row.description end
     K.Register(row, preview, name, "detail", description)
@@ -966,7 +1040,9 @@ function AssignmentUI.BuildPreview(panel)
   preview.next = MakeButton(preview, L["Next"], 110, function() move(1) end)
   preview.next:SetPoint("LEFT", preview.previous, "RIGHT", 8, 0)
   preview:HookScript("OnHide", function()
+    if preview.roleEditor then preview.roleEditor:Hide() end
     preview.members = {}
+    for _, row in ipairs(preview.rows) do row.member = nil end
     GameTooltip:Hide()
   end)
   if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarAssignmentPreview") end

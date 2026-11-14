@@ -94,6 +94,9 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
   rule and buff information for each group member. Open it with
   `/br buffassign preview` or check one player with `/br why <name>`.
   Use **Refresh** after roster, role, or buff changes.
+  When a group member's role is unavailable, select their row to set or
+  clear a role for assignment rules. A role reported by the game takes
+  precedence. Overrides clear when the member leaves or the UI reloads.
 - **Role ordering** option: you, tanks and leaders first.
 - **Rezzed players first** (after you): someone who just came back from the dead
   has lost every buff, so their row jumps up with a *recently rezzed* marker.
