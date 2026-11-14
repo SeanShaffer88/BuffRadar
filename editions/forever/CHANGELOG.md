@@ -3,7 +3,7 @@
 All notable changes to BuffRadar are listed here. Newest first.
 
 
-## Unreleased
+## 1.15.6 — 2026-11-14 — Forever update
 
 - Collapse settings search by default and reopen it with a small Find button
   on each tab. Switching tabs clears the query and closes search.
@@ -35,9 +35,9 @@ All notable changes to BuffRadar are listed here. Newest first.
   command in 1.15.2 and is reset on every load, so it could only read "on".
   That slot now reports the new range setting.
 
-**Verification:** the full offline gate passes (static checks, Lua 5.1 limits,
-German locale complete, six-setup trial run with three added steps). Not yet
-field-tested in game.
+**Verification:** the full offline gate and post-merge GitHub Actions gate passed
+(static checks, Lua 5.1 limits, German locale check and six fake-client setups).
+This release has not yet been field-tested in game.
 
 
 ## 1.15.5 — 2026-11-13 — Forever stable field test
