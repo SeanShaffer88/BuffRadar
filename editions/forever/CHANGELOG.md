@@ -3,6 +3,12 @@
 All notable changes to BuffRadar are listed here. Newest first.
 
 
+## Unreleased
+
+- Distinguish a silent spell-range check from the normal fully-buffed and friendly-nameplates-off empty states.
+- Skip the current player after out-of-range and invalid-target cast failures, advancing to the next keybind target.
+- Add a short manual Forever release checklist.
+
 ## 1.15.6 — 2026-11-14 — Forever update
 
 - Collapse settings search by default and reopen it with a small Find button
