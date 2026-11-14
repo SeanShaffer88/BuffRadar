@@ -3467,6 +3467,35 @@ step("1.12.0 diagnostics: apicheck, buffcheck, perf, settings diff", function()
   assert(chatSince(n, "changes nothing"), "profile diff of a fresh profile")
   env.SlashCmdList.BUFFRADAR("profile delete dtest")
 end)
+step("cast counter fits a narrow window instead of being cut off", function()
+  local X = NS.X
+  local f = X.footerText
+  assert(f, "footer text was not exposed")
+  local prevW, prevSW = f.GetWidth, f.GetStringWidth
+
+  -- Plenty of room: the full line stays.
+  f.GetWidth = function() return 400 end
+  f.GetStringWidth = function() return 120 end
+  X.lastCounterRoom = nil
+  NS.X.slashAPI.UpdateCounter()
+  -- Checked on the "/" that only the compact form has, so this holds in every
+  -- locale: the German pack translates the words but not the separator.
+  assert(not f:GetText():find("/", 1, true),
+    "a wide window used the compact counter form")
+
+  -- Too narrow for the long form: drop to the compact one. Anchored left and
+  -- right with word wrap off, the alternative is a cut-off "39 all-t...".
+  f.GetWidth = function() return 40 end
+  f.GetStringWidth = function() return 120 end
+  X.lastCounterRoom = nil
+  NS.X.slashAPI.UpdateCounter()
+  local narrow = f:GetText()
+  assert(narrow:find("/", 1, true),
+    "the long counter line survived a window too narrow for it")
+
+  f.GetWidth, f.GetStringWidth = prevW, prevSW
+  X.lastCounterRoom = nil
+end)
 step("apicheck readability tier tells restricted apart from absent", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("apicheck")

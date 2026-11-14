@@ -519,6 +519,8 @@ local L = {
   ["+%d more"] = "+%d more",
   ["Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time"] =
     "Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time",
+  -- Compact form, used when the window is too narrow for the line above.
+  ["Casts: |cffffffff%d|r / |cffffffff%d|r"] = "Casts: |cffffffff%d|r / |cffffffff%d|r",
   ["out of range"] = "out of range",  -- under a greyed row's name
   ["recently rezzed"] = "recently rezzed",  -- under a rezzed player's name (1.4.0)
   ["a buff just expired"] = "a buff just expired",  -- under the name (1.4.0)
@@ -2955,10 +2957,19 @@ local function UpdateCounter()
   local show = db.showCounter and true or false
   if (footerText:IsShown() and true or false) ~= show then footerText:SetShown(show) end
   local total = db.castsTotal or 0
-  if X.sessionCasts ~= X.lastCounterSession or total ~= X.lastCounterTotal then
-    X.lastCounterSession, X.lastCounterTotal = X.sessionCasts, total
+  -- The counter shares its row with the settings gear and stops short of the
+  -- resize grip, so a narrow window used to cut it to "39 all-t...". Width is
+  -- part of the cache key so a resize re-fits the line, not just a new cast.
+  local room = footerText:GetWidth() or 0
+  if X.sessionCasts ~= X.lastCounterSession or total ~= X.lastCounterTotal
+     or room ~= X.lastCounterRoom then
+    X.lastCounterSession, X.lastCounterTotal, X.lastCounterRoom = X.sessionCasts, total, room
     footerText:SetText(string_format(L["Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time"],
       X.sessionCasts, total))
+    if room > 0 and footerText:GetStringWidth() > room then
+      footerText:SetText(string_format(L["Casts: |cffffffff%d|r / |cffffffff%d|r"],
+        X.sessionCasts, total))
+    end
   end
 end
 
@@ -4914,6 +4925,7 @@ local function BuildUI()
   footerText:SetPoint("RIGHT", frame, "BOTTOMRIGHT", -16, 13)  -- clear of the resize grip
   footerText:SetJustifyH("LEFT")
   if footerText.SetWordWrap then footerText:SetWordWrap(false) end
+  X.footerText = footerText
 
   -- Coverage line (1.4.0): "12/15 fully buffed · Fortitude 13/15 · ...",
   -- directly above the footer; Refresh() grows the window when it's shown.

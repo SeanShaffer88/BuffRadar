@@ -31,6 +31,7 @@ BuffRadarLocales.deDE = {
   ["+%d more"] = "+%d weitere",
   ["Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time"] =
     "Zauber: |cffffffff%d|r diese Sitzung  ·  |cffffffff%d|r insgesamt",
+  ["Casts: |cffffffff%d|r / |cffffffff%d|r"] = "Zauber: |cffffffff%d|r / |cffffffff%d|r",
   -- row tooltip
   ["Out of range — move closer to cast:"] = "Außer Reichweite – näher herangehen, um zu wirken:",
   ["Click to cast: %s"] = "Klicken zum Wirken: %s",
