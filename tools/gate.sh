@@ -3,7 +3,7 @@
 # Usage: sh tools/gate.sh      (needs python3 + the lupa package)
 set -e
 cd "$(dirname "$0")/.."
-LUA="BuffRadar/Data.lua BuffRadar/BuffRadar.lua BuffRadar/Config.lua BuffRadar/Slash.lua BuffRadar/Extras.lua BuffRadar/Recaps.lua"
+LUA="BuffRadar/Data.lua BuffRadar/BuffRadar.lua BuffRadar/Config.lua BuffRadar/Slash.lua BuffRadar/Extras.lua BuffRadar/Recaps.lua BuffRadar/Profiles.lua"
 LOC="$(ls BuffRadar/Locales/*.lua)"
 echo "== luacheck51";   python3 -I tools/luacheck51.py $LUA $LOC
 echo "== lualimits";    for f in $LUA; do python3 -I tools/lualimits.py "$f"; done

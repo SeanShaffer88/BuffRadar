@@ -19,3 +19,4 @@ Config.lua
 Slash.lua
 Extras.lua
 Recaps.lua
+Profiles.lua
