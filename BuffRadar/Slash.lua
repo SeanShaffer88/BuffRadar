@@ -198,7 +198,11 @@ local function HandleSlash(msg)
   elseif cmd == "hide" then
     db.hidden, sessionShow = true, false
   elseif cmd == "config" or cmd == "options" or cmd == "settings" then
-    OpenConfig()
+    if rest:lower() == "find" and X.OpenSettingsSearch then
+      X.OpenSettingsSearch()
+    else
+      OpenConfig()
+    end
   elseif cmd == "group" then
     db.groupOnly = not db.groupOnly
     Print("Show only in a party or raid " .. OnOff(db.groupOnly))
@@ -1297,7 +1301,7 @@ local function HandleSlash(msg)
   else
     Print("Commands:")
     Print("  /br  - show/hide the window   (/br debug if it won't appear)")
-    Print("  /br config  - settings window (color, opacity, title, keybind)")
+    Print("  /br config  - settings window   /br config find - search settings")
     Print("  /br macro  - create a 'BuffRadar' macro that casts the next buff")
     Print("  /br key  - open Key Bindings to bind 'Cast next buff'")
     Print("  /br sound  - toggle the water droplet alert")

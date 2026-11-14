@@ -3063,7 +3063,14 @@ step("settings search counts only visible controls and clears on close", functio
   local sb = cfg.searchBox
   assert(sb, "no settings search box")
   cfg.tabBtns.look.scripts.OnClick()
-  cfg.searchToggle.scripts.OnClick(cfg.searchToggle)
+  local oldSetFocus = sb.SetFocus
+  local focused = false
+  sb.SetFocus = function(self) focused = true; oldSetFocus(self) end
+  cfg.displayBtn.scripts.OnClick()
+  env.SlashCmdList.BUFFRADAR("config find")
+  sb.SetFocus = oldSetFocus
+  assert(cfg.searchFooter.shown and cfg.panels.look.shown and not cfg.displayPanel.shown and focused,
+    "keyboard command did not reopen, display, and focus the settings search")
   cfg.titleCheck:SetAlpha(0.8)
   sb:SetText("opacity")
   sb.scripts.OnTextChanged(sb)

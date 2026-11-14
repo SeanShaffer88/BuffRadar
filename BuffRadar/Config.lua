@@ -134,6 +134,11 @@ local function CloseSearch()
   cfg.searchFooter:Hide()
 end
 
+local function OpenSearch()
+  cfg.searchFooter:Show()
+  cfg.searchBox:SetFocus()
+end
+
 -- Hover help for a settings control: a white title line plus wrapped detail.
 -- heading/text may be functions, for help that depends on the current state.
 local function Tip(widget, heading, text)
@@ -1454,8 +1459,7 @@ local function BuildConfig()
     if cfg.searchFooter:IsShown() then
       CloseSearch()
     else
-      cfg.searchFooter:Show()
-      cfg.searchBox:SetFocus()
+      OpenSearch()
     end
   end)
   cfg.searchToggle = searchToggle
@@ -1668,6 +1672,16 @@ OpenConfig = function(forceShow)
   db = X.GetDB()
   if not cfg then BuildConfig() end
   if cfg:IsShown() and not forceShow then cfg:Hide() else cfg:Show() end
+end
+
+function X.OpenSettingsSearch()
+  if X.PlayerSuspended() then return end
+  OpenConfig(true)
+  if (cfg.displayPanel and cfg.displayPanel:IsShown())
+    or (cfg.blessingPanel and cfg.blessingPanel:IsShown()) then
+    SelectTab(cfg.curTab or "look")
+  end
+  OpenSearch()
 end
 
 function X.HideConfig()
