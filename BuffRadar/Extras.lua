@@ -8,7 +8,155 @@ local _, NS = ...
 local X = NS and NS.X
 if not X then return end
 
-local Print = X.Print
+local Print, L = X.Print, X.L
+
+---------------------------------------------------------------------------
+-- Nearby detection details. Reading this panel never refreshes the cast queue.
+---------------------------------------------------------------------------
+local nearby
+
+local function UpdateNearbyNameplates()
+  local enabled = X.FriendlyPlatesOn()
+  if nearby.lastNameplates ~= enabled then nearby.message:SetText("") end
+  nearby.lastNameplates = enabled
+  local status = enabled == true and L["On"] or enabled == false and L["Off"] or L["Unknown"]
+  nearby.nameplates:SetText(string.format(L["Friendly nameplates: %s"], status))
+  nearby.enablePlates:SetShown(enabled == false)
+end
+
+function X.UpdateNearbyScanCount()
+  if not nearby or not nearby:IsShown() or nearby.lastCount == X.playersSeen then return end
+  nearby.lastCount = X.playersSeen
+  nearby.count:SetText(X.playersSeen == nil and L["Player nameplates seen on last scan: unavailable"]
+    or string.format(L["Player nameplates seen on last scan: %d"], X.playersSeen))
+end
+
+local function UpdateNearbyTarget()
+  local lines = {}
+  X.ExplainCurrentTarget(function(line) lines[#lines + 1] = line end)
+  nearby.details:SetText(table.concat(lines, "\n"))
+  nearby.scrollChild:SetHeight(math.max(1, nearby.details:GetStringHeight() or 0))
+  nearby.scroll:SetVerticalScroll(0)
+end
+
+function X.UpdateNearbyTargetAfterScan()
+  if not nearby or not nearby.targetDirty or not nearby:IsShown()
+    or X.PlayerSuspended() or InCombatLockdown() then return end
+  nearby.targetDirty = nil
+  UpdateNearbyTarget()
+end
+
+local function RefreshNearby()
+  nearby.message:SetText("")
+  UpdateNearbyNameplates()
+  X.UpdateNearbyScanCount()
+  UpdateNearbyTarget()
+end
+
+local function BuildNearby()
+  local f = CreateFrame("Frame", "BuffRadarNearbyDiagnostics", UIParent)
+  f:SetSize(450, 252)
+  f:SetPoint("CENTER")
+  f:SetFrameStrata("DIALOG")
+  f:SetClampedToScreen(true)
+  f:EnableMouse(true)
+  f:SetMovable(true)
+  f:RegisterForDrag("LeftButton")
+  f:SetScript("OnDragStart", function(self) self:StartMoving() end)
+  f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+
+  local background = f:CreateTexture(nil, "BACKGROUND")
+  background:SetAllPoints(f)
+  background:SetColorTexture(0.06, 0.065, 0.095, 0.98)
+  local function Label(font, y)
+    local label = f:CreateFontString(nil, "OVERLAY", font)
+    label:SetPoint("TOPLEFT", 14, y)
+    label:SetPoint("TOPRIGHT", -14, y)
+    label:SetJustifyH("LEFT")
+    return label
+  end
+  local title = Label("GameFontNormalLarge", -12)
+  title:SetPoint("TOPRIGHT", -32, -12)
+  title:SetText(L["Nearby Player Diagnostics"])
+  local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+  close:SetPoint("TOPRIGHT", -3, -3)
+  close:SetScript("OnClick", function() f:Hide() end)
+  f.nameplates = Label("GameFontHighlight", -45)
+  f.count = Label("GameFontHighlight", -65)
+  local targetTitle = Label("GameFontNormal", -92)
+  targetTitle:SetText(L["Current Target"])
+
+  local scroll = CreateFrame("ScrollFrame", "BuffRadarNearbyScroll", f, "UIPanelScrollFrameTemplate")
+  scroll:SetPoint("TOPLEFT", 14, -112)
+  scroll:SetPoint("BOTTOMRIGHT", -30, 76)
+  local child = CreateFrame("Frame", nil, scroll)
+  child:SetSize(406, 1)
+  scroll:SetScrollChild(child)
+  f.scroll, f.scrollChild = scroll, child
+  f.details = child:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  f.details:SetPoint("TOPLEFT", 0, 0)
+  f.details:SetPoint("TOPRIGHT", 0, 0)
+  f.details:SetJustifyH("LEFT")
+  f.details:SetJustifyV("TOP")
+  f.details:SetWordWrap(true)
+  f.message = Label("GameFontHighlightSmall", -182)
+
+  local enable = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  enable:SetSize(280, 22)
+  enable:SetPoint("BOTTOMLEFT", 14, 12)
+  enable:SetText(L["Enable Friendly Nameplates"])
+  enable:SetScript("OnClick", function()
+    if not f:IsShown() or X.PlayerSuspended() or InCombatLockdown() or X.FriendlyPlatesOn() ~= false then return end
+    local message
+    X.EnableFriendlyNameplates(function(line) message = line end)
+    UpdateNearbyNameplates()
+    f.message:SetText(message or "")
+  end)
+  f.enablePlates = enable
+
+  local refresh = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  refresh:SetSize(110, 22)
+  refresh:SetPoint("BOTTOMRIGHT", -14, 12)
+  refresh:SetText(L["Refresh"])
+  refresh:SetScript("OnClick", function()
+    if f:IsShown() and not X.PlayerSuspended() and not InCombatLockdown() then RefreshNearby() end
+  end)
+  f.refresh = refresh
+
+  f:SetScript("OnShow", function(self)
+    self:RegisterEvent("PLAYER_TARGET_CHANGED")
+    self:RegisterEvent("CVAR_UPDATE")
+  end)
+  f:SetScript("OnHide", function(self)
+    self.targetDirty = nil
+    self:UnregisterEvent("PLAYER_TARGET_CHANGED")
+    self:UnregisterEvent("CVAR_UPDATE")
+  end)
+  f:SetScript("OnEvent", function(self, event)
+    if not self:IsShown() or X.PlayerSuspended() or InCombatLockdown() then return end
+    if event == "PLAYER_TARGET_CHANGED" then
+      self.targetDirty = true
+      UpdateNearbyTarget()
+    elseif event == "CVAR_UPDATE" then
+      UpdateNearbyNameplates()
+    end
+  end)
+  if UISpecialFrames then UISpecialFrames[#UISpecialFrames + 1] = "BuffRadarNearbyDiagnostics" end
+  f:Hide()
+  return f
+end
+
+function X.OpenNearbyDiagnostics()
+  if not X.classic or X.PlayerSuspended() or InCombatLockdown() then return end
+  nearby = nearby or BuildNearby()
+  nearby.lastCount = false  -- a new opening should render even without a completed scan
+  nearby:Show()
+  RefreshNearby()
+end
+
+function X.CloseNearbyDiagnostics()
+  if nearby then nearby:Hide() end
+end
 
 -- Every optional API gets looked at through these, never called unguarded.
 local function Has(path)

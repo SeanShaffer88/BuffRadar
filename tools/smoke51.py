@@ -5396,6 +5396,113 @@ step("/br why finds nearby and mouseover players and disambiguates names", funct
   assert(X.tally == tally, "listing diagnostic rebuilt live scan state")
   cleanup()
 end)
+step("Forever nearby diagnostics update their own panel and verify explicit nameplate changes", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("Nearby")
+  local X, O, db = NS.X, env.__over, env.BuffRadarDB
+  local oldCVar, oldCount = env.C_CVar, X.playersSeen
+  local oldRole, oldAssignments, oldMode = env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled
+  local oldTitle, oldLocked, oldClick = db.showTitle, db.locked, db.clickThrough
+  local ok, err = pcall(function()
+    local exists, guid, name, full, class = O.UnitExists, O.UnitGUID, O.UnitName, O.UnitFullName, O.UnitClass
+    local target, plate = nil, false
+    local function alias(unit)
+      if unit == "target" then return target or "none" end
+      if unit == "nameplate7" and plate then return "party1" end
+      return unit
+    end
+    O.UnitExists = function(unit) return exists(alias(unit)) end
+    O.UnitIsPlayer = O.UnitExists
+    O.UnitGUID = function(unit) return guid(alias(unit)) end
+    O.UnitName = function(unit) return name(alias(unit)) end
+    O.UnitFullName = function(unit) return full(alias(unit)) end
+    O.UnitClass = function(unit) return class(alias(unit)) end
+    env.IsSpellInRange = function() return 1 end
+    env.UnitGroupRolesAssigned = function(unit) return unit == "party1" and "DAMAGER" or "NONE" end
+    db.buffAssignments = {}
+    assert(X.SetAssignmentEnabled(true) and X.SetAssignment("MAGE", "DAMAGER", false))
+    local vars = { nameplateShowFriendlyPlayers = "0", nameplateShowAll = "0" }
+    local writes, allow = 0, false
+    env.C_CVar = {
+      GetCVar = function(key) return vars[key] end,
+      SetCVar = function(key, value)
+        writes = writes + 1
+        if allow then vars[key] = value end
+      end,
+    }
+    refresh()
+    assert(shownRows().party2, "the test requires a nonempty cast list")
+    db.showTitle = false
+    X.ApplyRowLayout()
+    db.locked, db.clickThrough = true, true
+    X.ApplyClickThrough()
+    assert(X.nearbyButton and not X.nearbyButton:IsShown(), "nearby help intercepted locked click-through")
+    db.locked, db.clickThrough = false, false
+    X.ApplyClickThrough()
+    X.playersSeen = nil
+    local tally, n = X.tally, #chat
+    local cast = env.BuffRadarNextButton:GetAttribute("unit")
+    assert(X.nearbyButton:IsShown(), "nearby help missing from the titleless window with eligible players")
+    X.nearbyButton:Click()
+    local panel = env.BuffRadarNearbyDiagnostics
+    assert(panel:IsShown() and panel.enablePlates:IsShown() and panel.nameplates:GetText() == "Friendly nameplates: Off",
+      "off nameplates did not offer an action in the diagnostics panel")
+    assert(panel.count:GetText():find("unavailable", 1, true) and panel.details:GetText() ~= "",
+      "missing scan data or target was not explained")
+    assert(writes == 0 and #chat == n and X.tally == tally and env.BuffRadarNextButton:GetAttribute("unit") == cast,
+      "opening nearby diagnostics changed the queue, settings, or chat")
+
+    local event = panel:GetScript("OnEvent")
+    target = "party1"
+    event(panel, "PLAYER_TARGET_CHANGED")
+    local reason = panel.details:GetText()
+    assert(panel.targetDirty and reason:find("Aaron", 1, true) and reason:find("DPS rule", 1, true)
+      and reason:find("None", 1, true) and X.tally == tally and #chat == n,
+      "the read-only target diagnosis lost the matched party unit or its explicit role rule")
+    panel.enablePlates:Click()
+    assert(writes == 1 and panel.enablePlates:IsShown() and panel.message:GetText() ~= "",
+      "a refused nameplate write was accepted")
+    allow = true
+    panel.enablePlates:Click()
+    assert(writes == 3 and not panel.enablePlates:IsShown() and panel.nameplates:GetText() == "Friendly nameplates: On",
+      "a verified nameplate write did not update the panel")
+    assert(#chat == n and X.tally == tally, "the enable action posted chat or rebuilt the queue")
+    vars.nameplateShowFriendlyPlayers = nil
+    event(panel, "CVAR_UPDATE")
+    assert(panel.nameplates:GetText() == "Friendly nameplates: Unknown" and not panel.enablePlates:IsShown()
+      and panel.message:GetText() == "", "unknown nameplate setting was treated as a writable off setting")
+
+    plate = true
+    refresh()
+    assert(panel.count:GetText() == "Player nameplates seen on last scan: 1" and not panel.targetDirty,
+      "the panel did not pick up the completed scan and resolve its pending target update")
+    target = nil
+    panel.refresh:Click()
+    assert(not panel.details:GetText():find("Aaron", 1, true), "refresh kept a missing target's old diagnosis")
+
+    env.__combat = true
+    fire("PLAYER_REGEN_DISABLED")
+    assert(not panel:IsShown() and not panel.events.PLAYER_TARGET_CHANGED,
+      "combat left nearby diagnostics visible or subscribed")
+    env.SlashCmdList.BUFFRADAR("nearby")
+    assert(not panel:IsShown(), "the nearby command opened in combat")
+    env.__combat = false
+    fire("PLAYER_REGEN_ENABLED")
+    env.SlashCmdList.BUFFRADAR("nearby")
+    assert(panel:IsShown(), "the nearby slash command did not open the same panel")
+    fire("PLAYER_DEAD")
+    assert(not panel:IsShown() and not panel.events.CVAR_UPDATE, "death left nearby diagnostics open")
+  end)
+  X.CloseNearbyDiagnostics()
+  env.C_CVar, env.__combat, X.playersSeen = oldCVar, false, oldCount
+  env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled = oldRole, oldAssignments, oldMode
+  db.showTitle, db.locked, db.clickThrough = oldTitle, oldLocked, oldClick
+  cleanup()
+  fire("PLAYER_ALIVE")
+  X.ApplyRowLayout()
+  X.ApplyClickThrough()
+  assert(ok, err)
+end)
 step("pull countdown shows on the coverage line (1.15.0)", function()
   local cleanup = partyOfTwo()
   local pf

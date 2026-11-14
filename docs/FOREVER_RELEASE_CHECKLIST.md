@@ -2,6 +2,20 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.30 Nearby Player Diagnostics
+
+- Turn off friendly nameplates and target a friendly player. Open the panel
+  with **?** while a buff row is visible. Check that it reports nameplates
+  off, displays the last scan count, and explains the current target.
+- Select **Enable Friendly Nameplates**, then confirm the panel reports the
+  new setting. Verify that the count reflects the next scan, or select
+  **Refresh** to reread the result.
+- Switch between a friendly player, an enemy, and no target. Confirm the
+  previous target's explanation clears. With the title hidden and the buff
+  window narrow, check that the launcher and cast counter remain usable.
+- Open with `/br nearby` while the buff window is hidden. Enter combat or die
+  with diagnostics open and verify that it closes.
+
 ## 1.15.29 Assignment Navigation and Outdoor Thorns
 
 - Open **Settings → Buffs → Class & Role Assignments**. Check that it opens

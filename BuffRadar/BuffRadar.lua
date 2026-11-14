@@ -559,6 +559,24 @@ local L = {
   ["Some buff information is unavailable."] = "Some buff information is unavailable.",
   ["Estimated range"] = "Estimated range",
   ["Friendly nameplates are off."] = "Friendly nameplates are off.",
+  ["Nearby Player Diagnostics"] = "Nearby Player Diagnostics",
+  ["Why Is Someone Missing?"] = "Why Is Someone Missing?",
+  ["Friendly nameplates: %s"] = "Friendly nameplates: %s",
+  ["Player nameplates seen on last scan: %d"] = "Player nameplates seen on last scan: %d",
+  ["Player nameplates seen on last scan: unavailable"] = "Player nameplates seen on last scan: unavailable",
+  ["Current Target"] = "Current Target",
+  ["Select a friendly player to check."] = "Select a friendly player to check.",
+  ["Current target information is unavailable."] = "Current target information is unavailable.",
+  ["Enable Friendly Nameplates"] = "Enable Friendly Nameplates",
+  ["On"] = "On",
+  ["Off"] = "Off",
+  ["Refresh"] = "Refresh",
+  ["Can't change nameplate settings during combat."] = "Can't change nameplate settings during combat.",
+  ["Couldn't find a supported friendly nameplate setting on this client."] = "Couldn't find a supported friendly nameplate setting on this client.",
+  ["Couldn't turn on friendly nameplates. Check the game's nameplate settings."] = "Couldn't turn on friendly nameplates. Check the game's nameplate settings.",
+  ["Friendly nameplates are enabled. The game may still hide them outside combat."] = "Friendly nameplates are enabled. The game may still hide them outside combat.",
+  ["Friendly nameplates turned on, so nearby non-group players can be listed."] = "Friendly nameplates turned on, so nearby non-group players can be listed.",
+  ["Nameplate settings are unavailable while dead."] = "Nameplate settings are unavailable while dead.",
   ["Next buff: %s — %s"] = "Next buff: %s — %s",
   ["Group buff key: %s"] = "Group buff key: %s",
   ["Group blessing would conflict with a player exception."] = "Group blessing would conflict with a player exception.",
@@ -998,7 +1016,7 @@ function X.ReadBooleanCVar(name)
   local reader = (C_CVar and C_CVar.GetCVar) or GetCVar
   if not reader then return nil end
   local ok, value = pcall(reader, name)
-  if not ok then return nil end
+  if not ok or not X.Readable(value) then return nil end
   if value == "1" or value == 1 or value == true then return true end
   if value == "0" or value == 0 or value == false then return false end
 end
@@ -1013,7 +1031,7 @@ function X.FriendlyPlatesOn()
     -- mean that the name is unsupported.
     for _, name in ipairs(X.friendlyPlateCVars) do
       local ok, value = pcall(GetCVarBool, name)
-      if ok and value == true then return true, name end
+      if ok and X.Readable(value) and value == true then return true, name end
     end
   end
 end
@@ -2706,12 +2724,13 @@ local function CollectEntries()
   Consider("mouseover", false)
   for i = 1, #PLATES do
     local u = PLATES[i]
-    if UnitExists(u) then
+    if X.ReadUnitBool(UnitExists, u) == true then
       X.platesSeen = X.platesSeen + 1
       if X.ReadUnitBool(UnitIsPlayer, u) == true then X.playersSeen = X.playersSeen + 1 end
+      Consider(u, false)
     end
-    Consider(u, false)
   end
+  if X.UpdateNearbyScanCount then X.UpdateNearbyScanCount() end
   -- Name finder (1.8.0): with a search text set, the window lists only
   -- matching names. Reports (announce, digests) turn it off together with
   -- the role filter, so their counts stay honest.
@@ -6239,13 +6258,17 @@ function X.Why(name)
     Print("Why: no readable player matches '" .. name .. "'. Target or mouse over them, or enable friendly nameplates with /br plates.")
     return
   end
+  X.ExplainPlayer(selected, Print)
+end
+
+function X.ExplainPlayer(selected, emit, showUnknown)
   local unit, full, short, isGroup, guid = selected.unit, selected.full, selected.short, selected.group, selected.guid
   local disp = short or full
   local function printRule(detail)
     if CLASSIC_FEATURES then
       local rule = detail.rule or L["Rule unavailable"]
       if detail.blessing then rule = rule .. " · " .. detail.blessing end
-      Print(string_format(L["Applied rule for %s: %s."], disp, rule))
+      emit(string_format(L["Applied rule for %s: %s."], disp, rule))
     end
   end
   local function printInactiveRule()
@@ -6256,18 +6279,18 @@ function X.Why(name)
   end
   if Ignore.Has(full, short) then
     printInactiveRule()
-    Print(disp .. " is on your ignore list, so they are never listed. /br unignore " .. disp .. " undoes it.")
+    emit(disp .. " is on your ignore list, so they are never listed. /br unignore " .. disp .. " undoes it.")
     return
   end
   if X.SessionHas(full, short) then
     printInactiveRule()
-    Print(disp .. " is ignored for this session only (Shift+right-click on a row). It clears when you reload.")
+    emit(disp .. " is ignored for this session only (Shift+right-click on a row). It clears when you reload.")
     return
   end
   local valid, isSelf = Valid(unit)
   if not valid then
     printInactiveRule()
-    Print(disp .. " can't be buffed right now (dead, offline, in combat, charmed or in another phase), so they are not listed.")
+    emit(disp .. " can't be buffed right now (dead, offline, in combat, charmed or in another phase), so they are not listed.")
     return
   end
   local allMiss, miss = {}, {}
@@ -6278,20 +6301,24 @@ function X.Why(name)
   X.scanUnit = nil
   if n == 0 then
     if unknown then
-      Print(disp .. ": buff information is unavailable.")
+      emit(disp .. ": buff information is unavailable.")
     elseif #detail.cooldown > 0 then
-      Print(disp .. " needs " .. table.concat(detail.cooldown, ", ") .. ", but those spells are on cooldown.")
+      emit(disp .. " needs " .. table.concat(detail.cooldown, ", ") .. ", but those spells are on cooldown.")
     elseif not checked then
-      Print(disp .. (detail.assignment and ": no enabled buffs apply under the selected class or role assignment."
+      emit(disp .. (detail.assignment and ": no enabled buffs apply under the selected class or role assignment."
         or ": no enabled buffs apply to this player."))
     else
-      Print(disp .. " already has every buff you can give them.")
+      emit(disp .. " already has every buff you can give them.")
     end
     return
   end
   local inRange, _, rangeUnknown, rankLimited = X.FilterInRange(unit, allMiss, miss, isSelf, true)
+  if showUnknown then
+    if unknown then emit(L["Some buff information is unavailable."]) end
+    if rangeUnknown and (inRange > 0 or rankLimited) then emit(L["Range could not be confirmed; the list may be incomplete."]) end
+  end
   if inRange == 0 then
-    Print(disp .. " needs " .. table.concat(allMiss, ", ") .. (rankLimited
+    emit(disp .. " needs " .. table.concat(allMiss, ", ") .. (rankLimited
       and ", but no learned rank fits their level, or another needed spell is out of range."
       or rangeUnknown
       and ", but the game could not confirm cast range. Move closer and check again."
@@ -6300,7 +6327,7 @@ function X.Why(name)
   end
   if guid and X.failedTargets[guid] and X.failedTargets[guid] > GetTime() then
     local failure = X.lastTargetCastProblem
-    Print(disp .. " was temporarily skipped after a failed cast."
+    emit(disp .. " was temporarily skipped after a failed cast."
       .. (failure and failure.guid == guid and " " .. failure.message or "") .. " Try again in a few seconds.")
     return
   end
@@ -6311,25 +6338,84 @@ function X.Why(name)
         if rows[r] and rows[r].entry == entries[i] then shown = true break end
       end
       if shown then
-        Print(disp .. " is on the list (row " .. i .. "), missing: " .. table.concat(miss, ", ") .. ".")
+        emit(disp .. " is on the list (row " .. i .. "), missing: " .. table.concat(miss, ", ") .. ".")
       elseif db.viewMode == "people" and X.rowView == entries
           and (i <= (X.rowOffset or 0) or i > (X.rowOffset or 0) + MAX_ROWS) then
-        Print(disp .. " is outside the visible rows. " .. L["Use the mouse wheel to see more rows."])
+        emit(disp .. " is outside the visible rows. " .. L["Use the mouse wheel to see more rows."])
       else
-        Print(disp .. " needs " .. table.concat(miss, ", ") .. " and is collected, but the row is not shown -- the role filter under the title is the usual reason.")
+        emit(disp .. " needs " .. table.concat(miss, ", ") .. " and is collected, but the row is not shown -- the role filter under the title is the usual reason.")
       end
       return
     end
   end
   if X.search and X.search ~= "" and not (disp:lower():find(X.search, 1, true)) then
-    Print(disp .. " needs " .. table.concat(miss, ", ") .. ", but the name finder ('" .. X.search .. "') hides them. Clear the finder text to see everyone.")
+    emit(disp .. " needs " .. table.concat(miss, ", ") .. ", but the name finder ('" .. X.search .. "') hides them. Clear the finder text to see everyone.")
     return
   end
   if not guid then
-    Print(disp .. ": the game did not expose a readable player identity. Target them and check again.")
+    emit(disp .. ": the game did not expose a readable player identity. Target them and check again.")
     return
   end
-  Print(disp .. " is not on the list right now; they need: " .. table.concat(miss, ", ") .. ".")
+  emit(disp .. " is not on the list right now; they need: " .. table.concat(miss, ", ") .. ".")
+end
+
+function X.ExplainCurrentTarget(emit)
+  local exists = X.ReadUnitBool(UnitExists, "target")
+  if exists ~= true then
+    emit(L[exists == false and "Select a friendly player to check." or "Current target information is unavailable."])
+    return
+  end
+  local player = X.ReadUnitBool(UnitIsPlayer, "target")
+  local self = X.IsSelf("target")
+  local assist = self or X.ReadUnitBool(UnitCanAssist, "player", "target")
+  if player == false or assist == false then
+    emit(L["Select a friendly player to check."])
+    return
+  end
+  local function readGUID(unit)
+    local ok, guid = pcall(UnitGUID, unit)
+    if ok and type(guid) == "string" and Readable(guid) and guid ~= "" then return guid end
+  end
+  local full, short = Ignore.UnitNames("target")
+  local guid = readGUID("target")
+  if player == nil or assist == nil or not full or not guid then
+    emit(L["Current target information is unavailable."])
+    return
+  end
+  local unit = "target"
+  if self then
+    unit = "player"
+  elseif InGroup() then
+    local roster = InRaid() and RAID or PARTY
+    for _, member in ipairs(roster) do
+      if readGUID(member) == guid then unit = member; break end
+    end
+  end
+  X.ExplainPlayer({ unit = unit, full = full, short = short, group = unit ~= "target", guid = guid }, emit, true)
+end
+
+function X.EnableFriendlyNameplates(emit)
+  if InCombatLockdown() then emit(L["Can't change nameplate settings during combat."]); return end
+  if X.PlayerSuspended() then emit(L["Nameplate settings are unavailable while dead."]); return end
+  local enabled, name = X.FriendlyPlatesOn()
+  local setter = (C_CVar and C_CVar.SetCVar) or SetCVar
+  if not name or not setter then
+    emit(L["Couldn't find a supported friendly nameplate setting on this client."])
+    return
+  end
+  if not enabled then pcall(setter, name, "1") end
+  if X.FriendlyPlatesOn() ~= true then
+    emit(L["Couldn't turn on friendly nameplates. Check the game's nameplate settings."])
+    return
+  end
+  if X.ReadBooleanCVar("nameplateShowAll") == false then
+    pcall(setter, "nameplateShowAll", "1")
+    if X.ReadBooleanCVar("nameplateShowAll") ~= true then
+      emit(L["Friendly nameplates are enabled. The game may still hide them outside combat."])
+      return
+    end
+  end
+  emit(L["Friendly nameplates turned on, so nearby non-group players can be listed."])
 end
 
 function X.CheckDrops()
@@ -6539,6 +6625,7 @@ function X.ApplyClickThrough()
   end
   if nextBtn and nextBtn.EnableMouse then nextBtn:EnableMouse(mouse) end
   if X.nextPreview then X.nextPreview:EnableMouse(mouse) end
+  if X.nearbyButton then X.nearbyButton:SetShown(mouse) end
   X.ApplyRowWheel()
   if X.UpdateFade then X.UpdateFade() end
 end
@@ -6579,7 +6666,7 @@ function X.ApplyRowLayout()
   end
   if X.footerText then
     X.footerText:ClearAllPoints()
-    X.footerText:SetPoint("LEFT", X.gear, "RIGHT", 5, 0)
+    X.footerText:SetPoint("LEFT", X.nearbyButton or X.gear, "RIGHT", 5, 0)
     X.footerText:SetPoint("RIGHT", frame, "BOTTOMRIGHT", db.showTitle and -16 or -48, 13)
   end
   -- Two-column layout (1.9.0): rows fill the first column top to
@@ -7168,6 +7255,26 @@ local function BuildUI()
   end)
   gear:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
+  if CLASSIC_FEATURES then
+    local help = CreateFrame("Button", nil, frame)
+    X.nearbyButton = help
+    help:SetSize(14, 14)
+    help:SetPoint("LEFT", gear, "RIGHT", 4, 0)
+    help:SetNormalFontObject("GameFontNormal")
+    help:SetHighlightFontObject("GameFontHighlight")
+    help:SetText("?")
+    help:SetShown(not (db.clickThrough and db.locked))
+    help:SetScript("OnClick", function()
+      if X.OpenNearbyDiagnostics then X.OpenNearbyDiagnostics() end
+    end)
+    help:SetScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:AddLine(L["Why Is Someone Missing?"])
+      GameTooltip:Show()
+    end)
+    help:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  end
+
   countText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 
   combatText = frame:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
@@ -7183,7 +7290,7 @@ local function BuildUI()
   overflowText:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -HEADER_H)
 
   footerText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  footerText:SetPoint("LEFT", gear, "RIGHT", 5, 0)
+  footerText:SetPoint("LEFT", X.nearbyButton or gear, "RIGHT", 5, 0)
   footerText:SetPoint("RIGHT", frame, "BOTTOMRIGHT", -16, 13)  -- clear of the resize grip
   footerText:SetJustifyH("LEFT")
   if footerText.SetWordWrap then footerText:SetWordWrap(false) end
@@ -7575,6 +7682,7 @@ function X.SuspendBuffUI()
   X.HideOwnedTooltip()
   if X.HideConfig then X.HideConfig() end
   if X.CloseRaidPreparation then X.CloseRaidPreparation() end
+  if X.CloseNearbyDiagnostics then X.CloseNearbyDiagnostics() end
   if X.wizardFrame and X.wizardFrame:IsShown() then X.wizardFrame:Hide() end
   if X.exportFrame and X.exportFrame:IsShown() then X.exportFrame:Hide() end
   if X.EndEditMode then X.EndEditMode(true) end
@@ -8178,6 +8286,7 @@ local function Refresh()
     SetShownIfChanged(frame, false)
     if X.pill then SetShownIfChanged(X.pill, false) end
     wipe(X.listedBefore)
+    if X.UpdateNearbyTargetAfterScan then X.UpdateNearbyTargetAfterScan() end
     return
   end
 
@@ -8217,6 +8326,7 @@ local function Refresh()
   X.rowViewTwoCol = db.twoCol
   X.rowView, X.rowViewCount = viewEntries, viewN
   local shown, rowsTall = X.PaintRowViewport()
+  if X.UpdateNearbyTargetAfterScan then X.UpdateNearbyTargetAfterScan() end
   -- Post-combat catch-up: one border pulse when the frozen list thaws with
   -- work waiting, so a pull's-end rebuff round doesn't go unnoticed.
   if wasAfterCombat and n > 0 and X.Flash then X.Flash() end
@@ -8869,6 +8979,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     StartTicker()
     Soon()
   elseif event == "PLAYER_REGEN_DISABLED" then
+    if X.CloseNearbyDiagnostics then X.CloseNearbyDiagnostics() end
     if X.CloseRaidPreparation then X.CloseRaidPreparation() end
     wipe(X.rowMouseButtons)
     if X.ReadUnitBool(_G.IsMouseButtonDown, "LeftButton") == false then X.rowLeftPress = nil end
