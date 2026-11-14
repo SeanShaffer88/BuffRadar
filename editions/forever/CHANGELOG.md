@@ -2,6 +2,13 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.27 — Forever test build
+
+- Open **Subgroup Responsibilities** to select raid groups for each buff.
+  Preview the current roster and see why a group cast would fall back to a
+  single-target cast before applying the selection.
+- Existing `/br subgroup` commands share the same session-only rules.
+
 ## 1.15.26 — Forever test build
 
 - Open **Caster Coordination** from Class & Role Assignments or with
@@ -9,6 +16,8 @@ All notable changes to BuffRadar are listed here. Newest first.
   and see acknowledgements. Casters can review and respond to plans.
 - Clear stale plans after a roster or leadership change. The existing
   `/br coordinate` commands are still available.
+
+Live verification passed on WoW: Forever for candidate `80227573d22f`.
 
 ## 1.15.25 — WoW: Forever
 

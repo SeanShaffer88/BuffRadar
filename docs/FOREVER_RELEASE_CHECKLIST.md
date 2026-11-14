@@ -2,6 +2,19 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.27 Subgroup Responsibilities
+
+- Open the panel with `/br subgroup panel` and from Raid Coverage. Select
+  Fortitude and one subgroup. Check the roster preview, then cancel or close
+  and confirm `/br subgroup` still shows the previous rule.
+- Apply a selection in a raid with someone needing the buff in a selected
+  subgroup. Check the displayed fallback reason when the group cast could
+  reach an unselected subgroup. Repeat with **All** and **None**.
+- Move a member between groups, then confirm the preview follows that player.
+  Check that an edit made through the slash command appears in the panel.
+- Enter combat and leave the raid with the panel open. Verify the draft
+  closes and the applied rule clears on raid exit or UI reload.
+
 ## 1.15.26 Caster Coordination Panel
 
 - In a group with cast sync on, open Caster Coordination from Class & Role
