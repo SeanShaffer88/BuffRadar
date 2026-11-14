@@ -1,6 +1,6 @@
 # Runs every BuffRadar check in one go. See tools\README.md.
 #
-#   .\tools\check.ps1            run all checks (exit code 1 if any fails)
+#   .\tools\check.ps1            run all checks (nonzero exit if any fails)
 #   .\tools\check.ps1 -Setup     first create the tools folder (Python + Lua 5.1, luacheck)
 #
 # The tools live outside the project, in -ToolsDir (default
@@ -13,11 +13,14 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Native commands are checked explicitly below, including the compiler's exit code.
+$PSNativeCommandUseErrorActionPreference = $false
 $here = $PSScriptRoot                       # ...\tools
 $project = Split-Path $here -Parent          # folder holding BuffRadar\ and .luacheckrc
-$lua = Join-Path $project 'BuffRadar\BuffRadar.lua'
-$locales = Join-Path $project 'BuffRadar\Locales'
-$localeFiles = @(Get-ChildItem $locales -Filter '*.lua' -ErrorAction SilentlyContinue | ForEach-Object FullName)
+$addon = Join-Path $project 'BuffRadar'
+$lua = Join-Path $addon 'BuffRadar.lua'
+$locales = Join-Path $addon 'Locales'
+$toc = Join-Path $project 'editions\forever\BuffRadar.toc'
 $py = Join-Path $ToolsDir 'Scripts\python.exe'
 $luacheck = Join-Path $ToolsDir 'bin\luacheck.exe'
 
@@ -62,30 +65,37 @@ finally { Pop-Location }
 
 # 2. Compile with real Lua 5.1 (the language WoW runs)
 Section 'Lua 5.1 compile'
-$out = & $py -I (Join-Path $here 'luacheck51.py') $lua @localeFiles 2>&1 | Out-String
-Write-Host $out.Trim()
-if ($out -notmatch 'BuffRadar\.lua: OK' -or $out -match ': FAIL') { $failed += 'compile' }
+# The Forever TOC is copied over the shared addon directory during packaging.
+$luaFiles = @(foreach ($line in Get-Content -LiteralPath $toc) {
+  $entry = $line.Trim()
+  if (-not $entry.StartsWith('#') -and $entry -like '*.lua') {
+    Join-Path $addon $entry
+  }
+})
+if (-not $luaFiles.Count) { throw "No Lua entries in the Forever TOC: $toc" }
+& $py -I (Join-Path $here 'luacheck51.py') @luaFiles
+$compileExit = $LASTEXITCODE
+if ($compileExit -ne 0) {
+  Write-Host "FAILED: Lua 5.1 compile (exit $compileExit)"
+  exit $compileExit
+}
 
 # 2b. Translations: keys BuffRadar doesn't use, mismatched %d / %s or color codes
-if ($localeFiles.Count) {
-  Section 'Translations'
-  & $py -I (Join-Path $here 'localecheck.py') $lua $locales
-  if ($LASTEXITCODE -ne 0) { $failed += 'translations' }
-}
+Section 'Translations'
+& $py -I (Join-Path $here 'localecheck.py') $lua $locales
+if ($LASTEXITCODE -ne 0) { $failed += 'translations' }
 
-# 3. Lua 5.1 limits: 200 main-chunk locals, 60 upvalues per function
-Section 'Lua 5.1 limits'
-$out = & $py -I (Join-Path $here 'lualimits.py') $lua 2>&1 | Out-String
-Write-Host $out.Trim()
-if ($out -match 'peak (\d+) active locals') {
-  $peak = [int]$Matches[1]
-  if ($peak -ge 200) { $failed += 'local limit' }
-  elseif ($peak -ge 195) { Write-Host "WARNING: $peak of 200 main-chunk locals used - put new helpers in a do-block or a table." }
-}
-if ($out -match '(?m)^\s+(\d+)\s+line') {
-  $up = [int]$Matches[1]
-  if ($up -gt 60) { $failed += 'upvalue limit' }
-  elseif ($up -ge 55) { Write-Host "WARNING: a function uses $up of 60 upvalues." }
+# 3. Advisory Lua 5.1 limits. Only the compiler decides whether Lua can load.
+Section 'Lua 5.1 limits (estimates)'
+foreach ($file in $luaFiles) {
+  $out = & $py -I (Join-Path $here 'lualimits.py') $file 2>&1 | Out-String
+  Write-Host $out.Trim()
+  if ($out -match 'peak (\d+) active locals' -and [int]$Matches[1] -ge 195) {
+    Write-Host "WARNING: Estimated $($Matches[1]) of 200 main-chunk locals used."
+  }
+  if ($out -match '(?m)^\s+(\d+)\s+line' -and [int]$Matches[1] -ge 55) {
+    Write-Host "WARNING: A function uses an estimated $($Matches[1]) of 60 upvalues."
+  }
 }
 
 # 4. Trial run against a fake game client, both editions
@@ -95,7 +105,6 @@ if ($LASTEXITCODE -ne 0) { $failed += 'trial run' }
 
 # 5. Validate the current Forever ZIP if it has been built.
 $dist = Join-Path $project 'dist'
-$toc = Join-Path $project 'editions\forever\BuffRadar.toc'
 $version = (Select-String -LiteralPath $toc -Pattern '^## Version:\s*(\d+\.\d+\.\d+)\s*$').Matches.Groups[1].Value
 $zip = Join-Path $dist "BuffRadar-$version-Forever.zip"
 if (Test-Path -LiteralPath $zip) {
