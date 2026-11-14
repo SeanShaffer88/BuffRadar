@@ -5451,6 +5451,9 @@ step("Forever uses the eligible rank and falls back from an unaffordable group c
       { unit = "party2", buffs = { "Power Word: Fortitude" } },
     } }
     assert(X.ReagentSummary(report):find("17028 0/1", 1, true), "raid-wide reagent estimate double-counted targets")
+    local estimate, incomplete = X.ReagentEstimate(report)
+    assert(#estimate == 1 and estimate[1].item == 17028 and estimate[1].needed == 1
+      and estimate[1].carried == 0 and not incomplete, "zero stock or shared reagent scope lost in checklist")
     db.groupCast = true
     refresh()
     assert(shownRows().party1.row:GetAttribute("spell") == 1243, "automatic group offer ignored empty bags")
@@ -5461,6 +5464,9 @@ step("Forever uses the eligible rank and falls back from an unaffordable group c
     stock = nil
     fire("BAG_UPDATE_DELAYED")
     refresh()
+    estimate = X.ReagentEstimate(report)
+    assert(#estimate == 1 and estimate[1].needed == 1 and estimate[1].carried == nil
+      and X.ReagentSummary(report):find("17028 ?/1", 1, true), "unreadable stock was treated as zero")
     assert(shownRows().party1.row:GetAttribute("spell") == 1243 and X.NoCastReason():find("Could not check reagent"),
       "unreadable bags armed a reagent spell or hid the reason")
     targetLevel = 30
@@ -5872,12 +5878,97 @@ step("Forever raid coverage keeps exact, missing and unknown buffs by current su
   fire("PLAYER_REGEN_ENABLED")
   assert(ok, err)
 end)
+step("Forever Raid Preparation checklist keeps live detail identity and pages reagents", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("PrepUI")
+  local X, slash = NS.X, env.SlashCmdList.BUFFRADAR
+  local snapshot = X.RaidPreparationSnapshot
+  local ok, err = pcall(function()
+    local model = { members = {}, reagents = {}, incomplete = false }
+    local calls = 0
+    for index = 1, 12 do
+      model.members[index] = { guid = "Player-Prep" .. index, name = "Member" .. index,
+        status = "clear", details = {} }
+    end
+    local selected = model.members[2]
+    selected.status, selected.unknown = "attention", true
+    selected.details = { "Food missing", "Flask unavailable" }
+    model.reagents[1] = { name = "Candle", carried = 0, needed = 2 }
+    model.reagents[2] = { name = "Powder", needed = 3 }
+    for index = 3, 8 do model.reagents[index] = { name = "Reagent" .. index, carried = 4, needed = 1 } end
+    X.RaidPreparationSnapshot = function(personal)
+      calls = calls + 1
+      model.personal = personal and "Personal reminder" or nil
+      return model
+    end
+    slash("coverage")
+    local coverage = assert(env.BuffRadarRaidCoverage)
+    coverage.preparationButton:Click()
+    local view, cfg = assert(env.BuffRadarRaidPreparation), env.BuffRadarConfig
+    assert(view:IsVisible() and not coverage:IsVisible() and view.rows[2].line.guid == selected.guid,
+      "Coverage did not enter the checklist")
+    assert(view.rows[2].heading:GetText():find("Needs Attention · Unknown", 1, true),
+      "a known issue with an unknown check looked complete")
+    slash("config navigate")
+    local input = cfg.navInput
+    local function advanceTo(widget)
+      for _ = 1, 18 do
+        if cfg.navOutline.shown and cfg.navOutline.points[1][2] == widget then return end
+        input.scripts.OnTabPressed(input)
+      end
+      error("could not focus checklist control")
+    end
+    advanceTo(view.rows[2])
+    input.scripts.OnEnterPressed(input)
+    assert(view.rows[3].heading:GetText() == "Food missing" and view.rows[4].heading:GetText() == "Flask unavailable",
+      "keyboard did not expand the member's checks")
+    assert(cfg.navStatus:GetText():find("Collapse details", 1, true), "expanded action was not named to keyboard users")
+    table.insert(model.members, 8, table.remove(model.members, 2))
+    fire("GROUP_ROSTER_UPDATE")
+    if env.__timers then X.QueueAssignmentPreviewRefresh() end
+    runQueued()
+    assert(calls == 2 and view:IsVisible() and view.page == 2 and view.expanded == selected.guid
+      and view.rows[3].heading:GetText() == "Food missing", "roster event lost the expanded member or rescanned twice")
+    model.members[8] = { guid = "Player-Replacement", name = selected.name, status = "clear", details = {} }
+    fire("GROUP_ROSTER_UPDATE")
+    runQueued()
+    assert(view.expanded == nil and view.page == 2 and not view.rows[3].line.indented,
+      "same-name replacement inherited the departed player's checklist")
+    view.reagents:Click()
+    assert(view.rows[1].hint:GetText() == "0 carried · 2 needed · Shortfall: 2"
+      and view.rows[2].hint:GetText() == "Carried quantity unknown · 3 needed",
+      "unknown reagent quantity rendered as a shortfall or a known zero was dropped")
+    slash("prep next")
+    assert(view.page == 2 and view.rows[2].heading:GetText() == "Reagent8", "slash paging missed later reagent rows")
+    slash("prep prev")
+    assert(view.page == 1, "slash previous did not return to the first reagent page")
+    view.back:Click()
+    assert(coverage:IsVisible() and not view:IsVisible(), "Back did not restore Raid Coverage")
+    slash("prep personal")
+    assert(view:IsVisible() and view.personalNote:GetText() == "Personal reminder", "personal mode stopped working")
+    X.QueueAssignmentPreviewRefresh()
+    slash("prep hide")
+    local scanned = calls
+    runQueued()
+    assert(not view:IsVisible() and calls == scanned, "hiding the checklist left a queued scan")
+    slash("prep show")
+    env.IsInGroup = function() return false end
+    fire("GROUP_LEFT")
+    runQueued()
+    assert(not view:IsVisible(), "the checklist stayed visible after leaving group")
+  end)
+  X.RaidPreparationSnapshot = snapshot
+  if env.BuffRadarConfig then env.BuffRadarConfig:Hide() end
+  cleanup()
+  assert(ok, err)
+end)
+
 step("Forever subgroup duties constrain casts and preparation reports the whole raid", function()
   if not env.__forever then return end
   local cleanup = partyOfTwo("Subgroup")
   local X, O, db = NS.X, env.__over, env.BuffRadarDB
   local oldRaid, oldSize, oldRoster = env.IsInRaid, env.GetNumGroupMembers, env.GetRaidRosterInfo
-  local oldConnected, oldAssignments = env.UnitIsConnected, db.assignmentEnabled
+  local oldConnected, oldAssignments = O.UnitIsConnected, db.assignmentEnabled
   local oldUnitInRaid = env.UnitInRaid
   local oldKnown, oldOwned = env.IsPlayerSpell, env.C_Item.GetItemCount
   local oldDuties = X.subgroupDuties
@@ -5898,7 +5989,7 @@ step("Forever subgroup duties constrain casts and preparation reports the whole 
       if i == 2 then return "Zed", 0, group end
     end
     env.UnitInRaid = function(u) if u == "target" then return nil end if u == "mouseover" then return 2 end end
-    env.UnitIsConnected = function() return true end
+    O.UnitIsConnected = function() return true end
     env.IsSpellInRange = function() return 1 end
     env.IsPlayerSpell = function(id) return id == 21562 or oldKnown and oldKnown(id) end
     env.C_Item.GetItemCount = function() return 0 end
@@ -5960,15 +6051,46 @@ step("Forever subgroup duties constrain casts and preparation reports the whole 
     assert(unrestricted ~= "subgroup", "clearing the filter left broad casting blocked")
     slash("subgroup FORTITUDE 1")
     slash("prep personal")
+    local prep = X.RaidPreparationSnapshot(true)
+    assert(prep and #prep.members == 2 and prep.personal, "preparation required a ready check or dropped a subgroup")
+    assert(prep.members[2].name == "Zed-TestRealm" and prep.members[2].guid == env.UnitGUID("raid2")
+      and prep.members[2].status == "attention"
+      and table.concat(prep.members[2].details, ","):find("Food missing", 1, true),
+      "preparation omitted the other subgroup's consumables or lost member identity")
+    O.UnitIsConnected = function(unit)
+      if unit == "raid2" then error("restricted") end
+      return true
+    end
+    local partial = X.RaidPreparationSnapshot()
+    local unknownMember = partial.members[2]
+    assert(unknownMember.status == "unknown" and unknownMember.unknown and partial.incomplete
+      and table.concat(unknownMember.details, ","):find("Food unavailable", 1, true)
+      and not table.concat(unknownMember.details, ","):find("Food missing", 1, true),
+      "unreadable connection was treated as known missing buffs or supplies: " ..
+      tostring(unknownMember.status) .. "/" .. tostring(unknownMember.unknown) .. "/" ..
+      tostring(partial.incomplete) .. "/" .. table.concat(unknownMember.details, ","))
+    O.UnitIsConnected = function() return true end
+    local oldPhase = env.UnitInPhase
+    env.UnitInPhase = function(unit) return unit ~= "raid2" end
+    local outOfPhase = X.RaidPreparationSnapshot()
+    env.UnitInPhase = oldPhase
+    assert(outOfPhase.members[2].status == "unknown" and outOfPhase.incomplete,
+      "out-of-phase member was treated as known")
+    env.GetNumGroupMembers = function() return 3 end
+    assert(X.RaidPreparationSnapshot().incomplete, "preparation did not report incomplete enumeration")
+    env.GetNumGroupMembers = function() return 2 end
+    local reportGUID = O.UnitGUID
+    O.UnitGUID = function(unit) if unit ~= "raid2" then return reportGUID(unit) end end
+    local anonymous = X.RaidPreparationSnapshot()
+    assert(anonymous.incomplete and #anonymous.members == 1, "unidentified roster slot was expanded under a name or token")
+    O.UnitGUID = reportGUID
     local f = env.BuffRadarRaidPreparation
-    assert(f and f:IsShown() and f.summary:GetText():find("2 Players", 1, true), "preparation required a ready check or dropped a subgroup")
-    assert(f.rows[2].label:GetText() == "Zed-TestRealm"
-      and f.rows[2].detail:GetText():find("Food missing", 1, true), "preparation omitted the other subgroup's consumables")
+    assert(f and f:IsVisible(), "preparation did not open from the legacy slash mode")
     f.refresh:Click()
-    assert(f:IsShown(), "manual refresh closed preparation")
+    assert(f:IsVisible(), "manual refresh closed preparation")
     env.__combat = true
     fire("PLAYER_REGEN_DISABLED")
-    assert(not f:IsShown(), "preparation remained visible in combat")
+    assert(not f:IsVisible() and not X.RaidPreparationSnapshot(), "preparation remained visible or scanned in combat")
     assert(not X.PreviewSubgroupDuty("FORTITUDE", {}) and not X.SetSubgroupDuty("FORTITUDE", {}),
       "subgroup duty was readable as a live preview or writable during combat")
     env.__combat = false
@@ -5979,7 +6101,7 @@ step("Forever subgroup duties constrain casts and preparation reports the whole 
   end)
   env.__combat = false
   env.IsInRaid, env.GetNumGroupMembers, env.GetRaidRosterInfo = oldRaid, oldSize, oldRoster
-  env.UnitIsConnected, db.assignmentEnabled = oldConnected, oldAssignments
+  O.UnitIsConnected, db.assignmentEnabled = oldConnected, oldAssignments
   env.UnitInRaid = oldUnitInRaid
   env.IsPlayerSpell, env.C_Item.GetItemCount = oldKnown, oldOwned
   X.subgroupDuties = oldDuties

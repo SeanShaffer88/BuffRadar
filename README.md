@@ -26,8 +26,9 @@ to work through the list. By default, BuffRadar checks your own character first.
 - Check subgroup buff coverage with `/br coverage`. Use `/br subgroup` to list
   responsibilities and `/br subgroup FORTITUDE 1,2` to assign Fortitude to
   subgroups 1 and 2.
-- Run `/br prep` to review missing or expiring buffs, consumables, and
-  estimated reagent needs.
+- Open **Raid Preparation** from **Raid Coverage** or run `/br prep`.
+  Expand a player to review buffs and consumables, or check **Reagents**
+  for estimated needs and shortfalls. The checklist refreshes as the roster changes.
 - Run `/br practice` to try editing a rule on a sample roster. Use `/br undo` to
   restore the last eligible blocker edit in your current session.
 

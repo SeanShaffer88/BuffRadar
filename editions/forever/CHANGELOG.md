@@ -2,12 +2,22 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.28 — Forever test build
+
+- Open the read-only **Raid Preparation** checklist from **Raid Coverage**
+  or with `/br prep`. Expand a player to see missing or expiring buffs,
+  consumable reminders, and unavailable readings.
+- Compare carried reagents against the estimated group requirement and see
+  any shortfalls. The checklist refreshes in place when the roster changes.
+
 ## 1.15.27 — Forever test build
 
 - Open **Subgroup Responsibilities** to select raid groups for each buff.
   Preview the current roster and see why a group cast would fall back to a
   single-target cast before applying the selection.
 - Existing `/br subgroup` commands share the same session-only rules.
+
+Live verification passed on WoW: Forever for candidate `8b47a34bf47b`.
 
 ## 1.15.26 — Forever test build
 

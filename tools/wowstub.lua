@@ -212,7 +212,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
   env.SendAddonMessage = function(prefix, msg, channel)
     env.__addonSent[#env.__addonSent + 1] = { prefix = prefix, msg = msg, channel = channel }
   end
-  env.UnitIsConnected = function() return true end
+  env.UnitIsConnected = over("UnitIsConnected", function() return true end)
   env.UnitCanAssist = function() return true end
   env.UnitIsPVP = function() return false end
   env.UnitGroupRolesAssigned = function() return "NONE" end

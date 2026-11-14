@@ -631,6 +631,20 @@ local L = {
   ["Subgroup responsibility updated for %s."] = "Subgroup responsibility updated for %s.",
   ["%s could reach a subgroup outside your responsibility."] = "%s could reach a subgroup outside your responsibility.",
   ["Raid Preparation"] = "Raid Preparation",
+  ["Players"] = "Players",
+  ["Reagents"] = "Reagents",
+  ["Needs Attention"] = "Needs Attention",
+  ["Checks Complete"] = "Checks Complete",
+  ["No eligible players to check."] = "No eligible players to check.",
+  ["No reagents required for the current checklist."] = "No reagents required for the current checklist.",
+  ["Reagent needs could not be confirmed."] = "Reagent needs could not be confirmed.",
+  ["%d carried · %d needed"] = "%d carried · %d needed",
+  ["Carried quantity unknown · %d needed"] = "Carried quantity unknown · %d needed",
+  ["Shortfall: %d"] = "Shortfall: %d",
+  ["Expand details"] = "Expand details",
+  ["Collapse details"] = "Collapse details",
+  ["%d Players · %d Need Attention · %d With Unknowns"] = "%d Players · %d Need Attention · %d With Unknowns",
+  ["Page %d of %d"] = "Page %d of %d",
   ["Out-of-combat snapshot · Refresh for current results"] = "Out-of-combat snapshot · Refresh for current results",
   ["Use /br prep show, personal, hide, next, or prev."] = "Use /br prep show, personal, hide, next, or prev.",
   ["Join a party or raid to use Raid Preparation."] = "Join a party or raid to use Raid Preparation.",
@@ -3039,9 +3053,10 @@ end
 
 -- Coverage is independent of cast distance, cooldowns and window filters.
 -- Keep the report out of the live entry pool so it cannot alter click metadata.
-function X.GroupBuffReport(survivorsOnly, details)
+function X.GroupBuffReport(survivorsOnly, details, preparation)
   local report = { people = {}, buffs = 0, checked = 0, unknown = 0 }
   if details then report.members = {} end
+  local seenGUIDs = preparation and {}
   X.ForReportRoster(function(unit, exists)
     local dead = X.ReadUnitBool(UnitIsDeadOrGhost, unit)
     if survivorsOnly and dead == true then return end
@@ -3056,13 +3071,37 @@ function X.GroupBuffReport(survivorsOnly, details)
         guid = guid, missing = {}, expiring = {}, unavailable = {} }
       report.members[#report.members + 1] = detail
     end
-    if not exists or isSelf == nil or dead ~= false
-      or X.ReadUnitBool(UnitIsConnected, unit) == false then
+    if preparation and detail then
+      local guid = detail.guid
+      if not guid or guid == "" or seenGUIDs[guid] then
+        detail.guid, detail.unknown = nil, true
+        report.unknown = report.unknown + 1
+        return
+      end
+      seenGUIDs[guid] = true
+    end
+    local ignored
+    if preparation then
+      ignored = Ignore.Has(full, name) or X.SessionHas(full, name)
+      if ignored and detail then detail.ignored = true end
+      if ignored then return end
+    end
+    local connected
+    if exists and isSelf ~= nil and dead == false then
+      connected = X.ReadUnitBool(UnitIsConnected, unit)
+    end
+    local observable = exists and isSelf ~= nil and dead == false and connected == true
+    if preparation then
+      if observable and _G.UnitInPhase and X.ReadUnitBool(_G.UnitInPhase, unit) ~= true then observable = false end
+      if detail then detail.observable = observable end
+    end
+    if not exists or isSelf == nil or dead ~= false or connected == false
+      or (preparation and not observable) then
       report.unknown = report.unknown + 1
       if detail then detail.unknown = true end
       return
     end
-    if Ignore.Has(full, name) or X.SessionHas(full, name) then
+    if not preparation and (Ignore.Has(full, name) or X.SessionHas(full, name)) then
       if detail then detail.ignored = true end
       return
     end
@@ -3990,21 +4029,24 @@ function X.AssignmentPreview()
   return members
 end
 
-function X.ReagentSummary(report)
-  if not CLASSIC_FEATURES or not report then return nil end
+-- Estimate reagent use for eligible group spells independently of the automatic
+-- group-cast minimum. Ordinary group versions share a spell scope; Greater
+-- Blessings consume a reagent per spell and recipient class.
+function X.ReagentEstimate(report)
+  if not CLASSIC_FEATURES or not report then return {}, false end
   local preview = { conflicts = {}, reagents = {} }
   local needed, scopes, unclassified = {}, {}, false
   for _, person in ipairs(report.people) do
     for _, spell in ipairs(person.buffs) do
       local name, _, greater = GroupSpellFor(spell)
       if name then
-        local offer, item, _, reason = X.GroupOffer(spell, person.unit, preview)
+        local offer, item, _, reason, _, blocker = X.GroupOffer(spell, person.unit, preview)
         local class = not greater and "" or UnitClassFile(person.unit)
         if item and class then
           local scope = name .. ":" .. class
           if scopes[scope] == nil then scopes[scope] = item
           elseif scopes[scope] ~= item then scopes[scope] = false; unclassified = true end
-        elseif offer or (not class and reason ~= "exception") then
+        elseif offer or (blocker and blocker.incomplete) or (not class and reason ~= "exception") then
           unclassified = true
         end
       end
@@ -4013,14 +4055,28 @@ function X.ReagentSummary(report)
   for _, item in pairs(scopes) do
     if item then needed[item] = (needed[item] or 0) + 1 end
   end
-  local parts = {}
+  local rows = {}
   for item, amount in pairs(needed) do
     local count = ReagentCount(item, preview.reagents)
-    parts[#parts + 1] = string_format("%s %s/%d", ReagentName(item), count == false and "?" or count, amount)
+    rows[#rows + 1] = { name = ReagentName(item), item = item,
+      carried = count ~= false and count or nil, needed = amount }
   end
-  if #parts == 0 and not unclassified and report.unknown == 0 then return nil end
+  table_sort(rows, function(a, b)
+    if a.name == b.name then return a.item < b.item end
+    return a.name < b.name
+  end)
+  return rows, unclassified or report.unknown > 0
+end
+
+function X.ReagentSummary(report)
+  local rows, incomplete = X.ReagentEstimate(report)
+  if #rows == 0 and not incomplete then return nil end
+  local parts = {}
+  for _, row in ipairs(rows) do
+    parts[#parts + 1] = string_format("%s %s/%d", row.name, row.carried or "?", row.needed)
+  end
   table_sort(parts)
-  if unclassified or report.unknown > 0 then parts[#parts + 1] = L["some needs unknown"] end
+  if incomplete then parts[#parts + 1] = L["some needs unknown"] end
   return string_format(L["Estimated group reagents (carried/needed): %s"], table.concat(parts, ", "))
 end
 
@@ -5261,7 +5317,7 @@ end
 -- summary, not every roster shuffle afterwards.
 function X.OnRoster()
   local g = InGroup()
-  if X.CloseRaidPreparation then X.CloseRaidPreparation() end
+  if not g and X.CloseRaidPreparation then X.CloseRaidPreparation() end
   if not InRaid() then X.subgroupDuties = nil end
   X.PruneBlessingExceptions()
   X.PruneAssignmentRoleOverrides()
@@ -8596,7 +8652,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     return
   elseif event == "GROUP_LEFT" then
     X.OnCoordinationRoster()
-    if X.CloseRaidPreparation then X.CloseRaidPreparation() end
+    if not InGroup() and X.CloseRaidPreparation then X.CloseRaidPreparation() end
     if not InRaid() then X.subgroupDuties = nil end
     local size = X.ReadUnitNumber(GetNumGroupMembers)
     if (size and size <= 0) or (not size and not InGroup()) then
@@ -8611,6 +8667,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     return
   elseif event == "BAG_UPDATE_DELAYED" then
     X.InvalidateReagents()
+    if X.QueueAssignmentPreviewRefresh then X.QueueAssignmentPreviewRefresh(true) end
     Soon()
     return
   elseif event == "SPELL_DATA_LOAD_RESULT" then
