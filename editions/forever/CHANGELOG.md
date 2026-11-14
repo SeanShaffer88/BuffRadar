@@ -2,7 +2,7 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
-## 1.15.16 — Forever test build
+## 1.15.16 — 2026-11-14 — Forever update
 
 - Explain why a nearby player is missing from the list, including when
   friendly nameplates are off or buff and range information is unavailable.
@@ -14,7 +14,8 @@ All notable changes to BuffRadar are listed here. Newest first.
 - View ready-check responses with each member's missing, expiring, or
   unreadable buff information in a local panel.
 
-In-game verification is pending for this build.
+The maintainer confirmed live verification in WoW: Forever on 2026-11-14
+using field-test build `d05115bdb03d`.
 
 
 ## 1.15.11 — 2026-11-14 — Forever update
