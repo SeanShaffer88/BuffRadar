@@ -775,6 +775,8 @@ local function Readable(v)
   return true
 end
 
+X.Readable = Readable  -- Extras.lua classifies API results with this
+
 function X.IsSelf(unit)
   if not Readable(unit) or type(unit) ~= "string" then return nil end
   if unit == "player" then return true end

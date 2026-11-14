@@ -3467,6 +3467,42 @@ step("1.12.0 diagnostics: apicheck, buffcheck, perf, settings diff", function()
   assert(chatSince(n, "changes nothing"), "profile diff of a fresh profile")
   env.SlashCmdList.BUFFRADAR("profile delete dtest")
 end)
+step("apicheck readability tier tells restricted apart from absent", function()
+  local n = #chat
+  env.SlashCmdList.BUFFRADAR("apicheck")
+  assert(chatSince(n, "readability on"), "no readability section")
+  assert(chatSince(n, "range verdict"), "no range verdict line")
+
+  -- A value the client refuses to describe has to read as restricted, not as
+  -- a working answer. Telling those apart is the whole point of this tier:
+  -- every one of these APIs is present, so a presence check reports success.
+  local protected = {}
+  local prevCanAccess = env.canaccessvalue
+  local prevModern, prevLegacy = env.C_Spell, env.IsSpellInRange
+  local prevGroup, prevInteract = env.UnitInRange, env.CheckInteractDistance
+  env.canaccessvalue = function(v) return v ~= protected end
+  env.C_Spell = { IsSpellInRange = function() return protected end }
+  env.IsSpellInRange = nil
+  env.UnitInRange = function() return protected, protected end
+  env.CheckInteractDistance = function() return protected end
+  n = #chat
+  env.SlashCmdList.BUFFRADAR("apicheck")
+  assert(chatSince(n, "restricted"), "a restricted result was not reported as restricted")
+  assert(chatSince(n, "no range API answers"),
+    "no verdict when every range API refuses to answer")
+
+  -- and a readable fallback is credited rather than ignored
+  env.canaccessvalue = prevCanAccess
+  env.C_Spell, env.IsSpellInRange = nil, nil
+  env.UnitInRange = function() return false, false end
+  env.CheckInteractDistance = function() return true end
+  n = #chat
+  env.SlashCmdList.BUFFRADAR("apicheck")
+  assert(chatSince(n, "interaction distance answers"),
+    "a readable interact-distance answer was not credited")
+  env.C_Spell, env.IsSpellInRange = prevModern, prevLegacy
+  env.UnitInRange, env.CheckInteractDistance = prevGroup, prevInteract
+end)
 step("1.12.0 toggles: tag symbols, reduced motion, range watch, snap, per-spec scale", function()
   local X, db = NS.X, env.BuffRadarDB
   env.SlashCmdList.BUFFRADAR("tagsymbols")
