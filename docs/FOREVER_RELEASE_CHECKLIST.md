@@ -2,6 +2,18 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.20 Group Preview Refresh
+
+- Open the group preview on page two or later in a raid. Change an assigned
+  role and have someone leave and rejoin if possible. Confirm rows update
+  without clicking Refresh Preview and the page stays in bounds.
+- Open the role editor and change another member's role. Confirm it still
+  refers to the selected player. Have the selected player leave and
+  confirm the editor closes instead of pointing to their replacement.
+- With two Paladins, verify class-plan ownership, individual exceptions,
+  and group-cast fallback. Enter combat during a roster change and
+  confirm the preview closes and the cast inputs remain disarmed.
+
 ## 1.15.19 Session Role Overrides
 
 - Open `/br buffassign preview` with an unassigned group member. Set Tank,

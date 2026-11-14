@@ -3084,7 +3084,8 @@ function X.AssignmentPreview()
   X.ForReportRoster(function(unit, exists)
     local guid, full, short
     if exists then guid, full, short = X.ReadyIdentity(unit) end
-    local row = { name = full or short or L["Player details unavailable"], buffs = {}, available = {} }
+    local row = { name = full or short or L["Player details unavailable"], identity = guid,
+      buffs = {}, available = {} }
     if full then
       row.unit = unit
       row.guid, row.roleOverride, row.roleEditable, row.roleCanSet = X.AssignmentRoleEditorState(unit, exists)
@@ -7264,6 +7265,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       X.assignmentGroupConflicts = nil
       Soon()
     end
+    if X.QueueAssignmentPreviewRefresh then X.QueueAssignmentPreviewRefresh() end
     return
   elseif event == "GROUP_LEFT" then
     local size = X.ReadUnitNumber(GetNumGroupMembers)
@@ -7274,6 +7276,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     end
     X.assignmentGroupConflicts = nil
     Soon()
+    if X.QueueAssignmentPreviewRefresh then X.QueueAssignmentPreviewRefresh() end
     return
   elseif event == "BAG_UPDATE_DELAYED" then
     X.InvalidateReagents()
@@ -7337,6 +7340,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if not InGroup() then X.ClearReadyCheck() end
     if db and X.AutoProfileCheck then X.AutoProfileCheck() end
     Soon()
+    if X.QueueAssignmentPreviewRefresh then X.QueueAssignmentPreviewRefresh() end
     return
   end
   if event == "CHALLENGE_MODE_START" then
@@ -7487,7 +7491,10 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   elseif event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_TAB" or event == "LEARNED_SPELL_IN_SKILL_LINE" then
     if db then ScheduleRebuild() end
   else
-    if (event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE") and db then X.OnRoster() end
+    if (event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE") and db then
+      X.OnRoster()
+      if X.QueueAssignmentPreviewRefresh then X.QueueAssignmentPreviewRefresh() end
+    end
     if (event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED"
         or event == "ZONE_CHANGED_INDOORS") and db then
       if X.AutoProfileCheck then X.AutoProfileCheck() end

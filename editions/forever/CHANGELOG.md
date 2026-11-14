@@ -2,6 +2,15 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.20 — Forever test build
+
+- Refresh the open group assignment preview when members or group roles
+  change. Keep the current page where possible, and close the role
+  editor if its selected member leaves or can no longer be edited.
+- Add regression coverage for class and role assignments in a mixed raid.
+
+In-game verification is pending for this build.
+
 ## 1.15.19 — Forever test build
 
 - Set or clear a session-only assignment role from the current group

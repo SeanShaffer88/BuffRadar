@@ -875,8 +875,9 @@ function AssignmentUI.BuildPicker(panel)
   return picker
 end
 
-function AssignmentUI.UpdatePreview(preview)
+function AssignmentUI.UpdatePreview(preview, editorClosed)
   local members = preview.members
+  local focusChanged = editorClosed
   local pages = math.max(1, math.ceil(#members / #preview.rows))
   preview.page = math_min(pages, math.max(1, preview.page))
   local first = (preview.page - 1) * #preview.rows + 1
@@ -887,6 +888,11 @@ function AssignmentUI.UpdatePreview(preview)
   preview.next:SetShown(preview.page < pages)
   for index, row in ipairs(preview.rows) do
     local member = members[first + index - 1]
+    if K.current == row.navigation or K.current == row.roleButton.navigation then
+      local previous = row.member
+      local identity = previous and previous.identity
+      focusChanged = previous ~= member and not (identity and member and identity == member.identity)
+    end
     row.member = member
     if member then
       local parts = {}
@@ -912,14 +918,50 @@ function AssignmentUI.UpdatePreview(preview)
     row:SetShown(member ~= nil)
   end
   if K.active and not K.edit then
-    if K.InScope(K.current) then K.Focus(K.current) else K.Move(1) end
+    if focusChanged then K.Focus(preview.refresh.navigation)
+    elseif K.InScope(K.current) then K.Focus(K.current)
+    else K.Move(1) end
   end
 end
 
 function AssignmentUI.RefreshPreview(preview)
   if InCombatLockdown() or X.PlayerSuspended() or not preview:IsVisible() then return end
+  preview.pendingRefresh = nil
   preview.members = X.AssignmentPreview()
-  AssignmentUI.UpdatePreview(preview)
+  local editor = preview.roleEditor
+  local editorClosed
+  if editor and editor:IsVisible() then
+    local guid = editor.member and editor.member.guid
+    local match
+    for _, member in ipairs(preview.members) do
+      if guid and member.guid == guid and member.roleEditable then match = member; break end
+    end
+    if match then
+      AssignmentUI.OpenRoleEditor(preview, match)
+    else
+      editorClosed = true
+      editor:Hide()
+    end
+  end
+  AssignmentUI.UpdatePreview(preview, editorClosed)
+end
+
+function X.QueueAssignmentPreviewRefresh()
+  local panel = cfg and cfg.assignmentPanel
+  local preview = panel and panel.preview
+  if not preview or not preview:IsVisible() or InCombatLockdown() or X.PlayerSuspended()
+    or preview.pendingRefresh then return end
+  if not C_Timer or not C_Timer.After then
+    AssignmentUI.RefreshPreview(preview)
+    return
+  end
+  local request = {}
+  preview.pendingRefresh = request
+  C_Timer.After(0, function()
+    if preview.pendingRefresh ~= request then return end
+    preview.pendingRefresh = nil
+    AssignmentUI.RefreshPreview(preview)
+  end)
 end
 
 function AssignmentUI.BuildRoleEditor(preview)
@@ -1041,7 +1083,7 @@ function AssignmentUI.BuildPreview(panel)
   preview.next:SetPoint("LEFT", preview.previous, "RIGHT", 8, 0)
   preview:HookScript("OnHide", function()
     if preview.roleEditor then preview.roleEditor:Hide() end
-    preview.members = {}
+    preview.pendingRefresh, preview.members = nil, {}
     for _, row in ipairs(preview.rows) do row.member = nil end
     GameTooltip:Hide()
   end)
