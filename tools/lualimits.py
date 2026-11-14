@@ -5,6 +5,11 @@ Checks the two compile-time limits most likely to break a big single-file addon:
   * at most 60 upvalues per function (LUAI_MAXUPVALUES)
 Approximate: top-level code is assumed to start at column 0 (the file's style),
 and a top-level `do` ... `end` pair at column 0 scopes the locals inside it.
+
+This reports headroom and deliberately never fails the gate, because the
+counts are regex estimates and can be off either way. luacheck51.py is the
+authoritative check: it compiles with real Lua 5.1, so it rejects a file that
+crosses either ceiling exactly as the game would.
 """
 import re
 import sys
