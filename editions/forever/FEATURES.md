@@ -295,6 +295,13 @@ stays hidden on those characters.
   chat at login, and `/br debug` reports the nameplate setting plus
   how many nameplate units/players the game is currently showing.
   `/br plates` turns friendly nameplates on.
+- **Range can be unanswerable.** This client may accept a range query and
+  return a value no addon is allowed to read. `C_Spell.IsSpellInRange` behaves
+  that way, `UnitInRange` reports nothing usable for anyone outside your group,
+  and `CheckInteractDistance` can be restricted too. When no check answers, a
+  player is treated as out of range and the window can stay empty. `/br
+  apicheck` names which check answers on your client, and `/br assumerange`
+  (off by default) lists those players with their range shown as estimated.
 
 ## Alerts, ordering and staying out of the way
 

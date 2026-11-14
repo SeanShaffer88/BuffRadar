@@ -23,6 +23,53 @@ end
 
 local function Yes(v) return v and "|cff00ff00yes|r" or "|cffff4040no|r" end
 
+-- An API that exists is not the same as an API that answers. This client can
+-- hand back values that cannot be read, and a presence check cannot tell the
+-- difference, so each one is called and its result classified. "restricted"
+-- is the case that breaks features while every presence check still says yes.
+local function Answers(api, ...)
+  if type(api) ~= "function" then return "absent" end
+  local ok, value = pcall(api, ...)
+  if not ok then return "|cffff4040errors|r" end
+  if type(value) == "nil" then return "nil" end
+  if X.Readable and not X.Readable(value) then return "|cffff4040restricted|r" end
+  return "|cff00ff00readable|r"
+end
+
+-- The most informative unit is a player outside your group, because that is
+-- the case the group-range API refuses to describe. Prefer the target, then
+-- any player nameplate, and fall back to the player.
+local function ProbeUnit()
+  if UnitExists("target") and X.ReadUnitBool(UnitIsPlayer, "target") == true
+     and X.IsSelf("target") == false then return "target", "your target" end
+  for i = 1, 40 do
+    local u = "nameplate" .. i
+    if UnitExists(u) and X.ReadUnitBool(UnitIsPlayer, u) == true then
+      return u, "a player nameplate"
+    end
+  end
+  return "player", "yourself -- target a nearby player for a fuller picture"
+end
+
+-- Which rung of the range chain, if any, gives a readable answer for a unit.
+local function RangeVerdict(unit, spell)
+  if Answers(C_Spell and C_Spell.IsSpellInRange, spell, unit):find("readable") then
+    return "spell range answers"
+  end
+  if Answers(IsSpellInRange, spell, unit):find("readable") then
+    return "legacy spell range answers"
+  end
+  if type(UnitInRange) == "function" then
+    local ok, inRange, checked = pcall(UnitInRange, unit)
+    if ok and X.Readable and X.Readable(checked) and checked == true
+       and X.Readable(inRange) then return "group range answers" end
+  end
+  if Answers(CheckInteractDistance, unit, 4):find("readable") then
+    return "interaction distance answers"
+  end
+  return nil  -- nothing answered
+end
+
 ---------------------------------------------------------------------------
 -- /br apicheck: which client APIs BuffRadar relies on exist right now.
 -- Paste the output in a bug report; it replaces guessing about a build.
@@ -70,6 +117,54 @@ function X.ApiCheck(export)
   table.sort(hits)
   out("  weapon-enchant candidates: " .. (#hits > 0 and table.concat(hits, ", ") or "none found"))
   out(string.format("  %d of %d listed APIs missing. A missing optional API is handled; missing ones BuffRadar needs are marked in /br debug.", missing, #WANT))
+  -- Readability tier: the presence table above cannot see a restricted
+  -- result, which is the failure that actually hides players from the list.
+  local unit, unitWhy = ProbeUnit()
+  local buffs = X.slashAPI and X.slashAPI.myBuffs
+  local spell = (buffs and buffs[1] and buffs[1].name) or "Arcane Intellect"
+  out(string.format("  readability on %s (%s), spell %s:", unit, unitWhy, spell))
+  local PROBES = {
+    { "C_Spell.IsSpellInRange", C_Spell and C_Spell.IsSpellInRange, spell, unit },
+    { "IsSpellInRange", IsSpellInRange, spell, unit },
+    { "CheckInteractDistance", CheckInteractDistance, unit, 4 },
+    { "UnitCanAssist", UnitCanAssist, "player", unit },
+    { "UnitIsPlayer", UnitIsPlayer, unit },
+    { "UnitIsDeadOrGhost", UnitIsDeadOrGhost, unit },
+    { "UnitIsConnected", UnitIsConnected, unit },
+    { "UnitAffectingCombat", UnitAffectingCombat, unit },
+    { "UnitIsCharmed", UnitIsCharmed, unit },
+    { "UnitInPhase", UnitInPhase, unit },
+    { "UnitIsPVP", UnitIsPVP, unit },
+    { "UnitLevel", UnitLevel, unit },
+    { "GetRaidTargetIndex", GetRaidTargetIndex, unit },
+    { "UnitGroupRolesAssigned", UnitGroupRolesAssigned, unit },
+  }
+  for _, p in ipairs(PROBES) do
+    local state = Answers(p[2], p[3], p[4])
+    out(string.format("    %-24s %s", p[1], state),
+        string.format("    %-24s %s", p[1], (state:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))))
+  end
+  -- UnitInRange returns two values and both have to be readable to be usable.
+  if type(UnitInRange) == "function" then
+    local okR, inRange, checked = pcall(UnitInRange, unit)
+    local function state(v)
+      if not okR then return "errors" end
+      if type(v) == "nil" then return "nil" end
+      return (X.Readable and not X.Readable(v)) and "restricted" or "readable"
+    end
+    out(string.format("    %-24s inRange %s, checked %s", "UnitInRange",
+      state(inRange), state(checked)))
+  else
+    out(string.format("    %-24s absent", "UnitInRange"))
+  end
+  local verdict = RangeVerdict(unit, spell)
+  if verdict then
+    out("  range verdict: " .. verdict .. " for this unit.")
+  else
+    out("  |cffff4040range verdict: no range API answers for this unit, so it cannot be listed.|r",
+        "  range verdict: no range API answers for this unit, so it cannot be listed.")
+    out("    /br assumerange lists players anyway, with their range shown as estimated.")
+  end
   -- UNIT_AURA payload probe (1.14.0, Brief 2): what this client actually
   -- sends, counted by the event driver since login.
   local probe = X.auraProbe

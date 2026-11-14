@@ -888,7 +888,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 16, "dbVersion not migrated to 16: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 17, "dbVersion not migrated to 17: " .. tostring(d.dbVersion))
   assert(next(d.blessingPreferences) == nil, "existing character got a blessing override")
   assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
   if env.__forever then  -- 1.8.0 (#32): shadow protection defaults to instances
@@ -911,7 +911,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 16 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 17 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
   -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
@@ -919,7 +919,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = { dbVersion = 9 }
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 16 and d.wizardSeen == true,
+  assert(d.dbVersion == 17 and d.wizardSeen == true,
     "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
   d.wizardSeen = false  -- leave the save as the rest of the suite expects
 end)
@@ -2175,6 +2175,50 @@ step("range uses checked distance only when both spell range answers are unavail
   assert(ok, err)
 end)
 
+step("assumeRange lists players this client refuses to place", function()
+  local X, db = NS.X, NS.X.GetDB()
+  local protected = {}
+  local prevAccess = env.canaccessvalue
+  local prevModern, prevLegacy = env.C_Spell, env.IsSpellInRange
+  local prevGroup, prevInteract = env.UnitInRange, env.CheckInteractDistance
+  local prevAssume, prevSilent = db.assumeRange, X.rangeSilent
+  local selected, spells = {}, { "Test buff" }
+  local ok, err = pcall(function()
+    local function inaccessible() return protected end
+    env.canaccessvalue = function(v) return v ~= protected end
+    env.C_Spell = { IsSpellInRange = inaccessible }
+    env.IsSpellInRange = inaccessible
+    env.UnitInRange = function() return protected, protected end
+    env.CheckInteractDistance = inaccessible
+
+    -- The default stays strict, which is what the two steps above assert.
+    db.assumeRange = false
+    assert(X.FilterInRange("party2", spells, selected) == 0,
+      "the strict default listed a player whose range nothing could answer")
+
+    -- Opting in lists them, flagged estimated so the row says as much.
+    db.assumeRange = true
+    X.rangeSilent = false
+    local count, approximate = X.FilterInRange("party2", spells, selected)
+    assert(count == 1, "assumeRange did not list a player with no readable range")
+    assert(approximate, "an assumed range was not flagged as estimated")
+    assert(X.rangeSilent, "the silent-range flag was not recorded for diagnostics")
+
+    -- An answer the client does give still wins over the assumption.
+    env.CheckInteractDistance = function() return false end
+    assert(X.FilterInRange("party2", spells, selected) == 0,
+      "assumeRange overrode an explicit out-of-range answer")
+    env.CheckInteractDistance = function() return true end
+    assert(X.FilterInRange("party2", spells, selected) == 1,
+      "a readable in-range answer stopped working with assumeRange on")
+  end)
+  db.assumeRange, X.rangeSilent = prevAssume, prevSilent
+  env.canaccessvalue = prevAccess
+  env.C_Spell, env.IsSpellInRange = prevModern, prevLegacy
+  env.UnitInRange, env.CheckInteractDistance = prevGroup, prevInteract
+  assert(ok, err)
+end)
+
 step("unreadable rank levels and mana remain safe", function()
   local cleanup = partyOfTwo("Q")
   local X, db, O = NS.X, NS.X.GetDB(), env.__over
@@ -3386,7 +3430,7 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 16"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 17"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
   assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
   assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")
@@ -3466,6 +3510,71 @@ step("1.12.0 diagnostics: apicheck, buffcheck, perf, settings diff", function()
   env.SlashCmdList.BUFFRADAR("profile diff dtest")
   assert(chatSince(n, "changes nothing"), "profile diff of a fresh profile")
   env.SlashCmdList.BUFFRADAR("profile delete dtest")
+end)
+step("cast counter fits a narrow window instead of being cut off", function()
+  local X = NS.X
+  local f = X.footerText
+  assert(f, "footer text was not exposed")
+  local prevW, prevSW = f.GetWidth, f.GetStringWidth
+
+  -- Plenty of room: the full line stays.
+  f.GetWidth = function() return 400 end
+  f.GetStringWidth = function() return 120 end
+  X.lastCounterRoom = nil
+  NS.X.slashAPI.UpdateCounter()
+  -- Checked on the "/" that only the compact form has, so this holds in every
+  -- locale: the German pack translates the words but not the separator.
+  assert(not f:GetText():find("/", 1, true),
+    "a wide window used the compact counter form")
+
+  -- Too narrow for the long form: drop to the compact one. Anchored left and
+  -- right with word wrap off, the alternative is a cut-off "39 all-t...".
+  f.GetWidth = function() return 40 end
+  f.GetStringWidth = function() return 120 end
+  X.lastCounterRoom = nil
+  NS.X.slashAPI.UpdateCounter()
+  local narrow = f:GetText()
+  assert(narrow:find("/", 1, true),
+    "the long counter line survived a window too narrow for it")
+
+  f.GetWidth, f.GetStringWidth = prevW, prevSW
+  X.lastCounterRoom = nil
+end)
+step("apicheck readability tier tells restricted apart from absent", function()
+  local n = #chat
+  env.SlashCmdList.BUFFRADAR("apicheck")
+  assert(chatSince(n, "readability on"), "no readability section")
+  assert(chatSince(n, "range verdict"), "no range verdict line")
+
+  -- A value the client refuses to describe has to read as restricted, not as
+  -- a working answer. Telling those apart is the whole point of this tier:
+  -- every one of these APIs is present, so a presence check reports success.
+  local protected = {}
+  local prevCanAccess = env.canaccessvalue
+  local prevModern, prevLegacy = env.C_Spell, env.IsSpellInRange
+  local prevGroup, prevInteract = env.UnitInRange, env.CheckInteractDistance
+  env.canaccessvalue = function(v) return v ~= protected end
+  env.C_Spell = { IsSpellInRange = function() return protected end }
+  env.IsSpellInRange = nil
+  env.UnitInRange = function() return protected, protected end
+  env.CheckInteractDistance = function() return protected end
+  n = #chat
+  env.SlashCmdList.BUFFRADAR("apicheck")
+  assert(chatSince(n, "restricted"), "a restricted result was not reported as restricted")
+  assert(chatSince(n, "no range API answers"),
+    "no verdict when every range API refuses to answer")
+
+  -- and a readable fallback is credited rather than ignored
+  env.canaccessvalue = prevCanAccess
+  env.C_Spell, env.IsSpellInRange = nil, nil
+  env.UnitInRange = function() return false, false end
+  env.CheckInteractDistance = function() return true end
+  n = #chat
+  env.SlashCmdList.BUFFRADAR("apicheck")
+  assert(chatSince(n, "interaction distance answers"),
+    "a readable interact-distance answer was not credited")
+  env.C_Spell, env.IsSpellInRange = prevModern, prevLegacy
+  env.UnitInRange, env.CheckInteractDistance = prevGroup, prevInteract
 end)
 step("1.12.0 toggles: tag symbols, reduced motion, range watch, snap, per-spec scale", function()
   local X, db = NS.X, env.BuffRadarDB
