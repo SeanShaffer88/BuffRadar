@@ -3,6 +3,37 @@
 All notable changes to BuffRadar are listed here. Newest first.
 
 
+## Unreleased
+
+- **Restricted game data in the eligibility check:** the phase check compared
+  a value the client can refuse to describe, which throws rather than
+  returning false, and five more unit flags were read the same raw way. All of
+  them are screened now. An unreadable answer no longer hides a player, since
+  listing someone who cannot be buffed costs one failed cast while excluding
+  everyone costs the whole window.
+- **`/br apicheck` reports whether an API answers, not just whether it
+  exists.** Several range APIs are present on this client and still never
+  return a readable value, so the old presence table could show nothing wrong
+  while the list stayed empty. Each range and eligibility API is now called and
+  its result classified, and the section ends with a verdict naming which range
+  check actually answers, or stating that none does.
+- **List players the client refuses to place (`/br assumerange`, off by
+  default):** when no range check answers, the window is empty no matter what
+  else is set. Turning this on lists those players with their range shown as
+  estimated. An answer the game does give still wins, so this only covers the
+  case where it says nothing. Settings format 17.
+- **Cast counter fits the window.** It shares its row with the settings gear
+  and stops short of the resize grip, so a narrow window used to cut it to
+  "39 all-t...". It now measures itself and falls back to a short form.
+- `/br debug` printed a "combat hide" state that lost its control and its
+  command in 1.15.2 and is reset on every load, so it could only read "on".
+  That slot now reports the new range setting.
+
+**Verification:** the full offline gate passes (static checks, Lua 5.1 limits,
+German locale complete, six-setup trial run with three added steps). Not yet
+field-tested in game.
+
+
 ## 1.15.5 — 2026-11-13 — Forever stable field test
 
 - Harden Forever target discovery and aura checks against restricted game data, preserve safe buff actions through combat, and improve settings-profile restoration and Paladin blessing preferences.
