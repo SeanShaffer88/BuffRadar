@@ -624,6 +624,11 @@ local L = {
   ["%s is blocked by %d group members."] = "%s is blocked by %d group members.",
   ["The blocker list may be incomplete because some roster information is unavailable."] = "The blocker list may be incomplete because some roster information is unavailable.",
   ["Group Cast Blockers"] = "Group Cast Blockers",
+  ["Edit Rule"] = "Edit Rule",
+  ["Return to Blockers"] = "Return to Blockers",
+  ["No group cast blockers are currently listed."] = "No group cast blockers are currently listed.",
+  ["The blocker changed. Check the updated list."] = "The blocker changed. Check the updated list.",
+  ["Edit Blessing Exception"] = "Edit Blessing Exception",
   ["Preview Current Group"] = "Preview Current Group",
   ["Refresh Preview"] = "Refresh Preview",
   ["No group to preview."] = "No group to preview.",
@@ -1641,23 +1646,87 @@ function X.AssignmentRuleText(class, role, source, assignment, isGroup, manual)
   return text
 end
 
+do
+local function ReadBlessingGUID(unit)
+  local ok, guid = pcall(UnitGUID, unit)
+  if ok and Readable(guid) and type(guid) == "string" and guid ~= "" then return guid end
+end
+
+local function CanEditBlessing()
+  return CLASSIC_FEATURES and not InCombatLockdown() and InGroup() and not X.PlayerSuspended()
+end
+
+local function BlessingMemberClass(unit, guid)
+  if not guid or ReadBlessingGUID(unit) ~= guid then return nil end
+  local ok, _, class = pcall(UnitClass, unit)
+  class = ok and SafeString(class)
+  if X.BLESSING_CLASSES[class] then return class end
+end
+
+local function ChangeBlessingException(unit, guid, key)
+  local class = BlessingMemberClass(unit, guid)
+  if not class then return nil, "Choose an exact party or raid member name." end
+  local plan = X.blessPlan[class]
+  if key ~= "DEFAULT" and plan and not plan.mine then
+    return nil, "The group plan assigns that class to another paladin."
+  end
+  X.blessingExceptions = X.blessingExceptions or {}
+  if key == "DEFAULT" then X.blessingExceptions[guid] = nil
+  else X.blessingExceptions[guid] = key end
+  X.assignmentGroupConflicts = nil
+  return X.Ignore.UnitNames(unit)
+end
+
+local function FindBlessingMember(guid)
+  local match
+  X.ForReportRoster(function(unit, exists)
+    if not match and exists and ReadBlessingGUID(unit) == guid then match = unit end
+  end)
+  return match
+end
+
+function X.GetBlessingExceptionForGUID(guid)
+  if not CanEditBlessing() or not Readable(guid) or type(guid) ~= "string" or guid == ""
+    or not X.blessingExceptions or not X.blessingExceptions[guid] then return nil end
+  local unit = FindBlessingMember(guid)
+  local class = unit and BlessingMemberClass(unit, guid)
+  if not class then return nil end
+  local name = X.Ignore.UnitNames(unit)
+  if not name or name == "" then return nil end
+  local plan = X.blessPlan[class]
+  local options = {}
+  for _, key in ipairs(X.BLESSING_KEYS) do
+    local spell = blessKnown[key]
+    if spell then options[#options + 1] = { key = key, name = spell.name } end
+  end
+  return { name = name, key = X.blessingExceptions[guid], options = options, canSet = not plan or plan.mine == true }
+end
+
+function X.SetBlessingExceptionForGUID(guid, key)
+  if not CanEditBlessing() or not Readable(guid) or type(guid) ~= "string" or guid == ""
+    or not X.blessingExceptions or not X.blessingExceptions[guid] then return nil end
+  if not Readable(key) or type(key) ~= "string" or (key ~= "DEFAULT" and not blessKnown[key]) then return nil end
+  local unit = FindBlessingMember(guid)
+  local name = unit and X.Ignore.UnitNames(unit)
+  if not name or name == "" then return nil end
+  return ChangeBlessingException(unit, guid, key)
+end
+
 function X.SetBlessingException(name, key)
-  if not CLASSIC_FEATURES or InCombatLockdown() or not InGroup() or X.PlayerSuspended() then
+  if not CanEditBlessing() then
     return nil, "Join a group and leave combat to set a blessing exception."
   end
   if key ~= "DEFAULT" and not blessKnown[key] then return nil, "Choose a blessing you know or use DEFAULT." end
   local targetGUID
   if name == "target" then
-    local ok, guid = pcall(UnitGUID, "target")
-    targetGUID = ok and SafeString(guid)
+    targetGUID = ReadBlessingGUID("target")
     if not targetGUID then return nil, "Target an exact party or raid member." end
   end
   local exact, exactGUID, short, shortGUID, exactAmbiguous, shortAmbiguous
   X.ForReportRoster(function(unit, exists)
     if not exists then return end
     local full, first = X.Ignore.UnitNames(unit)
-    local ok, guid = pcall(UnitGUID, unit)
-    guid = ok and SafeString(guid)
+    local guid = ReadBlessingGUID(unit)
     if not guid then return end
     if guid == targetGUID or (not targetGUID and full and full:lower() == name) then
       if exactGUID and exactGUID ~= guid then exactAmbiguous = true end
@@ -1670,21 +1739,8 @@ function X.SetBlessingException(name, key)
   end)
   local unit = not exactAmbiguous and (exact or (not shortAmbiguous and short))
   if not unit then return nil, "Choose an exact party or raid member name." end
-  local ok, guid = pcall(UnitGUID, unit)
-  local classOK, _, class = pcall(UnitClass, unit)
-  guid = ok and SafeString(guid)
-  class = classOK and SafeString(class)
-  if not guid or not X.BLESSING_CLASSES[class] then
-    return nil, "Choose an exact party or raid member name."
-  end
-  local plan = X.blessPlan[class]
-  if key ~= "DEFAULT" and plan and not plan.mine then
-    return nil, "The group plan assigns that class to another paladin."
-  end
-  X.blessingExceptions = X.blessingExceptions or {}
-  if key == "DEFAULT" then X.blessingExceptions[guid] = nil
-  else X.blessingExceptions[guid] = key end
-  return X.Ignore.UnitNames(unit)
+  return ChangeBlessingException(unit, exact and exactGUID or shortGUID, key)
+end
 end
 
 -- A roster update retires departed GUIDs, even if their unit tokens are reused.
@@ -3009,6 +3065,7 @@ local function AddGroupBlocker(report, member, blocker)
   report.seen[key] = true
   report.members[#report.members + 1] = blocker
   blocker.memberKey = key
+  if key ~= member then blocker.guid = key end
 end
 
 -- Broad spells use single-target fallback if the observed affected roster
@@ -3056,7 +3113,7 @@ local function GroupAssignmentConflict(spell, groupSpell, unit, greater, baseID,
     end
     AddGroupBlocker(report, member, { kind = kind or "rule", spell = groupSpell, single = spell,
       name = Ignore.UnitNames(member), rule = X.AssignmentRuleText(class, role, source, assignment, true, manual),
-      blessing = blessing })
+      blessing = blessing, class = class, slot = source })
   end)
   local conflict = false
   if report.first then
@@ -3171,13 +3228,20 @@ function X.GroupOfferReason(item, count, reason, blockers, compact)
   end
 end
 
-local function GroupBlockerDetails(blockers, lines)
+local function GroupBlockerDetails(blockers, lines, actions)
   local first = blockers.first
   if #blockers.members == 0 or first.kind == "scope" then
     lines[#lines + 1] = GroupBlockerText(first)
   end
   for _, blocker in ipairs(blockers.members) do
     lines[#lines + 1] = GroupBlockerText(blocker)
+    if blocker.guid and blocker.name and blocker.name ~= "" then
+      if blocker.kind == "rule" and X.ValidAssignmentCell(blocker.class, blocker.slot) then
+        actions[#lines] = { kind = "rule", class = blocker.class, slot = blocker.slot, guid = blocker.guid }
+      elseif blocker.kind == "exception" then
+        actions[#lines] = { kind = "exception", guid = blocker.guid, name = blocker.name }
+      end
+    end
   end
   if blockers.incomplete and (#blockers.members > 0 or first.kind ~= "roster") then
     lines[#lines + 1] = L["The blocker list may be incomplete because some roster information is unavailable."]
@@ -3229,16 +3293,16 @@ function X.AssignmentPreview()
         for _, spell in ipairs(detail.cooldown) do row.buffs[#row.buffs + 1] = spell end
       end
       if detail.blessing then row.rule = row.rule .. " · " .. detail.blessing end
-      local group, details = {}, {}
+      local group, details, actions = {}, {}, {}
       for _, spell in ipairs(row.available) do
         local offer, item, count, reason, _, blocker = X.GroupOffer(spell, unit, groupPreview)
         local text = X.GroupOfferReason(item, count, reason, blocker, true)
-        if blocker then GroupBlockerDetails(blocker, details) end
+        if blocker then GroupBlockerDetails(blocker, details, actions) end
         if offer then group[#group + 1] = string_format(L["Group option: %s"], offer)
         elseif text then group[#group + 1] = blocker and text or spell .. " · " .. text end
       end
       if #group > 0 then row.group = table.concat(group, " · ") end
-      if #details > 0 then row.groupDetails = details end
+      if #details > 0 then row.groupDetails, row.groupActions = details, actions end
     end
   end, limit)
   -- The index fallback is a one-unit scratch buffer. Invalidate it after

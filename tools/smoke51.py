@@ -3834,6 +3834,89 @@ step("assignment preview edits session roles by identity and protects modal navi
   assert(ok, err)
 end)
 
+step("assignment blocker shortcuts edit the exact rule and return to the refreshed list", function()
+  if not env.__forever then return end
+  local X, cfg, slash = NS.X, env.BuffRadarConfig, env.SlashCmdList.BUFFRADAR
+  local originalPreview, originalSetter = X.AssignmentPreview, X.SetAssignment
+  local originalGetException, originalSetException = X.GetBlessingExceptionForGUID, X.SetBlessingExceptionForGUID
+  local ok, err = pcall(function()
+    local rule = { kind = "rule", class = "DRUID", slot = "ALL", guid = "BlockerDruid" }
+    local exception = { kind = "exception", guid = "BlockerPaladin", name = "Paladin" }
+    local edits, remaining, left = 0, true, false
+    local function snapshot()
+      local member = { name = "Warrior", identity = "PreviewWarrior", rule = "Tank", buffs = {}, available = {} }
+      if remaining then
+        member.groupDetails, member.groupActions = { "Druid All Roles", "Roster information unavailable", "Paladin exception" },
+          { [1] = not left and rule or nil, [3] = exception }
+      end
+      return { member }
+    end
+    X.AssignmentPreview = snapshot
+    X.SetAssignment = function(class, slot)
+      assert(class == "DRUID" and slot == "ALL", "shortcut did not use the exact inherited rule")
+      edits = edits + 1
+      left = true
+      return true
+    end
+    X.GetBlessingExceptionForGUID = function(guid)
+      assert(guid == exception.guid, "shortcut opened the wrong blessing exception")
+      return { name = "Paladin", key = "WISDOM", canSet = true,
+        options = { { key = "KINGS", name = "Blessing of Kings" } } }
+    end
+    X.SetBlessingExceptionForGUID = function(guid, key)
+      assert(guid == exception.guid and key == "KINGS", "editor saved the wrong blessing exception")
+      remaining = false
+      return "Paladin"
+    end
+    slash("buffassign preview")
+    local assignments, preview = env.BuffRadarAssignments, env.BuffRadarAssignmentPreview
+    preview.rows[1]:Click()
+    local blockers = env.BuffRadarAssignmentBlockers
+    assert(blockers.rows[1].edit:IsVisible() and not blockers.rows[2].edit:IsShown(),
+      "rule shortcut missing or offered for an informational blocker")
+    slash("config navigate")
+    local input = cfg.navInput
+    local function activate(widget)
+      for _ = 1, 18 do
+        if cfg.navOutline.shown and cfg.navOutline.points[1][2] == widget then
+          input.scripts.OnEnterPressed(input)
+          return
+        end
+        input.scripts.OnTabPressed(input)
+      end
+      error("could not reach an assignment blocker control")
+    end
+    activate(blockers.rows[1].edit)
+    local picker = assignments.picker
+    assert(picker:IsVisible() and picker.backButton:IsVisible() and picker.class == "DRUID" and picker.slot == "ALL",
+      "shortcut did not open the inherited All Roles picker")
+    activate(picker.defaultButton)
+    assert(edits == 1 and not picker:IsShown() and blockers:IsVisible() and not blockers.rows[1].edit:IsShown(),
+      "saving a rule did not return to the refreshed blocker list")
+
+    left = false
+    preview.refresh:Click()
+    preview.rows[1]:Click()
+    blockers.rows[1].edit:Click()
+    left = true
+    picker.defaultButton:Click()
+    assert(edits == 1 and not picker:IsShown() and not blockers.rows[1].edit:IsShown(),
+      "a departed member's stale rule was still editable")
+
+    blockers.rows[3].edit:Click()
+    local editor = env.BuffRadarBlockerExceptionEditor
+    assert(editor:IsVisible() and editor.choices[1]:IsVisible() and not editor.choices[2]:IsShown(),
+      "local blessing options did not open")
+    editor.choices[1]:Click()
+    assert(preview:IsVisible() and not blockers:IsShown() and not editor:IsShown(),
+      "resolved blocker did not return to the preview")
+  end)
+  X.AssignmentPreview, X.SetAssignment = originalPreview, originalSetter
+  X.GetBlessingExceptionForGUID, X.SetBlessingExceptionForGUID = originalGetException, originalSetException
+  cfg:Hide()
+  assert(ok, err)
+end)
+
 step("visible assignment preview refreshes roster and roles without retargeting the editor", function()
   if not env.__forever then return end
   local X, cfg, slash = NS.X, env.BuffRadarConfig, env.SlashCmdList.BUFFRADAR
@@ -5387,8 +5470,27 @@ step("Forever mixed raid preserves blessing ownership and rebinds after a member
       and rows.raid4.row:GetAttribute("shift-spell1") == "Blessing of Kings",
       "Greater Blessing could overwrite an individual exception")
 
+    local alphaGUID, bravo = units.raid3[4]
+    for _, row in ipairs(X.AssignmentPreview()) do
+      if row.identity == units.raid4[4] then bravo = row end
+    end
+    assert(bravo and bravo.groupActions and bravo.groupActions[1] and bravo.groupActions[1].kind == "exception"
+      and bravo.groupActions[1].guid == alphaGUID and bravo.groupDetails[1]:find("Alpharaider", 1, true),
+      "the blocker shortcut did not point to the exact exception")
+    local exception = assert(X.GetBlessingExceptionForGUID(alphaGUID))
+    assert(exception.key == "WISDOM" and exception.canSet and #exception.options == 2,
+      "the exception editor did not list learned local blessings")
+    assert(not X.SetBlessingExceptionForGUID(alphaGUID, "MIGHT"), "an unlearned blessing was accepted")
+    assert(X.SetBlessingExceptionForGUID(alphaGUID, "KINGS"))
+    assert(X.GetBlessingExceptionForGUID(alphaGUID).key == "KINGS", "the selected blessing did not replace the exception")
+    assert(X.SetBlessingExceptionForGUID(alphaGUID, "DEFAULT") and not X.GetBlessingExceptionForGUID(alphaGUID),
+      "clearing an exception did not return the player to their standard assignment")
+    assert(X.SetBlessingException("alpharaider-testrealm", "WISDOM"))
+
     env.__combat = true
     fire("PLAYER_REGEN_DISABLED")
+    assert(not X.GetBlessingExceptionForGUID(alphaGUID) and not X.SetBlessingExceptionForGUID(alphaGUID, "DEFAULT"),
+      "a combat exception edit was allowed")
     units.raid3 = { "CharlieRaid", "WARRIOR", "DAMAGER", "Player-1-CharlieRaid" }
     fire("GROUP_ROSTER_UPDATE")
     assert(not nextButton:GetAttribute("type") and not groupButton:GetAttribute("type"),
@@ -5396,6 +5498,8 @@ step("Forever mixed raid preserves blessing ownership and rebinds after a member
     env.__combat = false
     fire("PLAYER_REGEN_ENABLED")
     refresh()
+    assert(not X.GetBlessingExceptionForGUID(alphaGUID) and not X.SetBlessingExceptionForGUID(alphaGUID, "DEFAULT"),
+      "a departed member's exception could still be edited")
     assert(nextButton:GetAttribute("unit") == "raid4" and nextButton:GetAttribute("spell") == "Blessing of Kings"
       and groupButton:GetAttribute("unit") == "raid4" and groupButton:GetAttribute("spell") == "Greater Blessing of Kings",
       "combat exit did not rebind the queue to the remaining eligible raid member")

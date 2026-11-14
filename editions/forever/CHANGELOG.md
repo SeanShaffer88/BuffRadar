@@ -2,6 +2,13 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.23 — Forever test build
+
+- Open the exact class and role rule or local blessing exception from an
+  actionable group-cast blocker, then return to a refreshed blocker list.
+
+In-game verification is pending for this build.
+
 ## 1.15.22 — Forever test build
 
 - List all known group-cast blockers in the assignment preview, with
@@ -9,7 +16,8 @@ All notable changes to BuffRadar are listed here. Newest first.
 - Show the known blocker count in the next-cast tooltip, with a warning
   when some roster information is unavailable.
 
-In-game verification is pending for this build.
+The maintainer confirmed live verification of the 1.15.22 field-test
+build `575ff478c890` in WoW: Forever.
 
 ## 1.15.21 — Forever test build
 

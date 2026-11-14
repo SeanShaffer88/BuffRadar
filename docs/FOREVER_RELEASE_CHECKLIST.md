@@ -2,6 +2,18 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.23 Edit Blocker Rules
+
+- Open a blocked cast in `/br buffassign preview` and choose **Edit Rule**.
+  Verify a role-specific rule opens its cell and an inherited All Roles
+  rule opens All Roles. After an edit, confirm the refreshed list and
+  next-cast tooltip agree about the remaining blockers.
+- Edit or clear a local Paladin blessing exception. Check that unavailable
+  roster information and another Paladin's shared duty have no edit action.
+- Try the shortcut with keyboard navigation, change the roster while the
+  editor is open, and enter combat. Confirm stale actions cannot change
+  a replacement player's rule and casting remains disarmed in combat.
+
 ## 1.15.22 Group-Cast Blocker Lists
 
 - With reagents available, configure two group members to exclude the same

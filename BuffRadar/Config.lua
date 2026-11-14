@@ -62,11 +62,14 @@ end
 function K.Modal()
   local assignments = cfg.assignmentPanel
   local preview = assignments and assignments.preview
+  local blockers = preview and preview.blockers
   return assignments and assignments:IsShown()
-    and (preview and preview:IsShown()
+    and (assignments.picker:IsShown() and assignments.picker
+      or preview and preview:IsShown()
         and (preview.roleEditor and preview.roleEditor:IsShown() and preview.roleEditor
-          or preview.blockers and preview.blockers:IsShown() and preview.blockers or preview)
-      or assignments.picker:IsShown() and assignments.picker or assignments)
+          or blockers and blockers:IsShown() and (blockers.exceptionEditor
+            and blockers.exceptionEditor:IsShown() and blockers.exceptionEditor or blockers) or preview)
+      or assignments)
     or cfg.blessingPanel and cfg.blessingPanel:IsShown() and cfg.blessingPanel
     or cfg.displayPanel and cfg.displayPanel:IsShown() and cfg.displayPanel
 end
@@ -778,9 +781,18 @@ end
 
 function AssignmentUI.Save(picker, value)
   if InCombatLockdown() or X.PlayerSuspended() then return false end
+  local blockers, action = picker.blockers, picker.action
+  if action and not AssignmentUI.CheckBlocker(blockers, action) then
+    picker:Hide()
+    return false
+  end
   if X.SetAssignment(picker.class, picker.slot, value) then
     AssignmentUI.Update()
     Refresh()
+    if blockers then
+      picker:Hide()
+      AssignmentUI.RefreshPreview(blockers.preview, blockers)
+    end
     return true
   end
   AssignmentUI.Update()
@@ -873,7 +885,22 @@ function AssignmentUI.BuildPicker(panel)
   end)
   picker.noneButton:SetPoint("LEFT", picker.defaultButton, "RIGHT", 8, 0)
   Tip(picker.noneButton, L["None"], L["Offer no assigned buffs for this cell."])
+  picker.backButton = MakeButton(picker, L["Return to Blockers"], 160, function() picker:Hide() end)
+  picker.backButton:SetPoint("BOTTOMRIGHT", -16, 12)
+  picker.backButton:Hide()
   return picker
+end
+
+function AssignmentUI.OpenPicker(panel, class, slot, blockers, action)
+  local picker = panel.picker
+  picker.class, picker.slot = class, slot
+  picker.blockers, picker.action = blockers, action
+  picker.backButton:SetShown(blockers ~= nil)
+  picker:SetFrameLevel(blockers and blockers:GetFrameLevel() + 5 or panel:GetFrameLevel() + 5)
+  picker.title:SetText(AssignmentUI.CellLabel(class, slot))
+  picker:Show()
+  AssignmentUI.Update()
+  if blockers and K.active and not K.edit then K.Move(1) end
 end
 
 function AssignmentUI.UpdateBlockers(panel)
@@ -884,10 +911,90 @@ function AssignmentUI.UpdateBlockers(panel)
   panel.previous:SetShown(panel.page > 1)
   panel.next:SetShown(panel.page < pages)
   for i, row in ipairs(panel.rows) do
-    local line = lines[first + i - 1]
+    local index = first + i - 1
+    local line = lines[index]
+    row.action = panel.member.groupActions and panel.member.groupActions[index]
     row.text:SetText(line or "")
+    row.text:SetPoint("TOPRIGHT", row.action and -111 or 0, 0)
+    row.edit:SetShown(row.action ~= nil)
     row:SetShown(line ~= nil)
   end
+end
+
+function AssignmentUI.FindPreviewMember(members, identity)
+  if not identity then return nil end
+  for _, member in ipairs(members) do
+    if member.identity == identity then return member end
+  end
+end
+
+function AssignmentUI.CheckBlocker(panel, action)
+  if not panel or not panel:IsVisible() or not panel.member then return false end
+  local member = AssignmentUI.FindPreviewMember(X.AssignmentPreview(), panel.member.identity)
+  for _, candidate in pairs(member and member.groupActions or {}) do
+    if candidate.kind == action.kind and candidate.guid == action.guid and candidate.class == action.class
+      and candidate.slot == action.slot then return true end
+  end
+  Print(L["The blocker changed. Check the updated list."])
+  AssignmentUI.RefreshPreview(panel.preview, panel)
+  return false
+end
+
+function AssignmentUI.OpenExceptionEditor(panel, action)
+  local state = X.GetBlessingExceptionForGUID(action.guid)
+  if not state then return end
+  local editor = panel.exceptionEditor
+  if not editor then
+    editor = AssignmentUI.CreatePanel(panel, "BuffRadarBlockerExceptionEditor", 574, 405, panel:GetFrameLevel() + 5)
+    panel.exceptionEditor = editor
+    editor.title = editor:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    editor.title:SetPoint("TOPLEFT", 16, -14)
+    editor.title:SetPoint("TOPRIGHT", -45, -14)
+    editor.title:SetJustifyH("LEFT")
+    AssignmentUI.CloseButton(editor, function() editor:Hide() end)
+    local function save(key)
+      if InCombatLockdown() or X.PlayerSuspended() or not editor:IsVisible() then return end
+      local selected = editor.action
+      if not selected or not AssignmentUI.CheckBlocker(panel, selected) then editor:Hide(); return end
+      if X.SetBlessingExceptionForGUID(selected.guid, key) then
+        editor:Hide()
+        Refresh()
+        AssignmentUI.RefreshPreview(panel.preview, panel)
+      end
+    end
+    editor.choices = {}
+    for index = 1, #X.BLESSING_KEYS do
+      local button = MakeButton(editor, "", 260, function(widget)
+        if widget.option then save(widget.option.key) end
+      end)
+      button:SetPoint("TOPLEFT", 16, -54 - (index - 1) * 34)
+      K.Register(button, editor, function() return button:GetText() end, "button", function()
+        if editor.action and button.option and editor.selectedKey == button.option.key then return L["Current selection"] end
+      end)
+      editor.choices[index] = button
+    end
+    editor.defaultButton = MakeButton(editor, L["Default"], 112, function() save("DEFAULT") end)
+    editor.defaultButton:SetPoint("BOTTOMLEFT", 16, 12)
+    local back = MakeButton(editor, L["Return to Blockers"], 160, function() editor:Hide() end)
+    back:SetPoint("BOTTOMRIGHT", -16, 12)
+    editor:HookScript("OnHide", function()
+      editor.action = nil
+      editor.selectedKey = nil
+      if K.active and not K.edit and panel:IsVisible() then K.Move(1) end
+    end)
+    if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarBlockerExceptionEditor") end
+  end
+  editor.title:SetText(L["Edit Blessing Exception"] .. " · " .. state.name)
+  editor.action = action
+  editor.selectedKey = state.key
+  for index, button in ipairs(editor.choices) do
+    local option = state.canSet and state.options[index]
+    button.option = option
+    if option then button:SetText(option.name) end
+    button:SetShown(option and true or false)
+  end
+  editor:Show()
+  if K.active and not K.edit then K.Move(1) end
 end
 
 function AssignmentUI.OpenBlockers(preview, member)
@@ -896,6 +1003,7 @@ function AssignmentUI.OpenBlockers(preview, member)
   if not panel then
     panel = AssignmentUI.CreatePanel(preview, "BuffRadarAssignmentBlockers", 574, 405, preview:GetFrameLevel() + 5)
     preview.blockers = panel
+    panel.preview = preview
     local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 16, -14)
     title:SetText(L["Group Cast Blockers"])
@@ -918,6 +1026,18 @@ function AssignmentUI.OpenBlockers(preview, member)
       row.text:SetJustifyH("LEFT")
       row.text:SetWordWrap(true)
       K.Register(row, panel, function() return row.text:GetText() end, "detail")
+      row.edit = MakeButton(row, "", 105, function()
+        local action = row.action
+        if not action or InCombatLockdown() or X.PlayerSuspended() or not AssignmentUI.CheckBlocker(panel, action) then return end
+        if action.kind == "rule" then
+          AssignmentUI.OpenPicker(cfg.assignmentPanel, action.class, action.slot, panel, action)
+        elseif action.kind == "exception" then
+          AssignmentUI.OpenExceptionEditor(panel, action)
+        end
+      end)
+      row.edit:SetText(L["Edit Rule"])
+      row.edit:SetPoint("TOPRIGHT")
+      K.Register(row.edit, panel, L["Edit Rule"], "button", function() return row.text:GetText() end)
       panel.rows[i] = row
     end
     panel.previous = MakeButton(panel, L["Previous"], 110, function() move(-1) end)
@@ -926,9 +1046,14 @@ function AssignmentUI.OpenBlockers(preview, member)
     panel.next:SetPoint("LEFT", panel.previous, "RIGHT", 8, 0)
     panel:HookScript("OnHide", function()
       local sourceRow = panel.sourceRow
+      local identity = panel.member and panel.member.identity
+      local picker = cfg.assignmentPanel.picker
+      if picker.blockers == panel then picker:Hide() end
+      if panel.exceptionEditor then panel.exceptionEditor:Hide() end
       panel.member, panel.sourceRow = nil, nil
       if K.active and not K.edit and preview:IsVisible() then
-        K.Focus(sourceRow and sourceRow.navigation or preview.refresh.navigation)
+        local entry = sourceRow and sourceRow.member and sourceRow.member.identity == identity and sourceRow.navigation
+        K.Focus(K.InScope(entry) and entry or preview.refresh.navigation)
       end
     end)
     if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarAssignmentBlockers") end
@@ -990,11 +1115,24 @@ function AssignmentUI.UpdatePreview(preview, editorClosed)
   end
 end
 
-function AssignmentUI.RefreshPreview(preview)
+function AssignmentUI.RefreshPreview(preview, preserveBlockers)
   if InCombatLockdown() or X.PlayerSuspended() or not preview:IsVisible() then return end
   preview.pendingRefresh = nil
   preview.members = X.AssignmentPreview()
-  if preview.blockers and preview.blockers:IsShown() then preview.blockers:Hide() end
+  local blockers = preview.blockers
+  local blockMember
+  if blockers and blockers:IsShown() then
+    if blockers == preserveBlockers and blockers.member then
+      blockMember = AssignmentUI.FindPreviewMember(preview.members, blockers.member.identity)
+    end
+    if blockMember and blockMember.groupDetails and #blockMember.groupDetails > 0 then
+      blockers.member = blockMember
+      AssignmentUI.UpdateBlockers(blockers)
+    else
+      if blockMember then Print(L["No group cast blockers are currently listed."]) end
+      blockers:Hide()
+    end
+  end
   local editor = preview.roleEditor
   local editorClosed
   if editor and editor:IsVisible() then
@@ -1210,10 +1348,7 @@ function AssignmentUI.Build()
     panel.cells[class] = {}
     for column, slot in ipairs(X.ASSIGNMENT_SLOTS) do
       local button = MakeButton(panel, "", 82, function()
-        panel.picker.class, panel.picker.slot = class, slot
-        panel.picker.title:SetText(AssignmentUI.CellLabel(class, slot))
-        panel.picker:Show()
-        AssignmentUI.Update()
+        AssignmentUI.OpenPicker(panel, class, slot)
       end)
       button:SetPoint("TOPLEFT", 125 + (column - 1) * 87, y)
       local function labelText() return AssignmentUI.CellLabel(class, slot) end
@@ -1230,7 +1365,12 @@ function AssignmentUI.Build()
     cfg.searchToggle:Show()
     GameTooltip:Hide()
   end)
-  panel.picker:HookScript("OnHide", function() GameTooltip:Hide() end)
+  panel.picker:HookScript("OnHide", function(picker)
+    local blockers = picker.blockers
+    picker.blockers, picker.action = nil, nil
+    GameTooltip:Hide()
+    if blockers and blockers:IsVisible() and K.active and not K.edit then K.Move(1) end
+  end)
   if UISpecialFrames then
     table.insert(UISpecialFrames, "BuffRadarAssignments")
   end
