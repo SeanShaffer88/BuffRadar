@@ -3,11 +3,19 @@
 BuffRadar is a World of Warcraft addon. It runs inside the game's addon
 sandbox: it has **no network access**, reads no files, and stores data only in
 the game's own SavedVariables for this addon (`BuffRadarDB` — your settings,
-ignore list, profiles and cast statistics, all on your own machine). Its only
-communication is the game's addon-message channel, on its own prefix, inside
-your current group, and group-plan messages (assignments, blessing plan) are
-only accepted from the group leader, an assistant, or — for the blessing
-plan — a paladin.
+ignore list, profiles and cast statistics, all on your own machine).
+
+Communication, all inside the game:
+
+- **Addon messages** on the `BuffRadar` prefix, inside your current group only
+  (cast notes, cover-me handoff, group plans). Group-plan messages
+  (assignments, blessing plan) are only accepted from the group leader, an
+  assistant, or — for the blessing plan — a paladin.
+- **Group chat posts**, only when you are the leader or an assistant and the
+  matching option is on: the ready-check summary (`readyPost`, off by default)
+  and the post-wipe summary (`wipeReport`, off by default).
+- **Chat reading:** whispers and /say are read locally to tag a player who
+  asks for a buff (`requests`, on by default). Nothing is stored or sent.
 
 ## Reporting a problem
 

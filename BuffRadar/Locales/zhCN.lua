@@ -90,5 +90,12 @@ BuffRadarLocales.zhCN = {
   ["Shift-click a row casts the group version of its buff"] = "Shift 点击一行施放该增益的团队版本",
   ["Shift-click to cast: %s"] = "Shift 点击施放：%s",
   ["Flash when a pull timer starts"] = "开怪倒计时开始时闪烁",
-
+  ["An active group blessing plan takes precedence."] = "生效中的团队祝福方案优先。",
+  ["Blessings by class"] = "按职业分配祝福",
+  ["Casts: |cffffffff%d|r / |cffffffff%d|r"] = "施放：|cffffffff%d|r / |cffffffff%d|r",
+  ["Default (%s)"] = "默认（%s）",
+  ["Default blessing"] = "默认祝福",
+  ["Estimated range"] = "预估范围",
+  ["Previously selected blessing unavailable"] = "之前选择的祝福不可用",
+  ["Some buff information is unavailable."] = "部分增益信息不可用。",
 }
