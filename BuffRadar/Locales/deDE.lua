@@ -11,8 +11,17 @@
 --   4. Add the file to BuffRadar.toc, above BuffRadar.lua.
 -- tools\check.ps1 reports keys BuffRadar doesn't use and mismatched %d / %s.
 
-BuffRadarLocales = BuffRadarLocales or {}
-BuffRadarLocales.deDE = {
+local _, NS = ...
+NS.Locales = NS.Locales or {}
+NS.Locales.deDE = {
+  ["Find"] = "Suchen",
+  ["Find in this tab (Esc to close)"] = "In diesem Tab suchen (Esc schließt)",
+  ["Matches: %d"] = "Treffer: %d",
+  ["Background opacity"] = "Hintergrunddeckkraft",
+  ["Idle fade (mouse away)"] = "Verblassen ohne Mauszeiger",
+  ["Window scale"] = "Fensterskalierung",
+  ["Settings window scale"] = "Skalierung der Einstellungen",
+  ["Group buff threshold"] = "Schwelle für Gruppenbuffs",
   -- window status lines
   ["Paused in a major city."] = "In einer Hauptstadt pausiert.",
   ["Paused in a battleground."] = "Auf einem Schlachtfeld pausiert.",

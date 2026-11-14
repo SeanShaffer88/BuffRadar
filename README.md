@@ -59,7 +59,7 @@ inside the game, and uses WoW's own messaging for group coordination.
 |---|---|
 | `BuffRadar/` | The addon: `BuffRadar.lua`, `Locales/`, `Media/`, `Bindings.xml`, plus the Retail edition's `.toc`, README and changelog |
 | `editions/forever/` | The Forever edition's `.toc`, README and changelog |
-| `build.ps1` | Builds `dist/BuffRadar-<version>-Retail.zip` and `-Forever.zip` |
+| `build.ps1` | Packages the supported Forever edition and SHA-256 checksum with PowerShell 7 |
 | `tools/` | Automated checks — see [tools/README.md](tools/README.md) |
 | `.luacheckrc` | luacheck settings used by the checks |
 | `AGENTS.md` | Project rule sheet (prompt in force, frozen foundation, gate) |
@@ -72,7 +72,7 @@ inside the game, and uses WoW's own messaging for group coordination.
 ```powershell
 .\tools\check.ps1 -Setup   # first time only
 .\tools\check.ps1          # luacheck, Lua 5.1 compile and limits, translations, trial run
-.\build.ps1                # both zips into dist\ (only the Forever zip ships, from 1.8.0)
+.\build.ps1                # Forever ZIP and SHA256SUMS.txt in dist\
 ```
 
 Then test the Forever zip in the game. The zip holds a `BuffRadar` folder that goes in

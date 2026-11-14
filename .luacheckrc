@@ -9,7 +9,6 @@ max_line_length = false
 -- leak fixed in 1.3.2. These are the globals BuffRadar is meant to create:
 globals = {
   "BuffRadarDB",                                     -- saved variables (.toc)
-  "BuffRadarLocales",                                -- filled by Locales\*.lua
   "BuffRadar_ToggleWindow", "BuffRadar_ToggleSound", -- called by Bindings.xml
   "SLASH_BUFFRADAR1", "SLASH_BUFFRADAR2",            -- /br, /buffradar
   "SlashCmdList",                                    -- SlashCmdList.BUFFRADAR

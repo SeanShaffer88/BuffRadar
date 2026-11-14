@@ -70,6 +70,7 @@ local function step(name, fn)
   results[#results + 1] = { name, ok and (printedErr and ("addon printed: " .. printedErr) or "ok") or ("LUA ERROR: " .. tostring(err)) }
 end
 
+local NS = {}
 local chunk, cerr = loadstring(addonSrc, "=BuffRadar.lua")
 if not chunk then return { { "compile", "FAIL: " .. cerr } }, chat end
 setfenv(chunk, env)
@@ -77,10 +78,10 @@ if localeSrc then  -- Locales\*.lua load before BuffRadar.lua (.toc order)
   step("load translation file", function()
     local lchunk = assert(loadstring(localeSrc, "=Locales/deDE.lua"))
     setfenv(lchunk, env)
-    lchunk("BuffRadar", {})
+    lchunk("BuffRadar", NS)
+    assert(NS.Locales and NS.Locales.deDE and not env.BuffRadarLocales, "locale pack did not stay in the addon namespace")
   end)
 end
-local NS = {}
 if dataSrc then
   step("load Data.lua", function()
     local dch = assert(loadstring(dataSrc, "=Data.lua"))
@@ -526,6 +527,20 @@ step("fast aura: unwatched payload skipped, watched payload refreshes (1.14.0)",
   assert(#env.__timers == 1, "removal of a watched aura did not queue a refresh")
   runQueued()
   env.SlashCmdList.BUFFRADAR("fastaura off")
+end)
+step("fast aura cache is cleared when a unit token changes", function()
+  local X = NS.X
+  X.auraIds = { target = { [101] = "Unwatched" }, mouseover = { [102] = "Unwatched" },
+    nameplate1 = { [103] = "Unwatched" }, raid1 = { [104] = "Unwatched" } }
+  fire("PLAYER_TARGET_CHANGED")
+  assert(not X.auraIds.target and X.auraIds.raid1, "target token kept old aura IDs")
+  fire("UPDATE_MOUSEOVER_UNIT")
+  assert(not X.auraIds.mouseover, "mouseover token kept old aura IDs")
+  fire("NAME_PLATE_UNIT_REMOVED", "nameplate1")
+  assert(not X.auraIds.nameplate1, "removed nameplate kept old aura IDs")
+  fire("GROUP_ROSTER_UPDATE")
+  assert(not next(X.auraIds), "changed roster kept old aura IDs")
+  runQueued()
 end)
 step("UNIT_AURA in combat: ignored", function()
   if not env.__timers then return end
@@ -1007,6 +1022,82 @@ step("ready check reports who is missing buffs (1.4.0)", function()
   fire("READY_CHECK")
   assert(chatSince(n, "Ready check: 3 people are missing buffs"), "no ready-check summary")
   cleanup()
+end)
+step("group reports respect ignored players and chat refusal", function()
+  local cleanup = partyOfTwo("REPORTCHAT")
+  local X, O = NS.X, env.__over
+  local oldChatInfo = env.C_ChatInfo
+  local ok, err = pcall(function()
+    env.SlashCmdList.BUFFRADAR("ignore Aaron")
+    O.Aura = function() return nil end
+    local sent = {}
+    env.C_ChatInfo = {}
+    env.C_ChatInfo.SendChatMessage = function(message, channel)
+      sent[#sent + 1] = { message, channel }
+    end
+    X.Announce()
+    assert(sent[1] and sent[1][2] == "PARTY" and not sent[1][1]:find("Aaron", 1, true),
+      "modern chat failed or included ignored player")
+    env.C_ChatInfo.SendChatMessage = function() error("chat denied") end
+    local before, chatBefore = #env.__sent, #chat
+    X.Announce()
+    assert(#env.__sent == before and chatSince(chatBefore, "missing buffs"),
+      "refused modern chat did not keep report local")
+    assert(not X.SendGroupReport(string.rep("a", 256)), "oversized report reached chat API")
+  end)
+  env.C_ChatInfo = oldChatInfo
+  env.SlashCmdList.BUFFRADAR("unignore Aaron")
+  cleanup()
+  assert(ok, err)
+end)
+step("coverage reports ignore cast restrictions and preserve bound rows", function()
+  local cleanup = partyOfTwo("REPORT")
+  local X, db, O = NS.X, env.BuffRadarDB, env.__over
+  local oldRole, oldCooldown, oldRange = env.UnitGroupRolesAssigned, env.GetSpellCooldown, env.IsSpellInRange
+  local oldFilter, oldCast, oldInclude, oldAssume = db.roleFilter, db.castMethod, db.includeSelf, db.assumeRange
+  local ok, err = pcall(function()
+    db.roleFilter, db.castMethod, db.includeSelf, db.assumeRange = "TANK", "target", false, false
+    env.UnitGroupRolesAssigned = function(u) return u == "party2" and "TANK" or "DAMAGER" end
+    env.IsSpellInRange = function() return 1 end
+    O.Aura = function(u)
+      if u == "player" then return { expirationTime = env.GetTime() + 600 } end
+      return nil
+    end
+    refresh()
+    local row = assert(shownRows().party2, "tank row not armed").row
+    local original = assert(row.entry)
+    local bound = row:GetAttribute("unit")
+    local last = #chat
+    fire("READY_CHECK")
+    assert(row.entry == original and row.entry.unit == "party2" and row:GetAttribute("unit") == bound,
+      "report changed live row metadata or secure unit")
+    env.IsSpellInRange = function() return 0 end
+    env.GetSpellCooldown = function() return env.GetTime(), 180 end
+    fire("READY_CHECK")
+    assert(chatSince(last, "2 people are missing buffs"), "cast restrictions hid known missing buffs")
+    O.Aura = function(u)
+      if u == "party1" then error("unreadable aura") end
+      if u == "player" then return { expirationTime = env.GetTime() + 600 } end
+      return nil
+    end
+    O.AuraList = function(u)
+      if u == "party1" then error("unreadable aura list") end
+    end
+    last = #chat
+    fire("READY_CHECK")
+    assert(chatSince(last, "1 person is missing buffs")
+      and chatSince(last, "could not be verified for 1 player"), "ready report lost mixed known/unknown coverage")
+    assert(not chatSince(last, "all checked buffs are present"), "unverified player counted as buffed")
+    O.Aura = function() return { expirationTime = env.GetTime() + 5 } end
+    O.AuraList = nil
+    last = #chat
+    fire("READY_CHECK")
+    assert(chatSince(last, "all checked buffs are present"), "a present aura inside the rebuff window counted as missing")
+  end)
+  cleanup()
+  db.roleFilter, db.castMethod, db.includeSelf, db.assumeRange = oldFilter, oldCast, oldInclude, oldAssume
+  env.UnitGroupRolesAssigned, env.GetSpellCooldown, env.IsSpellInRange = oldRole, oldCooldown, oldRange
+  assert(ok, err)
 end)
 step("a buff that vanishes is flagged as expired (1.4.0)", function()
   if env.__forever then return end
@@ -2505,7 +2596,7 @@ step("empty list explains range, nameplate, and buff states", function()
   local oldRange, oldUnknown, oldPlates = X.rangeSilent, X.tallyUnknownUnits, X.FriendlyPlatesOn
   -- Expected text follows the client locale (the German setup shows deDE strings).
   local function T(s)
-    local pack = env.BuffRadarLocales and env.GetLocale and env.BuffRadarLocales[env.GetLocale()]
+    local pack = NS.Locales and env.GetLocale and NS.Locales[env.GetLocale()]
     return (type(pack) == "table" and pack[s]) or s
   end
   local ok, err = pcall(function()
@@ -3054,20 +3145,61 @@ step("settings scale fits a small UI and restores the saved preference", functio
   NS.X.RefreshConfig()
 end)
 
-step("settings search dims what does not match (1.8.0)", function()
+step("settings search counts only visible controls and clears on close", function()
   if not (env.BuffRadarConfig and env.BuffRadarConfig.shown) then
     env.SlashCmdList.BUFFRADAR("config")
   end
   local cfg = env.BuffRadarConfig
   local sb = cfg.searchBox
   assert(sb, "no settings search box")
+  cfg.tabBtns.look.scripts.OnClick()
+  local oldSetFocus = sb.SetFocus
+  local focused = false
+  sb.SetFocus = function(self) focused = true; oldSetFocus(self) end
+  cfg.displayBtn.scripts.OnClick()
+  env.SlashCmdList.BUFFRADAR("config find")
+  sb.SetFocus = oldSetFocus
+  assert(cfg.searchFooter.shown and cfg.panels.look.shown and not cfg.displayPanel.shown and focused,
+    "keyboard command did not reopen, display, and focus the settings search")
+  cfg.titleCheck:SetAlpha(0.8)
   sb:SetText("opacity")
   sb.scripts.OnTextChanged(sb)
-  assert(cfg.slider.alpha == 1, "the opacity slider was dimmed by its own search")
-  assert(cfg.soundCheck.alpha == 0.25, "an unrelated control was not dimmed")
-  sb:SetText("")
+  assert(cfg.slider:GetAlpha() == 1, "the opacity slider was dimmed by its own search")
+  assert(cfg.titleCheck:GetAlpha() == 0.2, "a current-tab non-match was not dimmed")
+  assert(cfg.soundCheck:GetAlpha() == 1, "a different tab's control was changed")
+  assert(NS.X.CfgFilter("opacity") == 1, "current-tab result count was wrong")
+  if env.__german then
+    sb:SetText("hintergrunddeckkraft")
+    sb.scripts.OnTextChanged(sb)
+    assert(cfg.searchHint:GetText() == "Treffer: 1",
+      "a localized search did not match its visible label")
+  end
+  local opacity
+  for _, entry in ipairs(NS.X.cfgReg) do
+    if entry.w == cfg.slider then opacity = entry.keys; break end
+  end
+  assert(opacity)
+  cfg.slider:Hide()
+  assert(NS.X.CfgFilter(opacity) == 0, "a hidden control still counted")
+  cfg.slider:Show()
+  cfg.searchToggle.scripts.OnClick(cfg.searchToggle)
+  assert(not cfg.searchFooter.shown and sb:GetText() == "" and cfg.titleCheck:GetAlpha() == 0.8,
+    "closing Find retained the query or did not restore the original alpha")
+  cfg.titleCheck:SetAlpha(1)
+  cfg.searchToggle.scripts.OnClick(cfg.searchToggle)
+  sb:SetText("opacity")
   sb.scripts.OnTextChanged(sb)
-  assert(cfg.soundCheck.alpha == 1, "clearing the search did not restore the controls")
+  sb.scripts.OnEscapePressed(sb)
+  assert(not cfg.searchFooter.shown and sb:GetText() == "" and cfg.titleCheck:GetAlpha() == 1,
+    "Escape did not close and clear search")
+  cfg.tabBtns.alerts.scripts.OnClick()
+  cfg.searchToggle.scripts.OnClick(cfg.searchToggle)
+  sb:SetText("opacity")
+  sb.scripts.OnTextChanged(sb)
+  assert(NS.X.CfgFilter("opacity") == 0, "a match on Window leaked into Alerts")
+  cfg.tabBtns.look.scripts.OnClick()
+  assert(not cfg.searchFooter.shown and sb:GetText() == "" and cfg.soundCheck:GetAlpha() == 1,
+    "changing tabs did not restore search appearance")
 end)
 
 step("death recap snapshots the group when you die (1.9.0)", function()
@@ -3126,6 +3258,29 @@ step("post-wipe report fires after a real wipe (1.9.0)", function()
   env.SlashCmdList.BUFFRADAR("wipe")
   assert(db.wipeReport == false, "wipe report not toggled off")
   cleanup()
+end)
+step("raid wipe counts the player raid token once", function()
+  local cleanup = partyOfTwo("WIPE")
+  local db, O, X = env.BuffRadarDB, env.__over, NS.X
+  local oldRaid, oldNum, oldWipe, oldStart = env.IsInRaid, env.GetNumGroupMembers, db.wipeReport, X.combatStart
+  local ok, err = pcall(function()
+    env.IsInRaid, env.GetNumGroupMembers = function() return true end, function() return 6 end
+    db.wipeReport, X.combatStart = true, nil
+    O.UnitExists = function(u) return u == "player" or u:match("^raid[1-6]$") ~= nil end
+    O.UnitGUID = function(u) return (u == "player" or u == "raid1") and "Player-1-0001" or "Player-1-" .. u end
+    O.UnitClass = function() return "Mage", "MAGE" end
+    local dead = { player = true, raid1 = true, raid2 = true }
+    O.UnitIsDeadOrGhost = function(u) return dead[u] or false end
+    local last = #chat
+    X.WipeCheck()
+    assert(not chatSince(last, "Wipe report:"), "two unique raid deaths triggered a wipe")
+    dead.raid3 = true
+    X.WipeCheck()
+    assert(chatSince(last, "Wipe report: 3 of 6 died."), "raid wipe roster double-counted the local player")
+  end)
+  cleanup()
+  env.IsInRaid, env.GetNumGroupMembers, db.wipeReport, X.combatStart = oldRaid, oldNum, oldWipe, oldStart
+  assert(ok, err)
 end)
 
 step("saved themes, row spacing, icon size, window layer (1.10.0)", function()
@@ -3261,6 +3416,13 @@ step("coverage parts, tooltip levels, names, row colors (1.10.0)", function()
   local arow2 = findRow()
   assert(arow2 and arow2.name.text == "Aaro…",
     "realm + shortened name wrong: " .. tostring(arow2 and arow2.name.text))
+  cleanup2()
+  cleanup2 = partyOfTwo("UTF8")
+  O2.UnitFullName = function(u) if u == "party1" then return "Äë哈😀z", "OtherRealm" end end
+  refresh()
+  arow2 = findRow()
+  assert(arow2 and arow2.name.text == "Äë哈😀…",
+    "shortened name split a UTF-8 character: " .. tostring(arow2 and arow2.name.text))
   db2.showRealm = false
   db2.nameTrim = 0
   cleanup2()
@@ -4096,6 +4258,7 @@ setups = [
 ]
 if de_src:
     setups.append(("Retail: German client (Locales/deDE.lua)", True, False, False, True))
+failed = False
 for label, with_timer, no_templates, forever, german in setups:
     results, chat = harness(src, with_timer, no_templates, forever, german, de_src if german else None, ex_src, da_src, cf_src, sl_src, rc_src, pf_src)
     bad = 0
@@ -4105,3 +4268,5 @@ for label, with_timer, no_templates, forever, german in setups:
             bad += 1
             print(f"  {name}: {status}")
     print(f"{label}: {len(results)} steps, {bad} with errors")
+    failed = failed or bool(bad)
+sys.exit(1 if failed else 0)

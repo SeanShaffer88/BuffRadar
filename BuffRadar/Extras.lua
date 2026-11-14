@@ -416,9 +416,11 @@ do
   pf:SetScript("OnEvent", function(_, ev, a1, a2, a3, a4)
     local probe = X.pullProbe
     if ev == "ADDON_LOADED" then
-      if a1 == "BuffRadar" and C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
-        pcall(C_ChatInfo.RegisterAddonMessagePrefix, "D5")
-        pcall(C_ChatInfo.RegisterAddonMessagePrefix, "BigWigs")
+      if a1 == "BuffRadar" then
+        pf:UnregisterEvent("ADDON_LOADED")
+        if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
+          pcall(C_ChatInfo.RegisterAddonMessagePrefix, "D5")
+        end
       end
       return
     end
@@ -429,7 +431,8 @@ do
       X.PullStart(secs, "countdown")
       return
     end
-    if ev == "CHAT_MSG_ADDON" and a1 == "D5" and type(a2) == "string" then
+    if ev == "CHAT_MSG_ADDON" and X.Readable(a1) and a1 == "D5"
+      and type(a2) == "string" and X.Readable(a2) then
       local sub, rest = a2:match("^(%u+)%s+(.+)$")
       if sub == "PT" then
         probe.d5 = probe.d5 + 1

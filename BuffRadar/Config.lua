@@ -50,6 +50,16 @@ local function ApplyConfigScale()
   if cfg:GetScale() ~= scale then cfg:SetScale(scale) end
 end
 
+local function SearchKey(label)
+  return (label:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")):lower()
+end
+
+local function RegisterSearch(widget, panel, label)
+  local entry = { w = widget, panel = panel, keys = SearchKey(label) }
+  X.cfgReg[#X.cfgReg + 1] = entry
+  return entry
+end
+
 local function MakeCheck(parent, label, getter, setter)
   local cb = CreateFrame("CheckButton", nil, parent)
   cb:SetSize(24, 24)
@@ -71,8 +81,7 @@ local function MakeCheck(parent, label, getter, setter)
   cb:SetScript("OnClick", function(self) setter(self:GetChecked() and true or false) end)
   cb.Update = function(self) self:SetChecked(getter() and true or false) end
   if label and label ~= "" then  -- settings search registry (1.8.0)
-    X.cfgReg[#X.cfgReg + 1] = { w = cb,
-      keys = (label:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")):lower() }
+    RegisterSearch(cb, parent, label)
   end
   return cb
 end
@@ -86,17 +95,48 @@ local function WrapCheckLabel(check)
   check:FitLabel()
 end
 
--- Settings search (1.8.0): dim every registered control that doesn't
--- match the query; returns how many match. Empty query restores all.
+-- Search only the visible controls in the active tab. Preserve any
+-- alpha set by the widget itself so closing search restores it.
 function X.CfgFilter(q)
   q = (q or ""):lower()
+  local panel = cfg and cfg.panels and cfg.panels[cfg.curTab]
   local hits = 0
   for _, r in ipairs(X.cfgReg) do
-    local on = q == "" or r.keys:find(q, 1, true) ~= nil
-    if on then hits = hits + 1 end
-    if r.w.SetAlpha then r.w:SetAlpha(on and 1 or 0.25) end
+    local inTab = panel and r.panel == panel and panel:IsShown() and r.w:IsShown()
+    local matches = inTab and (q == "" or r.keys:find(q, 1, true) ~= nil)
+    if matches then hits = hits + 1 end
+    if inTab and q ~= "" and not matches then
+      if r.alpha == nil then
+        r.alpha = r.w:GetAlpha()
+        r.w:SetAlpha(r.alpha * 0.25)
+      end
+    elseif r.alpha ~= nil then
+      r.w:SetAlpha(r.alpha)
+      r.alpha = nil
+    end
   end
   return hits
+end
+
+local function UpdateSearch()
+  local query = cfg.searchBox:GetText() or ""
+  local count = X.CfgFilter(query)
+  cfg.searchHint:SetText(query == "" and L["Find in this tab (Esc to close)"]
+    or string.format(L["Matches: %d"], count))
+end
+
+local function CloseSearch()
+  if not cfg.searchBox then return end
+  cfg.searchBox:ClearFocus()
+  cfg.searchBox:SetText("")
+  X.CfgFilter("")
+  cfg.searchHint:SetText(L["Find in this tab (Esc to close)"])
+  cfg.searchFooter:Hide()
+end
+
+local function OpenSearch()
+  cfg.searchFooter:Show()
+  cfg.searchBox:SetFocus()
 end
 
 -- Hover help for a settings control: a white title line plus wrapped detail.
@@ -145,7 +185,7 @@ local function MakeButton(parent, text, width, onClick)
   b:SetText(text)
   b:SetScript("OnClick", onClick)
   if text and text ~= "" then  -- settings search registry (1.8.0)
-    X.cfgReg[#X.cfgReg + 1] = { w = b, keys = text:lower() }
+    RegisterSearch(b, parent, text)
   end
   return b
 end
@@ -242,14 +282,10 @@ local function MakeScaleDropdown(parent, getter, setter)
 end
 
 local function SelectTab(key)
+  CloseSearch()
   cfg.curTab = key
   if cfg.displayPanel then cfg.displayPanel:Hide() end
   if cfg.blessingPanel then cfg.blessingPanel:Hide() end
-  if cfg.searchBox then
-    cfg.searchBox:ClearFocus()
-    cfg.searchBox:SetText("")
-  end
-  if cfg.searchFooter then cfg.searchFooter:Hide() end
   for k, panel in pairs(cfg.panels) do panel:SetShown(k == key) end
   if cfg.searchToggle and cfg.panels[key] then
     cfg.searchToggle:ClearAllPoints()
@@ -351,6 +387,7 @@ local function OpenBlessingPanel()
     hint:SetText(L["An active group blessing plan takes precedence."])
     if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarBlessingPreferences") end
   end
+  CloseSearch()
   cfg.blessingPanel:Show()
   RefreshConfig()
 end
@@ -480,7 +517,7 @@ local function BuildConfig()
 
   local alphaLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   alphaLabel:SetPoint("TOPLEFT", 14, -64)
-  alphaLabel:SetText("Background opacity")
+  alphaLabel:SetText(L["Background opacity"])
   local alphaValue = look:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   alphaValue:SetPoint("LEFT", alphaLabel, "RIGHT", 8, 0)
   cfg.alphaValue = alphaValue
@@ -553,7 +590,7 @@ local function BuildConfig()
 
   local fadeLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   fadeLabel:SetPoint("TOPLEFT", 304, -240)
-  fadeLabel:SetText("Idle fade (mouse away)")
+  fadeLabel:SetText(L["Idle fade (mouse away)"])
   local fadeValue = look:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   fadeValue:SetPoint("LEFT", fadeLabel, "RIGHT", 8, 0)
   cfg.fadeValue = fadeValue
@@ -566,7 +603,7 @@ local function BuildConfig()
 
   local scaleLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   scaleLabel:SetPoint("TOPLEFT", 14, -178)
-  scaleLabel:SetText("Window scale")
+  scaleLabel:SetText(L["Window scale"])
   cfg.scaleDrop = MakeScaleDropdown(look,
     function() return db.scale or 1 end,
     function(v)
@@ -658,8 +695,7 @@ local function BuildConfig()
     if cfg.viewCheck then cfg.viewCheck:Update() end
     end
     for _, panel in pairs(cfg.panels) do panel:Hide() end
-    cfg.searchBox:ClearFocus()
-    cfg.searchFooter:Hide()
+    CloseSearch()
     if cfg.searchToggle then cfg.searchToggle:Hide() end
     p:Show()
   end)
@@ -672,7 +708,7 @@ local function BuildConfig()
 
   local cfgScaleLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   cfgScaleLabel:SetPoint("TOPLEFT", 14, -296)
-  cfgScaleLabel:SetText("Settings window scale")
+  cfgScaleLabel:SetText(L["Settings window scale"])
   cfg.cfgScaleDrop = MakeScaleDropdown(look,
     function() return db.cfgScale or 1 end,
     function(v)
@@ -812,6 +848,7 @@ local function BuildConfig()
     Tip(cb.rebuffBox, "Rebuff time (seconds)", rebuffTip)
     cb:Hide()
     cb.rebuffBox:Hide()
+    cb.searchEntry = RegisterSearch(cb, buffs, "")
     cfg.buffChecks[i] = cb
   end
   local prioReset = MakeButton(buffs, "Reset buff order", 150, function()
@@ -1253,7 +1290,7 @@ local function BuildConfig()
   Tip(cfg.bgCheck, "Pause in battlegrounds and arenas", "No scanning in PvP instances.")
   Tip(cfg.taxiCheck, "Pause on flight paths", "While you're on a flight path you can't cast anyway, so the list pauses (like the city pause) instead of showing buffs you can't hand out. Same as /br taxi.")
   Tip(cfg.groupCastCheck, "Offer group buffs", "When enough group members need a buff, offer its group version (one cast covers the party).")
-  Tip(cfg.gcSlider, "Group buff threshold", "How many group members must need the buff before the group version is offered.")
+  Tip(cfg.gcSlider, L["Group buff threshold"], "How many group members must need the buff before the group version is offered.")
   Tip(cfg.sortBtn, "List order", "Click to switch: name = alphabetical; role = you, then tanks, then group leaders; distance = nearest first; need = whoever is missing the most castable buffs first.")
   Tip(cfg.syncCheck, "Cast sync", "When you or another BuffRadar user in your group casts a buff, everyone's list marks that player as being buffed for a few seconds, so two of you don't cast the same buff on the same player.")
   Tip(cfg.requestsCheck, "Chat buff requests", "A player on your list who whispers you (or says nearby) asking for a buff gets an 'asked for a buff' marker on their row.")
@@ -1410,41 +1447,35 @@ local function BuildConfig()
   searchBox:SetMaxLetters(30)
   local searchHint = footer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   searchHint:SetPoint("LEFT", searchBox, "RIGHT", 8, 0)
-  searchHint:SetText("Find in this tab")
-  searchBox:SetScript("OnTextChanged", function(self)
-    local t = self:GetText() or ""
-    local n = X.CfgFilter(t)
-    searchHint:SetText(t == "" and "Find in this tab" or (n .. " matching"))
-  end)
+  cfg.searchHint = searchHint
+  searchBox:SetScript("OnTextChanged", UpdateSearch)
   searchBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+  searchBox:SetScript("OnEscapePressed", CloseSearch)
   cfg.searchBox = searchBox
   local searchToggle = CreateFrame("Button", nil, cfg, "UIPanelButtonTemplate")
   searchToggle:SetSize(70, 22)
-  searchToggle:SetText("Find")
+  searchToggle:SetText(L["Find"])
   searchToggle:SetScript("OnClick", function()
     if cfg.searchFooter:IsShown() then
-      cfg.searchBox:ClearFocus()
-      cfg.searchFooter:Hide()
+      CloseSearch()
     else
-      cfg.searchFooter:Show()
-      cfg.searchBox:SetFocus()
+      OpenSearch()
     end
   end)
   cfg.searchToggle = searchToggle
-  Tip(cfg.searchToggle, "Settings search", "Find matching settings on the current tab. The search bar closes and clears when you switch tabs.")
-  X.cfgReg[#X.cfgReg + 1] = { w = cfg.slider, keys = "background opacity" }
-  X.cfgReg[#X.cfgReg + 1] = { w = cfg.fadeSlider, keys = "idle fade" }
-  X.cfgReg[#X.cfgReg + 1] = { w = cfg.gcSlider, keys = "group buff threshold" }
-  X.cfgReg[#X.cfgReg + 1] = { w = cfg.scaleDrop, keys = "window scale" }
-  X.cfgReg[#X.cfgReg + 1] = { w = cfg.cfgScaleDrop, keys = "settings window scale" }
+  Tip(cfg.searchToggle, L["Find"], L["Find in this tab (Esc to close)"])
+  RegisterSearch(cfg.slider, look, "background opacity " .. L["Background opacity"])
+  RegisterSearch(cfg.fadeSlider, look, "idle fade " .. L["Idle fade (mouse away)"])
+  RegisterSearch(cfg.gcSlider, beh, "group buff threshold " .. L["Group buff threshold"])
+  RegisterSearch(cfg.scaleDrop, look, "window scale " .. L["Window scale"])
+  RegisterSearch(cfg.cfgScaleDrop, look, "settings window scale " .. L["Settings window scale"])
 
   cfg:SetScript("OnShow", function()
-    if cfg.searchBox then cfg.searchBox:SetText("") end  -- fresh search each open
-    if cfg.searchBox then cfg.searchBox:ClearFocus() end
-    if cfg.searchFooter then cfg.searchFooter:Hide() end
+    CloseSearch()
     if cfg.searchToggle then cfg.searchToggle:Show() end
     RefreshConfig()
   end)
+  cfg:HookScript("OnHide", CloseSearch)
   cfg:RegisterEvent("DISPLAY_SIZE_CHANGED")
   cfg:RegisterEvent("UI_SCALE_CHANGED")
   cfg:SetScript("OnEvent", function()
@@ -1608,6 +1639,7 @@ RefreshConfig = function()
     local it = items[i]
     if it then
       cb.itemKey, cb.itemLabel, cb.itemWho = it.key, it.label, it.who
+      cb.searchEntry.keys = SearchKey(it.label .. " " .. (it.who or ""))
       cb.label:SetText(it.label .. "  |cff888888" .. (it.who or "") .. "|r")
       cb:FitLabel()
       cb:SetChecked(IsOn(it.key, it.default) and true or false)
@@ -1631,6 +1663,7 @@ RefreshConfig = function()
   if not cfg.rebuffDefault:HasFocus() then cfg.rebuffDefault:Revert() end
   cfg.noBuffs:SetShown(#items == 0)
   cfg.selfCheck:Update()
+  if cfg.searchFooter:IsShown() then UpdateSearch() end
 end
 
 -- Toggles the settings window; forceShow opens it without toggling it closed.
@@ -1639,6 +1672,16 @@ OpenConfig = function(forceShow)
   db = X.GetDB()
   if not cfg then BuildConfig() end
   if cfg:IsShown() and not forceShow then cfg:Hide() else cfg:Show() end
+end
+
+function X.OpenSettingsSearch()
+  if X.PlayerSuspended() then return end
+  OpenConfig(true)
+  if (cfg.displayPanel and cfg.displayPanel:IsShown())
+    or (cfg.blessingPanel and cfg.blessingPanel:IsShown()) then
+    SelectTab(cfg.curTab or "look")
+  end
+  OpenSearch()
 end
 
 function X.HideConfig()

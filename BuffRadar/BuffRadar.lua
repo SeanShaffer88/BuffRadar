@@ -495,7 +495,7 @@ end
 
 ---------------------------------------------------------------------------
 -- Localization scaffolding: enUS strings are the keys. A translation file
--- can set BuffRadarLocales["deDE"] = { ["Paused in a major city."] = "..." }
+-- can set the addon's private Locales["deDE"] before this file loads.
 -- before this file loads; only the window's status lines are wired so far.
 ---------------------------------------------------------------------------
 -- Every string the main window, its row tooltips and the minimap / addon-menu
@@ -503,6 +503,14 @@ end
 -- Strings with %d / %s are string.format patterns: keep the placeholders.
 -- Any key a translation leaves out falls back to English.
 local L = {
+  ["Find"] = "Find",
+  ["Find in this tab (Esc to close)"] = "Find in this tab (Esc to close)",
+  ["Matches: %d"] = "Matches: %d",
+  ["Background opacity"] = "Background opacity",
+  ["Idle fade (mouse away)"] = "Idle fade (mouse away)",
+  ["Window scale"] = "Window scale",
+  ["Settings window scale"] = "Settings window scale",
+  ["Group buff threshold"] = "Group buff threshold",
   -- window status lines
   ["Paused in a major city."] = "Paused in a major city.",
   ["Paused in a battleground."] = "Paused in a battleground.",
@@ -608,7 +616,8 @@ local L = {
 setmetatable(L, { __index = function(_, k) return k end })
 do
   local loc = (GetLocale and GetLocale()) or "enUS"
-  local pack = _G.BuffRadarLocales and _G.BuffRadarLocales[loc]
+  local ns = select(2, ...)
+  local pack = ns and ns.Locales and ns.Locales[loc]
   if type(pack) == "table" then
     for k, v in pairs(pack) do if type(v) == "string" then L[k] = v end end
   end
@@ -869,6 +878,7 @@ local function SafeString(v)
   local ok, s = pcall(tostring, v)
   return ok and s or nil
 end
+X.Readable = Readable
 
 -- A unit flag the client may refuse to answer: true or false when it answers,
 -- nil when the value is restricted. Callers decide what an unknown means,
@@ -1038,18 +1048,22 @@ function X.AuraRelevant(unit, added, updated, removed)
       byUnit[id] = nm
     end
   end
+  local relevant = false
   if added then
     for _, a in ipairs(added) do
-      if not Readable(a) or type(a) ~= "table" then return true end
+      if not Readable(a) or type(a) ~= "table" then cache[unit] = nil; return true end
       local name, id = a.name, a.auraInstanceID
-      if not Readable(name) or type(name) ~= "string" or not validID(id) then return true end
+      if not Readable(name) or type(name) ~= "string" or not validID(id) then
+        cache[unit] = nil
+        return true
+      end
       remember(id, name)
-      if watch[name] then return true end
+      if watch[name] then relevant = true end
     end
   end
   if updated then
     for _, id in ipairs(updated) do
-      if not validID(id) then return true end
+      if not validID(id) then cache[unit] = nil; return true end
       local nm = byUnit and byUnit[id]
       if not nm and C_UnitAuras and C_UnitAuras.GetAuraDataByAuraInstanceID then
         local ok, d = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, unit, id)
@@ -1057,20 +1071,18 @@ function X.AuraRelevant(unit, added, updated, removed)
           nm = SafeString(GetField(d, "name")); remember(id, nm)
         end
       end
-      if not nm then return true end
-      if watch[nm] then return true end
+      if not nm or watch[nm] then relevant = true end
     end
   end
   if removed then
     for _, id in ipairs(removed) do
-      if not validID(id) then return true end
+      if not validID(id) then cache[unit] = nil; return true end
       local nm = byUnit and byUnit[id]
       if byUnit then byUnit[id] = nil end
-      if not nm then return true end
-      if watch[nm] then return true end
+      if not nm or watch[nm] then relevant = true end
     end
   end
-  return false
+  return relevant
 end
 
 do
@@ -1079,11 +1091,15 @@ do
   end
 
   local function InspectAuraEvent(unit, info)
-    if not Readable(info) or type(info) ~= "table" then return true end
+    if not Readable(info) or type(info) ~= "table" then
+      if X.auraIds then X.auraIds[unit] = nil end
+      return true
+    end
     local full, added = info.isFullUpdate, info.addedAuras
     local removed, updated = info.removedAuraInstanceIDs, info.updatedAuraInstanceIDs
     if not ValidAuraField(full, "boolean") or not ValidAuraField(added, "table")
       or not ValidAuraField(removed, "table") or not ValidAuraField(updated, "table") then
+      if X.auraIds then X.auraIds[unit] = nil end
       return true
     end
     if not full and not added and not removed and not updated then return false end
@@ -1096,9 +1112,11 @@ do
     if added then probe.added = (probe.added or 0) + 1 end
     if removed then probe.removed = (probe.removed or 0) + 1 end
     if updated then probe.updated = (probe.updated or 0) + 1 end
-    if db and db.fastAura and not full and not X.AuraRelevant(unit, added, updated, removed) then
-      probe.skipped = (probe.skipped or 0) + 1
-      return false
+    if db and db.fastAura and not full then
+      if not X.AuraRelevant(unit, added, updated, removed) then
+        probe.skipped = (probe.skipped or 0) + 1
+        return false
+      end
     end
     return true
   end
@@ -1513,13 +1531,13 @@ function X.TrackDeaths(list, extra)
   if extra then X.Track(extra) end
 end
 
-local function Missing(unit, out, isGroup, isSelf)
+local function Missing(unit, out, isGroup, isSelf, report)
   wipe(out)
-  X.remainTmp, X.auraUnknown = nil, nil
-  local _, class = UnitClass(unit)
-  class = SafeString(class)  -- used as a table key below; protected values can't be
-  if not class then return 0 end
-  if isGroup and db.consumables then
+  if not report then X.remainTmp, X.auraUnknown = nil, nil end
+  local ok, _, class = pcall(UnitClass, unit)
+  class = ok and SafeString(class) or nil  -- class is used as a table key
+  if not class then return 0, true, false end
+  if not report and isGroup and db.consumables then
     for _, cd in ipairs(X.CONS_DEFS) do
       local t = X.consTally[cd.key]
       if not t then t = { total = 0, miss = 0 }; X.consTally[cd.key] = t end
@@ -1530,11 +1548,12 @@ local function Missing(unit, out, isGroup, isSelf)
   end
   X.scanUnit = nil  -- force a fresh index scan (fallback path) for this unit
   local n = 0
+  local unknown, checked
   local role, roleRead = nil, false  -- assigned role, read once and only if a buff needs it
   local lookup = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
   for i = 1, #myBuffs do
     local b = myBuffs[i]
-    if b.single and not isSelf and not Single.holder[b.key] and lookup then
+    if not report and b.single and not isSelf and not Single.holder[b.key] and lookup then
       local aura = X.QueryNamedAura(lookup, unit, b.name, "HELPFUL|PLAYER")
       if aura then
         Single.holder[b.key], Single.spell[b.key] = unit, b.name
@@ -1552,74 +1571,87 @@ local function Missing(unit, out, isGroup, isSelf)
       end
     end
     if applies and IsOn(b.key, b.default) and X.ContextOK(b.key) then
-      local thr = (db.rebuffPer and db.rebuffPer[b.key]) or db.rebuff
+      local thr = report and 0 or (db.rebuffPer and db.rebuffPer[b.key]) or db.rebuff
       local has = HasAny(unit, b.names, thr)
+      if report then
+        checked = true
+        if has == nil then unknown = true end
+        if has == false then n = n + 1; out[n] = b.name end
+      else
+          if has == nil then X.auraUnknown = true end
+          local t
+          if isGroup and has ~= nil then
+            t = X.tally[b.key]
+            if not t then t = { total = 0, miss = 0 }; X.tally[b.key] = t end
+            t.total = t.total + 1
+          end
+          if not OnCooldown(b.name) then
+            if has == false then
+              n = n + 1
+              out[n] = b.name
+              if t then t.miss = t.miss + 1 end
+              if n == 1 then  -- still present but inside its rebuff window?
+                for _, nm2 in ipairs(b.names) do
+                  local r = X.Remaining(unit, nm2)
+                  if r and r > 0 and r < math_huge then X.remainTmp = r break end
+                end
+              end
+            elseif isGroup and has == true then
+              -- Group expiry watch (1.7.0): the buff is up, but inside its
+              -- last five minutes — count it toward the coverage warning.
+              local soonest = math_huge
+              for _, nm2 in ipairs(b.names) do
+                local r = X.Remaining(unit, nm2)
+                if r and r < soonest then soonest = r end
+              end
+              if soonest <= 300 then
+                X.expiryTally[b.key] = (X.expiryTally[b.key] or 0) + 1
+              end
+            end
+          end
+        end
+      end
+    end
+    local bl = CLASSIC_FEATURES and X.BlessingForClass(class)
+    if bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf)
+       and X.ContextOK("BLESSINGS") then
+      local has = HasAny(unit, bl.names)
+      if report then
+        checked = true
+        if has == nil then unknown = true end
+        if has == false then n = n + 1; out[n] = bl.name end
+      else
       if has == nil then X.auraUnknown = true end
       local t
       if isGroup and has ~= nil then
-        t = X.tally[b.key]
-        if not t then t = { total = 0, miss = 0 }; X.tally[b.key] = t end
+        t = X.tally.BLESSINGS
+        if not t then t = { total = 0, miss = 0 }; X.tally.BLESSINGS = t end
         t.total = t.total + 1
       end
-      if not OnCooldown(b.name) then
-        if has == false then
-          n = n + 1
-          out[n] = b.name
-          if t then t.miss = t.miss + 1 end
-          if n == 1 then  -- still present but inside its rebuff window?
-            for _, nm2 in ipairs(b.names) do
-              local r = X.Remaining(unit, nm2)
-              if r and r > 0 and r < math_huge then X.remainTmp = r break end
-            end
-          end
-        elseif isGroup and has == true then
-          -- Group expiry watch (1.7.0): the buff is up, but inside its
-          -- last five minutes — count it toward the coverage warning.
-          local soonest = math_huge
-          for _, nm2 in ipairs(b.names) do
+      if has == false then
+        n = n + 1
+        out[n] = bl.name
+        if t then t.miss = t.miss + 1 end
+        if n == 1 then
+          for _, nm2 in ipairs(bl.names) do
             local r = X.Remaining(unit, nm2)
-            if r and r < soonest then soonest = r end
-          end
-          if soonest <= 300 then
-            X.expiryTally[b.key] = (X.expiryTally[b.key] or 0) + 1
+            if r and r > 0 and r < math_huge then X.remainTmp = r break end
           end
         end
-      end
-    end
-  end
-  local bl = CLASSIC_FEATURES and X.BlessingForClass(class)
-  if bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf)
-     and X.ContextOK("BLESSINGS") then
-    local has = HasAny(unit, bl.names)
-    if has == nil then X.auraUnknown = true end
-    local t
-    if isGroup and has ~= nil then
-      t = X.tally.BLESSINGS
-      if not t then t = { total = 0, miss = 0 }; X.tally.BLESSINGS = t end
-      t.total = t.total + 1
-    end
-    if has == false then
-      n = n + 1
-      out[n] = bl.name
-      if t then t.miss = t.miss + 1 end
-      if n == 1 then
+      elseif isGroup and has == true then
+        -- Blessings count toward the group expiry watch too (1.7.0).
+        local soonest = math_huge
         for _, nm2 in ipairs(bl.names) do
           local r = X.Remaining(unit, nm2)
-          if r and r > 0 and r < math_huge then X.remainTmp = r break end
+          if r and r < soonest then soonest = r end
         end
-      end
-    elseif isGroup and has == true then
-      -- Blessings count toward the group expiry watch too (1.7.0).
-      local soonest = math_huge
-      for _, nm2 in ipairs(bl.names) do
-        local r = X.Remaining(unit, nm2)
-        if r and r < soonest then soonest = r end
-      end
-      if soonest <= 300 then
-        X.expiryTally.BLESSINGS = (X.expiryTally.BLESSINGS or 0) + 1
+        if soonest <= 300 then
+          X.expiryTally.BLESSINGS = (X.expiryTally.BLESSINGS or 0) + 1
+        end
       end
     end
   end
+  if report then return n, unknown, checked end
   if isGroup and not X.auraUnknown then
     X.tallyUnits = X.tallyUnits + 1
     if n > 0 then X.tallyMissingUnits = X.tallyMissingUnits + 1 end
@@ -2003,6 +2035,10 @@ end
 -- handed us on the latest pass, and how many of them were players.
 
 local function CollectEntries()
+  local nowT = GetTime()
+  for guid, untilTime in pairs(X.failedTargets) do
+    if untilTime <= nowT then X.failedTargets[guid] = nil end
+  end
   wipe(seen)
   wipe(cdCache)
   wipe(cdLeftCache)
@@ -2090,7 +2126,6 @@ local function CollectEntries()
   -- Coordination marks (1.5.0): a player another BuffRadar user just buffed
   -- sinks in the order (see EntryOrder) and shows a tag; a player who asked
   -- for a buff in chat is tagged while the request is fresh.
-  local nowT = GetTime()
   for i = 1, nEntries do
     local e = entries[i]
     local h = X.handled[e.guid]
@@ -2256,54 +2291,89 @@ function X.SpecSwap()
   end
 end
 
--- Missing-buff snapshot for the recap reports (Recaps.lua, file split Slice D):
--- rebuilds the unfiltered entry list and returns one text line per person
--- that pass(e) accepts, plus the person and cast counts.
-function X.SnapshotMissing(pass)
-  local keep = X.applyFilter
-  X.applyFilter = false
-  CollectEntries()
-  X.applyFilter = keep
-  local lines = {}
-  local people, casts = 0, 0
-  for i = 1, nEntries do
-    local e = entries[i]
-    if pass(e) then
-      people = people + 1
-      casts = casts + #e.missing
-      lines[#lines + 1] = "  " .. (SafeString(e.name) or e.sortName or "?")
-        .. ": " .. table.concat(e.missing, ", ")
-    end
+-- Raid tokens already include the player. In a party, scan the player once
+-- before the party tokens. An unreadable occupied slot is unknown, not absent.
+function X.ForReportRoster(visit)
+  local raid = InRaid()
+  local roster = raid and RAID or PARTY
+  for i = raid and 1 or 0, #roster do
+    local unit = roster[i] or "player"
+    local exists = X.ReadUnitBool(UnitExists, unit)
+    if exists ~= false then visit(unit, exists) end
   end
-  return lines, people, casts
 end
 
--- READY_CHECK: a local summary (the group post is /br announce's job).
--- X.DeathRecap and X.WipeCheck live in Recaps.lua since Slice D.
+-- Coverage is independent of cast distance, cooldowns and window filters.
+-- Keep the report out of the live entry pool so it cannot alter click metadata.
+function X.GroupBuffReport(survivorsOnly)
+  local report = { people = {}, buffs = 0, checked = 0, unknown = 0 }
+  X.ForReportRoster(function(unit, exists)
+    local dead = X.ReadUnitBool(UnitIsDeadOrGhost, unit)
+    if survivorsOnly and dead == true then return end
+    local isSelf = X.IsSelf(unit)
+    if not exists or isSelf == nil or dead ~= false
+      or X.ReadUnitBool(UnitIsConnected, unit) == false then
+      report.unknown = report.unknown + 1
+      return
+    end
+    local full, name = Ignore.UnitNames(unit)
+    if Ignore.Has(full, name) or X.SessionHas(full, name) then return end
+    local buffs = {}
+    local n, unknown, checked = Missing(unit, buffs, true, isSelf, true)
+    if unknown then report.unknown = report.unknown + 1
+    elseif checked then report.checked = report.checked + 1 end
+    if n > 0 then
+      report.people[#report.people + 1] = { name = name or unit, buffs = buffs }
+      report.buffs = report.buffs + n
+    end
+  end)
+  -- The fallback aura cache belongs to the last scanned unit.
+  X.scanUnit = nil
+  return report
+end
+
+function X.GroupCoverageNote(report)
+  if report.unknown > 0 then
+    return string_format("Buff coverage could not be verified for %d %s.",
+      report.unknown, report.unknown == 1 and "player" or "players")
+  end
+  if report.checked == 0 then return "No applicable buffs were found to check." end
+end
+
+-- WoW owns group-chat permissions. A refused send leaves the report local.
+function X.SendGroupReport(text)
+  local channel = InRaid() and "RAID" or (InGroup() and "PARTY" or nil)
+  local send = (_G.C_ChatInfo and _G.C_ChatInfo.SendChatMessage) or _G.SendChatMessage
+  if not channel or not send or #text > 255 then return end
+  local ok, accepted = pcall(send, text, channel)
+  if ok and accepted ~= false then return channel end
+end
+
+function X.SnapshotMissing(report)
+  local lines = {}
+  for _, person in ipairs(report.people) do
+    lines[#lines + 1] = "  " .. person.name .. ": " .. table.concat(person.buffs, ", ")
+  end
+  return lines
+end
+
 function X.ReadyReport()
   if X.PlayerSuspended() then return end
-  local keep = X.applyFilter
-  X.applyFilter = false
-  CollectEntries()
-  X.applyFilter = keep
-  local people, casts = 0, 0
-  for i = 1, nEntries do
-    if entries[i].group and not entries[i].pet then people = people + 1; casts = casts + #entries[i].missing end
-  end
+  local report = X.GroupBuffReport()
+  local people = #report.people
+  local note = X.GroupCoverageNote(report)
   if people == 0 then
-    Print("Ready check: everyone in your group is buffed.")
+    Print("Ready check: " .. (note or "all checked buffs are present."))
   else
-    Print(string.format("Ready check: %d %s missing buffs (%d casts). /br announce posts the list.",
-      people, people == 1 and "person is" or "people are", casts))
+    Print(string_format("Ready check: %d %s missing buffs (%d buffs needed). /br announce posts the list.",
+      people, people == 1 and "person is" or "people are", report.buffs))
+    if note then Print(note) end
     -- Auto-post (1.7.0): the leader or an assistant can have the summary
     -- posted to group chat too, so the group sees it without asking.
     if db.readyPost and X.AmLead() then
-      local channel = InRaid() and "RAID" or (InGroup() and "PARTY" or nil)
-      if channel and _G.SendChatMessage then
-        _G.SendChatMessage(string.format(
-          "BuffRadar ready check: %d %s missing buffs (%d casts).",
-          people, people == 1 and "person is" or "people are", casts), channel)
-      end
+      X.SendGroupReport(string_format("BuffRadar ready check: %d %s missing buffs (%d buffs needed).%s",
+        people, people == 1 and "person is" or "people are", report.buffs,
+        note and (" " .. note) or ""))
     end
   end
 end
@@ -2334,23 +2404,17 @@ local function Unesc(v) return (v:gsub("%%3D", "="):gsub("%%3B", ";"):gsub("%%25
 -- print them locally when solo). Lives here, not in HandleSlash, to keep
 -- that function's upvalue count down.
 function X.Announce()
-  local keep = X.applyFilter
-  X.applyFilter = false
-  CollectEntries()
-  X.applyFilter = keep
+  local report = X.GroupBuffReport()
+  local note = X.GroupCoverageNote(report)
   local per, order = {}, {}
-  for i = 1, nEntries do
-    local e = entries[i]
-    if e.group and not e.pet then
-      for _, spell in ipairs(e.missing) do
-        if not per[spell] then per[spell] = {}; order[#order + 1] = spell end
-        local nm = SafeString(e.name) or e.sortName
-        per[spell][#per[spell] + 1] = (nm and nm ~= "") and nm or "?"
-      end
+  for _, person in ipairs(report.people) do
+    for _, spell in ipairs(person.buffs) do
+      if not per[spell] then per[spell] = {}; order[#order + 1] = spell end
+      per[spell][#per[spell] + 1] = person.name
     end
   end
   if #order == 0 then
-    Print("Everyone in your group is buffed -- nothing to announce.")
+    Print(note or "All checked buffs are present -- nothing to announce.")
     return
   end
   local segs = {}
@@ -2363,11 +2427,8 @@ function X.Announce()
     segs[#segs + 1] = seg
   end
   local text = "BuffRadar -- missing buffs: " .. table.concat(segs, " · ")
-  local channel = InRaid() and "RAID" or (InGroup() and "PARTY" or nil)
-  if channel and _G.SendChatMessage then
-    _G.SendChatMessage(text, channel)
-    Print("Announced missing buffs to " .. channel:lower() .. " chat.")
-  else
+    .. (note and (" · " .. note) or "")
+  if not X.SendGroupReport(text) then
     Print(text)
   end
 end
@@ -2854,7 +2915,8 @@ end
 -- A whisper or a nearby "buff ..." marks that player's row while it is up.
 function X.OnChatAsk(text, author)
   if not db or not db.requests or X.PlayerSuspended() then return end
-  if type(text) ~= "string" or type(author) ~= "string" then return end
+  if type(text) ~= "string" or not Readable(text)
+    or type(author) ~= "string" or not Readable(author) then return end
   if not text:lower():find("buff", 1, true) then return end
   local short = author:match("^[^%-]+") or author
   local ka, ks = Ignore.Key(author), Ignore.Key(short)
@@ -2914,20 +2976,12 @@ function X.InstanceCheck()
   local inside = ctx == "dungeon" or ctx == "raid" or ctx == "pvp"
   if inside and not X.wasInside and db.enterFlash and InGroup() and hasAnyBuff
      and not X.PlayerSuspended() then
-    local keep = X.applyFilter
-    X.applyFilter = false
-    CollectEntries()
-    X.applyFilter = keep
-    local people, casts = 0, 0
-    for i = 1, nEntries do
-      if entries[i].group and not entries[i].pet then
-        people = people + 1; casts = casts + #entries[i].missing
-      end
-    end
+    local report = X.GroupBuffReport()
+    local people = #report.people
     if people > 0 then
-      Print(string.format("Entered the %s with buffs missing: %d %s still need buffs (%d casts).",
+      Print(string.format("Entered the %s with buffs missing: %d %s still need buffs (%d buffs needed).",
         ctx == "dungeon" and "dungeon" or (ctx == "raid" and "raid" or "battleground"),
-        people, people == 1 and "person" or "people", casts))
+        people, people == 1 and "person" or "people", report.buffs))
     end
   end
   X.wasInside = inside
@@ -2937,18 +2991,12 @@ end
 -- Counts everyone, ignoring the window's role filter.
 function X.JoinDigest(why)
   if not db or not InGroup() or X.PlayerSuspended() then return end
-  local keep = X.applyFilter
-  X.applyFilter = false
-  CollectEntries()
-  X.applyFilter = keep
-  local people, casts = 0, 0
-  for i = 1, nEntries do
-    if entries[i].group and not entries[i].pet then people = people + 1; casts = casts + #entries[i].missing end
-  end
+  local report = X.GroupBuffReport()
+  local people = #report.people
   if people == 0 then return end
-  Print(string.format("%s: %d %s missing buffs (%d casts).",
+  Print(string.format("%s: %d %s missing buffs (%d buffs needed).",
     why == "run" and "Run starting" or "Joined a group",
-    people, people == 1 and "person is" or "people are", casts))
+    people, people == 1 and "person is" or "people are", report.buffs))
 end
 
 -- Roster events: only the step from solo to grouped triggers the join
@@ -3832,7 +3880,7 @@ function X.Why(name)
     Print(disp .. " needs " .. table.concat(allMiss, ", ") .. " but none are in cast range; move closer before buffing.")
     return
   end
-  local guid = UnitGUID(unit)
+  local guid = SafeString(UnitGUID(unit))
   for i = 1, nEntries do
     if entries[i].guid == guid then
       local shown = false
@@ -3921,53 +3969,34 @@ end
 -- Per-buff summary (1.13.0): how many casts of each buff the group
 -- still needs, biggest first. Counts everyone, ignoring the role filter.
 function X.SummaryLines()
-  local keep = X.applyFilter
-  X.applyFilter = false
-  CollectEntries()
-  X.applyFilter = keep
-  local per, people = {}, 0
-  for i = 1, nEntries do
-    local e = entries[i]
-    if e.group and not e.pet then
-      people = people + 1
-      for j = 1, #e.missing do
-        local n = SafeString(e.missing[j]) or "?"
-        per[n] = (per[n] or 0) + 1
-      end
+  local report = X.GroupBuffReport()
+  local per = {}
+  for _, person in ipairs(report.people) do
+    for _, name in ipairs(person.buffs) do
+      per[name] = (per[name] or 0) + 1
     end
   end
   local counts = {}
   for n, c in pairs(per) do counts[#counts + 1] = { n = n, c = c } end
   table_sort(counts, function(a, b) if a.c ~= b.c then return a.c > b.c end return a.n < b.n end)
-  return counts, people
+  return counts, #report.people, X.GroupCoverageNote(report)
 end
 
 -- Discord summary (1.8.0): the group's buff state as a small markdown
 -- block, ready to paste into a Discord message.
 function X.DiscordText()
-  local keep = X.applyFilter
-  X.applyFilter = false
-  CollectEntries()
-  X.applyFilter = keep
+  local report = X.GroupBuffReport()
+  local note = X.GroupCoverageNote(report)
   local lines = { "**BuffRadar — group buff check**" }
-  if X.tallyUnits > 1 or (X.tallyUnits > 0 and X.tallyUnknownUnits > 0) then
-    lines[#lines + 1] = string_format("%d/%d fully buffed",
-      X.tallyUnits - X.tallyMissingUnits, X.tallyUnits)
-  end
-  local people = {}
-  for i = 1, nEntries do
-    local e = entries[i]
-    if e.group then
-      people[#people + 1] = (SafeString(e.name) or e.sortName or "?")
-        .. " — " .. table.concat(e.missing, ", ")
+  if #report.people == 0 and not note then
+    lines[#lines + 1] = "All checked buffs are present."
+  elseif #report.people > 0 then
+    lines[#lines + 1] = "Still needs buffs:"
+    for _, person in ipairs(report.people) do
+      lines[#lines + 1] = "- " .. person.name .. " — " .. table.concat(person.buffs, ", ")
     end
   end
-  if #people == 0 and X.tallyUnknownUnits == 0 then
-    lines[#lines + 1] = "Everyone is buffed."
-  elseif #people > 0 then
-    lines[#lines + 1] = "Still needs buffs:"
-    for _, p in ipairs(people) do lines[#lines + 1] = "- " .. p end
-  end
+  if note then lines[#lines + 1] = note end
   if X.upTotal >= 10 then
     lines[#lines + 1] = string_format("Coverage uptime this run: %d%%",
       math_floor(100 * X.upFull / X.upTotal + 0.5))
@@ -5115,7 +5144,15 @@ end
 local function DispName(e)
   local nm = (db.showRealm and e.fullName) or e.name or ""
   local trim = db.nameTrim or 0
-  if trim > 0 and #nm > trim then nm = nm:sub(1, trim) .. "…" end
+  if trim > 0 and Readable(nm) and type(nm) == "string" and #nm > trim then
+    local count = 0
+    -- Skip UTF-8 continuation bytes when looking for the first character
+    -- beyond the display limit. Keep the engine's original text if unreadable.
+    for offset in nm:gmatch("()[^\128-\191]") do
+      if count == trim then return nm:sub(1, offset - 1) .. "…" end
+      count = count + 1
+    end
+  end
   return nm
 end
 
@@ -5896,12 +5933,15 @@ if C_Timer and C_Timer.NewTicker and C_Timer.After then
 else
   -- Fallback for clients without C_Timer: throttled accumulator, never per-frame work.
   -- soonPending marks an event-driven refresh, which runs even while idle.
-  local elapsed, soonPending = 0, false
+  local elapsed, soonPending, interval = 0, false, nil
   StartTicker = function()
     driver:SetScript("OnUpdate", function(_, dt)
       elapsed = elapsed + dt
-      if elapsed >= (ScanThrottled() and UPDATE_INTERVAL * 2 or UPDATE_INTERVAL) then
+      if elapsed < UPDATE_INTERVAL then return end
+      interval = interval or (ScanThrottled() and UPDATE_INTERVAL * 2 or UPDATE_INTERVAL)
+      if elapsed >= interval then
         elapsed = 0
+        interval = nil
         if X.lifeCheckPending then
           if X.ReadUnitBool(_G.UnitIsDeadOrGhost, "player") == false then X.UpdatePlayerLife() end
         end
@@ -5990,6 +6030,16 @@ for _, ev in ipairs({
 end
 
 driver:SetScript("OnEvent", function(_, event, arg1, ...)
+  if X.auraIds then
+    if event == "PLAYER_TARGET_CHANGED" then X.auraIds.target = nil
+    elseif event == "UPDATE_MOUSEOVER_UNIT" then X.auraIds.mouseover = nil
+    elseif (event == "NAME_PLATE_UNIT_ADDED" or event == "NAME_PLATE_UNIT_REMOVED")
+      and type(arg1) == "string" and Readable(arg1) then X.auraIds[arg1] = nil
+    elseif event == "GROUP_ROSTER_UPDATE" or event == "PARTY_MEMBERS_CHANGED"
+      or event == "RAID_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
+      wipe(X.auraIds)
+    end
+  end
   -- The busiest events, filtered first. They only ever lead to a list refresh:
   --  * in combat the list is frozen and PLAYER_REGEN_ENABLED refreshes it
   --    afterwards, so they're dropped outright;

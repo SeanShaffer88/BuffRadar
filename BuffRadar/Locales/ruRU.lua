@@ -3,8 +3,17 @@
 -- out falls back to English. Community corrections are welcome.
 -- Copyright (C) 2026 Malikor. GPLv3 or later.
 
-BuffRadarLocales = BuffRadarLocales or {}
-BuffRadarLocales.ruRU = {
+local _, NS = ...
+NS.Locales = NS.Locales or {}
+NS.Locales.ruRU = {
+  ["Find"] = "Поиск",
+  ["Find in this tab (Esc to close)"] = "Поиск на вкладке (Esc — закрыть)",
+  ["Matches: %d"] = "Совпадений: %d",
+  ["Background opacity"] = "Непрозрачность фона",
+  ["Idle fade (mouse away)"] = "Затухание вне окна",
+  ["Window scale"] = "Масштаб окна",
+  ["Settings window scale"] = "Масштаб настроек",
+  ["Group buff threshold"] = "Порог группового усиления",
   ["Paused in a major city."] = "Пауза в столице.",
   ["Paused in a battleground."] = "Пауза на поле боя.",
   ["Everyone nearby is buffed."] = "Все поблизости получили баффы.",

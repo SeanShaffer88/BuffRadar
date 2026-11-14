@@ -27,7 +27,8 @@ if ($Setup) {
     py -3 -m venv $ToolsDir
   }
   Write-Host "Installing lupa (Python package bundling Lua 5.1) ..."
-  & $py -m pip install --quiet --disable-pip-version-check --only-binary=:all: lupa
+  & $py -m pip install --quiet --disable-pip-version-check --only-binary=:all: lupa==2.8
+  if ($LASTEXITCODE -ne 0) { throw 'Lupa installation failed.' }
   if (-not (Test-Path $luacheck)) {
     $bin = Join-Path $ToolsDir 'bin'
     New-Item -ItemType Directory -Force $bin | Out-Null
@@ -89,27 +90,18 @@ if ($out -match '(?m)^\s+(\d+)\s+line') {
 
 # 4. Trial run against a fake game client, both editions
 Section 'Trial run (fake game client)'
-$out = & $py -I (Join-Path $here 'smoke51.py') (Join-Path $here 'wowstub.lua') $lua 2>&1 | Out-String
-Write-Host $out.Trim()
-if ($out -match '[1-9]\d* with errors' -or $out -notmatch '0 with errors') { $failed += 'trial run' }
+& $py -I (Join-Path $here 'smoke51.py') (Join-Path $here 'wowstub.lua') $lua
+if ($LASTEXITCODE -ne 0) { $failed += 'trial run' }
 
-# 5. Built zips up to date? (only if build.ps1 has been run)
+# 5. Validate the current Forever ZIP if it has been built.
 $dist = Join-Path $project 'dist'
-if (Test-Path $dist) {
-  Section 'Built zips'
-  $srcHash = (Get-FileHash $lua).Hash
-  Add-Type -AssemblyName System.IO.Compression.FileSystem
-  foreach ($zip in Get-ChildItem $dist -Filter '*.zip') {
-    $z = [IO.Compression.ZipFile]::OpenRead($zip.FullName)
-    try {
-      $entry = $z.Entries | Where-Object FullName -eq 'BuffRadar/BuffRadar.lua'
-      $tmp = [IO.Path]::GetTempFileName()
-      [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $tmp, $true)
-      $state = if ((Get-FileHash $tmp).Hash -eq $srcHash) { 'up to date' } else { 'OUT OF DATE - run .\build.ps1' }
-      Remove-Item $tmp
-    } finally { $z.Dispose() }
-    Write-Host ("{0}: {1}" -f $zip.Name, $state)
-  }
+$toc = Join-Path $project 'editions\forever\BuffRadar.toc'
+$version = (Select-String -LiteralPath $toc -Pattern '^## Version:\s*(\d+\.\d+\.\d+)\s*$').Matches.Groups[1].Value
+$zip = Join-Path $dist "BuffRadar-$version-Forever.zip"
+if (Test-Path -LiteralPath $zip) {
+  Section 'Forever package'
+  & $py -I (Join-Path $here 'checkpackage.py') $zip $project
+  if ($LASTEXITCODE -ne 0) { $failed += 'Forever package' }
 }
 
 Write-Host ''

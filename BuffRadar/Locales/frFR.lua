@@ -3,8 +3,17 @@
 -- out falls back to English. Community corrections are welcome.
 -- Copyright (C) 2026 Malikor. GPLv3 or later.
 
-BuffRadarLocales = BuffRadarLocales or {}
-BuffRadarLocales.frFR = {
+local _, NS = ...
+NS.Locales = NS.Locales or {}
+NS.Locales.frFR = {
+  ["Find"] = "Rechercher",
+  ["Find in this tab (Esc to close)"] = "Rechercher dans cet onglet (Échap ferme)",
+  ["Matches: %d"] = "Résultats : %d",
+  ["Background opacity"] = "Opacité du fond",
+  ["Idle fade (mouse away)"] = "Fondu hors survol",
+  ["Window scale"] = "Échelle de la fenêtre",
+  ["Settings window scale"] = "Échelle des paramètres",
+  ["Group buff threshold"] = "Seuil de buff de groupe",
   ["Paused in a major city."] = "En pause dans une capitale.",
   ["Paused in a battleground."] = "En pause sur un champ de bataille.",
   ["Everyone nearby is buffed."] = "Tout le monde à proximité est bénéficié.",
