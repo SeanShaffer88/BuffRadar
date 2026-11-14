@@ -804,6 +804,37 @@ step("line-of-sight failures skip that target for the session window", function(
   assert(shownRows().party1, "target did not return after its temporary skip cleared")
   cleanup()
 end)
+step("range and invalid-target failures skip the current player", function()
+  local cleanup = partyOfTwo("R")
+  local X = NS.X
+  local oldOutOfRange = env.SPELL_FAILED_OUT_OF_RANGE
+  local ok, err = pcall(function()
+    env.__over.IsSpellInRange = function() return 1 end
+    if env.C_Spell then env.C_Spell.IsSpellInRange = function() return 1 end end
+    refresh()
+    local guid = "Player-1-P1R"
+    env.SPELL_FAILED_OUT_OF_RANGE = "That target is too distant."
+    X.pendingCast = { spell = "Skyfury", time = env.GetTime(), guid = guid, key = "SKYFURY", who = "Aaron" }
+    fire("UI_ERROR_MESSAGE", 1, "That target is too distant.")
+    assert(X.failedTargets[guid], "localized out-of-range failure did not skip the target")
+    refresh()
+    local rows = shownRows()
+    assert(not rows.party1 and rows.party2, "range failure did not leave the next eligible player available")
+    X.failedTargets[guid] = nil
+    X.pendingCast = { spell = "Skyfury", time = env.GetTime(), guid = guid, key = "SKYFURY", who = "Aaron" }
+    fire("UI_ERROR_MESSAGE", 1, "Invalid target.")
+    assert(X.failedTargets[guid], "invalid-target failure did not skip the target")
+    X.failedTargets[guid] = nil
+    X.pendingCast = { spell = "Skyfury", time = env.GetTime(), guid = guid, key = "SKYFURY", who = "Aaron" }
+    fire("UI_ERROR_MESSAGE", 1, "Not enough mana.")
+    assert(X.pendingCast and not X.failedTargets[guid], "non-target cast failure incorrectly skipped the player")
+    X.pendingCast = nil
+  end)
+  env.SPELL_FAILED_OUT_OF_RANGE = oldOutOfRange
+  cleanup()
+  assert(ok, err)
+end)
+
 step("coverage line: progress and per-buff counts (1.4.0)", function()
   if env.__forever then return end  -- coverage math is edition-independent; retail covers it
   local cleanup = partyOfTwo()
@@ -2189,6 +2220,44 @@ step("assumeRange lists players this client refuses to place", function()
   env.canaccessvalue = prevAccess
   env.C_Spell, env.IsSpellInRange = prevModern, prevLegacy
   env.UnitInRange, env.CheckInteractDistance = prevGroup, prevInteract
+  assert(ok, err)
+end)
+
+step("empty list explains range, nameplate, and buff states", function()
+  local X = NS.X
+  local oldRange, oldUnknown, oldPlates = X.rangeSilent, X.tallyUnknownUnits, X.FriendlyPlatesOn
+  local ok, err = pcall(function()
+    X.tallyUnknownUnits = 0
+    X.FriendlyPlatesOn = function() return true end
+    X.rangeSilent = false
+    assert(X.EmptyStatus() == "Everyone nearby is buffed.", "known empty state is misleading")
+    X.rangeSilent = true
+    assert(X.EmptyStatus() == "Range could not be confirmed; the list may be incomplete.", "silent range state was hidden")
+    X.FriendlyPlatesOn = function() return false end
+    X.rangeSilent = false
+    assert(X.EmptyStatus() == "Friendly nameplates are off.", "nameplate-off state was hidden")
+    X.tallyUnknownUnits = 1
+    assert(X.EmptyStatus() == "Some buff information is unavailable.", "unreadable buff state lost priority")
+  end)
+  X.rangeSilent, X.tallyUnknownUnits, X.FriendlyPlatesOn = oldRange, oldUnknown, oldPlates
+  assert(ok, err)
+end)
+
+step("silent-range diagnostic resets when a later scan answers", function()
+  local cleanup = partyOfTwo("S")
+  local X = NS.X
+  local oldLegacy = env.__over.IsSpellInRange
+  local oldModern = env.C_Spell and env.C_Spell.IsSpellInRange
+  local ok, err = pcall(function()
+    env.__over.IsSpellInRange = function() return 1 end
+    if env.C_Spell then env.C_Spell.IsSpellInRange = function() return 1 end end
+    X.rangeSilent = true
+    refresh()
+    assert(not X.rangeSilent, "a previous silent-range result remained sticky after a readable scan")
+  end)
+  env.__over.IsSpellInRange = oldLegacy
+  if env.C_Spell then env.C_Spell.IsSpellInRange = oldModern end
+  cleanup()
   assert(ok, err)
 end)
 

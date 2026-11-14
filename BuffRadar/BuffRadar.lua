@@ -2008,6 +2008,7 @@ local function CollectEntries()
   wipe(X.drinkSet)
   X.drinkHealers = 0
   X.tallyUnits, X.tallyMissingUnits, X.tallyUnknownUnits = 0, 0, 0
+  X.rangeSilent = false
   X.missPrev, X.missNow = X.missNow, {}
   wipe(X.missNow)
   X.fallPending = nil
@@ -2999,6 +3000,28 @@ function X.SkipPendingCast()
   X.failedTargets[pending.guid] = GetTime() + 30
   X.pendingCast = nil
   return true
+end
+
+-- These errors mean the saved target is no longer castable right now.
+-- Skip only target/range failures; mana, cooldown, and other errors stay pending.
+X.castTargetFailureGlobals = {
+  "SPELL_FAILED_LINE_OF_SIGHT", "ERR_SPELL_FAILED_LINE_OF_SIGHT",
+  "SPELL_FAILED_OUT_OF_RANGE", "ERR_OUT_OF_RANGE", "ERR_SPELL_OUT_OF_RANGE",
+  "SPELL_FAILED_BAD_TARGETS", "ERR_INVALID_TARGET", "ERR_BADATTACKTARGET",
+  "SPELL_FAILED_TARGETS_DEAD", "ERR_TARGET_DEAD",
+}
+function X.IsTargetCastFailure(message)
+  if type(message) ~= "string" then return false end
+  local lower = message:lower()
+  if lower:find("line of sight", 1, true) or lower:find("out of range", 1, true)
+    or lower:find("too far away", 1, true) or lower:find("invalid target", 1, true)
+    or lower:find("bad target", 1, true) or lower:find("target is dead", 1, true)
+    or lower:find("target no longer exists", 1, true) then return true end
+  for _, key in ipairs(X.castTargetFailureGlobals) do
+    local token = _G[key]
+    if type(token) == "string" and token ~= "" and message:find(token, 1, true) then return true end
+  end
+  return false
 end
 
 ---------------------------------------------------------------------------
@@ -5505,6 +5528,20 @@ local function ShowStatus(text)
   SetShownIfChanged(frame, true)
 end
 
+-- Pick an honest explanation for an empty list when the client cannot verify range.
+function X.EmptyStatus()
+  if (X.tallyUnknownUnits or 0) > 0 then
+    return L["Some buff information is unavailable."]
+  end
+  if X.FriendlyPlatesOn() == false then
+    return L["Friendly nameplates are off."]
+  end
+  if X.rangeSilent then
+    return L["Range could not be confirmed; the list may be incomplete."]
+  end
+  return L["Everyone nearby is buffed."]
+end
+
 -- True while the last refresh found nothing that time alone can change: no
 -- supported buffs known, or scanning paused (city / battleground). The steady
 -- timer skips its refreshes then; events (zone changes, learning a spell,
@@ -5758,14 +5795,8 @@ local function Refresh()
   if wasAfterCombat and n > 0 and X.Flash then X.Flash() end
 
   SetTextIfChanged(countText, n > 0 and n or "")
-  if n == 0 and X.tallyUnknownUnits > 0 then
-    SetTextIfChanged(emptyText, L["Some buff information is unavailable."])
-  elseif n == 0 and X.FriendlyPlatesOn() == false then
-    -- Honest empty state: with friendly nameplates off, the client shows us
-    -- nobody outside the group, so "everyone is buffed" would be a lie.
-    SetTextIfChanged(emptyText, L["Friendly nameplates are off."])
-  else
-    SetTextIfChanged(emptyText, L["Everyone nearby is buffed."])
+  if n == 0 then
+    SetTextIfChanged(emptyText, X.EmptyStatus())
   end
   SetShownIfChanged(emptyText, n == 0)
   if viewN > MAX_ROWS then
@@ -6180,10 +6211,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
           local part = select(i, ...)
           if type(part) == "string" then message = message .. " " .. part end
         end
-        local losError = _G.SPELL_FAILED_LINE_OF_SIGHT or _G.ERR_SPELL_FAILED_LINE_OF_SIGHT
-        local hasLocalizedError = type(losError) == "string" and message:find(losError, 1, true)
-        local hasEnglishError = message:lower():find("line of sight", 1, true)
-        if hasLocalizedError or hasEnglishError then
+        if X.IsTargetCastFailure(message) then
           if X.SkipPendingCast() then Soon() end
         end
       end

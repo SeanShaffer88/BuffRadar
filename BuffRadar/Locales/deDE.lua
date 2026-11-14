@@ -20,6 +20,7 @@ BuffRadarLocales.deDE = {
   ["Some buff information is unavailable."] = "Einige Buff-Informationen sind nicht verfügbar.",
   ["Estimated range"] = "Geschätzte Reichweite",
   ["Friendly nameplates are off."] = "Freundliche Namensplaketten sind aus.",
+  ["Range could not be confirmed; the list may be incomplete."] = "Reichweite nicht prüfbar; die Liste kann unvollständig sein.",
   ["No supported buffs in your spellbook."] = "Keine unterstützten Buffs im Zauberbuch.",
   ["combat"] = "Kampf",
   ["Blessings by class"] = "Segnungen nach Klasse",
