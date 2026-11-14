@@ -14,16 +14,17 @@ local math_min = math.min
 -- list for after the rez. Always recorded; printed at death when the
 -- setting is on. /br death reprints the last one.
 function X.DeathRecap(show)
-  local lines, people, casts = X.SnapshotMissing(function(e)
-    return (e.group or e.unit == "player") and not e.pet
-  end)
+  local report = X.GroupBuffReport(true)
+  local lines, people = X.SnapshotMissing(report), #report.people
+  local note = X.GroupCoverageNote(report)
+  if note then lines[#lines + 1] = note end
   X.lastDeath = lines
   if not show then return end
   if people == 0 then
-    Print("Death recap: nobody in your group was missing a buff when you died.")
+    Print("Death recap: " .. (note or "all checked buffs were present."))
   else
-    Print(string.format("Death recap: %d %s missing buffs (%d casts) when you died:",
-      people, people == 1 and "person is" or "people are", casts))
+    Print(string.format("Death recap: %d %s missing buffs (%d buffs needed) when you died:",
+      people, people == 1 and "person was" or "people were", report.buffs))
     for i = 1, math_min(#lines, 12) do Print(lines[i]) end
     if #lines > 12 then Print(string.format("  +%d more", #lines - 12)) end
   end
@@ -38,35 +39,34 @@ function X.WipeCheck()
   if not db or not db.wipeReport or not X.InGroup() then return end
   if X.combatStart and GetTime() - X.combatStart < 8 then return end
   local total, dead = 0, 0
-  local function scan(unit)
-    if UnitExists(unit) then
-      total = total + 1
-      if X.ReadUnitBool(UnitIsDeadOrGhost, unit) == true then dead = dead + 1 end
-    end
-  end
-  scan("player")
-  if X.InRaid() then
-    for i = 1, 40 do scan("raid" .. i) end
-  else
-    for i = 1, 4 do scan("party" .. i) end
-  end
-  if not (dead >= 3 or (total <= 5 and dead >= 2)) then return end
-  local lines, people, casts = X.SnapshotMissing(function(e)
-    return e.group and not e.pet
+  local unavailable = 0
+  X.ForReportRoster(function(unit, exists)
+    local state = exists and X.ReadUnitBool(UnitIsDeadOrGhost, unit)
+    total = total + 1
+    if state == true then dead = dead + 1
+    elseif state == nil then unavailable = unavailable + 1 end
   end)
+  if not (dead >= 3 or (total <= 5 and dead >= 2)) then return end
+  local report = X.GroupBuffReport(true)
+  local lines, people = X.SnapshotMissing(report), #report.people
+  local note = X.GroupCoverageNote(report)
+  if note then lines[#lines + 1] = note end
+  if unavailable > 0 then
+    lines[#lines + 1] = string.format("Death status could not be verified for %d %s.",
+      unavailable, unavailable == 1 and "player" or "players")
+  end
   X.lastWipe = lines
   Print(string.format("Wipe report: %d of %d died. %s", dead, total,
-    people == 0 and "Everyone still standing is buffed."
-      or string.format("%d %s missing buffs (%d casts):", people,
-        people == 1 and "person is" or "people are", casts)))
-  for i = 1, math_min(#lines, 12) do Print(lines[i]) end
+    people == 0 and (note or "All checked buffs are present.")
+      or string.format("%d %s missing buffs (%d buffs needed):", people,
+        people == 1 and "person is" or "people are", report.buffs)))
+  local first = people == 0 and note and 2 or 1
+  for i = first, math_min(#lines, 12) do Print(lines[i]) end
   if #lines > 12 then Print(string.format("  +%d more", #lines - 12)) end
   if people > 0 and X.AmLead() then
-    local channel = X.InRaid() and "RAID" or "PARTY"
-    if _G.SendChatMessage then
-      _G.SendChatMessage(string.format(
-        "BuffRadar wipe report: %d of %d died; %d %s missing buffs (%d casts).",
-        dead, total, people, people == 1 and "person is" or "people are", casts), channel)
-    end
+    X.SendGroupReport(string.format(
+      "BuffRadar wipe report: %d of %d died. %d %s missing buffs (%d buffs needed).%s",
+      dead, total, people, people == 1 and "person is" or "people are", report.buffs,
+      note and (" " .. note) or ""))
   end
 end

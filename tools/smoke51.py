@@ -528,6 +528,20 @@ step("fast aura: unwatched payload skipped, watched payload refreshes (1.14.0)",
   runQueued()
   env.SlashCmdList.BUFFRADAR("fastaura off")
 end)
+step("fast aura cache is cleared when a unit token changes", function()
+  local X = NS.X
+  X.auraIds = { target = { [101] = "Unwatched" }, mouseover = { [102] = "Unwatched" },
+    nameplate1 = { [103] = "Unwatched" }, raid1 = { [104] = "Unwatched" } }
+  fire("PLAYER_TARGET_CHANGED")
+  assert(not X.auraIds.target and X.auraIds.raid1, "target token kept old aura IDs")
+  fire("UPDATE_MOUSEOVER_UNIT")
+  assert(not X.auraIds.mouseover, "mouseover token kept old aura IDs")
+  fire("NAME_PLATE_UNIT_REMOVED", "nameplate1")
+  assert(not X.auraIds.nameplate1, "removed nameplate kept old aura IDs")
+  fire("GROUP_ROSTER_UPDATE")
+  assert(not next(X.auraIds), "changed roster kept old aura IDs")
+  runQueued()
+end)
 step("UNIT_AURA in combat: ignored", function()
   if not env.__timers then return end
   env.__combat = true
@@ -1008,6 +1022,82 @@ step("ready check reports who is missing buffs (1.4.0)", function()
   fire("READY_CHECK")
   assert(chatSince(n, "Ready check: 3 people are missing buffs"), "no ready-check summary")
   cleanup()
+end)
+step("group reports respect ignored players and chat refusal", function()
+  local cleanup = partyOfTwo("REPORTCHAT")
+  local X, O = NS.X, env.__over
+  local oldChatInfo = env.C_ChatInfo
+  local ok, err = pcall(function()
+    env.SlashCmdList.BUFFRADAR("ignore Aaron")
+    O.Aura = function() return nil end
+    local sent = {}
+    env.C_ChatInfo = {}
+    env.C_ChatInfo.SendChatMessage = function(message, channel)
+      sent[#sent + 1] = { message, channel }
+    end
+    X.Announce()
+    assert(sent[1] and sent[1][2] == "PARTY" and not sent[1][1]:find("Aaron", 1, true),
+      "modern chat failed or included ignored player")
+    env.C_ChatInfo.SendChatMessage = function() error("chat denied") end
+    local before, chatBefore = #env.__sent, #chat
+    X.Announce()
+    assert(#env.__sent == before and chatSince(chatBefore, "missing buffs"),
+      "refused modern chat did not keep report local")
+    assert(not X.SendGroupReport(string.rep("a", 256)), "oversized report reached chat API")
+  end)
+  env.C_ChatInfo = oldChatInfo
+  env.SlashCmdList.BUFFRADAR("unignore Aaron")
+  cleanup()
+  assert(ok, err)
+end)
+step("coverage reports ignore cast restrictions and preserve bound rows", function()
+  local cleanup = partyOfTwo("REPORT")
+  local X, db, O = NS.X, env.BuffRadarDB, env.__over
+  local oldRole, oldCooldown, oldRange = env.UnitGroupRolesAssigned, env.GetSpellCooldown, env.IsSpellInRange
+  local oldFilter, oldCast, oldInclude, oldAssume = db.roleFilter, db.castMethod, db.includeSelf, db.assumeRange
+  local ok, err = pcall(function()
+    db.roleFilter, db.castMethod, db.includeSelf, db.assumeRange = "TANK", "target", false, false
+    env.UnitGroupRolesAssigned = function(u) return u == "party2" and "TANK" or "DAMAGER" end
+    env.IsSpellInRange = function() return 1 end
+    O.Aura = function(u)
+      if u == "player" then return { expirationTime = env.GetTime() + 600 } end
+      return nil
+    end
+    refresh()
+    local row = assert(shownRows().party2, "tank row not armed").row
+    local original = assert(row.entry)
+    local bound = row:GetAttribute("unit")
+    local last = #chat
+    fire("READY_CHECK")
+    assert(row.entry == original and row.entry.unit == "party2" and row:GetAttribute("unit") == bound,
+      "report changed live row metadata or secure unit")
+    env.IsSpellInRange = function() return 0 end
+    env.GetSpellCooldown = function() return env.GetTime(), 180 end
+    fire("READY_CHECK")
+    assert(chatSince(last, "2 people are missing buffs"), "cast restrictions hid known missing buffs")
+    O.Aura = function(u)
+      if u == "party1" then error("unreadable aura") end
+      if u == "player" then return { expirationTime = env.GetTime() + 600 } end
+      return nil
+    end
+    O.AuraList = function(u)
+      if u == "party1" then error("unreadable aura list") end
+    end
+    last = #chat
+    fire("READY_CHECK")
+    assert(chatSince(last, "1 person is missing buffs")
+      and chatSince(last, "could not be verified for 1 player"), "ready report lost mixed known/unknown coverage")
+    assert(not chatSince(last, "all checked buffs are present"), "unverified player counted as buffed")
+    O.Aura = function() return { expirationTime = env.GetTime() + 5 } end
+    O.AuraList = nil
+    last = #chat
+    fire("READY_CHECK")
+    assert(chatSince(last, "all checked buffs are present"), "a present aura inside the rebuff window counted as missing")
+  end)
+  cleanup()
+  db.roleFilter, db.castMethod, db.includeSelf, db.assumeRange = oldFilter, oldCast, oldInclude, oldAssume
+  env.UnitGroupRolesAssigned, env.GetSpellCooldown, env.IsSpellInRange = oldRole, oldCooldown, oldRange
+  assert(ok, err)
 end)
 step("a buff that vanishes is flagged as expired (1.4.0)", function()
   if env.__forever then return end
@@ -3168,6 +3258,29 @@ step("post-wipe report fires after a real wipe (1.9.0)", function()
   env.SlashCmdList.BUFFRADAR("wipe")
   assert(db.wipeReport == false, "wipe report not toggled off")
   cleanup()
+end)
+step("raid wipe counts the player raid token once", function()
+  local cleanup = partyOfTwo("WIPE")
+  local db, O, X = env.BuffRadarDB, env.__over, NS.X
+  local oldRaid, oldNum, oldWipe, oldStart = env.IsInRaid, env.GetNumGroupMembers, db.wipeReport, X.combatStart
+  local ok, err = pcall(function()
+    env.IsInRaid, env.GetNumGroupMembers = function() return true end, function() return 6 end
+    db.wipeReport, X.combatStart = true, nil
+    O.UnitExists = function(u) return u == "player" or u:match("^raid[1-6]$") ~= nil end
+    O.UnitGUID = function(u) return (u == "player" or u == "raid1") and "Player-1-0001" or "Player-1-" .. u end
+    O.UnitClass = function() return "Mage", "MAGE" end
+    local dead = { player = true, raid1 = true, raid2 = true }
+    O.UnitIsDeadOrGhost = function(u) return dead[u] or false end
+    local last = #chat
+    X.WipeCheck()
+    assert(not chatSince(last, "Wipe report:"), "two unique raid deaths triggered a wipe")
+    dead.raid3 = true
+    X.WipeCheck()
+    assert(chatSince(last, "Wipe report: 3 of 6 died."), "raid wipe roster double-counted the local player")
+  end)
+  cleanup()
+  env.IsInRaid, env.GetNumGroupMembers, db.wipeReport, X.combatStart = oldRaid, oldNum, oldWipe, oldStart
+  assert(ok, err)
 end)
 
 step("saved themes, row spacing, icon size, window layer (1.10.0)", function()

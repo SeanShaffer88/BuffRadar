@@ -573,11 +573,12 @@ local function HandleSlash(msg)
       Print(string.format("Current plan: %d assignments, %d blessings. /br plan export shares it as one string.", acount, bcount))
     end
   elseif cmd == "summary" then
-    local summary, people = X.SummaryLines()
-    if #summary == 0 then Print("Nobody in your group is missing a buff you can cast.")
+    local summary, people, note = X.SummaryLines()
+    if #summary == 0 then Print(note or "All checked buffs are present.")
     else
       Print(string_format("Group needs (%d %s):", people, people == 1 and "person" or "people"))
       for i = 1, math_min(#summary, 12) do Print(string_format("  %s: %d", summary[i].n, summary[i].c)) end
+      if note then Print(note) end
     end
   elseif cmd == "discord" then
     X.ShowExport(X.DiscordText(), false, "BuffRadar — copy into Discord")
