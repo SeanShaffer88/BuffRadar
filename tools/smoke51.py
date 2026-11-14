@@ -2226,18 +2226,23 @@ end)
 step("empty list explains range, nameplate, and buff states", function()
   local X = NS.X
   local oldRange, oldUnknown, oldPlates = X.rangeSilent, X.tallyUnknownUnits, X.FriendlyPlatesOn
+  -- Expected text follows the client locale (the German setup shows deDE strings).
+  local function T(s)
+    local pack = env.BuffRadarLocales and env.GetLocale and env.BuffRadarLocales[env.GetLocale()]
+    return (type(pack) == "table" and pack[s]) or s
+  end
   local ok, err = pcall(function()
     X.tallyUnknownUnits = 0
     X.FriendlyPlatesOn = function() return true end
     X.rangeSilent = false
-    assert(X.EmptyStatus() == "Everyone nearby is buffed.", "known empty state is misleading")
+    assert(X.EmptyStatus() == T("Everyone nearby is buffed."), "known empty state is misleading")
     X.rangeSilent = true
-    assert(X.EmptyStatus() == "Range could not be confirmed; the list may be incomplete.", "silent range state was hidden")
+    assert(X.EmptyStatus() == T("Range could not be confirmed; the list may be incomplete."), "silent range state was hidden")
     X.FriendlyPlatesOn = function() return false end
     X.rangeSilent = false
-    assert(X.EmptyStatus() == "Friendly nameplates are off.", "nameplate-off state was hidden")
+    assert(X.EmptyStatus() == T("Friendly nameplates are off."), "nameplate-off state was hidden")
     X.tallyUnknownUnits = 1
-    assert(X.EmptyStatus() == "Some buff information is unavailable.", "unreadable buff state lost priority")
+    assert(X.EmptyStatus() == T("Some buff information is unavailable."), "unreadable buff state lost priority")
   end)
   X.rangeSilent, X.tallyUnknownUnits, X.FriendlyPlatesOn = oldRange, oldUnknown, oldPlates
   assert(ok, err)
