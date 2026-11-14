@@ -152,7 +152,19 @@ local fire = function(ev, ...)
     end
   end
 end
-step("ADDON_LOADED", function() fire("ADDON_LOADED", "BuffRadar") end)
+step("ADDON_LOADED", function()
+  fire("ADDON_LOADED", "BuffRadar")
+  local pullFrame = NS.X.pullFrame
+  assert(pullFrame and pullFrame.events.ADDON_LOADED, "pull listener missing at startup")
+  local before, registered = env.C_ChatInfo, {}
+  env.C_ChatInfo = { RegisterAddonMessagePrefix = function(prefix) registered[#registered + 1] = prefix end }
+  pullFrame.scripts.OnEvent(pullFrame, "ADDON_LOADED", "OtherAddon")
+  assert(pullFrame.events.ADDON_LOADED and #registered == 0, "other addons triggered pull setup")
+  pullFrame.scripts.OnEvent(pullFrame, "ADDON_LOADED", "BuffRadar")
+  env.C_ChatInfo = before
+  assert(not pullFrame.events.ADDON_LOADED, "pull listener stayed subscribed after setup")
+  assert(#registered == 1 and registered[1] == "D5", "pull setup registered an unexpected prefix")
+end)
 step("PLAYER_LOGIN while dead starts with all buff surfaces hidden and disarmed", function()
   env.__over.UnitIsDeadOrGhost = function(u) return u == "player" end
   local db = env.BuffRadarDB
@@ -438,6 +450,11 @@ step("pull timer: probe counts sightings; flash fires with casts outstanding (1.
   for _, f in ipairs(env.__frames) do if f.events and f.events.START_TIMER then pf = f end end
   assert(pf, "no frame registered START_TIMER")
   local firePull = function(...) pf.scripts.OnEvent(pf, ...) end
+  firePull("CHAT_MSG_ADDON", "D5", "PT\t10", "RAID", "Nobody-Elsewhere")
+  assert(NS.X.pullProbe.d5 == 1, "DBM PT message not counted by the probe")
+  local diagnostic = NS.X.ApiCheck(false)
+  assert(diagnostic:find("START_TIMER seen 0", 1, true) and diagnostic:find("DBM PT seen 1", 1, true),
+    "D5-only pull activity was missing from diagnostics")
   NS.X.tally = { FORTITUDE = { total = 5, miss = 2 } }
   firePull("START_TIMER", 3, 10, 10)
   assert(NS.X.pullProbe.stSeen == 1, "START_TIMER not counted by the probe")
@@ -451,11 +468,42 @@ step("pull timer: probe counts sightings; flash fires with casts outstanding (1.
   firePull("START_TIMER", 3, 0, 0)
   assert(NS.X.pull == nil, "zero timer did not cancel the pull state")
   firePull("CHAT_MSG_ADDON", "D5", "PT\t10", "RAID", "Nobody-Elsewhere")
-  assert(NS.X.pullProbe.d5 == 1, "DBM PT message not counted by the probe")
+  assert(NS.X.pullProbe.d5 == 2, "second DBM PT message not counted by the probe")
   assert(NS.X.pull == nil, "untrusted DBM pull started the flash")
   runQueued()  -- drain the pull countdown timers so later steps see a clean queue
   NS.X.tally = {}
   env.SlashCmdList.BUFFRADAR("pullflash off")
+end)
+step("changing a pull timer keeps its replacement until the replacement expires", function()
+  if not env.__timers then return end
+  runQueued()
+  local X, db = NS.X, env.BuffRadarDB
+  local oldTally, oldPull, oldFlash, oldTrusted = X.tally, X.pull, X.Flash, X.SenderTrusted
+  local oldSetting = db.pullFlash
+  local flashes = 0
+  X.Flash = function() flashes = flashes + 1 end
+  X.SenderTrusted = function(sender) return sender == "Leader-TestRealm" end
+  X.tally, db.pullFlash = { FORTITUDE = { miss = 1 } }, true
+  local pf = X.pullFrame
+  pf.scripts.OnEvent(pf, "START_TIMER", 3, 8, 8)
+  local timerA = X.pull
+  pf.scripts.OnEvent(pf, "CHAT_MSG_ADDON", "D5", "PT\t12", "RAID", "Leader-TestRealm")
+  local timerB = X.pull
+  local q = env.__timers
+  env.__timers = {}
+  local scheduled = timerA and timerB and timerA ~= timerB and timerB.source == "boss mod" and #q == 4
+  local correct
+  if scheduled then
+    q[1]()
+    q[2]()
+    correct = X.pull == timerB and flashes == 2
+    q[3]()
+    correct = correct and X.pull == timerB and flashes == 3
+    q[4]()
+    correct = correct and X.pull == nil and flashes == 4
+  end
+  X.tally, X.pull, X.Flash, X.SenderTrusted, db.pullFlash = oldTally, oldPull, oldFlash, oldTrusted, oldSetting
+  assert(scheduled and correct, "an outdated pull timer flashed or cleared the replacement")
 end)
 step("modifier clicks: group spell mapping + shift-click bookkeeping (1.14.0)", function()
   env.SlashCmdList.BUFFRADAR("modclick on")
@@ -528,6 +576,7 @@ step("fast aura: unwatched payload skipped, watched payload refreshes (1.14.0)",
   probe = NS.X.auraProbe
   assert(probe and (probe.skipped or 0) == skipped0 + 1, "unwatched payload was not skipped")
   assert(#env.__timers == 0, "skipped payload queued a refresh")
+  assert(not NS.X.auraIds.player, "unwatched aura created a cache bucket")
   local watchedName = next(NS.X.watchNames or {})
   assert(watchedName, "watchNames is empty")
   fire("UNIT_AURA", "player", { addedAuras = { { name = watchedName, auraInstanceID = 9003 } } })
@@ -537,11 +586,48 @@ step("fast aura: unwatched payload skipped, watched payload refreshes (1.14.0)",
   assert(#env.__timers == 1, "consumable aura change (Well Fed) did not queue a refresh")
   runQueued()
   fire("UNIT_AURA", "player", { removedAuraInstanceIDs = { 9002 } })
-  assert(#env.__timers == 0, "removal of an unwatched aura queued a refresh")
+  assert(#env.__timers == 1, "unknown removed ID must refresh conservatively")
+  runQueued()
   fire("UNIT_AURA", "player", { removedAuraInstanceIDs = { 9003 } })
   assert(#env.__timers == 1, "removal of a watched aura did not queue a refresh")
   runQueued()
   env.SlashCmdList.BUFFRADAR("fastaura off")
+end)
+step("fast aura indexes watched instances only and invalidates stale entries", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local prev, oldAura = db.fastAura, env.C_UnitAuras
+  db.fastAura, X.auraIds = true, nil
+  local name = assert(next(X.watchNames))
+  env.C_UnitAuras = { GetAuraDataByAuraInstanceID = function(_, id)
+    if id == 37 then return { name = name } end
+    if id == 38 then return { name = "Unwatched" } end
+    return { name = {} }
+  end }
+  assert(X.AuraRelevant("player", nil, { 37 }), "resolved watched update skipped")
+  assert(not X.AuraRelevant("player", nil, { 38 }), "resolved unrelated update refreshed")
+  assert(X.AuraRelevant("player", nil, { 39 }), "non-string updated name skipped")
+  assert(X.auraIds.player[37] == name and not X.auraIds.player[38], "unwatched update was cached")
+  assert(X.AuraRelevant("player", nil, nil, { 37 }) and not X.auraIds.player, "empty bucket retained")
+  X.AuraRelevant("player", { { name = name, auraInstanceID = 37 } })
+  assert(X.AuraRelevant("player", { { name = "Unwatched", auraInstanceID = 37 } })
+    and not X.auraIds.player, "reused ID retained its previous watched name")
+  assert(X.AuraRelevant("player", { { name = name, auraInstanceID = math.huge } }), "nonfinite ID accepted")
+  X.AuraRelevant("player", { { name = name, auraInstanceID = 37 } })
+  db.fastAura = false
+  fire("UNIT_AURA", "player", { removedAuraInstanceIDs = { 37 } })
+  assert(not X.auraIds.player, "disabled filtering kept stale aura IDs")
+  X.AuraRelevant("player", { { name = name, auraInstanceID = 37 } })
+  env.__combat = true
+  fire("UNIT_AURA", "player", { removedAuraInstanceIDs = { 37 } })
+  env.__combat = false
+  assert(not X.auraIds.player, "discarded combat update kept stale aura IDs")
+  X.AuraRelevant("player", { { name = name, auraInstanceID = 37 } })
+  fire("SPELLS_CHANGED")
+  runQueued()
+  local cacheCleared = not X.auraIds
+  db.fastAura, env.C_UnitAuras = prev, oldAura
+  timerTick()
+  assert(cacheCleared, "spellbook rescan kept cached watch names")
 end)
 step("fast aura cache is cleared when a unit token changes", function()
   local X = NS.X
@@ -634,7 +720,8 @@ step("protected (secret) GUID / name from the game: no error", function()
   assert(listed.nameplate2 and listed.nameplate3, "units with protected names should still be listed; listed: [" ..
     table.concat(got, ",") .. "], window shown=" .. tostring(env.BuffRadarFrame.shown) ..
     ", empty text=" .. tostring(env.BuffRadarFrame and select(2, pcall(function() return chat[#chat] end))))
-  -- hovering and right-clicking those rows must not throw either
+  assert(listed.nameplate2.name == "nameplate2", "restricted name did not use a readable fallback")
+  -- Hovering and right-clicking those rows must not throw or save an unstable unit token.
   for i = 1, 15 do
     local row = env["BuffRadarRow" .. i]
     if row and row.entry and row.shown and plates[row.entry.unit] then
@@ -642,6 +729,8 @@ step("protected (secret) GUID / name from the game: no error", function()
       row.scripts.OnClick(row, "RightButton", false)
     end
   end
+  assert(not env.BuffRadarDB.ignored.nameplate2 and not env.BuffRadarDB.ignored.nameplate3,
+    "right-click saved a unit token as a player name")
   for k in pairs(O) do O[k] = nil end
   env.issecretvalue = nil
 end)
@@ -2316,6 +2405,39 @@ step("scan throttle halves the big-group rescan (1.7.0)", function()
   env.GetNumGroupMembers = nil
   env.SlashCmdList.BUFFRADAR("throttle")
   assert(db.scanThrottle == false, "throttle not toggled off")
+end)
+step("fallback event refresh coalesces within 100 ms in a throttled raid", function()
+  if env.__ticker then return end
+  local onUpdate = driver.scripts.OnUpdate
+  local db = env.BuffRadarDB
+  local oldCount, oldThrottle, oldCity = env.GetNumGroupMembers, db.scanThrottle, db.pauseInCities
+  local calls = 0
+  env.GetNumGroupMembers = function() calls = calls + 1; return 25 end
+  db.scanThrottle, db.pauseInCities = true, true
+  onUpdate(driver, 1)  -- settle any queued refresh and restart the steady cycle
+  local refreshes = env.__zoneCalls
+  calls = 0
+  for _ = 1, 40 do onUpdate(driver, 0.01) end
+  local firstHalfReads = calls
+  fire("UNIT_AURA", "player")
+  local steps, beforeEarly = 0, env.__zoneCalls
+  while steps < 45 and env.__zoneCalls == beforeEarly do
+    steps = steps + 1
+    if steps == 4 then fire("UNIT_AURA", "player") end
+    onUpdate(driver, 0.01)
+  end
+  local early = beforeEarly == refreshes and env.__zoneCalls == refreshes + 1
+  local readsAtEvent = calls
+  for _ = 1, 40 do onUpdate(driver, 0.01) end
+  local nextHalfReads, noExtraRefresh = calls, env.__zoneCalls == refreshes + 1
+  env.GetNumGroupMembers, db.scanThrottle, db.pauseInCities = oldCount, oldThrottle, oldCity
+  timerTick()
+  assert(early and steps >= 10 and steps <= 11,
+    ("fallback event took %d ms after 40 frames; group API calls %d/%d/%d")
+      :format(steps * 10, firstHalfReads, readsAtEvent, nextHalfReads))
+  assert(noExtraRefresh and firstHalfReads == 1 and readsAtEvent <= 2 and nextHalfReads - readsAtEvent == 1,
+    ("fallback performed redundant work; group API calls %d/%d/%d")
+      :format(firstHalfReads, readsAtEvent, nextHalfReads))
 end)
 
 step("grow-up window anchors by its bottom edge (1.8.0)", function()

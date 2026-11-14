@@ -35,6 +35,14 @@ Run this against the exact candidate ZIP after CI passes. Record the version, cl
 - **Settings narration:** run `/br config narrate` and listen for the focus label
   and current value. Check rapid navigation and text-field editing, then confirm
   Escape, closing settings, and starting combat return control to the game.
+- **Scan performance:** enable fast aura updates with `/br fastaura on`. Add
+  and remove a watched buff, then change target or leave the group. Verify the
+  list reflects the new unit and its buffs. Run `/br perf` out of combat and
+  record scan counts and timings while solo and in a raid, if available.
+- **Pull timers:** with buffs missing and pull flash enabled, start a group
+  countdown, cancel or replace it, and verify the replacement stays active
+  until its own deadline. Use `/br apicheck` to check the native and supported
+  boss-mod countdown diagnostics.
 - **Ready check and wipe:** confirm missing buffs are reported for a group member
   beyond cast range. Check that unreadable aura data is marked unverified and
   a ready check leaves the visible cast target unchanged. In a raid, confirm

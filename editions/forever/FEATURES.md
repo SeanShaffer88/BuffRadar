@@ -403,7 +403,9 @@ and narration in field-test build `56e47f9` and cast behavior in field-test buil
 
 ## Added in 1.14.0
 
-- `/br fastaura` - skip rescans for aura changes that touch no watched buff (off by default).
+- `/br fastaura` - skip rescans when readable aura changes can be identified as
+  unrelated to watched buffs (off by default). The cache retains watched
+  instances. An unrecognized removal triggers a rescan.
 - `/br modclick` - Shift-click a row casts the group version of its buff (off by default).
 - `/br pullflash` - border flash and a countdown line when a group pull timer starts (off by default).
 - Buff tables, presets and themes moved to `Data.lua` (internal; no behaviour change).

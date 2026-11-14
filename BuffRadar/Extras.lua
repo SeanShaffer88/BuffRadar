@@ -175,7 +175,7 @@ function X.ApiCheck(export)
     out("  UNIT_AURA payloads seen: none yet (cast or receive a buff, then run this again)")
   end
   local pp = X.pullProbe
-  if pp and (pp.stSeen or 0) > 0 then
+  if pp and ((pp.stSeen or 0) > 0 or (pp.d5 or 0) > 0) then
     local types = {}
     for ty in pairs(pp.stTypes or {}) do types[#types + 1] = tostring(ty) end
     table.sort(types)
@@ -381,8 +381,6 @@ X.pullProbe = { stSeen = 0, stTypes = {}, d5 = 0 }
 X.pull = nil
 
 function X.PullStart(secs, source)
-  local probe = X.pullProbe
-  probe.lastSource, probe.lastSecs = source, secs
   if secs <= 0 then X.pull = nil; return end  -- a zero timer is a cancel
   local db = X.GetDB and X.GetDB()
   if not db or not db.pullFlash then return end
@@ -390,15 +388,18 @@ function X.PullStart(secs, source)
   local casts = 0
   for _, tt in pairs(X.tally or {}) do casts = casts + (tt.miss or 0) end
   if casts <= 0 then return end
-  X.pull = { endsAt = GetTime() + secs, source = source }
+  local pull = { endsAt = GetTime() + secs, source = source }
+  X.pull = pull
   Print(string.format("Pull in %ds (%s) -- %d casts still needed.", secs, source, casts))
   if X.Flash then X.Flash() end
   if C_Timer and C_Timer.After then
     if secs > 3 then
-      C_Timer.After(secs - 3, function() if X.pull then if X.Flash then X.Flash() end end end)
+      C_Timer.After(secs - 3, function()
+        if X.pull == pull and X.Flash then X.Flash() end
+      end)
     end
     C_Timer.After(secs, function()
-      if X.pull then
+      if X.pull == pull then
         X.pull = nil
         if X.Flash then X.Flash() end
         if X.Refresh then X.Refresh() end
@@ -436,7 +437,6 @@ do
       local sub, rest = a2:match("^(%u+)%s+(.+)$")
       if sub == "PT" then
         probe.d5 = probe.d5 + 1
-        probe.d5last = a2:sub(1, 24)
         local secs = tonumber((rest or ""):match("(%d+)"))
         if secs and X.SenderTrusted and X.SenderTrusted(a4) then
           X.PullStart(secs, "boss mod")

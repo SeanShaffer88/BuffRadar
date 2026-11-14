@@ -1065,7 +1065,7 @@ end
 -- Fast aura (1.14.0, Brief 2): is this incremental UNIT_AURA payload about
 -- a buff BuffRadar watches? Answers from the payload itself: addedAuras
 -- carry full aura data; removed/updated instance ids are resolved through
--- a per-unit cache of ids seen in addedAuras (a removed aura can no longer
+-- a per-unit cache of watched ids seen in addedAuras (a removed aura can no longer
 -- be asked about), then through the client API. ANY doubt -- unreadable
 -- name, unknown id, missing cache -- answers "relevant", and the caller
 -- does the normal full refresh. Never answers from a guess.
@@ -1076,12 +1076,14 @@ function X.AuraRelevant(unit, added, updated, removed)
   local cache = X.auraIds or {}; X.auraIds = cache
   local byUnit = cache[unit]
   local function validID(id)
-    return Readable(id) and type(id) == "number" and id > 0 and id == math_floor(id)
+    return Readable(id) and type(id) == "number" and id > 0 and id < math_huge and id == math_floor(id)
   end
   local function remember(id, nm)
-    if id and nm then
+    if nm and watch[nm] then
       if not byUnit then byUnit = {}; cache[unit] = byUnit end
       byUnit[id] = nm
+    elseif byUnit then
+      byUnit[id] = nil
     end
   end
   local relevant = false
@@ -1089,12 +1091,12 @@ function X.AuraRelevant(unit, added, updated, removed)
     for _, a in ipairs(added) do
       if not Readable(a) or type(a) ~= "table" then cache[unit] = nil; return true end
       local name, id = a.name, a.auraInstanceID
-      if not Readable(name) or type(name) ~= "string" or not validID(id) then
+      if not Readable(name) or type(name) ~= "string" or name == "" or not validID(id) then
         cache[unit] = nil
         return true
       end
+      if watch[name] or (byUnit and byUnit[id]) then relevant = true end
       remember(id, name)
-      if watch[name] then relevant = true end
     end
   end
   if updated then
@@ -1104,7 +1106,11 @@ function X.AuraRelevant(unit, added, updated, removed)
       if not nm and C_UnitAuras and C_UnitAuras.GetAuraDataByAuraInstanceID then
         local ok, d = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, unit, id)
         if ok and Readable(d) and type(d) == "table" then
-          nm = SafeString(GetField(d, "name")); remember(id, nm)
+          local name = GetField(d, "name")
+          if Readable(name) and type(name) == "string" and name ~= "" then
+            nm = name
+            remember(id, nm)
+          end
         end
       end
       if not nm or watch[nm] then relevant = true end
@@ -1118,6 +1124,7 @@ function X.AuraRelevant(unit, added, updated, removed)
       if not nm or watch[nm] then relevant = true end
     end
   end
+  if byUnit and not next(byUnit) then cache[unit] = nil end
   return relevant
 end
 
@@ -1153,6 +1160,8 @@ do
         probe.skipped = (probe.skipped or 0) + 1
         return false
       end
+    elseif X.auraIds then
+      X.auraIds[unit] = nil
     end
     return true
   end
@@ -1353,6 +1362,7 @@ function BuildBuffList()
 
   do  -- watched aura names for the fast-aura relevance check (1.14.0)
     local watch = {}
+    if CLASSIC_FEATURES then watch.Drink = true end
     for _, b in ipairs(myBuffs) do
       if b.name then watch[b.name] = true end
       for _, n in ipairs(b.names or {}) do watch[n] = true end
@@ -1367,7 +1377,7 @@ function BuildBuffList()
         for _, n in ipairs(b.names or {}) do watch[n] = true end
       end
     end
-    X.watchNames = watch
+    X.watchNames, X.auraIds = watch, nil
   end
   hasAnyBuff = (#myBuffs > 0) or (CLASSIC_FEATURES and next(blessKnown) ~= nil)
 end
@@ -1952,13 +1962,11 @@ local function Consider(unit, isGroup)
   e.remain1 = X.remainTmp
   if isGroup and not auraUnknown and allN == 0 then X.missNow[guid] = {} end
   local n, approximate = X.FilterInRange(unit, e.allMissing, e.missing, isSelf)
-  if allN > 0 and n == 0 and db.rangeWatch then X.farNow[guid] = nm or UnitName(unit) or true end
+  if allN > 0 and n == 0 and db.rangeWatch then X.farNow[guid] = nm or true end
   if n == 0 then return end  -- only list targets with a buff currently in range
   nEntries = slot
   local _, class = UnitClass(unit)
-  -- e.name may be a protected value (display only: SetText accepts those);
-  -- sorting uses sortName and the class goes through SafeString (table key).
-  e.unit, e.guid, e.name, e.class, e.group = unit, guid, nm or UnitName(unit), SafeString(class), isGroup
+  e.unit, e.guid, e.name, e.class, e.group = unit, guid, nm or unit, SafeString(class), isGroup
   e.fullName, e.sortName = full, nm or ""
   e.isSelf = isSelf
   e.rangeBucket = 0
@@ -3703,8 +3711,9 @@ local function CreateRow(i)
     -- toggle on exactly one phase (release, unless casts trigger on press).
     if down ~= (db.clickReg == "down") then return end
     local e = self.entry
-    if not e or not db then return end
-    local short = SafeString(e.name)  -- a protected (secret) name can't be stored
+    if not e or not db or e.spell then return end
+    local short = e.pet and SafeString(e.name) or e.sortName
+    if short == "" then short = nil end
     local who = e.fullName or short   -- Name-Realm: ignores this one player only
     if not who then return end
     if _G.IsShiftKeyDown and _G.IsShiftKeyDown() then
@@ -4097,7 +4106,8 @@ function X.CheckRange()
     local e = entries[i]
     local g = e.guid
     if g and X.farPrev[g] and not e.outOfRange and not e.pet then
-      Print(string_format("%s is in range now and still needs a buff.", tostring(X.farPrev[g])))
+      local name = X.farPrev[g] == true and e.name or X.farPrev[g]
+      Print(string_format("%s is in range now and still needs a buff.", name))
       PlayAlert("new")
     end
   end
@@ -6224,31 +6234,31 @@ if C_Timer and C_Timer.NewTicker and C_Timer.After then
   end
 else
   -- Fallback for clients without C_Timer: throttled accumulator, never per-frame work.
-  -- soonPending marks an event-driven refresh, which runs even while idle.
-  local elapsed, soonPending, interval = 0, false, nil
+  -- Event bursts have their own deadline and can refresh even while idle.
+  local elapsed, soonElapsed, interval = 0, nil, nil
   StartTicker = function()
     driver:SetScript("OnUpdate", function(_, dt)
       elapsed = elapsed + dt
-      if elapsed < UPDATE_INTERVAL then return end
-      interval = interval or (ScanThrottled() and UPDATE_INTERVAL * 2 or UPDATE_INTERVAL)
-      if elapsed >= interval then
-        elapsed = 0
-        interval = nil
-        if X.lifeCheckPending then
-          if X.ReadUnitBool(_G.UnitIsDeadOrGhost, "player") == false then X.UpdatePlayerLife() end
-        end
-        if X.playerDead then soonPending = false; return end
-        X.UpdateFade()
-        if soonPending or not refreshIdle then
-          soonPending = false
-          SafeRefresh()
-        end
+      local eventPending = soonElapsed ~= nil
+      if eventPending then
+        soonElapsed = soonElapsed + dt
+        if soonElapsed < SOON_DELAY then return end
+      else
+        if elapsed < UPDATE_INTERVAL then return end
+        interval = interval or (ScanThrottled() and UPDATE_INTERVAL * 2 or UPDATE_INTERVAL)
+        if elapsed < interval then return end
       end
+      elapsed, soonElapsed, interval = 0, nil, nil
+      if X.lifeCheckPending then
+        if X.ReadUnitBool(_G.UnitIsDeadOrGhost, "player") == false then X.UpdatePlayerLife() end
+      end
+      if X.playerDead then return end
+      X.UpdateFade()
+      if eventPending or not refreshIdle then SafeRefresh() end
     end)
   end
   Soon = function()
-    soonPending = true
-    if elapsed < UPDATE_INTERVAL - SOON_DELAY then elapsed = UPDATE_INTERVAL - SOON_DELAY end
+    soonElapsed = soonElapsed or 0
   end
 end
 QueueRefresh = Soon
@@ -6340,7 +6350,12 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   --    nameplates, pets, bosses, arena opponents) -- those are dropped too.
   if event == "UNIT_AURA" or event == "NAME_PLATE_UNIT_ADDED" or event == "NAME_PLATE_UNIT_REMOVED"
      or event == "UPDATE_MOUSEOVER_UNIT" then
-    if InCombatLockdown() or X.playerDead then return end
+    if InCombatLockdown() or X.playerDead then
+      if event == "UNIT_AURA" and X.auraIds and Readable(arg1) and type(arg1) == "string" then
+        X.auraIds[arg1] = nil
+      end
+      return
+    end
     if event == "UNIT_AURA" and not X.AuraEventNeedsRefresh(arg1, ...) then return end
     Soon()
     return
@@ -6527,6 +6542,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     StartTicker()
     Soon()
   elseif event == "PLAYER_REGEN_DISABLED" then
+    X.auraIds = nil
     X.ClearCastIntent()
     X.combatStart = GetTime()  -- the wipe report times the fight from here (1.9.0)
     if combatText then combatText:Show() end
