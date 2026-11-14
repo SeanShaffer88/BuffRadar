@@ -3,6 +3,19 @@
 All notable changes to BuffRadar are listed here. Newest first.
 
 
+## 1.15.10 — 2026-11-14 — Forever update
+
+- Fast aura updates cache only watched buffs. An unrecognized removal triggers
+  a rescan so the buff list can reflect the change.
+- The fallback timer now refreshes promptly after aura and roster events even
+  when periodic scans are throttled in large groups.
+- `/br apicheck` reports supported boss-mod countdowns without requiring a
+  native countdown first. Replacing or cancelling a pull timer prevents its
+  old callbacks from flashing or clearing the current countdown.
+
+The maintainer confirmed live verification in WoW: Forever on 2026-11-14
+using field-test build `274b0298d250`.
+
 ## 1.15.9 — 2026-11-14 — Forever update
 
 - Match BuffRadar casts to the game’s cast GUID, spell, and recipient, including
