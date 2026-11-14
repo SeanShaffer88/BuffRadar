@@ -2,6 +2,13 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.29 — Forever test build
+
+- Open the assignment grid directly from the Buffs tab. Close a cell editor
+  to return to the grid with the saved choices.
+- Add **Thorns: Any Class Outdoors**, an opt-in setting for solo and grouped
+  open-world play. Explicit assignment rules still take precedence.
+
 ## 1.15.28 — Forever test build
 
 - Open the read-only **Raid Preparation** checklist from **Raid Coverage**
@@ -9,6 +16,8 @@ All notable changes to BuffRadar are listed here. Newest first.
   consumable reminders, and unavailable readings.
 - Compare carried reagents against the estimated group requirement and see
   any shortfalls. The checklist refreshes in place when the roster changes.
+
+Live verification passed on WoW: Forever for candidate `00ae3d4656cb`.
 
 ## 1.15.27 — Forever test build
 

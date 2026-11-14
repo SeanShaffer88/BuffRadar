@@ -56,6 +56,10 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
   list whenever you're missing something.
 - **Class-aware.** Arcane Intellect only goes to mana users, Thorns to melee classes,
   Fear Ward to warriors, and so on. Paladins give each class one fitting blessing.
+  Druids can enable **Thorns: Any Class Outdoors** on the Buffs tab to offer
+  Thorns to any class in the open world. Inside instances Thorns uses the
+  normal melee-class rule. Explicit assignments take precedence in both places.
+  Use `/br thornsoutdoors on` or `/br thornsoutdoors off` for the same setting.
 - **One-key buffing.** Bind *Cast next buff* or use the BuffRadar macro to work through
   the list without clicking.
 - **Recipient rank.** When Forever provides the recipient's level and spell

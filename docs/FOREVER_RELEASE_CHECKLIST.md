@@ -2,6 +2,20 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.29 Assignment Navigation and Outdoor Thorns
+
+- Open **Settings → Buffs → Class & Role Assignments**. Check that it opens
+  the grid and that **Preview Current Group** still opens the preview.
+- Edit a cell and close it with **Done**, the top-right close button, and
+  Escape outside keyboard-navigation mode. Confirm the grid remains open
+  and keeps the saved selections. Cancel a draft opened from a blocker and
+  confirm it returns to the blocker list with the original rule.
+- On a Druid with Thorns, enable **Thorns: Any Class Outdoors** on the
+  Buffs tab. Confirm a nearby Mage who lacks Thorns can be offered it, first
+  ungrouped and then in your party. Enter a dungeon with the setting still
+  enabled and confirm the default class rules apply. Outside again, set an
+  explicit **None** assignment for the Mage and confirm it takes precedence.
+
 ## 1.15.28 Raid Preparation
 
 - Open Raid Preparation from Raid Coverage and with `/br prep`. Expand and

@@ -1336,7 +1336,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 18, "dbVersion not migrated to 18: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 19, "dbVersion not migrated to 19: " .. tostring(d.dbVersion))
   assert(d.assignmentEnabled == false and next(d.buffAssignments) == nil, "migration activated assignments")
   assert(next(d.blessingPreferences) == nil, "existing character got a blessing override")
   assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
@@ -1360,7 +1360,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 18 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 19 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
   -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
@@ -1368,8 +1368,14 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = { dbVersion = 9 }
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 18 and d.wizardSeen == true,
+  assert(d.dbVersion == 19 and d.wizardSeen == true,
     "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
+  d.dbVersion, d.assignmentEnabled, d.thornsAnyClassOutdoors = 18, true, nil
+  fire("ADDON_LOADED", "BuffRadar")
+  d = env.BuffRadarDB
+  assert(d.dbVersion == 19 and d.thornsAnyClassOutdoors == false and d.assignmentEnabled,
+    "v18 settings did not gain an opt-in Thorns default while preserving assignments")
+  d.assignmentEnabled = false
   d.wizardSeen = false  -- leave the save as the rest of the suite expects
 end)
 step("ready check reports who is missing buffs (1.4.0)", function()
@@ -3924,10 +3930,14 @@ step("class and role assignment table supports mouse, keyboard and settings sear
   end
   local savedEnabled, savedRule = X.AssignmentEnabled(), X.GetAssignment("DRUID", "TANK")
   local ok, err = pcall(function()
-    slash("buffassign")
+    slash("config")
+    cfg.tabBtns.buffs:Click()
+    cfg.assignmentButton:GetScript("OnClick")(cfg.assignmentButton, "LeftButton")
     local panel, input = env.BuffRadarAssignments, cfg.navInput
     local cell = panel.cells.DRUID.TANK
-    assert(panel:IsVisible() and not cfg.searchToggle:IsShown(), "assignment table did not take modal focus")
+    assert(panel:IsVisible() and not cfg.searchToggle:IsShown()
+      and (not panel.preview or not panel.preview:IsVisible()), "settings click did not open the assignment grid")
+    assert(panel.closeButton:IsVisible(), "the grid close button did not start visible")
     assert(#X.BLESSING_CLASS_ORDER == 9 and panel.cells.WARRIOR.WORLD, "assignment table missing class or slot")
     slash("buffassign on")
     assert(X.AssignmentEnabled() and panel.enabled:GetChecked(), "slash opt-in did not update the checkbox")
@@ -3946,15 +3956,36 @@ step("class and role assignment table supports mouse, keyboard and settings sear
       "keyboard opened the wrong cell")
     local option = picker.options[1]
     assert(option:IsVisible() and option.option, "known targeted buffs were not offered")
+    assert(picker.closeButton:IsVisible() and not panel.closeButton:IsVisible(),
+      "the grid close button can compete with the picker close button")
+    assert(picker.backButton:IsVisible() and picker.backButton:GetText() == "Done",
+      "immediate picker had no Done action")
     advanceTo(option)
     input.scripts.OnEnterPressed(input)
     assert(X.GetAssignment("DRUID", "TANK")[option.option.key], "keyboard selection did not persist")
+    input.scripts.OnEscapePressed(input)
+    assert(not picker:IsShown() and panel:IsVisible() and panel.closeButton:IsVisible()
+      and cfg.navOutline.points[1][2] == cell
+      and X.GetAssignment("DRUID", "TANK")[option.option.key],
+      "keyboard Escape did not restore the grid and selection")
+    input.scripts.OnSpacePressed(input)
+    advanceTo(option)
     input.scripts.OnEnterPressed(input)
     assert(X.GetAssignment("DRUID", "TANK") == false, "clearing a cell restored defaults instead of None")
     advanceTo(picker.defaultButton)
     input.scripts.OnEnterPressed(input)
     assert(not picker:IsShown() and X.GetAssignment("DRUID", "TANK") == nil,
       "Default did not restore inheritance and return to the table")
+    input.scripts.OnEscapePressed(input)
+    cell:Click()
+    picker.backButton:Click()
+    assert(panel:IsVisible() and not picker:IsShown(), "Done did not return to the grid")
+    cell:Click()
+    picker.closeButton:Click()
+    assert(panel:IsVisible() and not picker:IsShown(), "the picker X closed the assignment grid")
+    cell:Click()
+    picker:GetScript("OnKeyDown")(picker, "ESCAPE")
+    assert(panel:IsVisible() and not picker:IsShown(), "ordinary Escape closed the assignment grid")
     cell:Click()
     assert(picker:IsShown(), "mouse click did not reopen the cell editor")
     picker.noneButton:Click()
@@ -4193,7 +4224,8 @@ step("blocker shortcuts stage, review, recheck and refresh the exact edit", func
     end
     activate(blockers.rows[1].edit)
     local picker = assignments.picker
-    assert(picker:IsVisible() and picker.backButton:IsVisible() and picker.class == "DRUID" and picker.slot == "ALL",
+    assert(picker:IsVisible() and picker.backButton:IsVisible() and picker.backButton:GetText() == "Cancel"
+      and picker.class == "DRUID" and picker.slot == "ALL",
       "shortcut did not open the inherited All Roles picker")
     activate(picker.defaultButton)
     assert(edits == 0 and picker:IsVisible(), "staging Default saved the rule immediately")
@@ -6316,6 +6348,134 @@ step("Forever mixed raid preserves blessing ownership and rebinds after a member
   refresh()
   assert(ok, err)
 end)
+step("Forever outdoor Thorns shares cast eligibility and persists as an opt-in", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("OutdoorThorns")
+  local X, O, db, slash = NS.X, env.__over, env.BuffRadarDB, env.SlashCmdList.BUFFRADAR
+  local oldKnown, oldName, oldInfo, oldTab = env.IsPlayerSpell, env.GetSpellBookItemName,
+    env.GetSpellBookItemInfo, env.GetSpellTabInfo
+  local oldInstance, oldSecret, oldRange = env.IsInInstance, env.issecretvalue, env.IsSpellInRange
+  local oldMode, oldAssignments, oldThorns, oldContext = db.assignmentEnabled, db.buffAssignments,
+    db.enabled.THORNS, db.buffContext.THORNS
+  local saved = db.thornsAnyClassOutdoors
+  local ok, err = pcall(function()
+    local book = { { "Thorns", 467 }, { "Mark of the Wild", 1126 } }
+    env.IsPlayerSpell = function(id) return id == 467 or id == 1126 end
+    env.GetSpellBookItemName = function(i) if book[i] then return book[i][1], "Rank 1" end end
+    env.GetSpellBookItemInfo = function(i) if book[i] then return "SPELL", book[i][2] end end
+    env.GetSpellTabInfo = function() return "General", nil, 0, #book end
+    env.IsSpellInRange = function() return 1 end
+    local instance, kind = false, "none"
+    env.IsInInstance = function() return instance, kind end
+    local playerClass = O.UnitClass
+    O.UnitClass = function(unit)
+      if unit == "player" then return "Druid", "DRUID" end
+      return playerClass(unit)
+    end
+    db.assignmentEnabled, db.buffAssignments, db.enabled.THORNS, db.buffContext.THORNS = false, {}, true, nil
+    db.thornsAnyClassOutdoors = false
+    X.cfgAPI.BuildBuffList()
+    X.Refresh()
+    local function offered(unit, buff)
+      local row = shownRows()[unit]
+      return row and row[buff] == true or false
+    end
+    assert(offered("party2", "Thorns") and not offered("party1", "Thorns"), "opt-in altered default Thorns")
+    X.OpenConfig(true)
+    local cfg = env.BuffRadarConfig
+    cfg.tabBtns.buffs:Click()
+    assert(cfg.thornsOutdoors:IsVisible() and not cfg.thornsOutdoors:GetChecked(), "known Thorns checkbox absent or enabled")
+    cfg.thornsOutdoors:SetChecked(true)
+    cfg.thornsOutdoors:Click()
+    assert(offered("party1", "Thorns") and offered("party1", "Mark of the Wild"),
+      "checkbox did not widen Thorns or altered another buff")
+    local group = X.GroupBuffReport(false, true)
+    local checked
+    for _, member in ipairs(group.members) do
+      if member.unit == "party1" then checked = table.concat(member.missing, ","):find("Thorns", 1, true) end
+    end
+    assert(checked, "group report did not agree with the outdoor cast queue")
+    local before = #chat
+    slash("why Aaron")
+    assert(chatSince(before, "Thorns: Any Class Outdoors"), "why omitted the widening rule")
+    cfg:Hide()
+
+    instance, kind = true, "party"
+    fire("ZONE_CHANGED_NEW_AREA")
+    timerTick()
+    assert(not offered("party1", "Thorns") and offered("party2", "Thorns"), "dungeon lost stock eligibility")
+    for _, area in ipairs({ "raid", "pvp", "arena" }) do
+      kind = area
+      assert(not X.ThornsAnyClassOutdoors(), "Thorns widened inside " .. area)
+    end
+    instance, kind = false, "none"
+    fire("PLAYER_ENTERING_WORLD")
+    timerTick()
+    assert(offered("party1", "Thorns"), "outdoor transition did not restore opt-in")
+    assert(X.SetAssignmentEnabled(true) and X.SetAssignment("MAGE", "ALL", false))
+    X.Refresh()
+    assert(not offered("party1", "Thorns"), "outdoor setting overrode explicit None")
+    assert(X.SetAssignment("MAGE", "ALL", nil))
+    X.Refresh()
+    assert(offered("party1", "Thorns"), "Default did not inherit outdoor eligibility")
+
+    local hadUnit, guid, name, full, partyClass = O.UnitExists, O.UnitGUID, O.UnitName, O.UnitFullName, O.UnitClass
+    O.UnitExists = function(u) return u == "target" or u == "player" end
+    O.UnitIsPlayer = O.UnitExists
+    O.UnitGUID = function(u) return guid(u == "target" and "party1" or u) end
+    O.UnitName = function(u) return name(u == "target" and "party1" or u) end
+    O.UnitFullName = function(u) return full(u == "target" and "party1" or u) end
+    O.UnitClass = function(u) return partyClass(u == "target" and "party1" or u) end
+    env.IsInGroup = function() return false end
+    X.Refresh()
+    assert(offered("target", "Thorns"), "Thorns did not widen for a solo target")
+    db.enabled.THORNS = false
+    X.Refresh()
+    assert(not offered("target", "Thorns"), "Thorns ignored the spell toggle")
+    db.enabled.THORNS, db.buffContext.THORNS = true, "instance"
+    X.Refresh()
+    assert(not offered("target", "Thorns"), "Thorns ignored its explicit context")
+    db.buffContext.THORNS = nil
+    O.UnitExists, O.UnitIsPlayer = hadUnit, hadUnit
+
+    for _, bad in ipairs({ function() return nil end, function() return 0 end,
+      function() error("instance API unavailable") end }) do
+      env.IsInInstance = bad
+      assert(not X.ThornsAnyClassOutdoors(), "unreadable or malformed world state widened Thorns")
+    end
+    env.IsInInstance = nil
+    assert(not X.ThornsAnyClassOutdoors(), "missing instance API widened Thorns")
+    env.IsInInstance = function() return false, "none" end
+    env.issecretvalue = function(value) return value == false end
+    assert(not X.ThornsAnyClassOutdoors(), "restricted world state widened Thorns")
+    env.issecretvalue = oldSecret
+
+    slash("profile save OutdoorThornsTest")
+    local legacyExport = assert(X.Export())
+    assert(not legacyExport:find("thornsAnyClassOutdoors", 1, true), "legacy settings export format changed")
+    slash("thornsoutdoors off")
+    local offProfile = assert(X.ProfileSnapshot())
+    assert(not offProfile:find("thornsAnyClassOutdoors", 1, true), "disabled snapshot broke older profile readers")
+    slash("profile load OutdoorThornsTest")
+    assert(db.thornsAnyClassOutdoors, "enabled named profile did not round-trip")
+    X.ApplyProfile(assert(X.ParseProfile(offProfile)))
+    assert(not db.thornsAnyClassOutdoors, "older named profile failed to default outdoor Thorns off")
+    assert(X.Import(legacyExport), "legacy settings export no longer imports")
+  end)
+  if env.BuffRadarConfig then env.BuffRadarConfig:Hide() end
+  env.IsPlayerSpell, env.GetSpellBookItemName, env.GetSpellBookItemInfo, env.GetSpellTabInfo =
+    oldKnown, oldName, oldInfo, oldTab
+  env.IsInInstance, env.issecretvalue = oldInstance, oldSecret
+  db.assignmentEnabled, db.buffAssignments, db.enabled.THORNS, db.buffContext.THORNS =
+    oldMode, oldAssignments, oldThorns, oldContext
+  db.thornsAnyClassOutdoors = saved
+  X.DeleteProfile("OutdoorThornsTest")
+  cleanup()
+  env.IsSpellInRange = oldRange
+  X.cfgAPI.BuildBuffList()
+  refresh()
+  assert(ok, err)
+end)
 step("Forever assignment profiles round-trip full grids, explicit None and old BR2", function()
   if not env.__forever then return end
   local X, db = NS.X, env.BuffRadarDB
@@ -6520,7 +6680,7 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 18"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 19"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
   assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
   assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")

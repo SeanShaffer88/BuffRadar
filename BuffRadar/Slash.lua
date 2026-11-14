@@ -984,6 +984,16 @@ local function HandleSlash(msg)
         .. " — your own row flags a missing hunter aspect or paladin aura.")
       Refresh()
     end
+  elseif cmd == "thornsoutdoors" then
+    if not CLASSIC_FEATURES then return end
+    local value = rest:lower()
+    if value == "on" or value == "off" then
+      X.SetThornsAnyClassOutdoors(value == "on")
+    elseif value ~= "" then
+      Print("Usage: /br thornsoutdoors [on|off]")
+      return
+    end
+    Print(L["Thorns: Any Class Outdoors"] .. " " .. OnOff(db.thornsAnyClassOutdoors))
   elseif cmd == "worldbuff" then
     if not CLASSIC_FEATURES then
       Print("The world-buff watch belongs to the Forever edition.")
@@ -1455,6 +1465,7 @@ local function HandleSlash(msg)
     Print("  /br pets  - list group pets   /br context KEY raid|instance|always  - limit a buff")
     if CLASSIC_FEATURES then
       Print("  /br aura  - aura/aspect watch   /br worldbuff  - world-buff watch   /br drink  - drinking healers")
+      Print("  /br thornsoutdoors [on|off]  - offer Thorns to any class in the open world")
     end
     Print("  /br pill  - all-buffed pill   /br consumables  - flask/food counts")
     Print("  /br custom add|remove|list <id>  - watch any buff spell you know")

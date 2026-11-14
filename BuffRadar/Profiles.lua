@@ -93,7 +93,7 @@ do
   end
   for _, key in ipairs({
     "compact", "textScale", "charPoint", "pauseInBG", "pauseTaxi", "watchDrop",
-    "minimapAngle", "rangeText", "pinned",
+    "minimapAngle", "rangeText", "pinned", "thornsAnyClassOutdoors",
   }) do
     scalarKeys[key] = true
     scalarList[#scalarList + 1] = key
@@ -109,7 +109,9 @@ do
     local db = X.GetDB()
     local parts = { "bgColor=" .. Encode(db.bgColor), "blessingPreferences=1" }
     for _, key in ipairs(scalarList) do
-      parts[#parts + 1] = key .. "=" .. Encode(db[key])
+      if key ~= "thornsAnyClassOutdoors" or db[key] then
+        parts[#parts + 1] = key .. "=" .. Encode(db[key])
+      end
     end
     local bytes = #"BR2;" + #table.concat(parts, ";")
     local mode = "buffAssignments=" .. (db.assignmentEnabled and "1" or "0")
@@ -250,8 +252,11 @@ do
       if not patch.bgColor then return nil end
       for _, key in ipairs(scalarList) do
         if not scalarFields[key] then
-          if key ~= "assumeRange" or not scalarFields.strata then return nil end
-          patch.assumeRange = false
+          if key == "thornsAnyClassOutdoors" or (key == "assumeRange" and scalarFields.strata) then
+            patch[key] = false
+          else
+            return nil
+          end
         end
       end
       local highest, priorityCount = 0, 0
