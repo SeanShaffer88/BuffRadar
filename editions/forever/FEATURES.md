@@ -361,11 +361,11 @@ stays hidden on those characters.
 
 ## Verification status
 
-**1.15.11 release candidate:** The maintainer confirmed live verification of
-scrollable rows using field-test build `650f5c603781` in WoW: Forever on 2026-11-14.
+**Current stable release:** 1.15.11. The maintainer verified scrollable rows
+using field-test build `650f5c603781` in WoW: Forever on 2026-11-14.
 
-**Current stable release:** 1.15.10. The maintainer confirmed live verification
-of field-test build `274b0298d250` in WoW: Forever on 2026-11-14.
+The maintainer also verified the 1.15.10 field-test build `274b0298d250` in
+WoW: Forever on 2026-11-14.
 
 - 1.2.2 and earlier were confirmed working live by SEAN on
   2026-10-20. **1.12.0 was verified in game by SEAN on Forever
