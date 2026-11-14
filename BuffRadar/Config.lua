@@ -66,6 +66,7 @@ function K.Modal()
   return assignments and assignments:IsShown()
     and (assignments.subgroup and assignments.subgroup:IsVisible() and assignments.subgroup
       or assignments.coordination and assignments.coordination:IsVisible() and assignments.coordination
+      or assignments.preparation and assignments.preparation:IsVisible() and assignments.preparation
       or assignments.coverage and assignments.coverage:IsVisible() and assignments.coverage
       or assignments.practice and assignments.practice:IsVisible()
         and (assignments.practice.review and assignments.practice.review:IsVisible() and assignments.practice.review or assignments.practice)
@@ -1172,6 +1173,7 @@ function X.OpenPractice()
   parent.picker:Hide()
   if parent.subgroup then parent.subgroup:Hide() end
   if parent.coordination then parent.coordination:Hide() end
+  if parent.preparation then parent.preparation:Hide() end
   if parent.preview then parent.preview:Hide() end
   if parent.coverage then parent.coverage:Hide() end
   local practice = parent.practice or AssignmentUI.BuildPractice(parent)
@@ -1431,19 +1433,23 @@ function AssignmentUI.RefreshPreview(preview, preserveBlockers, fromRoster)
   AssignmentUI.UpdatePreview(preview, editorClosed)
 end
 
-function X.QueueAssignmentPreviewRefresh()
+function X.QueueAssignmentPreviewRefresh(preparationOnly)
   local panel = cfg and cfg.assignmentPanel
   local preview = panel and panel.preview
   local coverage = panel and panel.coverage
   local subgroup = panel and panel.subgroup
+  local preparation = panel and panel.preparation
+  if preparation and not preparation:IsVisible() then preparation = nil end
+  if preparationOnly and not preparation then return end
   if coverage and not coverage:IsVisible() then coverage = nil end
   if preview and not preview:IsVisible() then preview = nil end
   if subgroup and not subgroup:IsVisible() then subgroup = nil end
-  if not (preview or coverage or subgroup) or InCombatLockdown() or X.PlayerSuspended() then return end
-  local visible = subgroup or coverage or preview
+  if not (preparation or preview or coverage or subgroup) or InCombatLockdown() or X.PlayerSuspended() then return end
+  local visible = preparation or subgroup or coverage or preview
   if visible.pendingRefresh then return end
   local function refresh()
-    if subgroup then AssignmentUI.RefreshSubgroup(subgroup)
+    if preparation then AssignmentUI.RefreshPreparation(preparation, true)
+    elseif subgroup then AssignmentUI.RefreshSubgroup(subgroup)
     elseif coverage then AssignmentUI.RefreshCoverage(coverage)
     else AssignmentUI.RefreshPreview(preview, nil, true) end
   end
@@ -1597,6 +1603,7 @@ function AssignmentUI.OpenPreview(panel)
   panel.picker:Hide()
   if panel.subgroup then panel.subgroup:Hide() end
   if panel.coordination then panel.coordination:Hide() end
+  if panel.preparation then panel.preparation:Hide() end
   if panel.coverage then panel.coverage:Hide() end
   panel.preview = panel.preview or AssignmentUI.BuildPreview(panel)
   panel.preview.page = 1
@@ -1651,6 +1658,7 @@ function AssignmentUI.UpdateCoverage(view)
   view.next:SetShown(view.page < pages)
   view.back:SetShown(selected ~= nil)
   view.subgroupButton:SetShown(selected == nil)
+  view.preparationButton:SetShown(selected == nil)
   for index, row in ipairs(view.rows) do
     local line = lines[(view.page - 1) * #view.rows + index]
     row.line = line
@@ -1718,19 +1726,23 @@ function AssignmentUI.BuildCoverage(panel)
     row:EnableMouseWheel(true)
     row:SetScript("OnMouseWheel", wheel)
   end
-  view.previous = MakeButton(view, L["Previous"], 110, function() move(-1) end)
+  view.previous = MakeButton(view, L["Previous"], 86, function() move(-1) end)
   view.previous:SetPoint("BOTTOMLEFT", 16, 12)
-  view.next = MakeButton(view, L["Next"], 110, function() move(1) end)
+  view.next = MakeButton(view, L["Next"], 86, function() move(1) end)
   view.next:SetPoint("LEFT", view.previous, "RIGHT", 8, 0)
   view.back = MakeButton(view, L["Back"], 110, function()
     view.selection, view.page = nil, view.summaryPage
     AssignmentUI.UpdateCoverage(view)
   end)
   view.back:SetPoint("BOTTOMRIGHT", -16, 12)
-  view.subgroupButton = MakeButton(view, L["Subgroup Responsibilities"], 250, function()
+  view.subgroupButton = MakeButton(view, L["Subgroup Responsibilities"], 199, function()
     AssignmentUI.OpenSubgroup(panel, true)
   end)
   view.subgroupButton:SetPoint("BOTTOMRIGHT", -16, 12)
+  view.preparationButton = MakeButton(view, L["Raid Preparation"], 150, function()
+    X.RaidPreparationCommand("show")
+  end)
+  view.preparationButton:SetPoint("RIGHT", view.subgroupButton, "LEFT", -8, 0)
   view:HookScript("OnHide", function()
     view.pendingRefresh, view.report, view.selection = nil, nil, nil
     for _, row in ipairs(view.rows) do row.line = nil end
@@ -1744,6 +1756,7 @@ function AssignmentUI.OpenCoverage(panel)
   panel.picker:Hide()
   if panel.subgroup then panel.subgroup:Hide() end
   if panel.coordination then panel.coordination:Hide() end
+  if panel.preparation then panel.preparation:Hide() end
   if panel.preview then panel.preview:Hide() end
   if panel.practice then panel.practice:Hide() end
   panel.coverage = panel.coverage or AssignmentUI.BuildCoverage(panel)
@@ -1751,6 +1764,211 @@ function AssignmentUI.OpenCoverage(panel)
   view.selection, view.page = nil, 1
   view:Show()
   AssignmentUI.RefreshCoverage(view)
+end
+
+function AssignmentUI.DrawPreparation(view, rosterRefresh)
+  local report, lines = view.report, {}
+  local attention, unknown = 0, 0
+  local oldExpandedIndex = view.expandedIndex
+  local expandedIndex, expandedEnd
+  local labels = { attention = L["Needs Attention"], unknown = L["Unknown"], clear = L["Checks Complete"] }
+  for _, member in ipairs(report.members) do
+    if member.status == "attention" then attention = attention + 1 end
+    if member.unknown or member.status == "unknown" then unknown = unknown + 1 end
+    if view.tab == "players" then
+      local status = labels[member.status] or labels.unknown
+      if member.status == "attention" and member.unknown then status = status .. " · " .. labels.unknown end
+      local guid = #member.details > 0 and member.guid or nil
+      local expanded = guid and view.expanded == guid
+      lines[#lines + 1] = { text = member.name .. " · " .. status, guid = guid,
+        hint = guid and (expanded and L["Collapse details"] or L["Expand details"]) or nil }
+      if expanded then
+        expandedIndex = #lines
+        for _, detail in ipairs(member.details) do lines[#lines + 1] = { text = detail, indented = true } end
+        expandedEnd = #lines
+      end
+    end
+  end
+  if view.tab == "reagents" then
+    for _, reagent in ipairs(report.reagents) do
+      local text = reagent.carried and string.format(L["%d carried · %d needed"], reagent.carried, reagent.needed)
+        or string.format(L["Carried quantity unknown · %d needed"], reagent.needed)
+      if reagent.carried and reagent.carried < reagent.needed then
+        text = text .. " · " .. string.format(L["Shortfall: %d"], reagent.needed - reagent.carried)
+      end
+      lines[#lines + 1] = { text = reagent.name, hint = text }
+    end
+  else
+    if view.expanded and not expandedIndex then view.expanded = nil end
+    -- Follow the same player's block if the current page showed it before an
+    -- event. Paging manually through unrelated rows is kept where possible.
+    if rosterRefresh and expandedIndex and oldExpandedIndex then
+      local offset = (view.page - 1) * #view.rows + 1 - oldExpandedIndex
+      if offset < #view.rows and offset <= (view.expandedEnd or oldExpandedIndex) - oldExpandedIndex
+        and expandedIndex ~= oldExpandedIndex then
+        view.page = math.ceil(math_min(expandedEnd, expandedIndex + math.max(0, offset)) / #view.rows)
+      end
+    end
+    view.expandedIndex, view.expandedEnd = expandedIndex, expandedEnd
+  end
+  if #lines == 0 then
+    lines[1] = { text = view.tab == "players" and L["No eligible players to check."]
+      or (report.incomplete and L["Reagent needs could not be confirmed."]
+        or L["No reagents required for the current checklist."]) }
+  end
+  view.summary:SetText(string.format(L["%d Players · %d Need Attention · %d With Unknowns"], #report.members, attention, unknown))
+  view.notice:SetText(report.incomplete and L["Some roster information could not be checked."] or "")
+  view.personalNote:SetText(report.personal or "")
+  if view.tab == "players" then view.players:Disable(); view.reagents:Enable()
+  else view.players:Enable(); view.reagents:Disable() end
+  local pages = math.max(1, math.ceil(#lines / #view.rows))
+  view.page = math.max(1, math_min(view.page, pages))
+  view.pageLabel:SetText(string.format(L["Page %d of %d"], view.page, pages))
+  view.previous:SetShown(view.page > 1)
+  view.next:SetShown(view.page < pages)
+  local previousFocus, focusedRow
+  if K.active and not K.edit then
+    for _, row in ipairs(view.rows) do
+      if K.current == row.navigation then
+        focusedRow, previousFocus = row, row.line and row.line.guid
+        break
+      end
+    end
+  end
+  local focus
+  for index, row in ipairs(view.rows) do
+    local line = lines[(view.page - 1) * #view.rows + index]
+    if GameTooltip.IsOwned and GameTooltip:IsOwned(row) then GameTooltip:Hide() end
+    row.line = line
+    row.heading:SetPoint("TOPLEFT", line and line.indented and 20 or 3, -3)
+    row.heading:SetText(line and ((line.guid and (line.guid == view.expanded and "− " or "+ ") or "") .. line.text) or "")
+    row.hint:SetText(line and line.hint or "")
+    row.navigation.role = line and line.guid and "button" or "detail"
+    row:SetShown(line ~= nil)
+    if previousFocus and line and line.guid == previousFocus then focus = row.navigation end
+  end
+  if K.active and not K.edit then
+    if focus then K.Focus(focus)
+    elseif focusedRow then K.Focus(view.refresh.navigation)
+    elseif not K.InScope(K.current) then K.Move(1) end
+  end
+end
+
+function AssignmentUI.RefreshPreparation(view, rosterRefresh)
+  if not view:IsVisible() then return end
+  view.pendingRefresh = nil
+  if InCombatLockdown() or X.PlayerSuspended() or not X.InGroup() then view:Hide(); return end
+  view.report = X.RaidPreparationSnapshot(view.personal)
+  if not view.report then view:Hide(); return end
+  AssignmentUI.DrawPreparation(view, rosterRefresh)
+end
+
+function X.CloseRaidPreparation()
+  local view = cfg and cfg.assignmentPanel and cfg.assignmentPanel.preparation
+  if view then view:Hide() end
+end
+
+function X.MoveRaidPreparation(delta)
+  local view = cfg and cfg.assignmentPanel and cfg.assignmentPanel.preparation
+  if not view or not view.report or not view:IsVisible()
+    or InCombatLockdown() or X.PlayerSuspended() or not X.InGroup() then return end
+  view.page = view.page + delta
+  AssignmentUI.DrawPreparation(view)
+end
+
+function AssignmentUI.BuildPreparation(panel)
+  local view = AssignmentUI.CreatePanel(panel, "BuffRadarRaidPreparation", 574, 405, panel:GetFrameLevel() + 5)
+  local function text(font, x, y, right)
+    local label = view:CreateFontString(nil, "OVERLAY", font)
+    label:SetPoint("TOPLEFT", x, y)
+    label:SetPoint("TOPRIGHT", -right, y)
+    label:SetJustifyH("LEFT")
+    return label
+  end
+  text("GameFontNormalLarge", 16, -14, 44):SetText(L["Raid Preparation"])
+  AssignmentUI.CloseButton(view, function() view:Hide() end)
+  view.summary = text("GameFontHighlightSmall", 16, -44, 210)
+  view.refresh = MakeButton(view, L["Refresh Preparation"], 182, function() AssignmentUI.RefreshPreparation(view, true) end)
+  view.refresh:SetPoint("TOPRIGHT", -16, -37)
+  view.notice = text("GameFontHighlightSmall", 237, -82, 16)
+  view.personalNote = text("GameFontHighlightSmall", 16, -106, 16)
+  local function selectTab(tab)
+    if not view.report or view.tab == tab or not view:IsVisible()
+      or InCombatLockdown() or X.PlayerSuspended() or not X.InGroup() then return end
+    view.tab, view.page, view.expanded, view.expandedIndex, view.expandedEnd = tab, 1, nil, nil, nil
+    AssignmentUI.DrawPreparation(view)
+  end
+  view.players = MakeButton(view, L["Players"], 102, function() selectTab("players") end)
+  view.players:SetPoint("TOPLEFT", 16, -75)
+  view.reagents = MakeButton(view, L["Reagents"], 102, function() selectTab("reagents") end)
+  view.reagents:SetPoint("LEFT", view.players, "RIGHT", 8, 0)
+  view.rows = {}
+  local function wheel(_, delta) X.MoveRaidPreparation(delta > 0 and -1 or 1) end
+  view:EnableMouseWheel(true)
+  view:SetScript("OnMouseWheel", wheel)
+  for index = 1, 6 do
+    local row = CreateFrame("Button", nil, view)
+    row:SetSize(542, 37)
+    row:SetPoint("TOPLEFT", 16, -130 - (index - 1) * 38)
+    row.heading = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    row.heading:SetPoint("TOPLEFT", 3, -3)
+    row.heading:SetPoint("TOPRIGHT", -3, -3)
+    row.heading:SetJustifyH("LEFT")
+    row.hint = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.hint:SetPoint("TOPLEFT", 17, -21)
+    row.hint:SetPoint("TOPRIGHT", -3, -21)
+    row.hint:SetJustifyH("LEFT")
+    row.hint:SetWordWrap(false)
+    row:SetHighlightTexture("Interface\\Buttons\\UI-Listbox-Highlight2", "ADD")
+    row:SetScript("OnClick", function()
+      local line = row.line
+      if not line or not line.guid or not view:IsVisible() or not X.InGroup()
+        or InCombatLockdown() or X.PlayerSuspended() then return end
+      if view.expanded == line.guid then view.expanded = nil else view.expanded = line.guid end
+      AssignmentUI.DrawPreparation(view)
+    end)
+    row:EnableMouseWheel(true)
+    row:SetScript("OnMouseWheel", wheel)
+    local function name() return row.line and row.line.text end
+    local function description() return row.line and row.line.hint end
+    K.Register(row, view, name, "detail", description)
+    Tip(row, name, description)
+    view.rows[index] = row
+  end
+  view.previous = MakeButton(view, L["Previous"], 110, function() X.MoveRaidPreparation(-1) end)
+  view.previous:SetPoint("BOTTOMLEFT", 16, 12)
+  view.next = MakeButton(view, L["Next"], 110, function() X.MoveRaidPreparation(1) end)
+  view.next:SetPoint("LEFT", view.previous, "RIGHT", 8, 0)
+  view.pageLabel = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  view.pageLabel:SetPoint("BOTTOM", 35, 18)
+  view.back = MakeButton(view, L["Back"], 110, function() AssignmentUI.OpenCoverage(panel) end)
+  view.back:SetPoint("BOTTOMRIGHT", -16, 12)
+  view:HookScript("OnHide", function()
+    view.pendingRefresh, view.report, view.expanded, view.expandedIndex, view.expandedEnd = nil, nil, nil, nil, nil
+    for _, row in ipairs(view.rows) do row.line = nil end
+    GameTooltip:Hide()
+    if K.active and not K.edit and panel:IsVisible() then K.Move(1) end
+  end)
+  if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarRaidPreparation") end
+  return view
+end
+
+function X.OpenRaidPreparation(personal)
+  if not CLASSIC_FEATURES or not X.InGroup() or X.PlayerSuspended() or InCombatLockdown() then return end
+  if not cfg or not cfg.assignmentPanel or not cfg.assignmentPanel:IsVisible() then X.OpenAssignments() end
+  local panel = cfg.assignmentPanel
+  panel.picker:Hide()
+  if panel.coverage then panel.coverage:Hide() end
+  if panel.coordination then panel.coordination:Hide() end
+  if panel.subgroup then panel.subgroup:Hide() end
+  if panel.preview then panel.preview:Hide() end
+  if panel.practice then panel.practice:Hide() end
+  panel.preparation = panel.preparation or AssignmentUI.BuildPreparation(panel)
+  local view = panel.preparation
+  view.personal, view.tab, view.page = personal, "players", 1
+  view.expanded, view.expandedIndex, view.expandedEnd = nil, nil, nil
+  view:Show()
+  AssignmentUI.RefreshPreparation(view)
 end
 
 function AssignmentUI.SameSubgroups(left, right)
@@ -1966,6 +2184,7 @@ function AssignmentUI.OpenSubgroup(panel, fromCoverage)
   if panel.preview then panel.preview:Hide() end
   if panel.practice then panel.practice:Hide() end
   if panel.coverage then panel.coverage:Hide() end
+  if panel.preparation then panel.preparation:Hide() end
   panel.subgroup = panel.subgroup or AssignmentUI.BuildSubgroup(panel)
   local view = panel.subgroup
   view:Hide()
@@ -2216,6 +2435,7 @@ function X.OpenCoordination()
   if panel.subgroup then panel.subgroup:Hide() end
   if panel.preview then panel.preview:Hide() end
   if panel.coverage then panel.coverage:Hide() end
+  if panel.preparation then panel.preparation:Hide() end
   if panel.practice then panel.practice:Hide() end
   panel.coordination = panel.coordination or AssignmentUI.BuildCoordination(panel)
   local view = panel.coordination
@@ -2291,6 +2511,7 @@ function AssignmentUI.Build()
     if panel.practice then panel.practice:Hide() end
     if panel.preview then panel.preview:Hide() end
     if panel.coverage then panel.coverage:Hide() end
+    if panel.preparation then panel.preparation:Hide() end
     if panel.coordination then panel.coordination:Hide() end
     if panel.subgroup then panel.subgroup:Hide() end
     cfg.searchToggle:Show()

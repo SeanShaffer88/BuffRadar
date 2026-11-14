@@ -2,6 +2,22 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.28 Raid Preparation
+
+- Open Raid Preparation from Raid Coverage and with `/br prep`. Expand and
+  collapse a player, then use the Back button to return to Raid Coverage.
+  With keyboard navigation enabled, check that narration reads the row status
+  and expanded details.
+- Expand a player, then add or remove another member or move someone to a
+  different raid subgroup. The checklist should stay open and keep the
+  same player's details expanded. Remove the expanded member and check
+  that the old details disappear.
+- In a group that needs a learned group buff, view Reagents with insufficient
+  stock, then replenish stock and use Refresh Preparation. Check that the
+  carried count and shortfall update. Try `/br prep personal` and check the
+  optional personal reminders. Enter combat or leave the group while the
+  checklist is open to verify it closes.
+
 ## 1.15.27 Subgroup Responsibilities
 
 - Open the panel with `/br subgroup panel` and from Raid Coverage. Select

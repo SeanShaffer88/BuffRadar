@@ -116,9 +116,12 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
   reasons before applying. The existing `/br subgroup FORTITUDE 1,2` command
   edits the same selection. Use `/br subgroup` to list keys and selections, or
   `ALL` to clear a filter. These rules clear when you leave the raid or reload.
-- **Raid Preparation** (`/br prep`) lists missing and expiring buffs, food,
-  flasks, and estimated group reagents. Use `/br prep personal` to include
-  weapon and pet reminders.
+- Open the read-only **Raid Preparation** checklist from **Raid Coverage** or
+  with `/br prep`. Expand a player to see missing and expiring buffs, food,
+  flasks, and unavailable readings. The **Reagents** tab compares bag counts
+  with estimated group requirements and highlights shortfalls. The checklist
+  refreshes when the roster changes. Use **Refresh Preparation** to recheck
+  buffs and bags, or `/br prep personal` to include weapon and pet reminders.
 - **Caster Coordination** is available in Class & Role Assignments or
   through `/br coordinate panel`. Turn on cast sync, then join coordination
   for the current group. Leaders and assistants can request reports, review
