@@ -3,6 +3,24 @@
 All notable changes to BuffRadar are listed here. Newest first.
 
 
+## 1.15.8 — 2026-11-14 — Forever update
+
+- Ready checks and recaps report buff coverage independently of cast range and
+  cooldowns, distinguish unreadable coverage, and preserve the displayed cast target.
+- Raid wipe reports count each member once.
+- Settings search counts matches on the active tab. Closing Find or pressing
+  Escape clears the query and restores control contrast. Use `/br config find`
+  to open and focus search from the keyboard.
+- Expire stale failed-cast targets and reset aura cache entries when unit tokens
+  change. Guard restricted chat values and use the client’s group-chat API.
+- Keep localized strings in the addon namespace and preserve UTF-8 characters
+  when trimming player names.
+- Validate the Forever package against its TOC and XML bindings and verify the
+  published archive and checksum by downloading both assets.
+
+The maintainer confirmed that field-test build `fce8554aceae` passed live
+verification in WoW: Forever on 2026-11-14.
+
 ## 1.15.7 — 2026-11-14 — Forever update
 
 - Load named profiles saved in 1.15.5 and reapply automatic profiles when

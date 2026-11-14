@@ -29,8 +29,8 @@ as the situation calls for. When everyone is buffed, the list empties and
 gets out of your way. It costs nothing, asks for nothing, and never talks to
 anything outside the game.
 
-Version 1.15.7 · Interface 16001 · GPLv3. The maintainer confirmed that
-field-test build `d5283de` passed live verification in WoW: Forever on 2026-11-14.
+Version 1.15.8 · Interface 16001 · GPLv3. The maintainer confirmed that
+field-test build `fce8554aceae` passed live verification in WoW: Forever on 2026-11-14.
 
 **Forever-only from 1.8.0:** the Retail edition ended at 1.7.0 (dropped
 2026-10-25). Both editions were built from the same source; this zip's `.toc`

@@ -2,7 +2,7 @@
 ## Title: |cff33ccffBuff|rRadar
 ## Notes: Clickable list of in-range players who can benefit from your buffs. Click a name, press a key or use a macro to buff them.
 ## Author: Malikor
-## Version: 1.15.7
+## Version: 1.15.8
 ## SavedVariables: BuffRadarDB
 ## IconTexture: Interface\AddOns\BuffRadar\Media\icon.png
 ## Category: Combat
