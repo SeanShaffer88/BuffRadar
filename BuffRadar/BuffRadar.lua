@@ -134,6 +134,8 @@ local DEFAULTS = {
   alertSounds = {},     -- per-alert-kind sound: new/drop/ask/fall -> a sound name (empty = use alertSound)
   buffPrio = {},        -- your buff order: buff keys, first offered first (empty = normal order)
   blessingPreferences = {}, -- class token -> preferred blessing key
+  assignmentEnabled = false,
+  buffAssignments = {},
   clickThrough = false, -- while locked, let clicks pass through the window to the game
   muteInInstance = false, -- no alert sound while in a dungeon, raid or battleground
   showMinimap = true,  -- minimap button (the addon compartment works regardless)
@@ -290,6 +292,8 @@ function SanitizeDB(saved)
           end
         end
         v = clean
+      elseif k == "buffAssignments" then
+        v = X.CopyAssignments(v)
       elseif k == "blessingPreferences" then
         local clean = {}
         if v then
@@ -587,6 +591,172 @@ local L = {
   ["No supported buffs in your spellbook."] = "No supported buffs in your spellbook.",
   ["combat"] = "combat",
   ["Blessings by class"] = "Blessings by class",
+  ["Class & Role Assignments"] = "Class & Role Assignments",
+  ["Use Class & Role Assignments"] = "Use Class & Role Assignments",
+  ["All Roles"] = "All Roles",
+  ["World"] = "World",
+  ["Tank"] = "Tank",
+  ["Heal"] = "Heal",
+  ["DPS"] = "DPS",
+  ["Default"] = "Default",
+  ["None"] = "None",
+  ["Custom"] = "Custom",
+  ["%d selected"] = "%d selected",
+  ["%d unavailable"] = "%d unavailable",
+  ["World applies to nearby players and unknown roles. A role or World rule takes priority over All Roles. Only enabled buffs are offered."] = "World applies to nearby players and unknown roles. A role or World rule takes priority over All Roles. Only enabled buffs are offered.",
+  ["Select spells for this cell. Changes apply immediately."] = "Select spells for this cell. Changes apply immediately.",
+  ["No known targeted buffs."] = "No known targeted buffs.",
+  ["Inherit from All Roles or the built-in rules."] = "Inherit from All Roles or the built-in rules.",
+  ["Offer no assigned buffs for this cell."] = "Offer no assigned buffs for this cell.",
+  ["Class & Role Assignments are available in WoW: Forever."] = "Class & Role Assignments are available in WoW: Forever.",
+  ["Class & Role Assignments enabled."] = "Class & Role Assignments enabled.",
+  ["Class & Role Assignments disabled."] = "Class & Role Assignments disabled.",
+  ["Group buff would conflict with an assignment."] = "Group buff would conflict with an assignment.",
+  ["%s would reach %s, whose assignment excludes %s (%s)."] = "%s would reach %s, whose assignment excludes %s (%s).",
+  ["%s conflicts with %s's individual blessing exception (%s)."] = "%s conflicts with %s's individual blessing exception (%s).",
+  ["%s is blocked because %s has a different group-plan blessing (%s)."] = "%s is blocked because %s has a different group-plan blessing (%s).",
+  ["%s is blocked because %s's blessing is assigned to another Paladin."] = "%s is blocked because %s's blessing is assigned to another Paladin.",
+  ["%s could not be verified because roster information is unavailable."] = "%s could not be verified because roster information is unavailable.",
+  ["%s could not be verified because its group coverage is unknown."] = "%s could not be verified because its group coverage is unknown.",
+  ["A group member"] = "A group member",
+  ["Using %s on one player instead."] = "Using %s on one player instead.",
+  ["%s is blocked by %d group member."] = "%s is blocked by %d group member.",
+  ["%s is blocked by %d group members."] = "%s is blocked by %d group members.",
+  ["The blocker list may be incomplete because some roster information is unavailable."] = "The blocker list may be incomplete because some roster information is unavailable.",
+  ["Group Cast Blockers"] = "Group Cast Blockers",
+  ["No subgroup responsibilities."] = "No subgroup responsibilities.",
+  ["Available Buff Keys: %s"] = "Available Buff Keys: %s",
+  ["In a raid, use /br subgroup BUFF 1,2,3 or ALL or NONE."] = "In a raid, use /br subgroup BUFF 1,2,3 or ALL or NONE.",
+  ["Use subgroup numbers 1 to 8, separated by commas."] = "Use subgroup numbers 1 to 8, separated by commas.",
+  ["Subgroup responsibility updated for %s."] = "Subgroup responsibility updated for %s.",
+  ["%s could reach a subgroup outside your responsibility."] = "%s could reach a subgroup outside your responsibility.",
+  ["Raid Preparation"] = "Raid Preparation",
+  ["Out-of-combat snapshot · Refresh for current results"] = "Out-of-combat snapshot · Refresh for current results",
+  ["Use /br prep show, personal, hide, next, or prev."] = "Use /br prep show, personal, hide, next, or prev.",
+  ["Join a party or raid to use Raid Preparation."] = "Join a party or raid to use Raid Preparation.",
+  ["Temporary weapon coating missing"] = "Temporary weapon coating missing",
+  ["No active pet"] = "No active pet",
+  ["No personal reminders"] = "No personal reminders",
+  ["%d Players · %d Missing Buffs · %d Players With Unknown Buffs"] = "%d Players · %d Missing Buffs · %d Players With Unknown Buffs",
+  ["Players %d–%d of %d · Scroll or /br prep next"] = "Players %d–%d of %d · Scroll or /br prep next",
+  ["Refresh Preparation"] = "Refresh Preparation",
+  ["Food"] = "Food",
+  ["Flask"] = "Flask",
+  ["Edit Rule"] = "Edit Rule",
+  ["Return to Blockers"] = "Return to Blockers",
+  ["Review Changes"] = "Review Changes",
+  ["Review Caster Plan"] = "Review Caster Plan",
+  ["No learned buff capabilities have been reported."] = "No learned buff capabilities have been reported.",
+  ["Unassigned"] = "Unassigned",
+  ["Provider unavailable"] = "Provider unavailable",
+  ["%s: %s -> %s"] = "%s: %s -> %s",
+  ["Caster plan from %s. Use /br coordinate inbox to review it."] = "Caster plan from %s. Use /br coordinate inbox to review it.",
+  ["Caster Coordination is available in WoW: Forever."] = "Caster Coordination is available in WoW: Forever.",
+  ["Caster Coordination is off."] = "Caster Coordination is off.",
+  ["Caster Coordination needs cast sync and a group outside combat."] = "Caster Coordination needs cast sync and a group outside combat.",
+  ["Roster information is unavailable."] = "Roster information is unavailable.",
+  ["Caster Coordination is on for this group."] = "Caster Coordination is on for this group.",
+  ["Use /br coordinate on to join this group's caster planning."] = "Use /br coordinate on to join this group's caster planning.",
+  ["No current caster plan to review."] = "No current caster plan to review.",
+  ["Caster plan from %s: %s. Use /br coordinate accept or decline."] = "Caster plan from %s: %s. Use /br coordinate accept or decline.",
+  ["Review the caster plan with /br coordinate inbox first."] = "Review the caster plan with /br coordinate inbox first.",
+  ["Your learned buffs or existing assignments changed. Ask for a new caster plan."] = "Your learned buffs or existing assignments changed. Ask for a new caster plan.",
+  ["The caster message could not be sent."] = "The caster message could not be sent.",
+  ["Caster duties accepted."] = "Caster duties accepted.",
+  ["Only the group leader or an assistant can manage caster plans."] = "Only the group leader or an assistant can manage caster plans.",
+  ["Asked group members for their learned buffs."] = "Asked group members for their learned buffs.",
+  ["Use /br coordinate need <BUFF KEY>."] = "Use /br coordinate need <BUFF KEY>.",
+  ["Awaiting acknowledgement"] = "Awaiting acknowledgement",
+  ["Acknowledged"] = "Acknowledged",
+  ["Send failed"] = "Send failed",
+  ["Assigned locally"] = "Assigned locally",
+  ["%s: %s"] = "%s: %s",
+  ["Request fresh caster reports with /br coordinate request."] = "Request fresh caster reports with /br coordinate request.",
+  ["Review the caster plan with /br coordinate review first."] = "Review the caster plan with /br coordinate review first.",
+  ["Caster reports or assignments changed. Review the updated draft before publishing."] = "Caster reports or assignments changed. Review the updated draft before publishing.",
+  ["No new caster duties to send."] = "No new caster duties to send.",
+  ["No assigned buffs"] = "No assigned buffs",
+  ["Use /br coordinate on|off|request|need|review|publish|status|inbox|accept|decline."] = "Use /br coordinate on|off|request|need|review|publish|status|inbox|accept|decline.",
+  ["Apply"] = "Apply",
+  ["Undo Last Change"] = "Undo Last Change",
+  ["There is no blocker edit to undo."] = "There is no blocker edit to undo.",
+  ["The blocker edit can no longer be undone."] = "The blocker edit can no longer be undone.",
+  ["The last blocker edit was undone."] = "The last blocker edit was undone.",
+  ["The group could not be checked. Try Undo again when roster information is available."] = "The group could not be checked. Try Undo again when roster information is available.",
+  ["Practice Mode"] = "Practice Mode",
+  ["Sample Raid"] = "Sample Raid",
+  ["Practice with sample players. Your group and settings are unaffected."] = "Practice with sample players. Your group and settings are unaffected.",
+  ["Mira · Inherited All Roles rule"] = "Mira · Inherited All Roles rule",
+  ["Thoren · Individual blessing exception"] = "Thoren · Individual blessing exception",
+  ["Arden · Buff data unavailable"] = "Arden · Buff data unavailable",
+  ["Offer Fortitude to the sample group"] = "Offer Fortitude to the sample group",
+  ["Clear Thoren's blessing exception"] = "Clear Thoren's blessing exception",
+  ["Practice changes applied to the sample raid."] = "Practice changes applied to the sample raid.",
+  ["Power Word: Fortitude"] = "Power Word: Fortitude",
+  ["Blessing of Kings"] = "Blessing of Kings",
+  ["Blessing of Wisdom"] = "Blessing of Wisdom",
+  ["Back"] = "Back",
+  ["Cancel"] = "Cancel",
+  ["Edit the draft, then review the changes before applying."] = "Edit the draft, then review the changes before applying.",
+  ["Gains: %s"] = "Gains: %s",
+  ["Loses: %s"] = "Loses: %s",
+  ["No changes to group buff offers."] = "No changes to group buff offers.",
+  ["Some group members could not be checked."] = "Some group members could not be checked.",
+  ["The group or rules changed. Review again before applying."] = "The group or rules changed. Review again before applying.",
+  ["Review the changes before applying to the current group."] = "Review the changes before applying to the current group.",
+  ["No group cast blockers are currently listed."] = "No group cast blockers are currently listed.",
+  ["The blocker changed. Check the updated list."] = "The blocker changed. Check the updated list.",
+  ["Edit Blessing Exception"] = "Edit Blessing Exception",
+  ["Preview Current Group"] = "Preview Current Group",
+  ["Refresh Preview"] = "Refresh Preview",
+  ["Raid Coverage"] = "Raid Coverage",
+  ["Coverage is available in WoW: Forever."] = "Coverage is available in WoW: Forever.",
+  ["Raid Group %d"] = "Raid Group %d",
+  ["Party"] = "Party",
+  ["Unknown Subgroup"] = "Unknown Subgroup",
+  ["Some roster information could not be checked."] = "Some roster information could not be checked.",
+  ["Join a party or raid to check buff coverage."] = "Join a party or raid to check buff coverage.",
+  ["%d Confirmed · %d Missing · %d Unknown"] = "%d Confirmed · %d Missing · %d Unknown",
+  ["Missing: %s"] = "Missing: %s",
+  ["Unknown: %s"] = "Unknown: %s",
+  ["All checked players have this buff."] = "All checked players have this buff.",
+  ["No group to preview."] = "No group to preview.",
+  ["Members %d–%d of %d"] = "Members %d–%d of %d",
+  ["Due: %s"] = "Due: %s",
+  ["Available: %s"] = "Available: %s",
+  ["No buffs due"] = "No buffs due",
+  ["No buffs available"] = "No buffs available",
+  ["Previous"] = "Previous",
+  ["Next"] = "Next",
+  ["%s · %s rule"] = "%s · %s rule",
+  ["%s · %s rule (role unavailable)"] = "%s · %s rule (role unavailable)",
+  ["%s · %s rule (nearby player)"] = "%s · %s rule (nearby player)",
+  ["%s · Built-in rules"] = "%s · Built-in rules",
+  ["%s · None"] = "%s · None",
+  ["Rule unavailable"] = "Rule unavailable",
+  ["Applied rule for %s: %s."] = "Applied rule for %s: %s.",
+  ["Blessing: player exception"] = "Blessing: player exception",
+  ["Blessing: group plan"] = "Blessing: group plan",
+  ["Blessing assigned to another Paladin"] = "Blessing assigned to another Paladin",
+  ["Player details unavailable"] = "Player details unavailable",
+  ["Currently ineligible"] = "Currently ineligible",
+  ["Ignored"] = "Ignored",
+  ["Temporarily skipped after a failed cast"] = "Temporarily skipped after a failed cast",
+  ["Buff information unavailable"] = "Buff information unavailable",
+  ["On cooldown: %s"] = "On cooldown: %s",
+  ["Range could not be confirmed"] = "Range could not be confirmed",
+  ["No eligible rank or range"] = "No eligible rank or range",
+  ["Out of cast range"] = "Out of cast range",
+  ["Group option: %s"] = "Group option: %s",
+  ["%s · Manual role: %s"] = "%s · Manual role: %s",
+  ["%s · Manual role: %s (game role takes precedence)"] = "%s · Manual role: %s (game role takes precedence)",
+  ["Set Role"] = "Set Role",
+  ["Change Role"] = "Change Role",
+  ["Session Role for %s"] = "Session Role for %s",
+  ["Choose a fallback when the game does not report a role."] = "Choose a fallback when the game does not report a role.",
+  ["Use Game Role"] = "Use Game Role",
+  ["Current selection"] = "Current selection",
+  ["The member or role changed. Refresh and try again."] = "The member or role changed. Refresh and try again.",
   ["Default (%s)"] = "Default (%s)",
   ["Default blessing"] = "Default blessing",
   ["Previously selected blessing unavailable"] = "Previously selected blessing unavailable",
@@ -988,32 +1158,33 @@ end
 -- Group role the player picked (dungeon finder / role check): "TANK", "HEALER"
 -- or "DAMAGER"; nil for strangers, unassigned players or an unreadable answer.
 local function AssignedRole(unit)
-  if not UnitGroupRolesAssigned then return nil end
+  if not UnitGroupRolesAssigned then return nil, true end
   local ok, r = pcall(UnitGroupRolesAssigned, unit)
-  r = ok and SafeString(r) or nil
-  if r == "TANK" or r == "HEALER" or r == "DAMAGER" then return r end
-  return nil
+  if not ok or (type(r) ~= "nil" and not Readable(r)) then return nil, false end
+  if r == "TANK" or r == "HEALER" or r == "DAMAGER" then return r, true end
+  return nil, true
 end
 
 local function GetField(t, k) return t[k] end  -- shared pcall target (no per-call closures)
 
 do
-  -- A restricted named lookup returns zero values. An explicit nil is
+  -- A restricted aura lookup can return zero values. An explicit nil is
   -- the normal result when the requested aura is absent.
   local function FirstResult(...)
     return select("#", ...), ...
   end
-  local function Call(lookup, unit, name, filter)
-    return FirstResult(lookup(unit, name, filter))
+  local function Call(lookup, ...)
+    return FirstResult(lookup(...))
   end
-  function X.QueryNamedAura(lookup, unit, name, filter)
-    local ok, count, aura = pcall(Call, lookup, unit, name, filter)
+  function X.QueryAura(lookup, ...)
+    local ok, count, aura = pcall(Call, lookup, ...)
     if ok and count > 0 then
       if type(aura) == "nil" then return nil, true end
       if Readable(aura) and type(aura) == "table" then return aura, true end
     end
     return nil, false
   end
+  X.QueryNamedAura = X.QueryAura
 end
 
 do
@@ -1028,14 +1199,12 @@ do
     -- done, name, expirationTime, complete (only when done)
     local name, expiry
     if C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
-      local ok, aura = pcall(C_UnitAuras.GetBuffDataByIndex, unit, i)
-      if not ok then return true, nil, nil, false end
-      if type(aura) == "nil" then return true, nil, nil, true end
-      if Readable(aura) and type(aura) == "table" then
-        local nameOK, value = pcall(GetField, aura, "name")
-        if nameOK then name = value end
-        expiry = AuraExpiration(aura)
-      end
+      local aura, definitive = X.QueryAura(C_UnitAuras.GetBuffDataByIndex, unit, i)
+      if not definitive then return true, nil, nil, false end
+      if not aura then return true, nil, nil, true end
+      local nameOK, value = pcall(GetField, aura, "name")
+      if nameOK then name = value end
+      expiry = AuraExpiration(aura)
     elseif UnitBuff then
       local ok, value, _, _, _, _, expiration = pcall(UnitBuff, unit, i)
       if not ok then return true, nil, nil, false end
@@ -1451,36 +1620,223 @@ function X.SetBlessingPreference(class, key)
   return true
 end
 
-function X.BlessingForClass(class, unit)
-  local plan = X.blessPlan[class]
-  if plan and not plan.mine then return nil end
-  if unit and X.blessingExceptions then
-    local ok, guid = pcall(UnitGUID, unit)
-    local key = ok and SafeString(guid)
-    local exception = key and X.blessingExceptions[key]
-    if exception then return blessKnown[exception] end
+function X.AssignmentEnabled()
+  return CLASSIC_FEATURES and db and db.assignmentEnabled == true or false
+end
+
+function X.SetAssignmentEnabled(enabled)
+  if not CLASSIC_FEATURES or not db or type(enabled) ~= "boolean" then return false end
+  db.assignmentEnabled = enabled
+  X.assignmentGroupConflicts = nil
+  return true
+end
+
+function X.GetAssignment(class, slot)
+  local row = db and db.buffAssignments[class]
+  if row then return X.CopyAssignment(row[slot]) end
+end
+
+function X.SetAssignment(class, slot, value)
+  if not CLASSIC_FEATURES or not db or not X.ValidAssignmentCell(class, slot) then return false end
+  local cell = X.CopyAssignment(value)
+  if value ~= nil and cell == nil then return false end
+  local row = db.buffAssignments[class]
+  if cell ~= nil then
+    row = row or {}
+    row[slot], db.buffAssignments[class] = cell, row
+  elseif row then
+    row[slot] = nil
+    if not next(row) then db.buffAssignments[class] = nil end
   end
-  if plan then return blessKnown[plan.key] end
+  local undo = X.blockerUndo
+  if undo and undo.kind == "rule" and undo.class == class and undo.slot == slot then X.blockerUndo = nil end
+  X.assignmentGroupConflicts = nil
+  return true
+end
+
+function X.AssignmentOptions()
+  local options = {}
+  if not CLASSIC_FEATURES then return options end
+  for _, buff in ipairs(myBuffs) do
+    if not buff.self and not buff.custom then
+      options[#options + 1] = { key = buff.key, name = buff.name, icon = SpellIcon(buff.name) }
+    end
+  end
+  for _, key in ipairs(X.BLESSING_KEYS) do
+    local blessing = blessKnown[key]
+    if blessing then
+      options[#options + 1] = { key = "BLESS_" .. key, name = blessing.name, icon = SpellIcon(blessing.name) }
+    end
+  end
+  return options
+end
+
+function X.ResolveAssignment(class, role, proposal)
+  if not X.AssignmentEnabled() then return nil, "DEFAULT" end
+  local row = db.buffAssignments[class]
+  if proposal and proposal.kind == "rule" and proposal.class == class then
+    local slot = role or "WORLD"
+    local roleCell, allCell = row and row[slot], row and row.ALL
+    if proposal.slot == slot then roleCell = proposal.value end
+    if proposal.slot == "ALL" then allCell = proposal.value end
+    if roleCell ~= nil then return roleCell, slot end
+    if allCell ~= nil then return allCell, "ALL" end
+    return nil, "DEFAULT"
+  end
+  if row then
+    local slot = role or "WORLD"
+    local cell = row[slot]
+    if cell ~= nil then return cell, slot end
+    if row.ALL ~= nil then return row.ALL, "ALL" end
+  end
+  return nil, "DEFAULT"
+end
+
+function X.BlessingForClass(class, unit, assignment, proposal, rosterMember)
+  local plan = X.blessPlan[class]
+  if plan and not plan.mine then return nil, "other" end
+  if unit and X.blessingExceptions then
+    local key = rosterMember and rosterMember.guid
+    if not rosterMember then
+      local ok, guid = pcall(UnitGUID, unit)
+      key = ok and SafeString(guid)
+    end
+    local exception = key and X.blessingExceptions[key]
+    if proposal and proposal.kind == "exception" and proposal.guid == key then exception = proposal.value end
+    if exception then return blessKnown[exception], "exception" end
+  end
+  if plan then return blessKnown[plan.key], "plan" end
+  if assignment ~= nil then
+    if assignment then
+      for _, key in ipairs(X.BLESSING_KEYS) do
+        if assignment["BLESS_" .. key] then return blessKnown[key] end
+      end
+    end
+    return nil
+  end
   return blessKnown[db.blessingPreferences[class]] or myBlessing[class]
 end
 
+function X.AssignmentForUnit(class, unit, isGroup, isSelf, proposal, rosterMember)
+  if not class or isSelf ~= false or not X.AssignmentEnabled() then return nil, "DEFAULT" end
+  local role, manual
+  if rosterMember then
+    role, manual = rosterMember.role, rosterMember.manual
+  elseif isGroup then
+    role, manual = AssignedRole(unit), X.GetAssignmentRoleOverride(unit)
+  end
+  local assignment, source = X.ResolveAssignment(class, role or manual, proposal)
+  return assignment, source, role, isGroup, manual
+end
+
+function X.AssignmentRuleText(class, role, source, assignment, isGroup, manual)
+  if not class then return L["Rule unavailable"] end
+  local names = _G.LOCALIZED_CLASS_NAMES_MALE
+  local name = names and names[class] or class
+  local text
+  if not source or source == "DEFAULT" then
+    text = string_format(L["%s · Built-in rules"], name)
+  else
+    local label = source == "ALL" and L["All Roles"] or source == "WORLD" and L["World"]
+      or source == "TANK" and L["Tank"] or source == "HEALER" and L["Heal"] or L["DPS"]
+    local format = L["%s · %s rule"]
+    if source == "WORLD" or (source == "ALL" and not role and not manual) then
+      format = isGroup and L["%s · %s rule (role unavailable)"] or L["%s · %s rule (nearby player)"]
+    end
+    text = string_format(format, name, label)
+    if assignment == false then text = string_format(L["%s · None"], text) end
+  end
+  if manual then
+    local manualLabel = manual == "TANK" and L["Tank"] or manual == "HEALER" and L["Heal"] or L["DPS"]
+    text = string_format(role and L["%s · Manual role: %s (game role takes precedence)"]
+      or L["%s · Manual role: %s"], text, manualLabel)
+  end
+  return text
+end
+
+do
+local function ReadBlessingGUID(unit)
+  local ok, guid = pcall(UnitGUID, unit)
+  if ok and Readable(guid) and type(guid) == "string" and guid ~= "" then return guid end
+end
+
+local function CanEditBlessing()
+  return CLASSIC_FEATURES and not InCombatLockdown() and InGroup() and not X.PlayerSuspended()
+end
+
+local function BlessingMemberClass(unit, guid)
+  if not guid or ReadBlessingGUID(unit) ~= guid then return nil end
+  local ok, _, class = pcall(UnitClass, unit)
+  class = ok and SafeString(class)
+  if X.BLESSING_CLASSES[class] then return class end
+end
+
+local function ChangeBlessingException(unit, guid, key)
+  local class = BlessingMemberClass(unit, guid)
+  if not class then return nil, "Choose an exact party or raid member name." end
+  local plan = X.blessPlan[class]
+  if key ~= "DEFAULT" and plan and not plan.mine then
+    return nil, "The group plan assigns that class to another paladin."
+  end
+  X.blessingExceptions = X.blessingExceptions or {}
+  if key == "DEFAULT" then X.blessingExceptions[guid] = nil
+  else X.blessingExceptions[guid] = key end
+  local undo = X.blockerUndo
+  if undo and undo.kind == "exception" and undo.guid == guid then X.blockerUndo = nil end
+  X.assignmentGroupConflicts = nil
+  return X.Ignore.UnitNames(unit)
+end
+
+local function FindBlessingMember(guid)
+  local match
+  X.ForReportRoster(function(unit, exists)
+    if not match and exists and ReadBlessingGUID(unit) == guid then match = unit end
+  end)
+  return match
+end
+
+function X.GetBlessingExceptionForGUID(guid)
+  if not CanEditBlessing() or not Readable(guid) or type(guid) ~= "string" or guid == ""
+    or not X.blessingExceptions or not X.blessingExceptions[guid] then return nil end
+  local unit = FindBlessingMember(guid)
+  local class = unit and BlessingMemberClass(unit, guid)
+  if not class then return nil end
+  local name = X.Ignore.UnitNames(unit)
+  if not name or name == "" then return nil end
+  local plan = X.blessPlan[class]
+  local options = {}
+  for _, key in ipairs(X.BLESSING_KEYS) do
+    local spell = blessKnown[key]
+    if spell then options[#options + 1] = { key = key, name = spell.name } end
+  end
+  return { name = name, key = X.blessingExceptions[guid], options = options, canSet = not plan or plan.mine == true }
+end
+
+function X.SetBlessingExceptionForGUID(guid, key, restore)
+  if not CanEditBlessing() or not Readable(guid) or type(guid) ~= "string" or guid == "" then return nil end
+  if not restore and (not X.blessingExceptions or not X.blessingExceptions[guid]) then return nil end
+  if not Readable(key) or type(key) ~= "string" or (key ~= "DEFAULT" and not blessKnown[key]) then return nil end
+  local unit = FindBlessingMember(guid)
+  local name = unit and X.Ignore.UnitNames(unit)
+  if not name or name == "" then return nil end
+  return ChangeBlessingException(unit, guid, key)
+end
+
 function X.SetBlessingException(name, key)
-  if not CLASSIC_FEATURES or InCombatLockdown() or not InGroup() or X.PlayerSuspended() then
+  if not CanEditBlessing() then
     return nil, "Join a group and leave combat to set a blessing exception."
   end
   if key ~= "DEFAULT" and not blessKnown[key] then return nil, "Choose a blessing you know or use DEFAULT." end
   local targetGUID
   if name == "target" then
-    local ok, guid = pcall(UnitGUID, "target")
-    targetGUID = ok and SafeString(guid)
+    targetGUID = ReadBlessingGUID("target")
     if not targetGUID then return nil, "Target an exact party or raid member." end
   end
   local exact, exactGUID, short, shortGUID, exactAmbiguous, shortAmbiguous
   X.ForReportRoster(function(unit, exists)
     if not exists then return end
     local full, first = X.Ignore.UnitNames(unit)
-    local ok, guid = pcall(UnitGUID, unit)
-    guid = ok and SafeString(guid)
+    local guid = ReadBlessingGUID(unit)
     if not guid then return end
     if guid == targetGUID or (not targetGUID and full and full:lower() == name) then
       if exactGUID and exactGUID ~= guid then exactAmbiguous = true end
@@ -1493,21 +1849,8 @@ function X.SetBlessingException(name, key)
   end)
   local unit = not exactAmbiguous and (exact or (not shortAmbiguous and short))
   if not unit then return nil, "Choose an exact party or raid member name." end
-  local ok, guid = pcall(UnitGUID, unit)
-  local classOK, _, class = pcall(UnitClass, unit)
-  guid = ok and SafeString(guid)
-  class = classOK and SafeString(class)
-  if not guid or not X.BLESSING_CLASSES[class] then
-    return nil, "Choose an exact party or raid member name."
-  end
-  local plan = X.blessPlan[class]
-  if key ~= "DEFAULT" and plan and not plan.mine then
-    return nil, "The group plan assigns that class to another paladin."
-  end
-  X.blessingExceptions = X.blessingExceptions or {}
-  if key == "DEFAULT" then X.blessingExceptions[guid] = nil
-  else X.blessingExceptions[guid] = key end
-  return X.Ignore.UnitNames(unit)
+  return ChangeBlessingException(unit, exact and exactGUID or shortGUID, key)
+end
 end
 
 -- A roster update retires departed GUIDs, even if their unit tokens are reused.
@@ -1554,13 +1897,14 @@ local function SpellCD(name)
   end
   return nil, nil
 end
-local function OnCooldown(name)
-  local c = cdCache[name]
+local function OnCooldown(name, cache)
+  cache = cache or cdCache
+  local c = cache[name]
   if c ~= nil then return c end
   local start, duration = SpellCD(name)
   local ok, cooling = pcall(IsCooling, start, duration)
   c = (ok and cooling) and true or false
-  cdCache[name] = c
+  cache[name] = c
   return c
 end
 
@@ -1688,9 +2032,16 @@ end
 local function Missing(unit, out, isGroup, isSelf, report, detail)
   wipe(out)
   if not report then X.remainTmp, X.auraUnknown = nil, nil end
-  local ok, _, class = pcall(UnitClass, unit)
-  class = ok and SafeString(class) or nil  -- class is used as a table key
-  if not class then return 0, true, false end
+  local reviewing = report == "assignmentReview"
+  local class = reviewing and detail.member.class
+  if not reviewing then
+    local ok, _, file = pcall(UnitClass, unit)
+    class = ok and SafeString(file) or nil  -- class is used as a table key
+  end
+  if not class then
+    if report == "why" then detail.rule = L["Rule unavailable"] end
+    return 0, true, false
+  end
   if not report and isGroup and db.consumables then
     for _, cd in ipairs(X.CONS_DEFS) do
       local t = X.consTally[cd.key]
@@ -1700,10 +2051,17 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
       if has == false then t.miss = t.miss + 1 end
     end
   end
-  X.scanUnit = nil  -- force a fresh index scan (fallback path) for this unit
+  if not reviewing then X.scanUnit = nil end  -- fresh index scan for aura readers
   local n = 0
   local unknown, checked
-  local role, roleRead = nil, false  -- assigned role, read once and only if a buff needs it
+  local proposal, member
+  if reviewing then proposal, member = detail.proposal, detail.member end
+  local assignment, source, role, roleRead, manual = X.AssignmentForUnit(class, unit, isGroup, isSelf, proposal, member)
+  if reviewing and not roleRead then role, roleRead = member.role, true end
+  if report == "why" then
+    detail.assignment = assignment ~= nil
+    detail.rule = X.AssignmentRuleText(class, role, source, assignment, isGroup, manual)
+  end
   local lookup = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
   for i = 1, #myBuffs do
     local b = myBuffs[i]
@@ -1723,15 +2081,28 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
         if not roleRead then role, roleRead = AssignedRole(unit), true end
         if role and role ~= b.role then applies = false end  -- e.g. a DPS death knight
       end
+      if assignment ~= nil and not b.custom then
+        applies = assignment and assignment[b.key] and (isGroup or not b.groupOnly)
+          and (not b.single or applies)
+      end
     end
-    if applies and IsOn(b.key, b.default) and X.ContextOK(b.key) then
+    local eligible = applies and IsOn(b.key, b.default) and X.ContextOK(b.key)
+    if report == "raidCoverage" then
+      if eligible and not b.self then
+        local has
+        if detail.observable then has = HasAny(unit, b.names, 0) end
+        detail.record(b.name, has)
+      end
+    elseif reviewing and eligible then
+      out[#out + 1] = b.name
+    elseif eligible then
       local thr = report and report ~= "why" and 0
         or (db.rebuffPer and db.rebuffPer[b.key]) or db.rebuff
       local has = HasAny(unit, b.names, thr)
       if report then
         checked = true
         if has == nil then unknown = true end
-        if report == "why" and has == false and OnCooldown(b.name) then
+        if report == "why" and has == false and OnCooldown(b.name, detail.cooldowns) then
           detail.cooldown[#detail.cooldown + 1] = b.name
         elseif has == false then
           n = n + 1; out[n] = b.name
@@ -1772,9 +2143,26 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
         end
       end
     end
-    local bl = CLASSIC_FEATURES and X.BlessingForClass(class, (isGroup or isSelf) and unit)
-    if bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf)
-       and X.ContextOK("BLESSINGS") then
+    local bl, blessingSource
+    if CLASSIC_FEATURES then
+      bl, blessingSource = X.BlessingForClass(class, (isGroup or isSelf) and unit, assignment, proposal, member)
+    end
+    if report == "why" then
+      if blessingSource == "exception" then detail.blessing = L["Blessing: player exception"]
+      elseif blessingSource == "plan" then detail.blessing = L["Blessing: group plan"]
+      elseif blessingSource == "other" then detail.blessing = L["Blessing assigned to another Paladin"] end
+    end
+    local blessingEligible = bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf)
+      and X.ContextOK("BLESSINGS")
+    if report == "raidCoverage" then
+      if blessingEligible then
+        local has
+        if detail.observable then has = HasAny(unit, bl.names, 0) end
+        detail.record(bl.name, has)
+      end
+    elseif reviewing and blessingEligible then
+      out[#out + 1] = bl.name
+    elseif blessingEligible then
       local has = HasAny(unit, bl.names)
       if report then
         checked = true
@@ -2076,10 +2464,15 @@ local function Consider(unit, isGroup)
   local auraUnknown = X.auraUnknown
   e.remain1 = X.remainTmp
   if isGroup and not auraUnknown and allN == 0 then X.missNow[guid] = {} end
-  local n, approximate = X.FilterInRange(unit, e.allMissing, e.missing, isSelf)
-  if allN > 0 and n == 0 and db.rangeWatch then X.farNow[guid] = nm or true end
-  if n == 0 then return end  -- only list targets with a buff currently in range
-  nEntries = slot
+  local queue = e.allMissing
+  if X.subgroupDuties and next(X.subgroupDuties) and InRaid() then
+    e.subgroupMissing = e.subgroupMissing or {}
+    queue = X.FilterSubgroupDuties(unit, isGroup, e.allMissing, e.subgroupMissing)
+    if queue[1] ~= e.allMissing[1] then e.remain1 = nil end
+  end
+  local n, approximate = X.FilterInRange(unit, queue, e.missing, isSelf)
+  if #queue > 0 and n == 0 and db.rangeWatch then X.farNow[guid] = nm or true end
+  if n == 0 and (#queue > 0 or allN == 0) then return end
   local _, class = UnitClass(unit)
   e.unit, e.guid, e.name, e.class, e.group = unit, guid, nm or unit, SafeString(class), isGroup
   e.fullName, e.sortName = full, nm or ""
@@ -2117,6 +2510,8 @@ local function Consider(unit, isGroup)
   else
     e.expired = nil
   end
+  if n == 0 then return end
+  nEntries = slot
   local rz = X.rezAt[guid]
   e.rezzed = (rz and GetTime() - rz < 60) or nil
   e.outOfRange = false
@@ -2171,7 +2566,12 @@ function X.ConsiderPet(petUnit, ownerUnit)
   if not e.allMissing then e.allMissing = {} end
   local allN = X.PetMissing(petUnit, e.allMissing)
   if allN == 0 then return end
-  local n, approximate = X.FilterInRange(petUnit, e.allMissing, e.missing, isSelf)
+  local queue = e.allMissing
+  if X.subgroupDuties and next(X.subgroupDuties) and InRaid() then
+    e.subgroupMissing = e.subgroupMissing or {}
+    queue = X.FilterSubgroupDuties(ownerUnit, true, e.allMissing, e.subgroupMissing)
+  end
+  local n, approximate = X.FilterInRange(petUnit, queue, e.missing, isSelf)
   if n == 0 then return end
   nEntries = slot
   local _, oclass = UnitClass(ownerUnit)
@@ -2339,7 +2739,7 @@ local function CollectEntries()
   for i = 1, nEntries do
     local e = entries[i]
     local k = X.KeyOfName(e.missing[1])
-    local who = k and X.assign[k]
+    local who = k and (X.assign[k] or X.CoordinatedHolder(k))
     -- Holder identity goes through SameUser: assignments carry the
     -- name as typed (often short), my identity is the full name.
     -- An assignment held by a covered (dead/AFK) user counts as mine:
@@ -2401,7 +2801,7 @@ function X.KeyOfName(name)
     X.nameKeyStamp = bookCount
     X.nameKey = {}
     for _, b in ipairs(myBuffs) do X.nameKey[b.name] = b.key end
-    for _, b in pairs(myBlessing) do X.nameKey[b.name] = "BLESSINGS" end
+    for _, b in pairs(blessKnown) do X.nameKey[b.name] = "BLESSINGS" end
   end
   return X.nameKey[name]
 end
@@ -2452,10 +2852,10 @@ end
 
 -- Raid tokens already include the player. In a party, scan the player once
 -- before the party tokens. An unreadable occupied slot is unknown, not absent.
-function X.ForReportRoster(visit)
+function X.ForReportRoster(visit, limit)
   local raid = InRaid()
   local roster = raid and RAID or PARTY
-  for i = raid and 1 or 0, #roster do
+  for i = raid and 1 or 0, limit and math_min(limit, #roster) or #roster do
     local unit = roster[i] or "player"
     local exists = X.ReadUnitBool(UnitExists, unit)
     if exists ~= false then visit(unit, exists) end
@@ -2466,6 +2866,138 @@ function X.ReadyIdentity(unit)
   local ok, guid = pcall(UnitGUID, unit)
   local full, name = Ignore.UnitNames(unit)
   return ok and SafeString(guid) or nil, full, name
+end
+
+function X.RaidSubgroup(index)
+  if not index or not GetRaidRosterInfo then return nil end
+  local ok, _, _, subgroup = pcall(GetRaidRosterInfo, index)
+  if ok and Readable(subgroup) and type(subgroup) == "number"
+    and subgroup >= 1 and subgroup <= 8 and subgroup == math_floor(subgroup) then return subgroup end
+end
+
+function X.RaidCoverage()
+  if not CLASSIC_FEATURES or not db or InCombatLockdown() or X.PlayerSuspended() then return nil end
+  local raid = InRaid()
+  local report = { raid = raid, incomplete = false, groups = {}, grouped = InGroup() }
+  if not report.grouped then return report end
+  local count, seenGUIDs, groups = 0, {}, {}
+  local size = X.ReadUnitNumber(GetNumGroupMembers)
+  X.ForReportRoster(function(unit, exists)
+    if not exists then report.incomplete = true; return end
+    local guid, full, short = X.ReadyIdentity(unit)
+    if not guid or guid == "" or seenGUIDs[guid] then report.incomplete = true; return end
+    seenGUIDs[guid], count = true, count + 1
+    local isSelf = X.IsSelf(unit)
+    if not full or full == "" or isSelf == nil then report.incomplete = true; return end
+    if Ignore.Has(full, short) or X.SessionHas(full, short) then return end
+    local subgroup = 1
+    if raid then
+      subgroup = X.RaidSubgroup(tonumber(unit:match("^raid(%d+)$"))) or 0
+      if subgroup == 0 then report.incomplete = true end
+    end
+    local group = groups[subgroup]
+    if not group then group = {}; groups[subgroup] = group end
+    local memberStatus = {}
+    local observable = X.ReadUnitBool(UnitIsDeadOrGhost, unit) == false
+      and X.ReadUnitBool(UnitIsConnected, unit) == true
+    if _G.UnitInPhase and X.ReadUnitBool(_G.UnitInPhase, unit) ~= true then observable = false end
+    local _, unknown = Missing(unit, {}, true, isSelf, "raidCoverage", {
+      observable = observable,
+      record = function(spell, has)
+        local rank = has == true and 3 or has == nil and 2 or 1
+        if rank > (memberStatus[spell] or 0) then memberStatus[spell] = rank end
+      end,
+    })
+    if unknown then report.incomplete = true end
+    for spell, rank in pairs(memberStatus) do
+      local row = group[spell]
+      if not row then row = { name = spell, confirmed = 0, missing = {}, unknown = {} }; group[spell] = row end
+      if rank == 3 then row.confirmed = row.confirmed + 1
+      elseif rank == 2 then row.unknown[#row.unknown + 1] = full
+      else row.missing[#row.missing + 1] = full end
+    end
+  end)
+  X.scanUnit = nil
+  if count ~= size then report.incomplete = true end
+  for offset = 1, 9 do
+    local subgroup = offset % 9
+    local group = groups[subgroup]
+    if group and next(group) then
+      local buffs = {}
+      for _, buff in pairs(group) do
+        table_sort(buff.missing)
+        table_sort(buff.unknown)
+        buffs[#buffs + 1] = buff
+      end
+      table_sort(buffs, function(a, b) return a.name < b.name end)
+      report.groups[#report.groups + 1] = { id = subgroup, buffs = buffs }
+    end
+  end
+  return report
+end
+
+do
+  local function MemberGUID(unit)
+    local ok, guid = pcall(UnitGUID, unit)
+    if ok and type(guid) == "string" and Readable(guid) and guid ~= "" then return guid end
+  end
+
+  function X.GetAssignmentRoleOverride(unit)
+    if not X.assignmentRoleOverrides or not next(X.assignmentRoleOverrides) then return nil end
+    local guid = MemberGUID(unit)
+    return guid and X.assignmentRoleOverrides[guid]
+  end
+
+  function X.SetAssignmentRole(unit, guid, role)
+    if not X.AssignmentEnabled() or InCombatLockdown() or X.PlayerSuspended() or not InGroup()
+      or not Readable(unit) or type(unit) ~= "string"
+      or not Readable(guid) or type(guid) ~= "string" or guid == ""
+      or (type(role) ~= "nil" and (not Readable(role)
+        or (role ~= "TANK" and role ~= "HEALER" and role ~= "DAMAGER"))) then
+      return false
+    end
+    local matched = false
+    X.ForReportRoster(function(member, exists)
+      if exists and member == unit and X.IsSelf(member) == false
+        and MemberGUID(member) == guid and (role == nil or not AssignedRole(member)) then
+        matched = true
+      end
+    end)
+    if not matched then return false end
+    X.assignmentRoleOverrides = X.assignmentRoleOverrides or {}
+    X.assignmentRoleOverrides[guid] = role
+    X.assignmentGroupConflicts = nil
+    return true
+  end
+
+  function X.PruneAssignmentRoleOverrides()
+    if not X.assignmentRoleOverrides or not next(X.assignmentRoleOverrides) then return end
+    local size = X.ReadUnitNumber(GetNumGroupMembers)
+    if not size or size <= 0 then return end  -- GROUP_LEFT clears the entire session
+    local limit = math_floor(size) - (InRaid() and 0 or 1)
+    local rosterGUIDs, count, incomplete = {}, 0, false
+    X.ForReportRoster(function(member, exists)
+      local guid = exists and MemberGUID(member)
+      if guid and not rosterGUIDs[guid] then
+        rosterGUIDs[guid], count = true, count + 1
+      else
+        incomplete = true
+      end
+    end, limit)
+    if incomplete or count ~= size then return end
+    for guid in pairs(X.assignmentRoleOverrides) do
+      if not rosterGUIDs[guid] then X.assignmentRoleOverrides[guid] = nil end
+    end
+  end
+
+  function X.AssignmentRoleEditorState(unit, exists)
+    if not exists or not X.AssignmentEnabled() or X.IsSelf(unit) ~= false then return end
+    local guid = MemberGUID(unit)
+    if not guid then return end
+    local manual = X.assignmentRoleOverrides and X.assignmentRoleOverrides[guid]
+    local canSet = AssignedRole(unit) == nil
+    return guid, manual, canSet or manual ~= nil, canSet
+  end
 end
 
 -- Coverage is independent of cast distance, cooldowns and window filters.
@@ -2721,13 +3253,14 @@ end
 X.GroupSpellFor = GroupSpellFor
 
 local reagents = {}
-local function ReagentCount(item)
-  local cached = reagents[item]
+local function ReagentCount(item, cache)
+  cache = cache or reagents
+  local cached = cache[item]
   if cached ~= nil then return cached end
   local api = _G.C_Item and _G.C_Item.GetItemCount or _G.GetItemCount
   local count = X.ReadUnitNumber(api, item, false, false, false, false)
-  reagents[item] = count and count >= 0 and count or false
-  return reagents[item]
+  cache[item] = count and count >= 0 and count or false
+  return cache[item]
 end
 
 function X.InvalidateReagents()
@@ -2739,8 +3272,218 @@ local function UnitClassFile(unit)
   return ok and SafeString(class)
 end
 
+-- A responsibility limits our queue. It is separate from the recipient's
+-- saved assignment and from coverage, which always describes the whole group.
+function X.SubgroupAllows(key, unit, isGroup)
+  local groups = X.subgroupDuties and X.subgroupDuties[key]
+  if not groups or not InRaid() then return true end
+  local index = tonumber(unit:match("^raid(%d+)$"))
+  if not index and _G.UnitInRaid then
+    local ok, value = pcall(_G.UnitInRaid, unit)
+    if not ok then return false end
+    if type(value) == "nil" then return not isGroup end
+    if not Readable(value) then return false end
+    if type(value) == "number" and value >= 1 and value <= 40 and value == math_floor(value) then index = value end
+  end
+  local subgroup = index and X.RaidSubgroup(index)
+  return subgroup ~= nil and groups[subgroup] == true
+end
+
+function X.SubgroupBuffKey(spell)
+  for _, buff in ipairs(myBuffs) do
+    if buff.name == spell and not buff.self then return buff.key end
+  end
+  for _, blessing in pairs(blessKnown) do
+    if blessing.name == spell then return "BLESSINGS" end
+  end
+end
+
+function X.FilterSubgroupDuties(unit, isGroup, spells, out)
+  wipe(out)
+  for _, spell in ipairs(spells) do
+    local key = X.SubgroupBuffKey(spell)
+    if not key or X.SubgroupAllows(key, unit, isGroup) then
+      out[#out + 1] = spell
+    end
+  end
+  return out
+end
+
+function X.SubgroupDutyCommand(input)
+  if not CLASSIC_FEATURES then return end
+  if InCombatLockdown() or X.PlayerSuspended() then return end
+  local key, selection = input:upper():match("^%s*(%S+)%s+(%S+)%s*$")
+  if input:match("^%s*$") then
+    local lines = {}
+    for buffKey, groups in pairs(X.subgroupDuties or {}) do
+      local selected = {}
+      for i = 1, 8 do if groups[i] then selected[#selected + 1] = i end end
+      lines[#lines + 1] = buffKey .. " · " .. (#selected > 0 and table.concat(selected, ", ") or L["None"])
+    end
+    table_sort(lines)
+    if #lines == 0 then Print(L["No subgroup responsibilities."]) end
+    for _, line in ipairs(lines) do Print(line) end
+    local keys = {}
+    for _, buff in ipairs(myBuffs) do if not buff.self then keys[#keys + 1] = buff.key end end
+    if X.HasKnownBlessings() then keys[#keys + 1] = "BLESSINGS" end
+    table_sort(keys)
+    if #keys > 0 then Print(string_format(L["Available Buff Keys: %s"], table.concat(keys, ", "))) end
+    return
+  end
+  local available = key == "BLESSINGS" and X.HasKnownBlessings()
+  for _, buff in ipairs(myBuffs) do
+    if buff.key == key and not buff.self then available = true; break end
+  end
+  if not available or not selection or not InRaid() or
+    (selection ~= "ALL" and selection ~= "NONE" and not selection:match("^[1-8][,1-8]*$")) then
+    Print(L["In a raid, use /br subgroup BUFF 1,2,3 or ALL or NONE."])
+    return
+  end
+  local groups
+  if selection ~= "ALL" then
+    groups = {}
+    if selection ~= "NONE" then
+      for group in selection:gmatch("[^,]+") do
+        if #group ~= 1 then Print(L["Use subgroup numbers 1 to 8, separated by commas."]); return end
+        groups[tonumber(group)] = true
+      end
+      if selection:find(",,", 1, true) or selection:sub(-1) == "," then
+        Print(L["Use subgroup numbers 1 to 8, separated by commas."]); return
+      end
+    end
+  end
+  X.subgroupDuties = X.subgroupDuties or {}
+  X.subgroupDuties[key] = groups
+  X.assignmentGroupConflicts = nil
+  Print(string_format(L["Subgroup responsibility updated for %s."], key))
+  X.Refresh()
+end
+
+local function AddGroupBlocker(report, member, blocker)
+  if not report.first then report.first = blocker end
+  local ok, guid = pcall(UnitGUID, member)
+  local key = ok and Readable(guid) and type(guid) == "string" and guid ~= "" and guid or member
+  if report.seen[key] then return end
+  report.seen[key] = true
+  report.members[#report.members + 1] = blocker
+  blocker.memberKey = key
+  if key ~= member then blocker.guid = key end
+end
+
+-- Broad spells use single-target fallback if the observed affected roster
+-- includes someone excluded by an assignment.
+local function GroupAssignmentConflict(spell, groupSpell, unit, greater, baseID, cache)
+  if not X.AssignmentEnabled() or not next(db.buffAssignments) then return false end
+  if not baseID or not (X.IsSelf(unit) or unit:match("^party%d+$") or unit:match("^raid%d+$")) then
+    return { first = { kind = "scope", spell = groupSpell, single = spell }, members = {} }
+  end
+  local targetClass = greater and UnitClassFile(unit)
+  if greater and not targetClass then
+    return { first = { kind = "roster", spell = groupSpell, single = spell }, members = {}, incomplete = true }
+  end
+  local scope = targetClass and spell .. ":" .. targetClass or spell
+  cache = cache or X.assignmentGroupConflicts
+  if cache and cache[scope] ~= nil then return cache[scope] end
+  local buffKey
+  if not greater then
+    for _, buff in ipairs(myBuffs) do
+      if buff.name == spell and not buff.custom then buffKey = buff.key; break end
+    end
+    if not buffKey then return { first = { kind = "scope", spell = groupSpell, single = spell }, members = {} } end
+  end
+  local report = { members = {}, seen = {} }
+  local rosterCount = 0
+  X.ForReportRoster(function(member, exists)
+    rosterCount = rosterCount + 1
+    if exists and X.IsSelf(member) then return end
+    local class = exists and UnitClassFile(member)
+    if not class then
+      report.incomplete = true
+      if not report.first then report.first = { kind = "roster", spell = groupSpell, single = spell } end
+      return
+    end
+    if greater and class ~= targetClass then return end
+    local assignment, source, role, _, manual = X.AssignmentForUnit(class, member, true, false)
+    if assignment == nil then return end
+    local kind, blessing
+    if greater then
+      local selected, owner = X.BlessingForClass(class, member, assignment)
+      if selected and selected.name == spell then return end
+      kind, blessing = owner, selected and selected.name
+    elseif assignment and assignment[buffKey] then
+      return
+    end
+    AddGroupBlocker(report, member, { kind = kind or "rule", spell = groupSpell, single = spell,
+      name = Ignore.UnitNames(member), rule = X.AssignmentRuleText(class, role, source, assignment, true, manual),
+      blessing = blessing, class = class, slot = source })
+  end)
+  local conflict = false
+  if report.first then
+    local size = X.ReadUnitNumber(GetNumGroupMembers)
+    if size and rosterCount < size then report.incomplete = true end
+    conflict = report
+  end
+  if cache then cache[scope] = conflict end
+  return conflict
+end
+
+function X.GroupBlockersFor(spell, name, unit, greater, baseID, preview)
+  if InRaid() and X.subgroupDuties and next(X.subgroupDuties) then
+    local key = X.SubgroupBuffKey(spell)
+    if key and X.subgroupDuties[key] then
+      local targetClass = greater and UnitClassFile(unit)
+      local blocked = greater and not targetClass
+      local count = 0
+      X.ForReportRoster(function(member, exists)
+        if not exists then blocked = true; return end
+        count = count + 1
+        local class = greater and UnitClassFile(member)
+        if (not greater or not class or class == targetClass) and not X.SubgroupAllows(key, member, true) then
+          blocked = true
+        end
+      end)
+      if blocked or count ~= X.ReadUnitNumber(GetNumGroupMembers) then
+        return { first = { kind = "subgroup", spell = name, single = spell }, members = {} }, "subgroup"
+      end
+    end
+  end
+  local blocker = GroupAssignmentConflict(spell, name, unit, greater, baseID, preview and preview.conflicts)
+  if greater and X.blessingExceptions and next(X.blessingExceptions) then
+    local class = UnitClassFile(unit)
+    local report = { first = blocker and blocker.first, members = {}, seen = {}, incomplete = blocker and blocker.incomplete }
+    local rosterCount = 0
+    if blocker then
+      for _, member in ipairs(blocker.members) do
+        report.members[#report.members + 1] = member
+        report.seen[member.memberKey] = true
+      end
+    end
+    X.ForReportRoster(function(member, exists)
+      rosterCount = rosterCount + 1
+      local memberClass = exists and UnitClassFile(member)
+      if not memberClass then report.incomplete = true end
+      if not exists or memberClass ~= class then return end
+      local ok, guid = pcall(UnitGUID, member)
+      local key = ok and SafeString(guid)
+      if not key or key == "" then report.incomplete = true end
+      local exception = key and X.blessingExceptions[key]
+      local blessing = exception and blessKnown[exception]
+      if blessing and (member == unit or blessing.name ~= spell) then
+        AddGroupBlocker(report, member, { kind = "exception", spell = name, single = spell,
+          name = Ignore.UnitNames(member), blessing = blessing.name, class = memberClass })
+      end
+    end)
+    if report.first then
+      local size = X.ReadUnitNumber(GetNumGroupMembers)
+      if size and rosterCount < size then report.incomplete = true end
+      return report, blocker and "assignment" or "exception"
+    end
+  end
+  if blocker then return blocker, "assignment" end
+end
+
 -- Reapplied per roster/scan, shared by automatic, modifier and keybind offers.
-function X.GroupOffer(spell, unit)
+function X.GroupOffer(spell, unit, preview)
   if not CLASSIC_FEATURES then return nil end
   local name, baseID, greater = GroupSpellFor(spell)
   if not name then return nil end
@@ -2748,20 +3491,11 @@ function X.GroupOffer(spell, unit)
   local pick = X.BindingRank(name, unit, X.ReadUnitNumber(UnitLevel, unit), db.castMethod)
   if pick == false or (baseID and not known[name] and not X.ReadUnitBool(_G.IsPlayerSpell, baseID)
       and not X.ReadUnitBool(_G.IsSpellKnown, baseID)) then return nil end
-  if greater and X.blessingExceptions and next(X.blessingExceptions) then
-    local class, conflict = UnitClassFile(unit), false
-    X.ForReportRoster(function(member, exists)
-      if conflict or not exists or UnitClassFile(member) ~= class then return end
-      local ok, guid = pcall(UnitGUID, member)
-      local key = ok and SafeString(guid)
-      local exception = key and X.blessingExceptions[key]
-      if exception and blessKnown[exception] and (member == unit or blessKnown[exception].name ~= spell) then conflict = true end
-    end)
-    if conflict then return nil, nil, nil, "exception" end
-  end
+  local blocker, reason = X.GroupBlockersFor(spell, name, unit, greater, baseID, preview)
+  if blocker then return nil, nil, nil, reason, nil, blocker end
   local exact = db.castMethod ~= "macro" and pick
   local item = X.groupReagents[(exact and exact.id) or (list and list[#list].id) or baseID]
-  local count = item and ReagentCount(item)
+  local count = item and ReagentCount(item, preview and preview.reagents)
   if count == false or count == 0 then return nil, item, count, "reagent" end
   return name, item, count, nil, greater
 end
@@ -2775,7 +3509,46 @@ local function ReagentName(item)
   return tostring(item)
 end
 
-function X.GroupOfferReason(item, count, reason)
+local function GroupBlockerText(blocker)
+  local name = blocker.name and blocker.name ~= "" and blocker.name or L["A group member"]
+  if blocker.kind == "subgroup" then
+    return string_format(L["%s could reach a subgroup outside your responsibility."], blocker.spell)
+  elseif blocker.kind == "roster" then
+    return string_format(L["%s could not be verified because roster information is unavailable."], blocker.spell)
+  elseif blocker.kind == "scope" then
+    return string_format(L["%s could not be verified because its group coverage is unknown."], blocker.spell)
+  elseif blocker.kind == "exception" then
+    return string_format(L["%s conflicts with %s's individual blessing exception (%s)."],
+      blocker.spell, name, blocker.blessing or blocker.single)
+  elseif blocker.kind == "other" then
+    return string_format(L["%s is blocked because %s's blessing is assigned to another Paladin."], blocker.spell, name)
+  elseif blocker.kind == "plan" then
+    return string_format(L["%s is blocked because %s has a different group-plan blessing (%s)."],
+      blocker.spell, name, blocker.blessing or L["Rule unavailable"])
+  else
+    return string_format(L["%s would reach %s, whose assignment excludes %s (%s)."],
+      blocker.spell, name, blocker.single, blocker.rule)
+  end
+end
+
+function X.GroupOfferReason(item, count, reason, blockers, compact)
+  if blockers then
+    local first, total = blockers.first, #blockers.members
+    local text
+    if compact and total > 0 then
+      local template = total == 1 and L["%s is blocked by %d group member."]
+        or L["%s is blocked by %d group members."]
+      text = string_format(template, first.spell, total)
+      if blockers.incomplete then
+        text = text .. " " .. L["The blocker list may be incomplete because some roster information is unavailable."]
+      end
+      if first.kind == "scope" then text = text .. " " .. GroupBlockerText(first) end
+    else
+      text = GroupBlockerText(first)
+    end
+    return text .. " " .. string_format(L["Using %s on one player instead."], first.single)
+  end
+  if reason == "assignment" then return L["Group buff would conflict with an assignment."] end
   if reason == "exception" then return L["Group blessing would conflict with a player exception."] end
   if reason == "reagent" then
     return string_format(count == false and L["Could not check reagent: %s."] or L["Missing reagent: %s."],
@@ -2783,14 +3556,280 @@ function X.GroupOfferReason(item, count, reason)
   end
 end
 
+local function GroupBlockerDetails(blockers, lines, actions, origin)
+  local first = blockers.first
+  if #blockers.members == 0 or first.kind == "scope" then
+    lines[#lines + 1] = GroupBlockerText(first)
+  end
+  for _, blocker in ipairs(blockers.members) do
+    lines[#lines + 1] = GroupBlockerText(blocker)
+    if blocker.guid and blocker.name and blocker.name ~= "" then
+      if blocker.kind == "rule" and X.ValidAssignmentCell(blocker.class, blocker.slot) then
+        actions[#lines] = { kind = "rule", class = blocker.class, slot = blocker.slot, guid = blocker.guid,
+          origin = origin, single = blocker.single, baseline = X.GetAssignment(blocker.class, blocker.slot),
+          profileRevision = X.blockerProfileRevision }
+      elseif blocker.kind == "exception" then
+        actions[#lines] = { kind = "exception", guid = blocker.guid, name = blocker.name, class = blocker.class,
+          origin = origin, single = blocker.single, baseline = X.blessingExceptions[blocker.guid],
+          profileRevision = X.blockerProfileRevision }
+      end
+    end
+  end
+  if blockers.incomplete and (#blockers.members > 0 or first.kind ~= "roster") then
+    lines[#lines + 1] = L["The blocker list may be incomplete because some roster information is unavailable."]
+  end
+  lines[#lines + 1] = string_format(L["Using %s on one player instead."], first.single)
+end
+
+do
+local function SameSnapshot(a, b)
+  if type(a) ~= "table" or type(b) ~= "table" then return a == b end
+  for key, value in pairs(a) do
+    if not SameSnapshot(value, b[key]) then return false end
+  end
+  for key in pairs(b) do
+    if a[key] == nil then return false end
+  end
+  return true
+end
+
+local function ReviewRoster()
+  local raid = InRaid()
+  local size = X.ReadUnitNumber(GetNumGroupMembers)
+  local incomplete = not size or size < 2 or size > (raid and 40 or 5) or size ~= math_floor(size)
+  local roster, count = {}, 0
+  X.ForReportRoster(function(unit, exists)
+    if not exists then incomplete = true; return end
+    local ok, guid = pcall(UnitGUID, unit)
+    local class, isSelf = UnitClassFile(unit), X.IsSelf(unit)
+    local full, short = Ignore.UnitNames(unit)
+    local role, roleReadable = AssignedRole(unit)
+    if not ok or not Readable(guid) or type(guid) ~= "string" or guid == "" or roster[guid]
+      or not class or isSelf == nil or not full or full == "" then
+      incomplete = true
+      return
+    end
+    if not roleReadable then incomplete = true end
+    local eligible = Valid(unit) and not Ignore.Has(full, short) and not X.SessionHas(full, short)
+    roster[guid] = { unit = unit, guid = guid, name = full, class = class, isSelf = isSelf, role = role,
+      manual = X.assignmentRoleOverrides and X.assignmentRoleOverrides[guid], eligible = eligible }
+    count = count + 1
+  end)
+  return roster, incomplete or count ~= size, raid
+end
+
+local function StillBlocks(action, origin)
+  if not origin.eligible then return false end
+  local offers, offered = {}, false
+  Missing(origin.unit, offers, true, origin.isSelf, "assignmentReview", { member = origin })
+  for _, spell in ipairs(offers) do
+    if spell == action.single then offered = true; break end
+  end
+  if not offered then return false end
+  local name, baseID, greater = GroupSpellFor(action.single)
+  if not name or (baseID and not known[name] and not X.ReadUnitBool(_G.IsPlayerSpell, baseID)
+    and not X.ReadUnitBool(_G.IsSpellKnown, baseID)) then return false end
+  local report = X.GroupBlockersFor(action.single, name, origin.unit, greater, baseID, { conflicts = {} })
+  for _, blocker in ipairs(report and report.members or {}) do
+    if blocker.kind == action.kind and blocker.guid == action.guid and blocker.class == action.class
+      and (action.kind ~= "rule" or blocker.slot == action.slot) then return true end
+  end
+  return false
+end
+
+local function AddedOffers(before, after)
+  local prior, added = {}, {}
+  for _, spell in ipairs(before) do prior[spell] = true end
+  for _, spell in ipairs(after) do
+    if not prior[spell] then
+      added[#added + 1] = spell
+      prior[spell] = true
+    end
+  end
+  return added
+end
+
+-- Compare assignment offers before aura, range, and cooldown checks so those
+-- transient states cannot be mistaken for a buff gained or lost by an edit.
+function X.ReviewBlockerEdit(action, value)
+  if not CLASSIC_FEATURES or not db or not InGroup() or InCombatLockdown() or X.PlayerSuspended()
+    or type(action) ~= "table" or action.profileRevision ~= X.blockerProfileRevision
+    or type(action.guid) ~= "string" or not Readable(action.guid) or action.guid == ""
+    or type(action.origin) ~= "string" or not Readable(action.origin) or action.origin == ""
+    or type(action.single) ~= "string" or not Readable(action.single) or action.single == ""
+    or type(action.class) ~= "string" or not Readable(action.class) then return nil end
+  local proposal = { kind = action.kind, class = action.class, slot = action.slot, guid = action.guid }
+  if action.kind == "rule" then
+    if not X.AssignmentEnabled() or type(action.slot) ~= "string" or not Readable(action.slot)
+      or not X.ValidAssignmentCell(action.class, action.slot)
+      or not SameSnapshot(action.baseline, X.GetAssignment(action.class, action.slot)) then return nil end
+    proposal.value = X.CopyAssignment(value)
+    if type(value) ~= "nil" and proposal.value == nil then return nil end
+  elseif action.kind == "exception" then
+    local key = X.blessingExceptions and X.blessingExceptions[action.guid]
+    local plan = X.blessPlan[action.class]
+    if not key or action.baseline ~= key or not Readable(value) or type(value) ~= "string"
+      or (value ~= "DEFAULT" and (not blessKnown[value] or (plan and not plan.mine))) then return nil end
+    if value ~= "DEFAULT" then proposal.value = value end
+  else
+    return nil
+  end
+
+  local roster, incomplete, raid = ReviewRoster()
+  local target, origin = roster[action.guid], roster[action.origin]
+  if target and target.class ~= action.class then return nil end
+  if not incomplete and (not target or not origin or not StillBlocks(action, origin)) then return nil end
+  local review = { action = action, proposal = proposal, incomplete = incomplete, rows = {},
+    state = { raid = raid, spec = X.spec, members = {} } }
+  for guid, member in pairs(roster) do
+    local before, after = {}, {}
+    if member.eligible then
+      Missing(member.unit, before, true, member.isSelf, "assignmentReview", { member = member })
+      Missing(member.unit, after, true, member.isSelf, "assignmentReview", { member = member, proposal = proposal })
+    end
+    local assignment, source = X.AssignmentForUnit(member.class, member.unit, true, member.isSelf, nil, member)
+    local plan = X.blessPlan[member.class]
+    review.state.members[guid] = { class = member.class, name = member.name, isSelf = member.isSelf,
+      role = member.role, manual = member.manual, eligible = member.eligible, source = source,
+      assignment = X.CopyAssignment(assignment), plan = plan and { key = plan.key, name = plan.name, mine = plan.mine },
+      exception = X.blessingExceptions and X.blessingExceptions[guid], before = before, after = after }
+    local gains, losses = AddedOffers(before, after), AddedOffers(after, before)
+    if #gains > 0 or #losses > 0 then
+      review.rows[#review.rows + 1] = { name = member.name, gains = gains, losses = losses }
+    end
+  end
+  table_sort(review.rows, function(a, b) return a.name < b.name end)
+  return review
+end
+
+function X.ApplyBlockerEdit(action, value, previous)
+  if not previous or previous.action ~= action or previous.incomplete then return false end
+  local fresh = X.ReviewBlockerEdit(action, value)
+  if not fresh then return false end
+  if fresh.incomplete or not SameSnapshot(previous.proposal, fresh.proposal)
+    or not SameSnapshot(previous.state, fresh.state) then return false, fresh end
+  if InCombatLockdown() or X.PlayerSuspended() then return false end
+  local prior, applied = action.baseline
+  local after = fresh.proposal.value
+  if SameSnapshot(prior, after) then return true end
+  if action.kind == "rule" then applied = X.SetAssignment(action.class, action.slot, after)
+  else applied = X.SetBlessingExceptionForGUID(action.guid, after or "DEFAULT") ~= nil end
+  if applied then
+    X.blockerUndo = { kind = action.kind, guid = action.guid, class = action.class, slot = action.slot,
+      revision = X.blockerProfileRevision, prior = prior, after = after }
+  end
+  return applied
+end
+
+function X.UndoBlockerEdit()
+  if not CLASSIC_FEATURES or not db or InCombatLockdown() or X.PlayerSuspended() then return end
+  local undo = X.blockerUndo
+  if not undo then return false, "There is no blocker edit to undo." end
+  local function expired()
+    X.blockerUndo = nil
+    return false, "The blocker edit can no longer be undone."
+  end
+  if not InGroup() or undo.revision ~= X.blockerProfileRevision then return expired() end
+  local roster, incomplete = ReviewRoster()
+  if incomplete then return false, "The group could not be checked. Try Undo again when roster information is available." end
+  local member = roster[undo.guid]
+  if not member or member.class ~= undo.class then return expired() end
+  local applied
+  if undo.kind == "rule" then
+    if not X.AssignmentEnabled() or not SameSnapshot(undo.after, X.GetAssignment(undo.class, undo.slot)) then
+      return expired()
+    end
+    applied = X.SetAssignment(undo.class, undo.slot, undo.prior)
+  else
+    local current = X.blessingExceptions and X.blessingExceptions[undo.guid]
+    if current ~= undo.after then return expired() end
+    applied = X.SetBlessingExceptionForGUID(undo.guid, undo.prior or "DEFAULT", true) ~= nil
+  end
+  if not applied then return expired() end
+  X.blockerUndo = nil
+  return true, "The last blocker edit was undone."
+end
+
+function X.PruneBlockerUndo()
+  local undo = X.blockerUndo
+  if not undo or InCombatLockdown() or X.PlayerSuspended() then return end
+  if not InGroup() then X.blockerUndo = nil; return end
+  local roster, incomplete = ReviewRoster()
+  if not incomplete and not roster[undo.guid] then X.blockerUndo = nil end
+end
+end
+
+-- Out-of-combat snapshot, separate from the live queue and secure cast rows.
+function X.AssignmentPreview()
+  local members = {}
+  if not CLASSIC_FEATURES or not db or not InGroup() or InCombatLockdown() or X.PlayerSuspended() then return members end
+  local cooldowns, groupPreview = {}, { conflicts = {}, reagents = {} }
+  local size = X.ReadUnitNumber(GetNumGroupMembers)
+  local limit = size and size > 0 and math_floor(size) - (InRaid() and 0 or 1) or nil
+  X.ForReportRoster(function(unit, exists)
+    local guid, full, short
+    if exists then guid, full, short = X.ReadyIdentity(unit) end
+    local row = { name = full or short or L["Player details unavailable"], identity = guid,
+      buffs = {}, available = {} }
+    if full then
+      row.unit = unit
+      row.guid, row.roleOverride, row.roleEditable, row.roleCanSet = X.AssignmentRoleEditorState(unit, exists)
+    end
+    members[#members + 1] = row
+    local valid, isSelf = Valid(unit)
+    if not exists or not guid or not full then
+      row.rule, row.status = L["Rule unavailable"], L["Player details unavailable"]
+    elseif not valid or Ignore.Has(full, short) or X.SessionHas(full, short) then
+      local class = UnitClassFile(unit)
+      local assignment, source, role, _, manual = X.AssignmentForUnit(class, unit, true, X.IsSelf(unit))
+      row.rule = X.AssignmentRuleText(class, role, source, assignment, true, manual)
+      row.status = valid and L["Ignored"] or L["Currently ineligible"]
+    else
+      local detail = { cooldown = {}, cooldowns = cooldowns }
+      local _, unknown = Missing(unit, row.buffs, true, isSelf, "why", detail)
+      row.evaluated, row.unknown = true, unknown
+      row.rule = detail.rule
+      local _, _, rangeUnknown, rankLimited = X.FilterInRange(unit, row.buffs, row.available, isSelf, true)
+      if X.failedTargets[guid] and X.failedTargets[guid] > GetTime() then
+        row.status = L["Temporarily skipped after a failed cast"]
+        wipe(row.available)
+      elseif unknown then row.status = L["Buff information unavailable"]
+      elseif rangeUnknown then row.status = L["Range could not be confirmed"]
+      elseif rankLimited then row.status = L["No eligible rank or range"]
+      elseif #row.buffs > #row.available then row.status = L["Out of cast range"] end
+      if #detail.cooldown > 0 then
+        local note = string_format(L["On cooldown: %s"], table.concat(detail.cooldown, ", "))
+        row.status = row.status and row.status .. " · " .. note or note
+        for _, spell in ipairs(detail.cooldown) do row.buffs[#row.buffs + 1] = spell end
+      end
+      if detail.blessing then row.rule = row.rule .. " · " .. detail.blessing end
+      local group, details, actions = {}, {}, {}
+      for _, spell in ipairs(row.available) do
+        local offer, item, count, reason, _, blocker = X.GroupOffer(spell, unit, groupPreview)
+        local text = X.GroupOfferReason(item, count, reason, blocker, true)
+        if blocker then GroupBlockerDetails(blocker, details, actions, guid) end
+        if offer then group[#group + 1] = string_format(L["Group option: %s"], offer)
+        elseif text then group[#group + 1] = blocker and text or spell .. " · " .. text end
+      end
+      if #group > 0 then row.group = table.concat(group, " · ") end
+      if #details > 0 then row.groupDetails, row.groupActions = details, actions end
+    end
+  end, limit)
+  -- The index fallback is a one-unit scratch buffer. Invalidate it after
+  -- reading a roster so later live scans rebuild it for their own unit.
+  X.scanUnit = nil
+  return members
+end
+
 function X.ReagentSummary(report)
   if not CLASSIC_FEATURES or not report then return nil end
+  local preview = { conflicts = {}, reagents = {} }
   local needed, scopes, unclassified = {}, {}, false
   for _, person in ipairs(report.people) do
     for _, spell in ipairs(person.buffs) do
       local name, _, greater = GroupSpellFor(spell)
       if name then
-        local offer, item, _, reason = X.GroupOffer(spell, person.unit)
+        local offer, item, _, reason = X.GroupOffer(spell, person.unit, preview)
         local class = not greater and "" or UnitClassFile(person.unit)
         if item and class then
           local scope = name .. ":" .. class
@@ -2807,7 +3846,7 @@ function X.ReagentSummary(report)
   end
   local parts = {}
   for item, amount in pairs(needed) do
-    local count = ReagentCount(item)
+    local count = ReagentCount(item, preview.reagents)
     parts[#parts + 1] = string_format("%s %s/%d", ReagentName(item), count == false and "?" or count, amount)
   end
   if #parts == 0 and not unclassified and report.unknown == 0 then return nil end
@@ -3289,14 +4328,19 @@ end
 
 -- One broadcast to the group's BuffRadar users (party or raid channel).
 function X.Broadcast(msg)
-  if not db or not db.sync then return end
+  if not db or not db.sync then return false end
   local channel = SyncChannel()
-  if not channel then return end
-  if _G.C_ChatInfo and _G.C_ChatInfo.SendAddonMessage then
-    pcall(_G.C_ChatInfo.SendAddonMessage, "BuffRadar", msg, channel)
-  elseif _G.SendAddonMessage then
-    pcall(_G.SendAddonMessage, "BuffRadar", msg, channel)
+  local send = (_G.C_ChatInfo and _G.C_ChatInfo.SendAddonMessage) or _G.SendAddonMessage
+  if not channel or not send then return false end
+  local ok, result = pcall(send, "BuffRadar", msg, channel)
+  if not ok then return false end
+  if type(result) == "nil" then return true end -- legacy API has no return value
+  if not Readable(result) then return false end
+  if type(result) == "number" then
+    local success = _G.Enum and _G.Enum.SendAddonMessageResult and _G.Enum.SendAddonMessageResult.Success
+    return result == (success or 0)
   end
+  return result ~= false
 end
 
 -- Tell the other BuffRadar users in the group "I just cast KEY on GUID",
@@ -3458,6 +4502,319 @@ do
     X.handled[guid] = { key = key, t = now }
   end
 
+  do
+    local active, sequence = nil, 0
+
+    local function CoordinationGUID(unit)
+      local ok, guid = pcall(UnitGUID, unit)
+      if ok and ReadText(guid) and #guid <= 85 and guid:match("^Player%-%w[%w%-]*$") then return guid end
+    end
+
+    local function CoordinationRoster()
+      if not SyncChannel() then return end
+      local members, ids = {}, {}
+      local size = X.ReadUnitNumber(GetNumGroupMembers)
+      X.ForReportRoster(function(unit, exists)
+        local guid = exists and CoordinationGUID(unit)
+        local name = guid and RosterNames(unit)
+        if name and not members[guid] then
+          members[guid] = { name = name, unit = unit }
+          ids[#ids + 1] = guid
+        end
+      end)
+      if size ~= #ids or #ids == 0 then return end
+      table_sort(ids)
+      return members, SyncChannel() .. ":" .. table.concat(ids, ",")
+    end
+
+    local function Session()
+      if not active or not db.sync then return end
+      local members, identity = CoordinationRoster()
+      if not identity then active = nil; return end
+      if active.identity ~= identity then active = nil; return end
+      local accepted = active.accepted
+      local coordinator = accepted and members[accepted.coordinator]
+      if accepted and (not coordinator or not HasPlanRole(coordinator.unit)) then active.accepted = nil end
+      return active, members
+    end
+
+    local function LearnedKeys()
+      local keys = {}
+      for _, buff in ipairs(myBuffs) do
+        if supportedKeys[buff.key] and not buff.self and not buff.custom
+          and IsOn(buff.key, buff.default) and X.ContextOK(buff.key) then keys[buff.key] = true end
+      end
+      if X.HasKnownBlessings() and IsOn("BLESSINGS", true) and X.ContextOK("BLESSINGS") then
+        keys.BLESSINGS = true
+      end
+      return keys
+    end
+
+    local function KeyList(keys)
+      local list = {}
+      for key in pairs(keys) do list[#list + 1] = key end
+      table_sort(list)
+      return table.concat(list, ",")
+    end
+
+    local function ParseKeys(list)
+      if list == "-" then return {} end
+      if not list:match("^[%u_]+[,_%u]*$") then return end
+      local keys = {}
+      for key in list:gmatch("[%u_]+") do
+        if keys[key] or not supportedKeys[key] then return end
+        keys[key] = true
+      end
+      if KeyList(keys) == list then return keys end
+    end
+
+    local function SendCoord(kind, id, recipient, list)
+      local message = "COORD;1;" .. kind .. ";" .. id
+      if recipient then message = message .. ";" .. recipient end
+      if list then message = message .. ";" .. (list ~= "" and list or "-") end
+      return #message <= 255 and X.Broadcast(message)
+    end
+
+    local function NextCoordID()
+      sequence = sequence + 1
+      return string_format("%d.%d", math_floor(GetTime() * 1000), sequence)
+    end
+
+    local function DraftPlan(session, members)
+      local demand, ordered, rows, loads = {}, {}, {}, {}
+      for key in pairs(session.requested) do demand[key] = true end
+      for guid, report in pairs(session.reports) do
+        if members[guid] then
+          for key in pairs(report) do demand[key] = true end
+        end
+      end
+      for key in pairs(demand) do ordered[#ordered + 1] = key end
+      table_sort(ordered)
+      for _, key in ipairs(ordered) do
+        local manual = X.assign[key]
+        local choice
+        if not manual then
+          for guid, report in pairs(session.reports) do
+            if members[guid] and report[key] then
+              local load, existing = loads[guid] or 0, loads[choice] or 0
+              if not choice or load < existing or (load == existing and guid < choice) then choice = guid end
+            end
+          end
+        end
+        rows[#rows + 1] = { key = key, guid = choice, manual = manual }
+        if choice then loads[choice] = (loads[choice] or 0) + 1 end
+      end
+      return rows
+    end
+
+    local function SamePlan(a, b)
+      if #a ~= #b then return false end
+      for i, row in ipairs(a) do
+        local other = b[i]
+        if row.key ~= other.key or row.guid ~= other.guid or row.manual ~= other.manual then return false end
+      end
+      return true
+    end
+
+    local function ReviewPlan(session, members)
+      session.draft = DraftPlan(session, members)
+      Print(L["Review Caster Plan"])
+      if #session.draft == 0 then Print(L["No learned buff capabilities have been reported."]) end
+      for _, row in ipairs(session.draft) do
+        local before = row.manual or L["Unassigned"]
+        local after = row.guid and members[row.guid].name or row.manual or L["Provider unavailable"]
+        Print(string_format(L["%s: %s -> %s"], row.key, before, after))
+      end
+    end
+
+    local function ParsePlanRest(value)
+      local revision, target, list = value:match("^(%d+%.%d+);([^;]+);([^;]+)$")
+      if revision and #revision <= 32 then return revision, target, ParseKeys(list) end
+    end
+
+    local function NewerRevision(revision, previous)
+      if not previous then return true end
+      local millis, order = revision:match("^(%d+)%.(%d+)$")
+      local oldMillis, oldOrder = previous:match("^(%d+)%.(%d+)$")
+      return tonumber(millis) > tonumber(oldMillis)
+        or (tonumber(millis) == tonumber(oldMillis) and tonumber(order) > tonumber(oldOrder))
+    end
+
+    local function OnCoordMessage(body, unit, name, now)
+      local kind, id, rest = body:match("^;(%u+);(%d+%.%d+)(.*)$")
+      if not kind or #id > 32 then return end
+      local session, members = Session()
+      local guid = session and CoordinationGUID(unit)
+      local me = guid and CoordinationGUID("player")
+      if not me or not members[guid] then return end
+      if kind == "REQ" and rest == "" and HasPlanRole(unit) then
+        if session.replies[guid] and now - session.replies[guid].time < 10 then return end
+        session.replies[guid] = { id = id, time = now }
+        SendCoord("REPORT", id, guid, KeyList(LearnedKeys()))
+      elseif kind == "REPORT" and session.request == id and now <= session.expires and X.AmLead() then
+        local target, list = rest:match("^;([^;]+);([^;]+)$")
+        if not list or target ~= me or session.reports[guid] then return end
+        session.reports[guid] = ParseKeys(list)
+      elseif kind == "PLAN" and HasPlanRole(unit) then
+        if rest:sub(1, 1) ~= ";" then return end
+        local reply = session.replies[guid]
+        local revision, target, keys = ParsePlanRest(rest:sub(2))
+        if not reply or reply.id ~= id or now - reply.time > 180 or target ~= me or not keys
+          or not NewerRevision(revision, reply.revision) then return end
+        local learned = LearnedKeys()
+        for key in pairs(keys) do if not learned[key] then return end end
+        reply.revision = revision
+        session.pending = { sender = guid, name = name, id = id, revision = revision, keys = keys }
+        Print(string_format(L["Caster plan from %s. Use /br coordinate inbox to review it."], name))
+      elseif kind == "ACK" and session.sent and id == session.sent.revision and rest == "" then
+        if session.sent.recipients[guid] == "sent" then session.sent.recipients[guid] = "acknowledged" end
+      end
+    end
+
+    function X.OnCoordinationRoster()
+      if not active then return end
+      if not SyncChannel() then active = nil; return end
+      Session()
+    end
+
+    function X.StopCoordination()
+      active = nil
+    end
+
+    function X.CoordinatedHolder(key)
+      local accepted = active and db.sync and active.accepted
+      if accepted and GetTime() <= accepted.expires then return accepted.keys[key] and accepted.name end
+    end
+
+    function X.Coordinate(command, argument)
+      if not CLASSIC_FEATURES then Print(L["Caster Coordination is available in WoW: Forever."]); return end
+      if command == "off" then
+        X.StopCoordination()
+        if QueueRefresh then QueueRefresh() end
+        Print(L["Caster Coordination is off."])
+        return
+      end
+      if command == "" then
+        Print(L["Use /br coordinate on|off|request|need|review|publish|status|inbox|accept|decline."])
+        return
+      end
+      if not db or not db.sync or not SyncChannel() or InCombatLockdown() or X.PlayerSuspended() then
+        Print(L["Caster Coordination needs cast sync and a group outside combat."]); return
+      end
+      if command == "on" then
+        local _, identity = CoordinationRoster()
+        if not identity then Print(L["Roster information is unavailable."]); return end
+        active = { identity = identity, reports = {}, replies = {}, requested = {} }
+        Print(L["Caster Coordination is on for this group."]); return
+      end
+      local session, members = Session()
+      if not session then Print(L["Use /br coordinate on to join this group's caster planning."]); return end
+      local me = CoordinationGUID("player")
+      local now = GetTime()
+      if not me or not members[me] then Print(L["Roster information is unavailable."]); return end
+      if command == "inbox" or command == "accept" or command == "decline" then
+        local pending = session.pending
+        local coordinator = pending and members[pending.sender]
+        local reply = coordinator and session.replies[pending.sender]
+        if not reply or not HasPlanRole(coordinator.unit) or now - reply.time > 180 then
+          session.pending = nil; Print(L["No current caster plan to review."]); return
+        end
+        if command == "inbox" then
+          pending.reviewed = true
+          Print(string_format(L["Caster plan from %s: %s. Use /br coordinate accept or decline."],
+            pending.name, next(pending.keys) and KeyList(pending.keys) or L["No assigned buffs"]))
+        elseif command == "decline" then
+          session.pending = nil
+        elseif not pending.reviewed then
+          Print(L["Review the caster plan with /br coordinate inbox first."])
+        else
+          local learned = LearnedKeys()
+          for key in pairs(pending.keys) do
+            if not learned[key] or X.assign[key] and not X.SameUser(X.assign[key], members[me].name) then
+              Print(L["Your learned buffs or existing assignments changed. Ask for a new caster plan."]); return
+            end
+          end
+          if not SendCoord("ACK", pending.revision) then Print(L["The caster message could not be sent."]); return end
+          session.accepted = next(pending.keys) and { keys = pending.keys, name = members[me].name,
+            coordinator = pending.sender, expires = now + 180 } or nil
+          session.pending = nil
+          Print(L["Caster duties accepted."])
+          if QueueRefresh then QueueRefresh() end
+        end
+        return
+      end
+      if not X.AmLead() then Print(L["Only the group leader or an assistant can manage caster plans."]); return end
+      if command == "request" then
+        if session.requestAt and now - session.requestAt < 10 then return end
+        local id = NextCoordID()
+        if not SendCoord("REQ", id) then Print(L["The caster message could not be sent."]); return end
+        session.request, session.requestAt, session.expires = id, now, now + 180
+        session.reports, session.draft = { [me] = LearnedKeys() }, nil
+        Print(L["Asked group members for their learned buffs."])
+      elseif command == "need" then
+        local key = argument and argument:upper()
+        if not key or not supportedKeys[key] then Print(L["Use /br coordinate need <BUFF KEY>."]); return end
+        session.requested[key] = true
+        session.draft = nil
+      elseif command == "status" and session.sent then
+        for _, guid in ipairs(session.sent.order) do
+          local status = session.sent.recipients[guid]
+          local labels = { sent = L["Awaiting acknowledgement"], acknowledged = L["Acknowledged"],
+            failed = L["Send failed"], localOnly = L["Assigned locally"] }
+          Print(string_format(L["%s: %s"], members[guid].name, labels[status]))
+        end
+      elseif not session.request or now > session.expires then
+        Print(L["Request fresh caster reports with /br coordinate request."])
+      elseif command == "publish" then
+        if not session.draft then Print(L["Review the caster plan with /br coordinate review first."]); return end
+        session.reports[me] = LearnedKeys()
+        local fresh = DraftPlan(session, members)
+        if not SamePlan(session.draft, fresh) then
+          Print(L["Caster reports or assignments changed. Review the updated draft before publishing."])
+          ReviewPlan(session, members); return
+        end
+        local plan, order, revision = {}, {}, NextCoordID()
+        for _, row in ipairs(fresh) do
+          if row.guid then
+            if not plan[row.guid] then plan[row.guid] = {}; order[#order + 1] = row.guid end
+            plan[row.guid][row.key] = true
+          end
+        end
+        if session.sent then
+          for _, guid in ipairs(session.sent.order) do
+            if not plan[guid] and session.reports[guid] then plan[guid] = {}; order[#order + 1] = guid end
+          end
+        end
+        if not next(plan) then Print(L["No new caster duties to send."]); return end
+        table_sort(order)
+        local sent = { revision = revision, order = order, recipients = {} }
+        for _, guid in ipairs(order) do
+          local keys = plan[guid]
+          if guid == me then
+            session.accepted = next(keys) and { keys = keys, name = members[guid].name,
+              coordinator = me, expires = now + 180 } or nil
+            sent.recipients[guid] = "localOnly"
+          else
+            -- Include the report request and a separate publication revision.
+            local target = revision .. ";" .. guid
+            sent.recipients[guid] = SendCoord("PLAN", session.request, target, KeyList(keys)) and "sent" or "failed"
+          end
+        end
+        session.sent, session.draft = sent, nil
+        if QueueRefresh then QueueRefresh() end
+        X.Coordinate("status")
+      else
+        ReviewPlan(session, members)
+      end
+    end
+
+    function X.HandleCoordinationMessage(version, body, unit, name, now)
+      if CLASSIC_FEATURES and version == "1" and not InCombatLockdown() and not X.PlayerSuspended() then
+        OnCoordMessage(body, unit, name, now)
+      end
+    end
+  end
+
   function X.OnAddonMsg(prefix, msg, channel, sender)
     if not db or not db.sync or not ReadText(prefix) or prefix ~= "BuffRadar" then return end
     if not ReadText(channel) or channel ~= SyncChannel() then return end
@@ -3475,7 +4832,10 @@ do
     end
 
     local now = GetTime()
-    if kind == "CAST" then
+    if kind == "COORD" then
+      X.HandleCoordinationMessage(first, rest, unit, name, now)
+      return
+    elseif kind == "CAST" then
       local guid = rest:match("^;([%a]+%-%w[%w%-]*)$")
       if not guid or #guid > 85 or not ValidBuffKey(first) then return end
       RememberCast(guid, first, now)
@@ -3555,11 +4915,11 @@ function X.WeaponEnchantMissing()
   local fn = _G.GetWeaponEnchantInfo
   if not fn then return false end
   local ok, hasMH, _, _, _, hasOH = pcall(fn)
-  if not ok then return false end
+  if not ok or not Readable(hasMH) or not Readable(hasOH) then return false end
   local function equipped(slot)
     if not _G.GetInventoryItemID then return true end
     local okI, id = pcall(_G.GetInventoryItemID, "player", slot)
-    return okI and id ~= nil
+    return okI and Readable(id) and id ~= nil
   end
   if not hasMH and equipped(16) then return true end
   if not hasOH and equipped(17) then return true end
@@ -3602,7 +4962,11 @@ end
 -- summary, not every roster shuffle afterwards.
 function X.OnRoster()
   local g = InGroup()
+  if X.CloseRaidPreparation then X.CloseRaidPreparation() end
+  if not InRaid() then X.subgroupDuties = nil end
   X.PruneBlessingExceptions()
+  X.PruneAssignmentRoleOverrides()
+  X.PruneBlockerUndo()
   if db then X.SendCover() end  -- roster changes refresh a live cover (1.7.0)
   if X.inGroupPrev == false and g and db and db.joinDigest and hasAnyBuff then
     if C_Timer and C_Timer.After then
@@ -3796,7 +5160,7 @@ local function Row_OnEnter(self)
       if gs then
         GameTooltip:AddLine(string_format(L["Shift-click to cast: %s"], "|cff00ff00" .. gs .. "|r"))
       end
-      if self.bOfferReason then GameTooltip:AddLine(self.bOfferReason, 1, 0.7, 0.3) end
+      if self.bOfferReason then GameTooltip:AddLine(self.bOfferReason, 1, 0.7, 0.3, true) end
     end
   end
   if e.groupCast then
@@ -4498,22 +5862,39 @@ function X.Why(name)
   end
   local unit, full, short, isGroup, guid = selected.unit, selected.full, selected.short, selected.group, selected.guid
   local disp = short or full
+  local function printRule(detail)
+    if CLASSIC_FEATURES then
+      local rule = detail.rule or L["Rule unavailable"]
+      if detail.blessing then rule = rule .. " · " .. detail.blessing end
+      Print(string_format(L["Applied rule for %s: %s."], disp, rule))
+    end
+  end
+  local function printInactiveRule()
+    local ok, _, class = pcall(UnitClass, unit)
+    class = ok and SafeString(class) or nil
+    local assignment, source, role, _, manual = X.AssignmentForUnit(class, unit, isGroup, X.IsSelf(unit))
+    printRule({ rule = X.AssignmentRuleText(class, role, source, assignment, isGroup, manual) })
+  end
   if Ignore.Has(full, short) then
+    printInactiveRule()
     Print(disp .. " is on your ignore list, so they are never listed. /br unignore " .. disp .. " undoes it.")
     return
   end
   if X.SessionHas(full, short) then
+    printInactiveRule()
     Print(disp .. " is ignored for this session only (Shift+right-click on a row). It clears when you reload.")
     return
   end
   local valid, isSelf = Valid(unit)
   if not valid then
+    printInactiveRule()
     Print(disp .. " can't be buffed right now (dead, offline, in combat, charmed or in another phase), so they are not listed.")
     return
   end
   local allMiss, miss = {}, {}
-  local detail = { cooldown = {} }
+  local detail = { cooldown = {}, cooldowns = {} }
   local n, unknown, checked = Missing(unit, allMiss, isGroup, isSelf, "why", detail)
+  printRule(detail)
   -- The fallback aura index is rebuilt on demand after a diagnostic scan.
   X.scanUnit = nil
   if n == 0 then
@@ -4522,7 +5903,8 @@ function X.Why(name)
     elseif #detail.cooldown > 0 then
       Print(disp .. " needs " .. table.concat(detail.cooldown, ", ") .. ", but those spells are on cooldown.")
     elseif not checked then
-      Print(disp .. ": no enabled buffs apply to this player.")
+      Print(disp .. (detail.assignment and ": no enabled buffs apply under the selected class or role assignment."
+        or ": no enabled buffs apply to this player."))
     else
       Print(disp .. " already has every buff you can give them.")
     end
@@ -4568,9 +5950,7 @@ function X.Why(name)
     Print(disp .. ": the game did not expose a readable player identity. Target them and check again.")
     return
   end
-  local reason = X.NoCastReason and X.NoCastReason()
-  Print(disp .. " is not on the list right now; they need: " .. table.concat(miss, ", ") .. "."
-    .. (reason and " " .. reason or ""))
+  Print(disp .. " is not on the list right now; they need: " .. table.concat(miss, ", ") .. ".")
 end
 
 function X.CheckDrops()
@@ -5038,14 +6418,15 @@ local function BindGroupCached(btn, unit, spell, guid)
   if not btn.combatDriver then return false end
   local isSelf = X.IsSelf(unit)
   if isSelf == nil then ClearGroup(); return false end
-  local offer, item, count, reason = X.GroupOffer(spell, unit)
+  local offer, item, count, reason, _, blocker = X.GroupOffer(spell, unit)
   local gspell = offer or spell
   local method = db.castMethod
   local lvl = X.ReadUnitNumber(UnitLevel, unit) or 0
   local pick = X.BindingRank(gspell, unit, lvl, method)
   if pick == false then ClearGroup(); return false end
   local id = pick and pick.id
-  btn.bOfferReason = X.GroupOfferReason(item, count, reason)
+  btn.bOfferReason = X.GroupOfferReason(item, count, reason, blocker)
+  btn.bOfferSummary = blocker and X.GroupOfferReason(item, count, reason, blocker, true) or btn.bOfferReason
   if btn.bGuid == guid and btn.bUnit == unit and btn.bSpell == gspell
      and btn.bMethod == method and btn.bLevel == lvl and btn.bSelf == isSelf and btn.bRankID == id then
     return btn:GetAttribute("type") ~= nil
@@ -5084,12 +6465,15 @@ local function BindCached(btn, unit, spell, guid)
   local lvl = X.ReadUnitNumber(UnitLevel, unit) or 0
   local pick = X.BindingRank(spell, unit, lvl, method)
   if pick == false then X.ClearRowCast(btn); return false end
-  local gspell, item, count, reason
-  if db.modClick then gspell, item, count, reason = X.GroupOffer(spell, unit) end
+  local gspell, item, count, reason, blocker
+  if db.modClick then
+    local _
+    gspell, item, count, reason, _, blocker = X.GroupOffer(spell, unit)
+  end
   if reason then gspell = spell end -- explicit Shift fallback mirrors the primary binding
   local gpick = gspell and X.BindingRank(gspell, unit, lvl, method)
   local id, gid = pick and pick.id, gpick and gpick.id
-  btn.bOfferReason = X.GroupOfferReason(item, count, reason)
+  btn.bOfferReason = X.GroupOfferReason(item, count, reason, blocker)
   if btn.bGuid == guid and btn.bUnit == unit and btn.bSpell == spell
      and btn.bMethod == method and btn.bLevel == lvl and btn.bSelf == isSelf
      and btn.bRankID == id and btn.bGroupSpell == gspell and btn.bGroupRankID == gid then
@@ -5115,9 +6499,13 @@ function X.ArmGroupBtn(first)
   X.groupBtn.entry = BindGroupCached(X.groupBtn, first.unit, first.missing[1], first.guid) and first or nil
 end
 
-function X.NoCastReason()
-  return X.groupFallback
-    or (X.groupBtn and X.groupBtn.entry and X.groupBtn.bOfferReason)
+function X.NoCastReason(entry)
+  local group = X.groupBtn
+  if not entry then return X.groupFallback or (group and group.entry and group.bOfferReason) end
+  if group and group.entry == entry and group.bOfferReason then
+    return group.bOfferSummary
+  end
+  if X.groupFallbackEntry == entry then return X.groupFallbackSummary end
 end
 
 function X.ShowNextPreview(owner)
@@ -5128,10 +6516,10 @@ function X.ShowNextPreview(owner)
   GameTooltip:AddLine(string_format(L["Next buff: %s — %s"], entry.fullName or entry.name,
     nextBtn.bSpellText or entry.missing[1]), 1, 1, 1, true)
   local group = X.groupBtn
-  if group and group.entry and group.bSpellText then
+  if group and group.entry == entry and group.bSpellText then
     GameTooltip:AddLine(string_format(L["Group buff key: %s"], group.bSpellText), 0.8, 0.9, 1, true)
   end
-  local reason = X.NoCastReason()
+  local reason = X.NoCastReason(entry)
   if reason then GameTooltip:AddLine(reason, 1, 0.7, 0.3, true) end
   GameTooltip:Show()
 end
@@ -5807,6 +7195,7 @@ function X.SuspendBuffUI()
   X.pillPeek = nil
   X.HideOwnedTooltip()
   if X.HideConfig then X.HideConfig() end
+  if X.CloseRaidPreparation then X.CloseRaidPreparation() end
   if X.wizardFrame and X.wizardFrame:IsShown() then X.wizardFrame:Hide() end
   if X.exportFrame and X.exportFrame:IsShown() then X.exportFrame:Hide() end
   if X.EndEditMode then X.EndEditMode(true) end
@@ -6250,6 +7639,7 @@ local function Refresh()
   end
   if InCombatLockdown() then return end
   if (X.rowViewCount or 0) > MAX_ROWS and X.RowMouseHeld() then return end
+  X.assignmentGroupConflicts = X.AssignmentEnabled() and next(db.buffAssignments) and {} or nil
   refreshIdle = false
   X.applyFilter = true  -- the window honors the role filter; reports turn it off
   local wasAfterCombat = X.afterCombat
@@ -6341,7 +7731,7 @@ local function Refresh()
       return
   end
 
-  X.rowView, X.groupFallback = nil, nil
+  X.rowView, X.groupFallback, X.groupFallbackEntry, X.groupFallbackSummary = nil, nil, nil, nil
   local n = CollectEntries()
   X.CheckDrops()
   X.CheckRange()
@@ -6375,13 +7765,15 @@ local function Refresh()
         for _, b in ipairs(myBuffs) do
           if b.name == e.missing[1] and b.groupName
              and (tally[b.key] or 0) >= (db.groupCastMin or 3) then
-            local offer, item, count, reason = X.GroupOffer(b.name, e.unit)
+            local offer, item, count, reason, _, blocker = X.GroupOffer(b.name, e.unit)
             if offer then
               e.missing[1] = offer
               e.groupCast = true
               converted = true
             else
-              X.groupFallback = X.GroupOfferReason(item, count, reason)
+              X.groupFallback = X.GroupOfferReason(item, count, reason, blocker)
+              X.groupFallbackSummary = blocker and X.GroupOfferReason(item, count, reason, blocker, true) or X.groupFallback
+              X.groupFallbackEntry = X.groupFallback and e or nil
             end
             break
           end
@@ -6819,7 +8211,8 @@ end
 for _, ev in ipairs({
   "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
   "SPELLS_CHANGED", "LEARNED_SPELL_IN_TAB", "LEARNED_SPELL_IN_SKILL_LINE",
-  "GROUP_ROSTER_UPDATE", "PARTY_MEMBERS_CHANGED", "RAID_ROSTER_UPDATE",
+  "GROUP_ROSTER_UPDATE", "PARTY_MEMBERS_CHANGED", "RAID_ROSTER_UPDATE", "PARTY_LEADER_CHANGED",
+  "PLAYER_ROLES_ASSIGNED", "GROUP_LEFT",
   "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "UNIT_AURA", "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
   "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED",
   "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED", "UI_ERROR_MESSAGE",
@@ -6890,6 +8283,33 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   elseif event == "UPDATE_BINDINGS" then
     if RefreshConfig then RefreshConfig() end
     return
+  elseif event == "PARTY_LEADER_CHANGED" then
+    X.OnCoordinationRoster()
+    Soon()
+    return
+  elseif event == "PLAYER_ROLES_ASSIGNED" then
+    X.OnCoordinationRoster()
+    if X.AssignmentEnabled() then
+      X.assignmentGroupConflicts = nil
+      Soon()
+    end
+    if X.QueueAssignmentPreviewRefresh then X.QueueAssignmentPreviewRefresh() end
+    return
+  elseif event == "GROUP_LEFT" then
+    X.OnCoordinationRoster()
+    if X.CloseRaidPreparation then X.CloseRaidPreparation() end
+    if not InRaid() then X.subgroupDuties = nil end
+    local size = X.ReadUnitNumber(GetNumGroupMembers)
+    if (size and size <= 0) or (not size and not InGroup()) then
+      X.assignmentRoleOverrides = nil
+      X.blockerUndo = nil
+    else
+      X.PruneAssignmentRoleOverrides()
+    end
+    X.assignmentGroupConflicts = nil
+    Soon()
+    if X.QueueAssignmentPreviewRefresh then X.QueueAssignmentPreviewRefresh() end
+    return
   elseif event == "BAG_UPDATE_DELAYED" then
     X.InvalidateReagents()
     Soon()
@@ -6947,10 +8367,13 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     return
   end
   if event == "GROUP_ROSTER_UPDATE" then
+    X.assignmentGroupConflicts = nil
+    X.OnCoordinationRoster()
     if db then X.OnRoster() end
     if not InGroup() then X.ClearReadyCheck() end
     if db and X.AutoProfileCheck then X.AutoProfileCheck() end
     Soon()
+    if X.QueueAssignmentPreviewRefresh then X.QueueAssignmentPreviewRefresh() end
     return
   end
   if event == "CHALLENGE_MODE_START" then
@@ -7028,6 +8451,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if (db.dbVersion or 0) < 17 then
       db.dbVersion = 17       -- assumeRange takes its default (off)
     end
+    if db.dbVersion < 18 then
+      db.dbVersion = 18       -- Class and role assignments start disabled.
+    end
     X.SpecSwap()
   elseif event == "PLAYER_LOGIN" then
     driver:UnregisterEvent("PLAYER_LOGIN")  -- one-off
@@ -7060,6 +8486,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     StartTicker()
     Soon()
   elseif event == "PLAYER_REGEN_DISABLED" then
+    if X.CloseRaidPreparation then X.CloseRaidPreparation() end
     wipe(X.rowMouseButtons)
     if X.ReadUnitBool(_G.IsMouseButtonDown, "LeftButton") == false then X.rowLeftPress = nil end
     X.auraIds = nil
@@ -7098,7 +8525,11 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   elseif event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_TAB" or event == "LEARNED_SPELL_IN_SKILL_LINE" then
     if db then ScheduleRebuild() end
   else
-    if (event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE") and db then X.OnRoster() end
+    if (event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE") and db then
+      X.OnCoordinationRoster()
+      X.OnRoster()
+      if X.QueueAssignmentPreviewRefresh then X.QueueAssignmentPreviewRefresh() end
+    end
     if (event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED"
         or event == "ZONE_CHANGED_INDOORS") and db then
       if X.AutoProfileCheck then X.AutoProfileCheck() end

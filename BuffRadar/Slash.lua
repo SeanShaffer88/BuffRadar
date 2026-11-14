@@ -170,12 +170,54 @@ local function HandleSlash(msg)
       or cmd == "summary" or cmd == "discord" or cmd == "why") and X.PlayerSuspended() then
     return
   end
+  -- Read-only diagnostics use the current queue and must not rebuild it.
+  if cmd == "why" then
+    if rest == "" then
+      Print("Usage: /br why <name> - say why a player is or is not on the list")
+    else
+      X.Why(rest)
+    end
+    return
+  elseif cmd == "coordinate" then
+    local action, argument = rest:lower():match("^(%S*)%s*(.-)$")
+    X.Coordinate(action, argument)
+    return
+  elseif cmd == "buffassign" and rest:lower() == "preview" then
+    if InCombatLockdown() then
+      Print("Can't do that during combat.")
+    elseif not CLASSIC_FEATURES then
+      Print(L["Class & Role Assignments are available in WoW: Forever."])
+    else
+      X.OpenAssignments(true)
+    end
+    return
+  elseif cmd == "practice" or cmd == "undo" then
+    if InCombatLockdown() then
+      Print("Can't do that during combat.")
+    elseif not CLASSIC_FEATURES then
+      Print(L["Class & Role Assignments are available in WoW: Forever."])
+    elseif cmd == "practice" then
+      X.OpenPractice()
+    else
+      X.RunBlockerUndo()
+    end
+    return
+  elseif cmd == "coverage" then
+    if InCombatLockdown() then
+      Print("Can't do that during combat.")
+    elseif not CLASSIC_FEATURES then
+      Print(L["Coverage is available in WoW: Forever."])
+    else
+      X.OpenRaidCoverage()
+    end
+    return
+  end
   if not built and not InCombatLockdown() then
     local ok, err = pcall(BuildUI)
     if not ok then Print("|cffff4040error building window:|r " .. tostring(err)) end
   end
 
-  local needsOOC = { [""]=true, show=true, hide=true, reset=true, resetpos=true, scale=true, width=true, specscale=true, macro=true }
+  local needsOOC = { [""]=true, show=true, hide=true, reset=true, resetpos=true, scale=true, width=true, specscale=true, macro=true, buffassign=true }
   if needsOOC[cmd] and InCombatLockdown() then
     Print("Can't do that during combat.")
     return
@@ -207,6 +249,20 @@ local function HandleSlash(msg)
     else
       OpenConfig()
     end
+  elseif cmd == "buffassign" then
+    if not CLASSIC_FEATURES then
+      Print(L["Class & Role Assignments are available in WoW: Forever."])
+    elseif not X.PlayerSuspended() then
+      local action = rest:lower()
+      if action == "on" or action == "off" then
+        X.SetAssignmentEnabled(action == "on")
+        X.RefreshConfig()
+        Refresh()
+        Print(X.AssignmentEnabled() and L["Class & Role Assignments enabled."] or L["Class & Role Assignments disabled."])
+      else
+        X.OpenAssignments()
+      end
+    end
   elseif cmd == "group" then
     db.groupOnly = not db.groupOnly
     Print("Show only in a party or raid " .. OnOff(db.groupOnly))
@@ -215,6 +271,7 @@ local function HandleSlash(msg)
     Print("Pause in major cities " .. OnOff(db.pauseInCities))
   elseif cmd == "sync" then
     db.sync = not db.sync
+    if not db.sync then X.StopCoordination() end
     Print("BuffRadar cast sync " .. OnOff(db.sync))
   elseif cmd == "requests" then
     db.requests = not db.requests
@@ -668,15 +725,12 @@ local function HandleSlash(msg)
     else db.pullFlash = not db.pullFlash end
     Print("Pull-timer flash " .. OnOff(db.pullFlash) ..
       " -- border flash and a countdown line when a group pull timer starts (the game's /countdown or a boss-mod pull).")
-  elseif cmd == "why" then
-    local nm = rest:match("^%s*(.-)%s*$")
-    if nm == "" then
-      Print("Usage: /br why <name> - say why a player is or is not on the list")
-    else
-      X.Why(nm)
-    end
   elseif cmd == "ready" then
     X.ReadyViewCommand(rest:match("^%s*(.-)%s*$"):lower())
+  elseif cmd == "prep" then
+    X.RaidPreparationCommand(rest:match("^%s*(.-)%s*$"):lower())
+  elseif cmd == "subgroup" then
+    X.SubgroupDutyCommand(rest)
   elseif cmd == "fallsound" then
     local m = rest:lower()
     if m == "on" then db.fallSound = true
@@ -1369,8 +1423,11 @@ local function HandleSlash(msg)
     Print("  /br stats export  - cast statistics as text   /br discord  - summary for Discord")
     Print("  /br offenders  - repeat offenders across sessions   /br context KEY raid|instance|always")
     Print("  /br assign <BUFF> <name>  - leader assigns a buff   /br buddy  - split the list")
+    if CLASSIC_FEATURES then Print(L["Use /br coordinate on|off|request|need|review|publish|status|inbox|accept|decline."]) end
     Print("  /br readypost  - also post the ready-check summary to group chat")
     Print("  /br ready show|hide|next|prev  - local ready-check details")
+    Print("  /br prep [personal]  - raid preparation and optional personal reminders")
+    Print("  /br subgroup [BUFF 1,2|ALL|NONE]  - local raid subgroup responsibilities")
     Print("  /br death [show]  - recap of who was missing buffs when you died")
     Print("  /br wipe [show]  - rebuff report after a wipe")
     Print("  /br pin <name>  - keep a player at the top   /br pin none  - clear the pin")
@@ -1397,6 +1454,9 @@ local function HandleSlash(msg)
     Print("  /br autoprofile <context> <profile>  - load a profile by context")
     if CLASSIC_FEATURES then
       Print("  /br bless <CLASS> <BLESSING> [name]  - blessing planner")
+      Print("  /br buffassign [on|off|preview]  - class and role buff assignments")
+      Print("  /br practice · /br undo  - practice blocker edits or undo the last one")
+      Print("  /br coverage  - read-only buff coverage by raid subgroup")
     end
     Print("  /br specscale  - remember the scale per specialization   /br snap  - Shift-snap the scale grips")
     Print("  /br tagsymbols | motion | rangewatch  - tag symbols, reduced motion, tell me when someone walks into range")

@@ -2,6 +2,98 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.25 — WoW: Forever
+
+- **Raid Coverage** shows confirmed, missing, and unknown buffs by subgroup,
+  with affected players listed under each buff.
+- **Practice Mode** demonstrates blocker edits and Review Changes on a sample
+  roster. **Undo Last Change** restores the last eligible live blocker edit.
+- **Subgroup Responsibilities** limit the cast queue for each buff and fall
+  back to single-target casts when the group version could reach an unassigned group.
+- **Raid Preparation** collects missing or expiring buffs, consumables, estimated
+  group reagents, and optional personal reminders.
+- **Caster Coordination** lets leaders request learned buff capabilities, review
+  a draft, and share duties with opted-in players. Acknowledgements show which
+  casters accepted a duty.
+
+## 1.15.24 — Forever test build
+
+- Review staged blocker edits to see whose buff offers would change.
+- Recheck the current group on Apply and refresh the blocker list after
+  saving.
+
+The maintainer confirmed live verification of the 1.15.24 field-test
+build `d79512f7b020` in WoW: Forever.
+
+## 1.15.23 — Forever test build
+
+- Open the exact class and role rule or local blessing exception from an
+  actionable group-cast blocker, then return to a refreshed blocker list.
+
+The maintainer confirmed live verification of the 1.15.23 field-test
+build `a07c748668ef` in WoW: Forever.
+
+## 1.15.22 — Forever test build
+
+- List all known group-cast blockers in the assignment preview, with
+  the player and applicable rule or blessing exception.
+- Show the known blocker count in the next-cast tooltip, with a warning
+  when some roster information is unavailable.
+
+The maintainer confirmed live verification of the 1.15.22 field-test
+build `575ff478c890` in WoW: Forever.
+
+## 1.15.21 — Forever test build
+
+- Explain why a group cast was skipped in the assignment preview and
+  next-cast tooltip. Show the affected player and rule or blessing
+  exception when those details are available.
+- Show when group-cast safety cannot be verified because roster data or
+  the spell's coverage is unavailable.
+
+The maintainer confirmed live verification of the 1.15.21 field-test
+build `570be5d20ae2` in WoW: Forever.
+
+## 1.15.20 — Forever test build
+
+- Refresh the open group assignment preview when members or group roles
+  change. Keep the current page where possible, and close the role
+  editor if its selected member leaves or can no longer be edited.
+- Add regression coverage for class and role assignments in a mixed raid.
+
+The maintainer confirmed live verification of the 1.15.20 field-test
+build `131a423b1504` in WoW: Forever.
+
+## 1.15.19 — Forever test build
+
+- Set or clear a session-only assignment role from the current group
+  preview when Forever does not provide that member's role.
+- Show the manual role and the rule it selects in the preview and
+  `/br why <name>`. A role reported by the game takes precedence.
+
+In-game verification is pending for this build.
+
+## 1.15.18 — Forever test build
+
+- Preview how the assignment table applies to each member of your current
+  group, including buff eligibility and group-cast fallbacks.
+- Show the effective assignment rule in `/br why <name>`, including
+  inheritance and role information that Forever cannot provide.
+
+The maintainer confirmed live verification of the 1.15.18 field-test
+build `ab67482a16e0` in WoW: Forever.
+
+## 1.15.17 — Forever test build
+
+- Add an optional Class & Role Assignments table under Buffs. Choose
+  targeted buffs for recipients by class and role, with a World rule for
+  nearby strangers and recipients whose role is unavailable.
+- Save assignment rules in named profiles. The table starts off for
+  existing installations, and an unset cell uses the standard buff rules.
+
+The maintainer confirmed live verification of the 1.15.17 field-test
+build `5578fbd4cce8` in WoW: Forever.
+
 ## 1.15.16 — 2026-11-14 — Forever update
 
 - Explain why a nearby player is missing from the list, including when

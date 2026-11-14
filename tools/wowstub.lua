@@ -59,6 +59,8 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     function methods.SetValue(self, v) self.value = v
       if self.scripts.OnValueChanged then self.scripts.OnValueChanged(self, v) end end
     function methods.IsEnabled(self) return not self.disabled end
+    function methods.Enable(self) self.disabled = nil end
+    function methods.Disable(self) self.disabled = true end
     function methods.Click(self)
       if self:IsEnabled() and self.scripts.OnClick then self.scripts.OnClick(self, "LeftButton") end
     end

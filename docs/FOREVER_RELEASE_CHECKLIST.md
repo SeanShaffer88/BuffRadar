@@ -2,6 +2,114 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.24 Review Blocker Edits
+
+- From a blocker, edit an All Roles cell affecting multiple members with
+  different roles. Change multiple buff selections in that cell, then
+  verify Review Changes lists the affected players and their gained or
+  lost buff offers.
+- Change a member's role or replace a roster member before Apply. Confirm
+  BuffRadar shows the updated impact and requires review again. If the
+  original cast target leaves or its rule no longer offers the spell,
+  confirm the stale edit is discarded.
+- Cancel a draft, then apply an edit and compare the refreshed blocker list
+  with the next-cast tooltip. Repeat for a local blessing exception and
+  confirm the review works with mouse and keyboard.
+
+## 1.15.23 Edit Blocker Rules
+
+- Open a blocked cast in `/br buffassign preview` and choose **Edit Rule**.
+  Verify a role-specific rule opens its cell and an inherited All Roles
+  rule opens All Roles. After an edit, confirm the refreshed list and
+  next-cast tooltip agree about the remaining blockers.
+- Edit or clear a local Paladin blessing exception. Check that unavailable
+  roster information and another Paladin's shared duty have no edit action.
+- Try the shortcut with keyboard navigation, change the roster while the
+  editor is open, and enter combat. Confirm stale actions cannot change
+  a replacement player's rule and casting remains disarmed in combat.
+
+## 1.15.22 Group-Cast Blocker Lists
+
+- With reagents available, configure two group members to exclude the same
+  group spell. Use `/br buffassign preview` to read both players and their
+  rules, then hover the main window footer and confirm the count is two.
+- Remove one conflict, then the other. Confirm the count drops and the
+  group cast returns after the final conflict clears.
+- Repeat with a class-wide Greater Blessing and individual exceptions.
+  Verify the same player counts once. When roster details are unavailable,
+  verify the UI distinguishes known blockers from incomplete information.
+
+## 1.15.21 Group-Cast Explanations
+
+- With a group buff and its reagent available, make one group member's
+  assignment exclude the spell. Run `/br buffassign preview` and hover
+  the main window footer. Confirm both identify the blocking player and
+  rule, and the prepared cast stays single-target. Change the rule and
+  verify the group option returns.
+- Repeat with a Paladin's individual blessing exception and a class-wide
+  Greater Blessing. Check the explanation identifies the exception.
+- If roster data is unavailable, check the explanation describes the
+  uncertainty without naming a player the client could not identify.
+
+## 1.15.20 Group Preview Refresh
+
+- Open the group preview on page two or later in a raid. Change an assigned
+  role and have someone leave and rejoin if possible. Confirm rows update
+  without clicking Refresh Preview and the page stays in bounds.
+- Open the role editor and change another member's role. Confirm it still
+  refers to the selected player. Have the selected player leave and
+  confirm the editor closes instead of pointing to their replacement.
+- With two Paladins, verify class-plan ownership, individual exceptions,
+  and group-cast fallback. Enter combat during a roster change and
+  confirm the preview closes and the cast inputs remain disarmed.
+
+## 1.15.19 Session Role Overrides
+
+- Open `/br buffassign preview` with an unassigned group member. Set Tank,
+  Heal, or DPS from their row and compare the effective rule, cast queue,
+  and `/br why <name>`. Clear it and verify fallback to World or All Roles.
+- Have Forever report a role for that member. Confirm the game role takes
+  precedence and that the preview explains the change.
+- Have a member leave and another take their roster slot. Confirm the new
+  member gets no override and the first member returns without one. Reload
+  the UI and confirm any remaining overrides clear.
+- Check mouse and keyboard controls. With group reagents available, change
+  an override to a role whose rule excludes the spell and verify the
+  group action falls back safely. Check Paladin class plans and individual
+  exceptions, then confirm combat closes the panel and disarms casting.
+
+## 1.15.18 Assignment Preview
+
+- With a party or raid, open `/br buffassign preview`. Compare each row's
+  resolved assignment with `/br why <name>`. Include a known group role,
+  an unavailable role, an All fallback, an explicit None and a default.
+- With two paladins, compare the preview after setting a class assignment,
+  then a normal blessing exception. Check a missing reagent and a group
+  cast blocked by another member's rule.
+- Change a role, buff or roster member and refresh the preview. Check the
+  full roster using keyboard navigation and mouse paging. Confirm the
+  preview closes during combat and leaves the cast queue intact.
+
+## 1.15.17 Assignment Table
+
+- Upgrade from 1.15.16. Confirm the table is off and the same eligible players
+  and buffs appear. Open Buffs → Class & Role Assignments and enable it.
+- Choose different targeted buffs for All, World, and a group role in the
+  same class. Verify a known role uses its cell, World handles a nearby
+  stranger or unavailable role, and an unset cell uses All before falling
+  back to the standard rules. Change a live group role between fights.
+- Verify None skips managed targeted buffs and Default restores inheritance.
+  Test a Paladin blessing exception and a synced class plan in the same group.
+  As a Mage, confirm the picker prevents selecting both magic variants.
+- With reagents in bags, make one potential recipient ineligible for the
+  group buff. Confirm the row, Shift-click, and group keybind do not broaden
+  the cast to override the table. Repeat after entering and leaving combat.
+- Save a named profile, reload, and switch settings before restoring it.
+  Check search, Tab, activation, narration and Escape on the table and picker,
+  including smaller settings scales and German labels if available.
+
+## General Release Checks
+
 - **Empty list:** with no missing buffs, confirm the fully-buffed message. Disable friendly nameplates and confirm the explicit warning. On a client that does not answer range checks, confirm the list warns that range cannot be verified instead of claiming everyone is buffed.
 - **Eligibility:** confirm a player appears only when a known buff benefits them and they are in spell range, alive, and out of combat. Toggle include-self and verify the character can buff itself.
 - **Cast attribution:** outside combat, use `/br clicks` to turn on diagnostics.

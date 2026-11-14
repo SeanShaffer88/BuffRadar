@@ -1336,7 +1336,8 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 17, "dbVersion not migrated to 17: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 18, "dbVersion not migrated to 18: " .. tostring(d.dbVersion))
+  assert(d.assignmentEnabled == false and next(d.buffAssignments) == nil, "migration activated assignments")
   assert(next(d.blessingPreferences) == nil, "existing character got a blessing override")
   assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
   if env.__forever then  -- 1.8.0 (#32): shadow protection defaults to instances
@@ -1359,7 +1360,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 17 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 18 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
   -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
@@ -1367,7 +1368,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = { dbVersion = 9 }
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 17 and d.wizardSeen == true,
+  assert(d.dbVersion == 18 and d.wizardSeen == true,
     "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
   d.wizardSeen = false  -- leave the save as the rest of the suite expects
 end)
@@ -1830,6 +1831,108 @@ step("group sync accepts current raid traffic and rejects unreadable authority",
   env.UnitIsGroupLeader, env.UnitIsGroupAssistant = leader, assistant
   env.canaccessvalue, env.GetRaidRosterInfo = canAccess, roster
   O.UnitExists, O.UnitFullName, O.UnitIsUnit = exists, fullName, isUnit
+end)
+step("caster coordination checks roster authority, drafts, acceptance and acknowledgement", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("Coord")
+  local X, db, O, slash = NS.X, env.BuffRadarDB, env.__over, env.SlashCmdList.BUFFRADAR
+  local sync, size, leader, assist = db.sync, env.GetNumGroupMembers, env.UnitIsGroupLeader, env.UnitIsGroupAssistant
+  local send = env.SendAddonMessage
+  local prior = X.assign.FORTITUDE
+  local ok, err = pcall(function()
+    db.sync, X.assign.FORTITUDE = true, nil
+    env.GetNumGroupMembers = function() return 3 end
+    env.UnitIsGroupAssistant = function() return false end
+    env.UnitIsGroupLeader = function(unit) return unit == "party1" end
+    local function inbound(message, source, channel)
+      fire("CHAT_MSG_ADDON", "BuffRadar", "COORD;1;" .. message, channel or "PARTY", source or "Aaron-TestRealm")
+    end
+    local sent = #env.__addonSent
+    inbound("REQ;1.1")
+    assert(#env.__addonSent == sent, "opt-out caster sent a report")
+    slash("coordinate on")
+    inbound("REQ;1.1", "Zed-TestRealm")
+    inbound("REQ;1.1", nil, "WHISPER")
+    assert(#env.__addonSent == sent, "untrusted or wrong-channel request was answered")
+    inbound("REQ;1.1")
+    assert(#env.__addonSent == sent + 1 and env.__addonSent[sent + 1].msg:find("FORTITUDE", 1, true),
+      "trusted request did not return learned Fortitude: " .. tostring(env.__addonSent[sent + 1] and env.__addonSent[sent + 1].msg))
+    local guid = O.UnitGUID("player")
+    local payload = "PLAN;1.1;10.2;" .. guid .. ";FORTITUDE"
+    inbound(payload, "Zed-TestRealm")
+    slash("coordinate inbox")
+    slash("coordinate accept")
+    assert(#env.__addonSent == sent + 1 and not X.CoordinatedHolder("FORTITUDE"), "nonleader plan was accepted")
+    inbound(payload)
+    slash("coordinate accept")
+    assert(#env.__addonSent == sent + 1, "unreviewed plan was acknowledged")
+    slash("coordinate inbox")
+    slash("coordinate accept")
+    assert(#env.__addonSent == sent + 2 and env.__addonSent[sent + 2].msg == "COORD;1;ACK;10.2",
+      "accepted plan did not acknowledge the exact revision")
+    assert(X.CoordinatedHolder("FORTITUDE") and not X.assign.FORTITUDE,
+      "accepted duty did not remain isolated from manual assignments: " .. tostring(X.CoordinatedHolder("FORTITUDE") or nil)
+        .. "/" .. tostring(X.assign.FORTITUDE) .. "/" .. chat[#chat])
+    inbound("PLAN;1.1;9.9;" .. guid .. ";FORTITUDE")
+    slash("coordinate inbox")
+    slash("coordinate accept")
+    assert(#env.__addonSent == sent + 2, "stale plan revision allowed another acknowledgement")
+    inbound("PLAN;1.1;10.3;" .. guid .. ";-")
+    slash("coordinate inbox")
+    env.SendAddonMessage = function() return false end
+    slash("coordinate accept")
+    assert(X.CoordinatedHolder("FORTITUDE") and #env.__addonSent == sent + 2, "failed ACK discarded accepted duties")
+    env.SendAddonMessage = send
+    slash("coordinate accept")
+    assert(not X.CoordinatedHolder("FORTITUDE") and #env.__addonSent == sent + 3,
+      "reviewed empty replacement did not clear prior duties")
+    inbound("PLAN;1.1;10.4;" .. guid .. ";FORTITUDE")
+    slash("coordinate inbox")
+    slash("coordinate accept")
+    env.UnitIsGroupLeader = function() return false end
+    fire("PARTY_LEADER_CHANGED")
+    assert(not X.CoordinatedHolder("FORTITUDE"), "a deposed coordinator kept accepted duties active")
+    slash("coordinate off")
+    assert(not X.CoordinatedHolder("FORTITUDE"), "opt-out retained the accepted duty")
+
+    env.UnitIsGroupLeader = function(unit) return unit == "player" end
+    slash("coordinate on")
+    slash("coordinate request")
+    local request = env.__addonSent[#env.__addonSent].msg:match("^COORD;1;REQ;(.+)$")
+    assert(request, "leader could not request reports")
+    inbound("REPORT;" .. request .. ";" .. guid .. ";ARCANE_INTELLECT")
+    X.assign.FORTITUDE = "Zed-TestRealm"
+    slash("coordinate need THORNS")
+    slash("coordinate review")
+    sent = #env.__addonSent
+    slash("coordinate publish")
+    local plan = env.__addonSent[sent + 1]
+    assert(plan and plan.msg:match(";" .. O.UnitGUID("party1"):gsub("%-", "%%-") .. ";ARCANE_INTELLECT$"),
+      "reviewed plan did not route learned buff to its reporting caster")
+    assert(not X.CoordinatedHolder("FORTITUDE") and X.assign.FORTITUDE == "Zed-TestRealm",
+      "published plan overwrote a manual duty")
+    local revision = plan.msg:match("^COORD;1;PLAN;[%d.]+;([%d.]+);")
+    inbound("ACK;" .. revision, "Zed-TestRealm")
+    slash("coordinate status")
+    assert(chat[#chat]:find("Awaiting acknowledgement", 1, true), "unassigned member forged an acknowledgement")
+    inbound("ACK;" .. revision)
+    slash("coordinate status")
+    assert(chat[#chat]:find("Acknowledged", 1, true), "expected caster did not acknowledge the outbox revision")
+
+    slash("coordinate review")
+    local oldGUID = O.UnitGUID
+    O.UnitGUID = function(unit) if unit == "party1" then return "Player-1-Replaced" end return oldGUID(unit) end
+    fire("GROUP_ROSTER_UPDATE")
+    sent = #env.__addonSent
+    slash("coordinate publish")
+    assert(#env.__addonSent == sent, "replacement with a same-name member received the old plan")
+  end)
+  slash("coordinate off")
+  env.SendAddonMessage = send
+  db.sync, env.GetNumGroupMembers, env.UnitIsGroupLeader, env.UnitIsGroupAssistant = sync, size, leader, assist
+  X.assign.FORTITUDE = prior
+  cleanup()
+  assert(ok, err)
 end)
 step("cast sync: your cast is broadcast to other users (1.5.0)", function()
   if env.__forever then return end
@@ -3630,6 +3733,437 @@ step("settings search counts only visible controls and clears on close", functio
     "changing tabs did not restore search appearance")
 end)
 
+step("class and role assignment table supports mouse, keyboard and settings search", function()
+  local X, cfg, slash = NS.X, env.BuffRadarConfig, env.SlashCmdList.BUFFRADAR
+  if not env.__forever then
+    slash("buffassign")
+    assert(not env.BuffRadarAssignments and not cfg.assignmentButton,
+      "assignment settings appeared on the other edition")
+    return
+  end
+  local savedEnabled, savedRule = X.AssignmentEnabled(), X.GetAssignment("DRUID", "TANK")
+  local ok, err = pcall(function()
+    slash("buffassign")
+    local panel, input = env.BuffRadarAssignments, cfg.navInput
+    local cell = panel.cells.DRUID.TANK
+    assert(panel:IsVisible() and not cfg.searchToggle:IsShown(), "assignment table did not take modal focus")
+    assert(#X.BLESSING_CLASS_ORDER == 9 and panel.cells.WARRIOR.WORLD, "assignment table missing class or slot")
+    slash("buffassign on")
+    assert(X.AssignmentEnabled() and panel.enabled:GetChecked(), "slash opt-in did not update the checkbox")
+    slash("config navigate")
+    local function advanceTo(widget)
+      for _ = 1, 50 do
+        if cfg.navOutline.shown and cfg.navOutline.points[1][2] == widget then return end
+        input.scripts.OnTabPressed(input)
+      end
+      error("could not focus the assignment control")
+    end
+    advanceTo(cell)
+    input.scripts.OnSpacePressed(input)
+    local picker = panel.picker
+    assert(picker:IsShown() and picker.class == "DRUID" and picker.slot == "TANK",
+      "keyboard opened the wrong cell")
+    local option = picker.options[1]
+    assert(option:IsVisible() and option.option, "known targeted buffs were not offered")
+    advanceTo(option)
+    input.scripts.OnEnterPressed(input)
+    assert(X.GetAssignment("DRUID", "TANK")[option.option.key], "keyboard selection did not persist")
+    input.scripts.OnEnterPressed(input)
+    assert(X.GetAssignment("DRUID", "TANK") == false, "clearing a cell restored defaults instead of None")
+    advanceTo(picker.defaultButton)
+    input.scripts.OnEnterPressed(input)
+    assert(not picker:IsShown() and X.GetAssignment("DRUID", "TANK") == nil,
+      "Default did not restore inheritance and return to the table")
+    cell:Click()
+    assert(picker:IsShown(), "mouse click did not reopen the cell editor")
+    picker.noneButton:Click()
+    assert(not picker:IsShown() and X.GetAssignment("DRUID", "TANK") == false,
+      "None did not explicitly suppress assigned buffs")
+    cell:Click()
+    slash("config find")
+    assert(not panel:IsShown() and not picker:IsShown() and cfg.searchBox:HasFocus(),
+      "settings search did not close the assignment editor")
+    cfg.searchBox.scripts.OnEscapePressed(cfg.searchBox)
+    assert(cfg.searchToggle:IsShown(), "closing assignment editor did not restore settings search")
+  end)
+  if cfg.navInput:HasFocus() then cfg.navInput.scripts.OnEscapePressed(cfg.navInput) end
+  cfg.tabBtns.look:Click()
+  X.SetAssignment("DRUID", "TANK", savedRule)
+  X.SetAssignmentEnabled(savedEnabled)
+  X.RefreshConfig()
+  X.Refresh()
+  assert(ok, err)
+end)
+
+step("assignment preview opens, pages without scanning, and closes with settings", function()
+  local X, cfg, slash = NS.X, env.BuffRadarConfig, env.SlashCmdList.BUFFRADAR
+  if not env.__forever then
+    slash("buffassign preview")
+    assert(not env.BuffRadarAssignmentPreview, "assignment preview appeared on the other edition")
+    return
+  end
+  local original = X.AssignmentPreview
+  local ok, err = pcall(function()
+    local scans, members = 0, {}
+    for i = 1, 16 do
+      members[i] = { name = "Member" .. i, rule = "Druid role", evaluated = true, buffs = { "Thorns" }, available = {} }
+    end
+    members[1].group = "Prayer of Fortitude is blocked by 40 group members."
+    members[1].groupDetails = {}
+    for i = 1, 40 do
+      members[1].groupDetails[i] = "Blocker " .. i .. " · Druid tank rule excludes Fortitude"
+    end
+    members[2] = { name = "Member2", rule = "Rule unavailable", status = "Player details unavailable" }
+    X.AssignmentPreview = function() scans = scans + 1; return members end
+    slash("buffassign")
+    local panel = env.BuffRadarAssignments
+    panel.previewButton:Click()
+    local preview = env.BuffRadarAssignmentPreview
+    assert(preview:IsVisible() and scans == 1 and preview.rows[1].name == "Member1",
+      "preview did not open with a roster snapshot")
+    assert(preview.rows[1].description:find("Thorns", 1, true), "preview detail omitted a spell")
+    assert(preview.rows[2].detail:GetText() == "Player details unavailable", "unreadable row implied buff coverage")
+    slash("config navigate")
+    local input = cfg.navInput
+    local function advanceTo(widget)
+      for _ = 1, 15 do
+        if cfg.navOutline.shown and cfg.navOutline.points[1][2] == widget then return end
+        input.scripts.OnTabPressed(input)
+      end
+      error("could not focus a preview control")
+    end
+    advanceTo(preview.rows[1])
+    input.scripts.OnEnterPressed(input)
+    assert(scans == 1 and preview.rows[1].name == "Member1", "activating a member changed the snapshot")
+    local blockers = assert(env.BuffRadarAssignmentBlockers)
+    assert(blockers:IsVisible() and blockers.rows[1].text:GetText() == members[1].groupDetails[1],
+      "opening the preview row did not show the first blocker")
+    for _ = 1, 6 do blockers.next:Click() end
+    assert(blockers.rows[4].text:GetText() == members[1].groupDetails[40] and not blockers.next:IsShown(),
+      "paged blocker view did not reach the end of a full raid")
+    blockers:Hide()
+    assert(cfg.navOutline.shown and cfg.navOutline.points[1][2] == preview.rows[1],
+      "closing blocker details did not restore focus to the source row")
+    advanceTo(preview.next)
+    input.scripts.OnEnterPressed(input)
+    assert(preview.rows[1].name == "Member8" and scans == 1, "keyboard paging scanned or selected the wrong page")
+    preview.scripts.OnMouseWheel(preview, -1)
+    assert(preview.rows[1].name == "Member15" and not preview.rows[3]:IsShown(),
+      "mouse paging did not clamp to the final members")
+
+    members = {}
+    preview.refresh:Click()
+    assert(scans == 2 and not preview.rows[1]:IsShown() and not preview.next:IsShown(),
+      "refresh retained departed members")
+    cfg.scripts.OnEvent(cfg, "PLAYER_REGEN_DISABLED")
+    assert(not preview:IsShown() and #preview.members == 0, "combat retained the preview")
+    X.RefreshConfig()
+    assert(scans == 2, "hidden preview scanned again")
+    slash("buffassign preview")
+    assert(preview:IsVisible() and scans == 3, "slash did not open a fresh preview")
+    slash("config find")
+    assert(not preview:IsShown() and cfg.searchBox:HasFocus(), "search did not close the preview")
+  end)
+  X.AssignmentPreview = original
+  if cfg.navInput:HasFocus() then cfg.navInput.scripts.OnEscapePressed(cfg.navInput) end
+  if cfg.searchBox:HasFocus() then cfg.searchBox.scripts.OnEscapePressed(cfg.searchBox) end
+  cfg.tabBtns.look:Click()
+  assert(ok, err)
+end)
+
+step("assignment preview edits session roles by identity and protects modal navigation", function()
+  if not env.__forever then return end
+  local X, cfg, slash = NS.X, env.BuffRadarConfig, env.SlashCmdList.BUFFRADAR
+  local originalPreview, originalSet = X.AssignmentPreview, X.SetAssignmentRole
+  local ok, err = pcall(function()
+    local member = { name = "Mira", unit = "party1", guid = "Player-1-Mira", rule = "Druid World rule",
+      evaluated = true, buffs = {}, available = {}, roleEditable = true, roleCanSet = true }
+    local second = { name = "Dale", unit = "party2", guid = "Player-1-Dale", rule = "Warrior rule",
+      evaluated = true, buffs = {}, available = {}, roleEditable = false }
+    local writes, allow = 0, true
+    X.AssignmentPreview = function() return { member, second } end
+    X.SetAssignmentRole = function(unit, guid, role)
+      assert(unit == member.unit and guid == member.guid, "role editor selected a different member")
+      writes = writes + 1
+      if not allow then return false end
+      member.roleOverride = role
+      return true
+    end
+    slash("buffassign preview")
+    local preview = env.BuffRadarAssignmentPreview
+    local button = preview.rows[1].roleButton
+    assert(button:IsVisible() and not preview.rows[2].roleButton:IsVisible(), "role editor ignored member eligibility")
+    slash("config navigate")
+    local input = cfg.navInput
+    local function focus(widget)
+      for _ = 1, 15 do
+        if cfg.navOutline.shown and cfg.navOutline.points[1][2] == widget then return end
+        input.scripts.OnTabPressed(input)
+      end
+      error("could not focus a role control")
+    end
+    focus(button)
+    input.scripts.OnEnterPressed(input)
+    local editor = env.BuffRadarAssignmentRoleEditor
+    assert(editor:IsVisible() and editor.member == member, "keyboard did not open the selected member")
+    focus(editor.choices.TANK)
+    input.scripts.OnEnterPressed(input)
+    assert(not editor:IsShown() and member.roleOverride == "TANK" and writes == 1,
+      "role did not save through keyboard activation")
+    button:Click()
+    assert(editor.choices.TANK.navigation.value() ~= nil, "selection is not available for narration")
+    allow = false
+    editor.choices.HEALER:Click()
+    assert(not editor:IsShown() and member.roleOverride == "TANK" and writes == 2,
+      "a rejected stale role request was presented as saved")
+    allow, member.roleCanSet = true, false
+    preview.refresh:Click()
+    button:Click()
+    assert(not editor.choices.HEALER:IsVisible() and editor.choices.GAME:IsVisible(),
+      "editor allowed replacing a game role or hid the clear action")
+    editor.choices.GAME:Click()
+    assert(member.roleOverride == nil and writes == 3, "Use Game Role did not clear the override")
+    member.roleCanSet = true
+    preview.refresh:Click()
+    button:Click()
+    cfg.scripts.OnEvent(cfg, "PLAYER_REGEN_DISABLED")
+    assert(not editor:IsShown() and not editor.member and not preview.rows[1].member and writes == 3,
+      "combat retained the role editor or changed a role")
+  end)
+  X.AssignmentPreview, X.SetAssignmentRole = originalPreview, originalSet
+  if cfg.navInput:HasFocus() then cfg.navInput.scripts.OnEscapePressed(cfg.navInput) end
+  cfg.tabBtns.look:Click()
+  assert(ok, err)
+end)
+
+step("blocker shortcuts stage, review, recheck and refresh the exact edit", function()
+  if not env.__forever then return end
+  local X, cfg, slash = NS.X, env.BuffRadarConfig, env.SlashCmdList.BUFFRADAR
+  local originalPreview, originalSetter = X.AssignmentPreview, X.SetAssignment
+  local originalGetException, originalSetException = X.GetBlessingExceptionForGUID, X.SetBlessingExceptionForGUID
+  local originalReview, originalApply = X.ReviewBlockerEdit, X.ApplyBlockerEdit
+  local ok, err = pcall(function()
+    local rule = { kind = "rule", class = "DRUID", slot = "ALL", guid = "BlockerDruid" }
+    local exception = { kind = "exception", guid = "BlockerPaladin", name = "Paladin" }
+    local edits, remaining, left, revision, incomplete = 0, true, false, 1, false
+    local function snapshot()
+      local member = { name = "Warrior", identity = "PreviewWarrior", rule = "Tank", buffs = {}, available = {} }
+      if remaining then
+        member.groupDetails, member.groupActions = { "Druid All Roles", "Roster information unavailable", "Paladin exception" },
+          { [1] = not left and rule or nil, [3] = exception }
+      end
+      return { member }
+    end
+    X.AssignmentPreview = snapshot
+    X.SetAssignment = function(class, slot)
+      assert(class == "DRUID" and slot == "ALL", "shortcut did not use the exact inherited rule")
+      edits = edits + 1
+      left = true
+      return true
+    end
+    X.GetBlessingExceptionForGUID = function(guid)
+      assert(guid == exception.guid, "shortcut opened the wrong blessing exception")
+      return { name = "Paladin", key = "WISDOM", canSet = true,
+        options = { { key = "KINGS", name = "Blessing of Kings" } } }
+    end
+    X.SetBlessingExceptionForGUID = function(guid, key)
+      assert(guid == exception.guid and key == "KINGS", "editor saved the wrong blessing exception")
+      remaining = false
+      return "Paladin"
+    end
+    X.ReviewBlockerEdit = function(action, value)
+      assert(action == rule or action == exception, "review used the wrong blocker action")
+      if action == rule then
+        assert(value == nil, "review lost the staged Default rule")
+      else
+        assert(value == "KINGS", "review lost the staged blessing")
+      end
+      local rows = { {
+        name = revision == 1 and "Mira" or "Dale", gains = { "Kings" }, losses = { "Wisdom" }
+      } }
+      for _, name in ipairs({ "Aaron", "Bela", "Celia", "Dora", "Eliza" }) do
+        rows[#rows + 1] = { name = name, gains = { "Kings" }, losses = {} }
+      end
+      return { revision = revision, incomplete = incomplete, rows = rows }
+    end
+    X.ApplyBlockerEdit = function(action, value, before)
+      if left and action == rule then return false end
+      if revision ~= before.revision then return false, X.ReviewBlockerEdit(action, value) end
+      if action == rule then return X.SetAssignment(action.class, action.slot, value) end
+      return X.SetBlessingExceptionForGUID(action.guid, value) ~= nil
+    end
+    slash("buffassign preview")
+    local assignments, preview = env.BuffRadarAssignments, env.BuffRadarAssignmentPreview
+    preview.rows[1]:Click()
+    local blockers = env.BuffRadarAssignmentBlockers
+    assert(blockers.rows[1].edit:IsVisible() and not blockers.rows[2].edit:IsShown(),
+      "rule shortcut missing or offered for an informational blocker")
+    slash("config navigate")
+    local input = cfg.navInput
+    local function activate(widget)
+      for _ = 1, 18 do
+        if cfg.navOutline.shown and cfg.navOutline.points[1][2] == widget then
+          input.scripts.OnEnterPressed(input)
+          return
+        end
+        input.scripts.OnTabPressed(input)
+      end
+      error("could not reach an assignment blocker control")
+    end
+    activate(blockers.rows[1].edit)
+    local picker = assignments.picker
+    assert(picker:IsVisible() and picker.backButton:IsVisible() and picker.class == "DRUID" and picker.slot == "ALL",
+      "shortcut did not open the inherited All Roles picker")
+    activate(picker.defaultButton)
+    assert(edits == 0 and picker:IsVisible(), "staging Default saved the rule immediately")
+    activate(picker.reviewButton)
+    local review = env.BuffRadarBlockerReview
+    assert(review:IsVisible() and review.rows[1].heading:GetText() == "Mira"
+      and review.rows[1].detail:GetText() == "Gains: Kings"
+      and review.rows[2].detail:GetText() == "Loses: Wisdom",
+      "review omitted the named impact")
+    activate(review.next)
+    assert(review.rows[2].heading:GetText() == "Eliza" and not review.next:IsShown(),
+      "end of the review was unreachable")
+    activate(review.previous)
+    activate(review.back)
+    assert(not review:IsShown() and picker:IsVisible(), "Back did not return to the draft")
+    activate(picker.reviewButton)
+    revision = 2
+    fire("GROUP_ROSTER_UPDATE")
+    runQueued()
+    assert(review:IsVisible(), "automatic roster refresh discarded the review")
+    activate(review.apply)
+    assert(edits == 0 and review:IsVisible() and review.rows[1].heading:GetText() == "Dale"
+      and review.notice:GetText():find("Review again", 1, true), "roster change did not require a fresh Apply")
+    activate(review.apply)
+    assert(edits == 1 and not picker:IsShown() and blockers:IsVisible() and not blockers.rows[1].edit:IsShown(),
+      "saving a rule did not return to the refreshed blocker list")
+
+    left = false
+    preview.refresh:Click()
+    preview.rows[1]:Click()
+    blockers.rows[1].edit:Click()
+    picker.defaultButton:Click()
+    picker.reviewButton:Click()
+    left = true
+    review.apply:Click()
+    assert(edits == 1 and not picker:IsShown() and not review:IsShown() and not blockers.rows[1].edit:IsShown(),
+      "a departed member's stale rule was still editable")
+
+    blockers.rows[3].edit:Click()
+    local editor = env.BuffRadarBlockerExceptionEditor
+    assert(editor:IsVisible() and editor.choices[1]:IsVisible() and not editor.choices[2]:IsShown(),
+      "local blessing options did not open")
+    editor.choices[1]:Click()
+    assert(editor:IsVisible() and remaining, "selecting an exception wrote immediately")
+    incomplete = true
+    editor.reviewButton:Click()
+    assert(not review.apply:IsEnabled() and review.notice:GetText():find("could not be checked", 1, true),
+      "incomplete roster did not disable Apply with an explanation")
+    review.cancel:Click()
+    assert(not editor:IsShown() and not review:IsShown() and remaining, "Cancel saved or left a draft open")
+    incomplete = false
+    blockers.rows[3].edit:Click()
+    editor.choices[1]:Click()
+    editor.reviewButton:Click()
+    env.__combat = true
+    cfg:GetScript("OnEvent")(cfg, "PLAYER_REGEN_DISABLED")
+    env.__combat = false
+    assert(not assignments:IsShown() and not editor:IsShown() and not review:IsShown() and remaining,
+      "entering combat did not discard the draft")
+    slash("buffassign preview")
+    preview.rows[1]:Click()
+    blockers.rows[3].edit:Click()
+    assert(editor.draft == "WISDOM", "a cancelled exception draft leaked into the next edit")
+    editor.choices[1]:Click()
+    editor.reviewButton:Click()
+    review.apply:Click()
+    assert(preview:IsVisible() and not blockers:IsShown() and not editor:IsShown(),
+      "resolved blocker did not return to the preview")
+  end)
+  X.AssignmentPreview, X.SetAssignment = originalPreview, originalSetter
+  X.GetBlessingExceptionForGUID, X.SetBlessingExceptionForGUID = originalGetException, originalSetException
+  X.ReviewBlockerEdit, X.ApplyBlockerEdit = originalReview, originalApply
+  env.__combat = false
+  cfg:Hide()
+  assert(ok, err)
+end)
+
+step("visible assignment preview refreshes roster and roles without retargeting the editor", function()
+  if not env.__forever then return end
+  local X, cfg, slash = NS.X, env.BuffRadarConfig, env.SlashCmdList.BUFFRADAR
+  local original = X.AssignmentPreview
+  local function member(name, unit, editable)
+    local guid = "Player-1-" .. name
+    return { name = name, unit = unit, guid = guid, identity = guid, roleEditable = editable,
+      roleCanSet = editable, rule = "Role rule", buffs = {}, available = {} }
+  end
+  local ok, err = pcall(function()
+    local scans = 0
+    local members = { member("Mira", "party1", true), member("Dale", "party2", true) }
+    X.AssignmentPreview = function() scans = scans + 1; return members end
+    slash("buffassign preview")
+    local preview = env.BuffRadarAssignmentPreview
+    assert(scans == 1, "initial preview count differed")
+    slash("config navigate")
+    local input = cfg.navInput
+    local function focused(widget)
+      return cfg.navOutline.shown and cfg.navOutline.points[1][2] == widget
+    end
+    for _ = 1, 15 do
+      if focused(preview.rows[1].roleButton) then break end
+      input.scripts.OnTabPressed(input)
+    end
+    assert(focused(preview.rows[1].roleButton), "could not focus original member")
+    members = { member("Dale", "party1", true), member("Mira", "party2", true) }
+    fire("GROUP_ROSTER_UPDATE")
+    fire("PLAYER_ROLES_ASSIGNED")
+    fire("PARTY_MEMBERS_CHANGED")
+    fire("RAID_ROSTER_UPDATE")
+    if env.C_Timer then assert(scans == 1, "visible event burst scanned synchronously") end
+    runQueued()
+    assert(scans == (env.C_Timer and 2 or 5), "incorrect event refresh count")
+    assert(preview.rows[1].member.name == "Dale" and focused(preview.refresh),
+      "roster refresh kept focus on a different person")
+
+    preview.rows[2].roleButton:Click()
+    local editor = env.BuffRadarAssignmentRoleEditor
+    members = { member("Mira", "party1", true), member("Dale", "party2", true) }
+    fire("GROUP_ROSTER_UPDATE")
+    runQueued()
+    assert(editor:IsVisible() and editor.member == members[1] and editor.member.unit == "party1",
+      "editor did not follow only the original GUID after a roster move")
+    members = { member("Mira", "party1", false), member("Dale", "party2", true) }
+    fire("PLAYER_ROLES_ASSIGNED")
+    runQueued()
+    assert(not editor:IsShown(), "editor stayed open when member stopped being editable")
+
+    if env.C_Timer then
+      fire("GROUP_ROSTER_UPDATE")
+      preview:Hide()
+      slash("buffassign preview")
+      local reopenedScans = scans
+      runQueued()
+      assert(scans == reopenedScans, "callback from the old preview refreshed a re-opened preview")
+    end
+    members = {}
+    fire("GROUP_LEFT")
+    runQueued()
+    assert(not preview.rows[1]:IsShown(), "group leave retained departed members")
+    preview:Hide()
+    local hiddenScans = scans
+    fire("GROUP_ROSTER_UPDATE")
+    fire("PLAYER_ROLES_ASSIGNED")
+    runQueued()
+    assert(scans == hiddenScans, "hidden preview performed a roster scan")
+  end)
+  X.AssignmentPreview = original
+  if cfg.navInput:HasFocus() then cfg.navInput.scripts.OnEscapePressed(cfg.navInput) end
+  cfg.tabBtns.look:Click()
+  assert(ok, err)
+end)
+
 step("keyboard settings navigation changes tabs, checkboxes, sliders, and choices", function()
   local cfg = env.BuffRadarConfig
   cfg.tabBtns.look:Click()
@@ -4763,10 +5297,720 @@ step("Forever uses the eligible rank and falls back from an unaffordable group c
   refresh()
   assert(ok, err)
 end)
+step("Forever assignment rules route casts and coverage with safe group fallback", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("Assign")
+  local X, db = NS.X, env.BuffRadarDB
+  local oldRole, oldRules, oldMode = env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled
+  local oldCount = env.C_Item.GetItemCount
+  local ok, err = pcall(function()
+    local roles = { party1 = "DAMAGER", party2 = "TANK" }
+    env.UnitGroupRolesAssigned = function(unit)
+      if roles[unit] == "THROW" then error("protected role") end
+      return roles[unit]
+    end
+    local stock = 0
+    env.C_Item.GetItemCount = function() return stock end
+    X.InvalidateReagents()
+    db.buffAssignments = {}
+    assert(X.SetAssignment("MAGE", "ALL", { FORTITUDE = true }))
+    assert(X.SetAssignment("MAGE", "DAMAGER", false))
+    assert(X.SetAssignment("MAGE", "WORLD", { DIVINE_SPIRIT = true }))
+    assert(X.SetAssignment("WARRIOR", "TANK", { FORTITUDE = true }))
+    assert(X.SetAssignmentEnabled(false))
+    refresh()
+    assert(shownRows().party1, "disabled grid changed stock eligibility")
+    assert(X.SetAssignmentEnabled(true))
+    refresh()
+    assert(not shownRows().party1 and shownRows().party2, "explicit None failed to override All")
+    local report = X.GroupBuffReport(false, true)
+    for _, member in ipairs(report.members) do
+      if member.unit == "party1" then assert(#member.missing == 0, "coverage ignored None") end
+    end
+    local offer, _, stockCount, reason = X.GroupOffer("Power Word: Fortitude", "party2")
+    assert(offer == nil and reason == "assignment", "empty bags masked an assignment conflict")
+    roles.party1 = "THROW"
+    fire("PLAYER_ROLES_ASSIGNED")
+    refresh()
+    local group = X.GroupBuffReport()
+    local mage
+    for _, member in ipairs(group.people) do if member.unit == "party1" then mage = member end end
+    assert(mage and #mage.buffs == 1 and mage.buffs[1] == "Divine Spirit",
+      "unreadable role did not choose World")
+    assert(X.SetAssignment("MAGE", "WORLD", nil))
+    refresh()
+    offer, _, stockCount, reason = X.GroupOffer("Power Word: Fortitude", "party2")
+    assert(offer == nil and stockCount == 0 and reason == "reagent", "compatible roster ignored empty bags")
+    stock = 2
+    X.InvalidateReagents()
+    assert(X.GroupOffer("Power Word: Fortitude", "party2") == "Prayer of Fortitude",
+      "safe group cast stayed suppressed")
+    assert(not X.SetAssignment("MAGE", "ALL", { DAMPEN_MAGIC = true, AMPLIFY_MAGIC = true }))
+    assert(not X.SetAssignment("MAGE", "ALL", { BLESS_KINGS = true, BLESS_MIGHT = true }))
+    assert(not X.SetAssignment("MAGE", "ALL", { CUSTOM123 = true }))
+    assert(X.GetAssignment("MAGE", "ALL").FORTITUDE, "invalid edits changed the saved cell")
+  end)
+  env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled = oldRole, oldRules, oldMode
+  env.C_Item.GetItemCount = oldCount
+  X.InvalidateReagents()
+  cleanup()
+  refresh()
+  assert(ok, err)
+end)
+step("Forever practice review and apply are isolated from the live group", function()
+  if not env.__forever then return end
+  local X = NS.X
+  local review, apply, undo = X.ReviewBlockerEdit, X.ApplyBlockerEdit, X.blockerUndo
+  local profile = X.ProfileSnapshot()
+  local config
+  local ok, err = pcall(function()
+    local function liveEdit() error("practice invoked a live blocker edit") end
+    X.ReviewBlockerEdit, X.ApplyBlockerEdit = liveEdit, liveEdit
+    env.SlashCmdList.BUFFRADAR("practice")
+    config = env.BuffRadarConfig
+    local practice = env.BuffRadarPractice
+    assert(practice and practice:IsVisible() and not practice.edits[3], "practice allowed editing unavailable sample")
+    practice.edits[1]:Click()
+    assert(not practice.reviewButton:IsEnabled(), "practice reviewed an unstaged change")
+    practice.choice:SetChecked(true)
+    practice.choice:Click()
+    practice.reviewButton:Click()
+    local fakeReview = env.BuffRadarPracticeReview
+    assert(fakeReview and fakeReview:IsVisible() and fakeReview.lines[1].name == "Mira", "practice did not show sample rule gains")
+    fakeReview.cancel:Click()
+    assert(not practice.applied[1], "cancel applied the sample change")
+    practice.edits[2]:Click()
+    practice.choice:SetChecked(true)
+    practice.choice:Click()
+    practice.reviewButton:Click()
+    assert(#fakeReview.lines == 2 and fakeReview.lines[1].name == "Thoren", "practice did not show both blessing changes")
+    fakeReview.apply:Click()
+    assert(practice.applied[2] and not fakeReview:IsVisible(), "practice apply did not return to the sample raid")
+    assert(X.ProfileSnapshot() == profile and X.blockerUndo == undo, "practice changed live settings or undo history")
+  end)
+  X.ReviewBlockerEdit, X.ApplyBlockerEdit = review, apply
+  if config then config:Hide() end
+  assert(ok, err)
+end)
+step("Forever blocker review compares everyone sharing a rule and rechecks state on Apply", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("RuleReview")
+  local X, O, db = NS.X, env.__over, env.BuffRadarDB
+  local oldSize, oldRole = env.GetNumGroupMembers, env.UnitGroupRolesAssigned
+  local oldRules, oldMode = db.buffAssignments, db.assignmentEnabled
+  local ok, err = pcall(function()
+    local fullName, name, class, guid, exists = O.UnitFullName, O.UnitName, O.UnitClass, O.UnitGUID, O.UnitExists
+    local fourthGUID = "Player-Beth"
+    O.UnitExists = function(unit) return unit == "party3" or exists(unit) end
+    O.UnitIsPlayer = O.UnitExists
+    O.UnitGUID = function(unit) if unit == "party3" then return fourthGUID end return guid(unit) end
+    O.UnitName = function(unit) if unit == "party3" then return "Beth" end return name(unit) end
+    O.UnitFullName = function(unit) if unit == "party3" then return "Beth", "TestRealm" end return fullName(unit) end
+    O.UnitClass = function(unit) if unit == "party3" then return "Mage", "MAGE" end return class(unit) end
+    env.GetNumGroupMembers = function() return 4 end
+    env.UnitGroupRolesAssigned = function() return "NONE" end
+    env.IsSpellInRange = function() return 1 end
+    assert(X.SetAssignmentEnabled(true))
+    db.buffAssignments = {}
+    assert(X.SetAssignment("MAGE", "ALL", { DIVINE_SPIRIT = true }))
+    assert(X.SetAssignment("WARRIOR", "ALL", { FORTITUDE = true }))
+    local function action()
+      local source = X.AssignmentPreview()[3]
+      for _, candidate in pairs(source.groupActions or {}) do
+        if candidate.guid == guid("party1") and candidate.single == "Power Word: Fortitude" then return candidate end
+      end
+      error("missing Aaron's rule blocker")
+    end
+    local draft = { FORTITUDE = true }
+    local editing = action()
+    local review = assert(X.ReviewBlockerEdit(editing, draft))
+    assert(not review.incomplete and #review.rows == 2 and review.rows[1].name == "Aaron-TestRealm"
+      and review.rows[2].name == "Beth-TestRealm", "review omitted a second recipient on the same rule")
+    for _, row in ipairs(review.rows) do
+      assert(row.gains[1] == "Power Word: Fortitude" and row.losses[1] == "Divine Spirit", "wrong rule delta")
+    end
+    fourthGUID = "Player-NewBeth"
+    local applied, fresh = X.ApplyBlockerEdit(editing, draft, review)
+    assert(not applied and fresh and #fresh.rows == 2 and X.GetAssignment("MAGE", "ALL").DIVINE_SPIRIT,
+      "a replacement with the same display name skipped reconfirmation")
+    assert(X.SetAssignment("WARRIOR", "ALL", false))
+    applied, fresh = X.ApplyBlockerEdit(editing, draft, fresh)
+    assert(not applied and not fresh and X.GetAssignment("MAGE", "ALL").DIVINE_SPIRIT,
+      "an origin no longer eligible for Fortitude approved the edit")
+    assert(X.SetAssignment("WARRIOR", "ALL", { FORTITUDE = true }))
+    editing = action()
+    review = assert(X.ReviewBlockerEdit(editing, draft))
+    X.ApplyProfile(assert(X.ParseProfile(X.ProfileSnapshot())))
+    assert(not X.ApplyBlockerEdit(editing, draft, review) and X.GetAssignment("MAGE", "ALL").DIVINE_SPIRIT,
+      "replacing the profile accepted a draft opened under the previous profile")
+    editing = action()
+    review = assert(X.ReviewBlockerEdit(editing, draft))
+    assert(X.ApplyBlockerEdit(editing, draft, review) and X.GetAssignment("MAGE", "ALL").FORTITUDE,
+      "verified shared rule failed to apply")
+    assert(not next(X.AssignmentPreview()[3].groupActions or {}), "applied rule did not clear its blockers")
+    assert(X.UndoBlockerEdit() and X.GetAssignment("MAGE", "ALL").DIVINE_SPIRIT,
+      "undo did not restore the exact prior rule")
+    assert(not X.UndoBlockerEdit(), "undo applied the same edit twice")
+    assert(X.SetAssignment("MAGE", "ALL", false))
+    editing = action()
+    assert(X.ApplyBlockerEdit(editing, draft, assert(X.ReviewBlockerEdit(editing, draft))))
+    assert(X.UndoBlockerEdit() and X.GetAssignment("MAGE", "ALL") == false,
+      "undo did not preserve explicit None")
+    editing = action()
+    assert(X.ApplyBlockerEdit(editing, draft, assert(X.ReviewBlockerEdit(editing, draft))))
+    assert(X.SetAssignment("MAGE", "ALL", nil))
+    assert(not X.UndoBlockerEdit() and X.GetAssignment("MAGE", "ALL") == nil,
+      "undo overwrote a later edit to the same rule")
+  end)
+  env.GetNumGroupMembers, env.UnitGroupRolesAssigned = oldSize, oldRole
+  db.buffAssignments, db.assignmentEnabled = oldRules, oldMode
+  cleanup()
+  refresh()
+  assert(ok, err)
+end)
+step("Forever assignment preview and why explain winning rules without changing secure rows", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("Preview")
+  local X, O, db = NS.X, env.__over, env.BuffRadarDB
+  local oldRole, oldRules, oldMode = env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled
+  local oldSize = env.GetNumGroupMembers
+  local oldCount, oldTip = env.C_Item.GetItemCount, env.GameTooltip
+  local oldIncludeSelf, oldGroupCast, oldClickThrough = db.includeSelf, db.groupCast, db.clickThrough
+  local ok, err = pcall(function()
+    local role = "DAMAGER"
+    env.GetNumGroupMembers = function() return 3 end
+    env.UnitGroupRolesAssigned = function(unit)
+      if unit == "party2" then return "TANK" end
+      if role == "THROW" then error("protected role") end
+      return role
+    end
+    env.IsSpellInRange = function() return 1 end
+    env.C_Item.GetItemCount = function() return 2 end
+    X.InvalidateReagents()
+    O.Aura = function(unit)
+      if unit == "player" then return { expirationTime = env.GetTime() + 600 } end
+    end
+    db.includeSelf, db.groupCast, db.clickThrough = false, false, false
+    db.buffAssignments = {}
+    assert(X.SetAssignmentEnabled(true))
+    assert(X.SetAssignment("MAGE", "ALL", { FORTITUDE = true }))
+    assert(X.SetAssignment("MAGE", "DAMAGER", false))
+    assert(X.SetAssignment("MAGE", "WORLD", { DIVINE_SPIRIT = true }))
+    refresh()
+    local nextButton = env.BuffRadarNextButton
+    local groupButton = env.BuffRadarGroupButton
+    local entry, target = nextButton.entry, nextButton:GetAttribute("unit")
+    local conflicts, tally = X.assignmentGroupConflicts, X.tallyUnits
+    local function preview()
+      local members = X.AssignmentPreview()
+      assert(#members == 3, "preview did not count the party and player once: " .. #members)
+      assert(members[1].rule:find("Built-in rules", 1, true), "self did not use built-in rules")
+      return members[2], members[3]
+    end
+    local mage, warrior = preview()
+    assert(mage.name == "Aaron-TestRealm" and mage.rule:find("DPS rule", 1, true)
+      and mage.rule:find("None", 1, true) and #mage.buffs == 0, "preview ignored explicit None")
+    local details = table.concat(warrior.groupDetails or {}, "\n")
+    assert(details:find("Prayer of Fortitude would reach Aaron-TestRealm", 1, true)
+      and details:find("DPS rule", 1, true) and details:find("None", 1, true),
+      "preview lost the group spell, blocking member, or winning rule: " .. details)
+    assert(groupButton:GetAttribute("unit") == "party2"
+      and groupButton:GetAttribute("spell") == "Power Word: Fortitude", "blocked group key did not use single-target cast")
+    local lines = {}
+    env.GameTooltip = { SetOwner = function() end, Show = function() end, Hide = function() end,
+      AddLine = function(_, line) lines[#lines + 1] = line end }
+    X.ShowNextPreview({})
+    local tooltip = table.concat(lines, "\n")
+    assert(tooltip:find("Prayer of Fortitude is blocked by 1 group member.", 1, true),
+      "next-cast tooltip did not count the blocker: " .. tooltip)
+    assert(not tooltip:find("Aaron-TestRealm", 1, true), "tooltip displayed the full blocker list")
+    env.GameTooltip = oldTip
+    assert(X.assignmentGroupConflicts == conflicts, "preview changed the live group conflict cache")
+    local before = #chat
+    env.SlashCmdList.BUFFRADAR("why Aaron")
+    assert(chatSince(before, "Applied rule for Aaron: " .. mage.rule .. "."),
+      "why lost winning rule: " .. tostring(chat[before + 1]))
+    role = "THROW"
+    mage = preview()
+    assert(mage.rule:find("World rule (role unavailable)", 1, true)
+      and mage.buffs[1] == "Divine Spirit", "protected role did not fall back to World")
+    assert(X.SetAssignment("MAGE", "WORLD", nil))
+    mage = preview()
+    assert(mage.rule:find("All Roles rule (role unavailable)", 1, true)
+      and mage.available[1] == "Power Word: Fortitude", "missing World did not fall back to All Roles")
+    assert(nextButton.entry == entry and nextButton:GetAttribute("unit") == target and X.tallyUnits == tally,
+      "preview changed the cast queue or coverage tallies: entry=" .. tostring(nextButton.entry == entry)
+      .. " target=" .. tostring(nextButton:GetAttribute("unit") == target) .. " tally=" .. tostring(X.tallyUnits == tally))
+    local exists = O.UnitExists
+    O.UnitExists = function(unit) if unit ~= "party1" then return exists(unit) end error("protected existence") end
+    mage, warrior = preview()
+    assert(mage.rule == "Rule unavailable" and mage.status == "Player details unavailable" and not mage.evaluated,
+      "preview claimed unreadable member was evaluated")
+    assert(warrior.group and warrior.group:find("roster information is unavailable", 1, true)
+      and not warrior.group:find("Aaron", 1, true) and not warrior.group:find("party1", 1, true),
+      "unreadable roster presented a named blocker: " .. tostring(warrior.group))
+    O.UnitExists = exists
+    O.Aura = function(unit)
+      if unit == "player" or unit == "party1" then return { expirationTime = env.GetTime() + 600 } end
+    end
+    refresh()
+    _, warrior = preview()
+    assert(warrior.group and warrior.group:find("Group option: Prayer of Fortitude", 1, true)
+      and groupButton:GetAttribute("spell") == "Prayer of Fortitude" and not groupButton.bOfferReason,
+      "group cast or explanation stayed stale after the assignment changed")
+
+    local fullName, name, class, guid = O.UnitFullName, O.UnitName, O.UnitClass, O.UnitGUID
+    O.UnitExists = function(unit) return unit == "party3" or unit == "party4" or exists(unit) end
+    O.UnitIsPlayer = function(unit) return unit == "party3" or exists(unit) end
+    O.UnitName = function(unit) if unit == "party3" then return "Blair" end return name(unit) end
+    O.UnitFullName = function(unit) if unit == "party3" then return "Blair", "TestRealm" end return fullName(unit) end
+    O.UnitClass = function(unit) if unit == "party3" then return "Rogue", "ROGUE" end return class(unit) end
+    O.UnitGUID = function(unit) if unit == "party3" then return "Player-1-Blocker3" end return guid(unit) end
+    env.GetNumGroupMembers = function() return 5 end
+    role = "DAMAGER"
+    assert(X.SetAssignment("ROGUE", "DAMAGER", false))
+    fire("PLAYER_ROLES_ASSIGNED")
+    X.Refresh()
+    warrior = X.AssignmentPreview()[3]
+    details = table.concat(warrior.groupDetails or {}, "\n")
+    assert(details:find("Aaron-TestRealm", 1, true) and details:find("Blair-TestRealm", 1, true)
+      and details:find("incomplete", 1, true) and not details:find("party4", 1, true),
+      "preview lost named blockers or roster uncertainty: " .. details)
+    lines = {}
+    env.GameTooltip = { SetOwner = function() end, Show = function() end, Hide = function() end,
+      AddLine = function(_, line) lines[#lines + 1] = line end }
+    X.ShowNextPreview({})
+    tooltip = table.concat(lines, "\n")
+    assert(tooltip:find("Prayer of Fortitude is blocked by 2 group members.", 1, true)
+      and tooltip:find("incomplete", 1, true)
+      and not tooltip:find("Aaron-TestRealm", 1, true) and not tooltip:find("Blair-TestRealm", 1, true),
+      "compact tooltip lost the known count or partial coverage: " .. tooltip)
+    assert(groupButton:GetAttribute("spell") == "Power Word: Fortitude", "multi-blocker list changed fallback cast")
+  end)
+  env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled = oldRole, oldRules, oldMode
+  env.GetNumGroupMembers, env.C_Item.GetItemCount, env.GameTooltip = oldSize, oldCount, oldTip
+  db.includeSelf, db.groupCast, db.clickThrough = oldIncludeSelf, oldGroupCast, oldClickThrough
+  X.InvalidateReagents()
+  cleanup()
+  refresh()
+  assert(ok, err)
+end)
+step("Forever raid coverage keeps exact, missing and unknown buffs by current subgroup", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("Coverage")
+  local X, O, db = NS.X, env.__over, env.BuffRadarDB
+  local oldRaid, oldSize, oldRoster = env.IsInRaid, env.GetNumGroupMembers, env.GetRaidRosterInfo
+  local oldRebuff, oldEnabled, oldAssignments = db.rebuff, db.enabled, db.assignmentEnabled
+  local oldRange = env.IsSpellInRange
+  local oldIndexedAura = env.C_UnitAuras.GetBuffDataByIndex
+  local ok, err = pcall(function()
+    local moved, unknownSubgroup, offline, unknownAura, replacement = false, false, true, false, false
+    local function index(unit) return tonumber(unit:match("^raid(%d+)$")) end
+    env.IsInRaid = function() return true end
+    env.GetNumGroupMembers = function() return 40 end
+    env.GetRaidRosterInfo = function(i)
+      if i == 40 and unknownSubgroup then return "Last", 0, nil end
+      if i == 5 and moved then return "Moved", 0, 2 end
+      return "Raid" .. i, 0, math.ceil(i / 5)
+    end
+    O.UnitExists = function(unit) local i = index(unit); return unit == "player" or i ~= nil and i <= 40 end
+    O.UnitIsPlayer = O.UnitExists
+    O.UnitGUID = function(unit)
+      if unit == "player" then return "Player-self" end
+      if unit == "raid5" and replacement then return "Player-replacement" end
+      if index(unit) then return "Player-" .. unit end
+    end
+    O.UnitClass = function() return "Priest", "PRIEST" end
+    O.UnitName = function(unit) return unit == "raid5" and "SameName" or unit end
+    O.UnitFullName = function(unit) return O.UnitName(unit), "TestRealm" end
+    O.UnitIsDeadOrGhost = function(unit) return offline and unit == "raid2" end
+    O.Aura = function(unit, spell)
+      if spell ~= "Power Word: Fortitude" then return nil end
+      if unknownAura and unit == "raid3" then return end
+      if index(unit) and not (unit == "raid1" or unit == "raid5" and replacement) then
+        return { expirationTime = env.GetTime() + 1 }
+      end
+      return nil
+    end
+    env.C_UnitAuras.GetBuffDataByIndex = function(unit, i)
+      if unknownAura and unit == "raid3" then return end
+      return oldIndexedAura(unit, i)
+    end
+    db.rebuff, db.enabled, db.assignmentEnabled = 30, { FORTITUDE = true, DIVINE_SPIRIT = false }, false
+    env.IsSpellInRange = function() return 0 end
+    local function find(report, id)
+      for _, group in ipairs(report.groups) do
+        if group.id == id then
+          for _, buff in ipairs(group.buffs) do if buff.name == "Power Word: Fortitude" then return buff end end
+        end
+      end
+    end
+    local beforeSync, beforeChat = #env.__addonSent, #env.__sent
+    local tally = X.tallyUnits
+    local report = X.RaidCoverage()
+    local first = assert(find(report, 1), "Fortitude omitted from group 1")
+    assert(report.raid and not report.incomplete and #report.groups == 8 and first.confirmed == 3
+      and first.missing[1] == "raid1-TestRealm" and first.unknown[1] == "raid2-TestRealm",
+      "coverage lost presence inside rebuff threshold, missing, or dead unknown: "
+      .. tostring(report.raid) .. "/" .. tostring(report.incomplete) .. "/" .. #report.groups .. ": "
+      .. first.confirmed .. "/" .. table.concat(first.missing, ",") .. "/" .. table.concat(first.unknown, ","))
+    assert(find(report, 8).confirmed == 5, "coverage omitted the end of the 40-player raid")
+    assert(X.tallyUnits == tally and #env.__addonSent == beforeSync and #env.__sent == beforeChat,
+      "coverage changed live scan state or sent a group message")
+    env.SlashCmdList.BUFFRADAR("coverage")
+    local view = env.BuffRadarRaidCoverage
+    local row
+    for _, button in ipairs(view.rows) do
+      if button.line and button.line.group == 1 and button.line.spell == "Power Word: Fortitude" then row = button; break end
+    end
+    assert(view:IsVisible() and row and row.counts:GetText() == "3 Confirmed · 1 Missing · 1 Unknown", "summary was not rendered")
+    row:Click()
+    assert(view.rows[1].heading:GetText() == "Missing: raid1-TestRealm" and view.rows[2].heading:GetText() == "Unknown: raid2-TestRealm",
+      "drill-down lost missing and unknown identities")
+    moved, replacement, offline, unknownAura, unknownSubgroup = true, true, false, true, true
+    X.QueueAssignmentPreviewRefresh()
+    runQueued()
+    assert(view.report.incomplete and view.selection.group == 1 and find(view.report, 0).confirmed == 1,
+      "refresh lost selection or fabricated an unreadable subgroup")
+    assert(find(view.report, 2).missing[1] == "SameName-TestRealm" and find(view.report, 1).unknown[1] == "raid3-TestRealm",
+      "roster move or same-name replacement inherited old coverage")
+    view.back:Click()
+    assert(not view.selection and view.rows[1].line.spell, "Back did not return to summary")
+    env.__combat = true
+    fire("PLAYER_REGEN_DISABLED")
+    env.BuffRadarConfig.scripts.OnEvent(env.BuffRadarConfig, "PLAYER_REGEN_DISABLED")
+    assert(not view:IsVisible() and X.RaidCoverage() == nil, "coverage stayed available in combat")
+  end)
+  env.__combat = false
+  env.IsInRaid, env.GetNumGroupMembers, env.GetRaidRosterInfo = oldRaid, oldSize, oldRoster
+  db.rebuff, db.enabled, db.assignmentEnabled = oldRebuff, oldEnabled, oldAssignments
+  env.C_UnitAuras.GetBuffDataByIndex = oldIndexedAura
+  env.BuffRadarConfig:Hide()
+  cleanup()
+  env.IsSpellInRange = oldRange
+  fire("PLAYER_REGEN_ENABLED")
+  assert(ok, err)
+end)
+step("Forever subgroup duties constrain casts and preparation reports the whole raid", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("Subgroup")
+  local X, O, db = NS.X, env.__over, env.BuffRadarDB
+  local oldRaid, oldSize, oldRoster = env.IsInRaid, env.GetNumGroupMembers, env.GetRaidRosterInfo
+  local oldConnected, oldAssignments = env.UnitIsConnected, db.assignmentEnabled
+  local oldUnitInRaid = env.UnitInRaid
+  local oldKnown, oldOwned = env.IsPlayerSpell, env.C_Item.GetItemCount
+  local oldDuties = X.subgroupDuties
+  local ok, err = pcall(function()
+    local guid, name, full, class = O.UnitGUID, O.UnitName, O.UnitFullName, O.UnitClass
+    local group = 2
+    local function raidUnit(u) return ({raid1 = "party1", raid2 = "party2"})[u] or u end
+    O.UnitExists = function(u) return u == "raid1" or u == "raid2" or u == "player" end
+    O.UnitIsPlayer = O.UnitExists
+    O.UnitGUID = function(u) return guid(raidUnit(u)) end
+    O.UnitName = function(u) return name(raidUnit(u)) end
+    O.UnitFullName = function(u) return full(raidUnit(u)) end
+    O.UnitClass = function(u) return class(raidUnit(u)) end
+    env.IsInRaid = function() return true end
+    env.GetNumGroupMembers = function() return 2 end
+    env.GetRaidRosterInfo = function(i)
+      if i == 1 then return "Aaron", 0, 1 end
+      if i == 2 then return "Zed", 0, group end
+    end
+    env.UnitInRaid = function(u) if u == "target" then return nil end if u == "mouseover" then return 2 end end
+    env.UnitIsConnected = function() return true end
+    env.IsSpellInRange = function() return 1 end
+    env.IsPlayerSpell = function(id) return id == 21562 or oldKnown and oldKnown(id) end
+    env.C_Item.GetItemCount = function() return 0 end
+    db.assignmentEnabled = false
+    X.subgroupDuties = nil
+    local slash = env.SlashCmdList.BUFFRADAR
+    slash("subgroup FORTITUDE 1")
+    assert(X.SubgroupAllows("FORTITUDE", "raid1", true) and not X.SubgroupAllows("FORTITUDE", "raid2", true),
+      "responsibility did not follow the subgroup")
+    assert(not X.SubgroupAllows("FORTITUDE", "raid2", true) and X.SubgroupAllows("FORTITUDE", "target", false),
+      "subgroup responsibility escaped into the world")
+    assert(not X.SubgroupAllows("FORTITUDE", "mouseover", false), "unselected raid member bypassed filter by alias")
+    local nameOffered, _, _, reason = X.GroupOffer("Power Word: Fortitude", "raid1")
+    assert(not nameOffered and reason == "subgroup", "broad version ignored group 2")
+    group = nil
+    local _, _, _, unreadable = X.GroupOffer("Power Word: Fortitude", "raid1")
+    assert(unreadable == "subgroup", "unreadable subgroup allowed broad cast")
+    group = 2
+    slash("subgroup FORTITUDE ALL")
+    local _, _, _, unrestricted = X.GroupOffer("Power Word: Fortitude", "raid1")
+    assert(unrestricted ~= "subgroup", "clearing the filter left broad casting blocked")
+    slash("subgroup FORTITUDE 1")
+    slash("prep personal")
+    local f = env.BuffRadarRaidPreparation
+    assert(f and f:IsShown() and f.summary:GetText():find("2 Players", 1, true), "preparation required a ready check or dropped a subgroup")
+    assert(f.rows[2].label:GetText() == "Zed-TestRealm"
+      and f.rows[2].detail:GetText():find("Food missing", 1, true), "preparation omitted the other subgroup's consumables")
+    f.refresh:Click()
+    assert(f:IsShown(), "manual refresh closed preparation")
+    env.__combat = true
+    fire("PLAYER_REGEN_DISABLED")
+    assert(not f:IsShown(), "preparation remained visible in combat")
+  end)
+  env.__combat = false
+  env.IsInRaid, env.GetNumGroupMembers, env.GetRaidRosterInfo = oldRaid, oldSize, oldRoster
+  env.UnitIsConnected, db.assignmentEnabled = oldConnected, oldAssignments
+  env.UnitInRaid = oldUnitInRaid
+  env.IsPlayerSpell, env.C_Item.GetItemCount = oldKnown, oldOwned
+  X.subgroupDuties = oldDuties
+  cleanup()
+  fire("PLAYER_REGEN_ENABLED")
+  assert(ok, err)
+end)
+step("Forever session role overrides share the cast rules and retire with the roster", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("ManualRole")
+  local X, O, db = NS.X, env.__over, env.BuffRadarDB
+  local oldRule, oldRules, oldMode = env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled
+  local oldSize, oldCount, oldOverrides = env.GetNumGroupMembers, env.C_Item.GetItemCount, X.assignmentRoleOverrides
+  local ok, err = pcall(function()
+    local role, size, exists, guid = nil, 3, O.UnitExists, O.UnitGUID
+    local aaron = env.UnitGUID("party1")
+    env.UnitGroupRolesAssigned = function(unit) if unit == "party1" then return role end end
+    env.GetNumGroupMembers = function() return size end
+    env.C_Item.GetItemCount = function() return 2 end
+    env.IsSpellInRange = function() return 1 end
+    X.InvalidateReagents()
+    db.buffAssignments = {}
+    assert(X.SetAssignmentEnabled(true))
+    assert(X.SetAssignment("MAGE", "WORLD", { FORTITUDE = true }))
+    assert(X.SetAssignment("MAGE", "TANK", false))
+    assert(not X.SetAssignmentRole("party1", "stale-guid", "TANK"), "accepted stale preview identity")
+    assert(not X.SetAssignmentRole("player", env.UnitGUID("player"), "TANK"), "accepted self override")
+    assert(not X.SetAssignmentRole("target", aaron, "TANK"), "accepted non-roster token")
+    assert(not X.SetAssignmentRole("party1", aaron, "NONE"), "accepted invalid role")
+    assert(X.SetAssignmentRole("party1", aaron, "TANK"), "could not set role fallback")
+    refresh()
+    local row = X.AssignmentPreview()[2]
+    assert(row.roleOverride == "TANK" and row.roleCanSet and row.rule:find("Manual role: Tank", 1, true)
+      and row.rule:find("Tank rule", 1, true) and not shownRows().party1, "manual rule did not apply")
+    local before = #chat
+    env.SlashCmdList.BUFFRADAR("why Aaron")
+    assert(chatSince(before, row.rule), "why omitted manual provenance")
+    local offer, item, count, reason, _, detail = X.GroupOffer("Power Word: Fortitude", "party2")
+    assert(not offer and reason == "assignment", "group cast ignored a manual restriction")
+    local explanation = X.GroupOfferReason(item, count, reason, detail)
+    assert(explanation and explanation:find("Aaron-TestRealm", 1, true)
+      and explanation:find("Manual role: Tank", 1, true), "manual role omitted from blocker explanation")
+    role = "DAMAGER"
+    fire("PLAYER_ROLES_ASSIGNED")
+    refresh()
+    row = X.AssignmentPreview()[2]
+    assert(row.roleEditable and not row.roleCanSet and row.rule:find("game role takes precedence", 1, true),
+      "readable role did not supersede the override")
+    assert(not X.SetAssignmentRole("party1", aaron, "HEALER"), "overrode a readable game role")
+    assert(X.SetAssignmentRole("party1", aaron, nil), "could not clear an inactive override")
+    role = nil
+    env.__combat = true
+    assert(not X.SetAssignmentRole("party1", aaron, "TANK"), "changed override during combat")
+    env.__combat = false
+    assert(X.SetAssignmentRole("party1", aaron, "TANK"))
+    size = nil
+    O.UnitGUID = function(unit) if unit == "party1" then error("protected GUID") end return guid(unit) end
+    fire("GROUP_ROSTER_UPDATE")
+    assert(X.assignmentRoleOverrides[aaron] == "TANK", "incomplete roster erased override")
+    size = 2
+    O.UnitExists = function(unit) return unit == "player" or unit == "party1" end
+    O.UnitGUID = function(unit) if unit == "party1" then return "Player-replacement" end return guid(unit) end
+    fire("GROUP_ROSTER_UPDATE")
+    assert(not X.assignmentRoleOverrides[aaron], "departed member retained an override")
+    assert(not X.SetAssignmentRole("party1", aaron, "TANK"), "stale roster token changed replacement")
+    assert(X.SetAssignmentRole("party1", "Player-replacement", "TANK"))
+    fire("GROUP_LEFT")
+    assert(X.assignmentRoleOverrides["Player-replacement"], "alternate group leave wiped active group")
+    size = 0
+    fire("GROUP_LEFT")
+    assert(not X.assignmentRoleOverrides, "group leave retained overrides")
+  end)
+  env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled = oldRule, oldRules, oldMode
+  env.__combat = false
+  env.GetNumGroupMembers, env.C_Item.GetItemCount, X.assignmentRoleOverrides = oldSize, oldCount, oldOverrides
+  X.InvalidateReagents()
+  cleanup()
+  refresh()
+  assert(ok, err)
+end)
+step("Forever mixed raid preserves blessing ownership and rebinds after a member changes in combat", function()
+  if not env.__forever then return end
+  local X, O, db = NS.X, env.__over, env.BuffRadarDB
+  local fields = { "assignmentEnabled", "buffAssignments", "castMethod", "modClick", "groupCast", "sync",
+    "includeSelf", "hidden", "groupOnly", "autoHide", "pauseInCities", "sortMode", "viewMode",
+    "roleFilter", "pinned", "buddy", "fastAura" }
+  local api = { "IsInRaid", "IsInGroup", "GetNumGroupMembers", "UnitGroupRolesAssigned",
+    "GetSpellBookItemName", "GetSpellBookItemInfo", "GetSpellTabInfo", "IsPlayerSpell", "__combat", "__addonSent" }
+  local saved, savedApi, savedUnits = {}, {}, {}
+  for _, key in ipairs(fields) do saved[key] = db[key] end
+  for _, key in ipairs(api) do savedApi[key] = env[key] end
+  for key, value in pairs(O) do savedUnits[key] = value end
+  local savedPlan, savedPeers, savedExceptions, savedOverrides, savedFinder =
+    X.blessPlan, X.peers, X.blessingExceptions, X.assignmentRoleOverrides, X.search
+  local savedBlessing = db.enabled.BLESSINGS
+  local oldCount = env.C_Item.GetItemCount
+  local ok, err = pcall(function()
+    local units = {
+      raid1 = { "Localpal", "PALADIN", "HEALER", "Player-1-LocalPal" },
+      raid2 = { "Peerpal", "PALADIN", "HEALER", "Player-1-PeerPal" },
+      raid3 = { "Alpharaider", "WARRIOR", nil, "Player-1-AlphaRaider" },
+      raid4 = { "Bravoraider", "WARRIOR", "DAMAGER", "Player-1-BravoRaider" },
+      raid5 = { "Healerraid", "PRIEST", "HEALER", "Player-1-HealerRaid" },
+    }
+    local function member(unit) return units[unit == "player" and "raid1" or unit] end
+    O.UnitExists = function(unit) return member(unit) ~= nil end
+    O.UnitIsPlayer = O.UnitExists
+    O.UnitName = function(unit) local u = member(unit); return u and u[1] end
+    O.UnitFullName = function(unit) return O.UnitName(unit), "TestRealm" end
+    O.UnitClass = function(unit) local u = member(unit); if u then return u[2], u[2] end end
+    O.UnitGUID = function(unit) local u = member(unit); return u and u[4] end
+    O.UnitIsUnit = function(a, b) return a == b or (member(a) ~= nil and member(a) == member(b)) end
+    O.IsSpellInRange = function() return 1 end
+    O.Aura = function(unit, spell)
+      local u = member(unit)
+      if u and u[2] ~= "WARRIOR" and spell == "Blessing of Kings" then return { expirationTime = env.GetTime() + 600 } end
+    end
+    env.IsInRaid, env.IsInGroup = function() return true end, function() return true end
+    env.GetNumGroupMembers = function() return 5 end
+    env.UnitGroupRolesAssigned = function(unit) local u = member(unit); return u and u[3] end
+    env.C_Item.GetItemCount = function() return 10 end
+    local book = {
+      { "Blessing of Kings", 20217 }, { "Blessing of Wisdom", 19742 },
+      { "Greater Blessing of Kings", 25898 }, { "Greater Blessing of Wisdom", 25894 },
+    }
+    env.GetSpellBookItemName = function(i) if book[i] then return book[i][1], "" end end
+    env.GetSpellBookItemInfo = function(i) if book[i] then return "SPELL", book[i][2] end end
+    env.GetSpellTabInfo = function() return "Holy", nil, 0, #book end
+    env.IsPlayerSpell = function(id) return id == 20217 or id == 19742 or id == 25898 or id == 25894 end
+    db.buffAssignments, X.blessPlan, X.peers, X.blessingExceptions, X.assignmentRoleOverrides = {}, {}, {}, {}, {}
+    db.includeSelf, db.hidden, db.groupOnly, db.autoHide, db.pauseInCities = false, false, false, false, false
+    db.castMethod, db.modClick, db.groupCast, db.sync, db.buddy, db.fastAura = "target", true, false, true, false, false
+    db.sortMode, db.viewMode, db.roleFilter, db.pinned, X.search = "name", "people", "ALL", "", nil
+    db.enabled.BLESSINGS = true
+    assert(X.SetAssignmentEnabled(true))
+    assert(X.SetAssignment("WARRIOR", "ALL", { BLESS_KINGS = true }))
+    assert(X.SetAssignment("WARRIOR", "TANK", { BLESS_WISDOM = true }))
+    assert(X.SetAssignmentRole("raid3", units.raid3[4], "TANK"))
+    X.InvalidateReagents()
+    fire("SPELLS_CHANGED")
+    refresh()
+    assert(shownRows().raid3["Blessing of Wisdom"] and shownRows().raid4["Blessing of Kings"],
+      "mixed roles did not receive separate blessing assignments")
+
+    local function assignWarriors(holder)
+      fire("CHAT_MSG_ADDON", "BuffRadar", "BLESS;WARRIOR;KINGS;" .. holder .. "-TestRealm", "RAID", "Peerpal-TestRealm")
+      refresh()
+    end
+    assignWarriors("Peerpal")
+    assert(X.blessPlan.WARRIOR and not X.blessPlan.WARRIOR.mine and not shownRows().raid3 and not shownRows().raid4,
+      "manual role displaced the other paladin's shared duty")
+    assert(not X.SetBlessingException("alpharaider-testrealm", "WISDOM"), "exception took the other paladin's duty")
+    assignWarriors("Localpal")
+    local rows = shownRows()
+    assert(rows.raid3["Blessing of Kings"] and rows.raid4["Blessing of Kings"], "local plan did not supersede manual role")
+    assert(rows.raid4.row:GetAttribute("shift-spell1") == "Greater Blessing of Kings", "safe raid blessing was unavailable")
+    assert(X.SetBlessingException("alpharaider-testrealm", "WISDOM"))
+    refresh()
+    rows = shownRows()
+    local nextButton, groupButton = env.BuffRadarNextButton, env.BuffRadarGroupButton
+    assert(nextButton:GetAttribute("unit") == "raid3" and nextButton:GetAttribute("spell") == "Blessing of Wisdom",
+      "individual exception did not arm the queue head")
+    assert(groupButton:GetAttribute("spell") == "Blessing of Wisdom"
+      and rows.raid4.row:GetAttribute("shift-spell1") == "Blessing of Kings",
+      "Greater Blessing could overwrite an individual exception")
+
+    local alphaGUID, bravo = units.raid3[4]
+    for _, row in ipairs(X.AssignmentPreview()) do
+      if row.identity == units.raid4[4] then bravo = row end
+    end
+    assert(bravo and bravo.groupActions and bravo.groupActions[1] and bravo.groupActions[1].kind == "exception"
+      and bravo.groupActions[1].guid == alphaGUID and bravo.groupDetails[1]:find("Alpharaider", 1, true),
+      "the blocker shortcut did not point to the exact exception")
+    local exception = assert(X.GetBlessingExceptionForGUID(alphaGUID))
+    assert(exception.key == "WISDOM" and exception.canSet and #exception.options == 2,
+      "the exception editor did not list learned local blessings")
+    assert(not X.SetBlessingExceptionForGUID(alphaGUID, "MIGHT"), "an unlearned blessing was accepted")
+    assert(X.SetBlessingExceptionForGUID(alphaGUID, "KINGS"))
+    assert(X.GetBlessingExceptionForGUID(alphaGUID).key == "KINGS", "the selected blessing did not replace the exception")
+    assert(X.SetBlessingExceptionForGUID(alphaGUID, "DEFAULT") and not X.GetBlessingExceptionForGUID(alphaGUID),
+      "clearing an exception did not return the player to their standard assignment")
+    assert(X.SetBlessingException("alpharaider-testrealm", "WISDOM"))
+
+    env.__combat = true
+    fire("PLAYER_REGEN_DISABLED")
+    assert(not X.GetBlessingExceptionForGUID(alphaGUID) and not X.SetBlessingExceptionForGUID(alphaGUID, "DEFAULT"),
+      "a combat exception edit was allowed")
+    units.raid3 = { "CharlieRaid", "WARRIOR", "DAMAGER", "Player-1-CharlieRaid" }
+    fire("GROUP_ROSTER_UPDATE")
+    assert(not nextButton:GetAttribute("type") and not groupButton:GetAttribute("type"),
+      "raid roster change rearmed a cast during combat")
+    env.__combat = false
+    fire("PLAYER_REGEN_ENABLED")
+    refresh()
+    assert(not X.GetBlessingExceptionForGUID(alphaGUID) and not X.SetBlessingExceptionForGUID(alphaGUID, "DEFAULT"),
+      "a departed member's exception could still be edited")
+    assert(nextButton:GetAttribute("unit") == "raid4" and nextButton:GetAttribute("spell") == "Blessing of Kings"
+      and groupButton:GetAttribute("unit") == "raid4" and groupButton:GetAttribute("spell") == "Greater Blessing of Kings",
+      "combat exit did not rebind the queue to the remaining eligible raid member")
+    assert(not X.GetAssignmentRoleOverride("raid3") and shownRows().raid3["Blessing of Kings"],
+      "replacement inherited the departing player's exception or role")
+  end)
+  for _, key in ipairs(fields) do db[key] = saved[key] end
+  for _, key in ipairs(api) do env[key] = savedApi[key] end
+  for key in pairs(O) do O[key] = nil end
+  for key, value in pairs(savedUnits) do O[key] = value end
+  X.blessPlan, X.peers, X.blessingExceptions, X.assignmentRoleOverrides, X.search =
+    savedPlan, savedPeers, savedExceptions, savedOverrides, savedFinder
+  db.enabled.BLESSINGS, env.C_Item.GetItemCount = savedBlessing, oldCount
+  X.InvalidateReagents()
+  fire("SPELLS_CHANGED")
+  refresh()
+  assert(ok, err)
+end)
+step("Forever assignment profiles round-trip full grids, explicit None and old BR2", function()
+  if not env.__forever then return end
+  local X, db = NS.X, env.BuffRadarDB
+  local oldRules, oldMode = db.buffAssignments, db.assignmentEnabled
+  local saved = assert(X.ProfileSnapshot())
+  local ok, err = pcall(function()
+    db.buffAssignments = {}
+    X.SetAssignmentEnabled(true)
+    for _, class in ipairs(X.BLESSING_CLASS_ORDER) do
+      for _, slot in ipairs(X.ASSIGNMENT_SLOTS) do
+        assert(X.SetAssignment(class, slot, { ARCANE_INTELLECT = true, DAMPEN_MAGIC = true, FORTITUDE = true,
+          DIVINE_SPIRIT = true, FEAR_WARD = true, SHADOW_PROT = true, MARK_OF_THE_WILD = true,
+          THORNS = true, EARTH_SHIELD = true, WATER_BREATHING = true, UNENDING_BREATH = true,
+          DETECT_INVIS = true, BLESS_SANCTUARY = true }))
+      end
+    end
+    assert(X.SetAssignment("DRUID", "TANK", false))
+    local profile = assert(X.ProfileSnapshot(), "full assignment grid exceeded the profile limit")
+    local patch = assert(X.ParseProfile(profile))
+    assert(patch.assignmentEnabled and patch.buffAssignments.DRUID.TANK == false)
+    assert(patch.buffAssignments.WARRIOR.WORLD.BLESS_SANCTUARY)
+    assert(not X.ParseProfile(profile .. ";a.DRUID.TANK=0"), "duplicate assignment accepted")
+    assert(not X.ParseProfile(profile:gsub("a%.DRUID%.TANK=0", "a.DRUID.TANK=6")), "conflicting magic accepted")
+    assert(not X.ParseProfile(profile:gsub("a%.DRUID%.TANK=0", "a.DRUID.TANK=524288")), "unknown bit accepted")
+    local legacy = saved:gsub(";buffAssignments=[01]", ""):gsub(";a%.[A-Z]+%.[A-Z]+=%d+", "")
+    local older = assert(X.ParseProfile(legacy))
+    assert(older.assignmentEnabled == nil and older.buffAssignments == nil)
+    X.SetAssignmentEnabled(false)
+    X.SetAssignment("DRUID", "TANK", nil)
+    X.ApplyProfile(patch)
+    assert(X.AssignmentEnabled() and X.GetAssignment("DRUID", "TANK") == false)
+  end)
+  X.ApplyProfile(assert(X.ParseProfile(saved)))
+  db.buffAssignments, db.assignmentEnabled = oldRules, oldMode
+  refresh()
+  assert(ok, err)
+end)
 step("Forever blessing exceptions follow group GUIDs and preserve class plans", function()
   if not env.__forever then return end
   local cleanup = partyOfTwo("BlessingException")
   local X, O = NS.X, env.__over
+  local db = env.BuffRadarDB
+  local oldSize, oldMode, oldRules = env.GetNumGroupMembers, db.assignmentEnabled, db.buffAssignments
   local oldName, oldInfo, oldTab = env.GetSpellBookItemName, env.GetSpellBookItemInfo, env.GetSpellTabInfo
   local oldPlan = X.blessPlan.MAGE
   local displaced
@@ -4795,8 +6039,39 @@ step("Forever blessing exceptions follow group GUIDs and preserve class plans", 
     env.SlashCmdList.BUFFRADAR("bless player target WISDOM")
     assert(X.BlessingForClass("MAGE", "party1").name == "Blessing of Wisdom",
       "local blessing exception was not applied")
-    local greater, _, _, reason = X.GroupOffer("Blessing of Wisdom", "party1")
+    local greater, item, count, reason, _, detail = X.GroupOffer("Blessing of Wisdom", "party1")
     assert(not greater and reason == "exception", "exception could publish a conflicting Greater cast")
+    local explanation = X.GroupOfferReason(item, count, reason, detail)
+    assert(explanation and explanation:find("Greater Blessing of Wisdom", 1, true)
+      and explanation:find("Aaron-TestRealm", 1, true)
+      and explanation:find("individual blessing exception", 1, true),
+      "Greater fallback omitted the member with an individual blessing exception: " .. tostring(explanation))
+    env.GetNumGroupMembers = function() return 3 end
+    env.IsSpellInRange = function() return 1 end
+    db.buffAssignments = {}
+    assert(X.SetAssignmentEnabled(true))
+    assert(X.SetAssignment("MAGE", "ALL", { BLESS_KINGS = true }))
+    local source = X.AssignmentPreview()[2]
+    local action
+    for _, candidate in pairs(source.groupActions or {}) do
+      if candidate.kind == "exception" then action = candidate; break end
+    end
+    assert(action, "assignment and exception overlap did not expose an exception action")
+    local review = assert(X.ReviewBlockerEdit(action, "DEFAULT"))
+    local row = review.rows[1]
+    assert(not review.incomplete and #review.rows == 1 and row.name == "Aaron-TestRealm"
+      and row.gains[1] == "Blessing of Kings" and row.losses[1] == "Blessing of Wisdom",
+      "exception review did not show the switch to the group-plan blessing")
+    assert(X.BlessingForClass("MAGE", "party1").name == "Blessing of Wisdom",
+      "review changed the exception before Apply")
+    env.GetNumGroupMembers = function() return 4 end
+    local applied, incomplete = X.ApplyBlockerEdit(action, "DEFAULT", review)
+    assert(not applied and incomplete and incomplete.incomplete, "unknown roster allowed exception Apply")
+    env.GetNumGroupMembers = function() return 3 end
+    assert(X.ApplyBlockerEdit(action, "DEFAULT", review), "verified exception could not be applied")
+    assert(X.BlessingForClass("MAGE", "party1").name == "Blessing of Kings", "Apply did not clear the exception")
+    assert(X.UndoBlockerEdit() and X.GetBlessingExceptionForGUID(action.guid).key == "WISDOM",
+      "undo could not recreate a removed exact blessing exception")
     displaced = "unknown"
     X.PruneBlessingExceptions()
     displaced = nil
@@ -4809,6 +6084,7 @@ step("Forever blessing exceptions follow group GUIDs and preserve class plans", 
       "departed player exception was retained")
   end)
   env.GetSpellBookItemName, env.GetSpellBookItemInfo, env.GetSpellTabInfo = oldName, oldInfo, oldTab
+  env.GetNumGroupMembers, db.assignmentEnabled, db.buffAssignments = oldSize, oldMode, oldRules
   X.blessPlan.MAGE = oldPlan
   cleanup()
   X.PruneBlessingExceptions()
@@ -4896,7 +6172,7 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 17"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 18"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
   assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
   assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")

@@ -80,6 +80,47 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
   group blessing plan takes precedence. Use
   `/br bless player <target|name> <BLESSING|DEFAULT>` to set or clear a
   normal blessing exception for a member of your current group.
+- **Class & Role Assignments** (optional): from Settings → Buffs, open
+  **Class & Role Assignments** or type `/br buffassign`. A known group role
+  uses its class and role cell. Strangers and players whose role is
+  unavailable use the class's World cell. An unset cell falls back to All,
+  then to the normal rules. Choose **None** to skip managed targeted buffs
+  for a cell, or **Default** to restore inheritance. Named profiles save the
+  table and its on/off setting. Use named profile sharing to transfer these
+  rules. The legacy `/br export` format omits the table. If a group version
+  would conflict with another member's assignment, BuffRadar offers a
+  single-target cast. The assignment preview lists the known blocking
+  players and their rules. The next-cast tooltip shows the count.
+  Both indicate when roster information is incomplete. Use **Edit Rule**
+  on a blocker to open its exact assignment cell or local blessing
+  exception. Use **Review Changes** to see who would gain or lose a buff
+  offer. **Apply** rechecks the current group before saving and refreshes
+  the blocker list.
+- **Preview Current Group** in Class & Role Assignments shows the effective
+  rule and buff information for each group member. Open it with
+  `/br buffassign preview` or check one player with `/br why <name>`.
+  The open preview updates when the roster or roles change. Use
+  **Refresh Preview** to check current buffs and reagents.
+  When a group member's role is unavailable, select their row to set or
+  clear a role for assignment rules. A role reported by the game takes
+  precedence. Overrides clear when the member leaves or the UI reloads.
+- **Raid Coverage** in Class & Role Assignments or `/br coverage` shows
+  confirmed, missing, and unknown readings for the buffs you offer in each
+  subgroup. Select a buff to see the players with missing or unknown coverage.
+- **Practice Mode** (`/br practice`) walks through a sample blocker edit.
+  **Undo Last Change** (`/br undo`) restores the last blocker edit in this
+  session while the target rule, profile, and applicable roster still match.
+- **Subgroup Responsibilities** (`/br subgroup FORTITUDE 1,2`) limit a buff's
+  raid cast queue to selected subgroups. Use `/br subgroup` for buff keys and
+  current selections, or `ALL` to clear a filter.
+- **Raid Preparation** (`/br prep`) lists missing and expiring buffs, food,
+  flasks, and estimated group reagents. Use `/br prep personal` to include
+  weapon and pet reminders.
+- **Caster Coordination** uses cast sync with a separate group opt-in
+  (`/br coordinate on`). Group leaders and assistants request reports,
+  add requested buff keys with `need`, then `review` and `publish` a plan.
+  Recipients review it with `inbox` and choose `accept` or `decline`.
+  The coordinator's `status` shows acknowledgements separately from coverage.
 - **Role ordering** option: you, tanks and leaders first.
 - **Rezzed players first** (after you): someone who just came back from the dead
   has lost every buff, so their row jumps up with a *recently rezzed* marker.
