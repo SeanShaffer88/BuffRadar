@@ -76,7 +76,7 @@ toggle, and `/br context` to restrict a buff to raids or instances. Use
 
 | Class | Enabled by Default | Optional |
 |---|---|---|
-| Druid | Mark of the Wild / Gift of the Wild, Thorns for melee classes | |
+| Druid | Mark of the Wild / Gift of the Wild, Thorns for melee classes | **Thorns: Any Class Outdoors** extends Thorns to all classes in the open world. Explicit assignments take precedence. |
 | Priest | Power Word: Fortitude / Prayer of Fortitude, Divine Spirit / Prayer of Spirit for mana users, Fear Ward for warriors, Inner Fire | Shadow Protection / Prayer of Shadow Protection |
 | Mage | Arcane Intellect / Arcane Brilliance for mana users, Molten / Mage / Ice / Frost Armor | Dampen Magic, Amplify Magic |
 | Paladin | One blessing per class. Kings when known, with Might for warriors and rogues and Wisdom for other classes as defaults when Kings is unavailable. | Aura watch |

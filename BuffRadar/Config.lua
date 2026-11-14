@@ -260,7 +260,8 @@ function K.Act(delta)
   end
   if K.active and not K.edit and not cfg.navInput:HasFocus() then K.Stop(); return end
   if K.active and not K.edit then
-    if K.InScope(entry) then K.Focus(entry) else K.Move(1) end
+    if not K.InScope(K.current) then K.Move(1)
+    elseif K.current == entry then K.Focus(entry) end
   end
 end
 
@@ -320,7 +321,11 @@ function K.Build()
   input:SetScript("OnTabPressed", function() K.Move(IsShiftKeyDown() and -1 or 1) end)
   input:SetScript("OnEnterPressed", function() K.Act() end)
   input:SetScript("OnSpacePressed", function() K.Act() end)
-  input:SetScript("OnEscapePressed", function() K.Stop() end)
+  input:SetScript("OnEscapePressed", function()
+    local picker = cfg.assignmentPanel and cfg.assignmentPanel.picker
+    if picker and K.Modal() == picker then picker.closeButton:Click()
+    else K.Stop() end
+  end)
   input:SetScript("OnArrowPressed", function(_, key)
     if key == "LEFT" or key == "DOWN" then K.Act(-1)
     elseif key == "RIGHT" or key == "UP" then K.Act(1) end
@@ -839,6 +844,7 @@ function AssignmentUI.CloseButton(panel, onClose)
   close:SetPoint("TOPRIGHT", -4, -4)
   close:SetScript("OnClick", onClose)
   K.Register(close, panel, L["Close"], "button")
+  return close
 end
 
 function AssignmentUI.BuildPicker(panel)
@@ -847,7 +853,18 @@ function AssignmentUI.BuildPicker(panel)
   picker.title:SetPoint("TOPLEFT", 16, -14)
   picker.title:SetPoint("TOPRIGHT", -45, -14)
   picker.title:SetJustifyH("LEFT")
-  AssignmentUI.CloseButton(picker, function() AssignmentUI.CancelEdit(picker, picker.blockers) end)
+  picker.closeButton = AssignmentUI.CloseButton(picker, function() AssignmentUI.CancelEdit(picker, picker.blockers) end)
+  if picker.SetPropagateKeyboardInput then
+    picker:EnableKeyboard(true)
+    picker:HookScript("OnShow", function(self) self:SetPropagateKeyboardInput(true) end)
+    picker:SetScript("OnKeyDown", function(self, key)
+      if key == "ESCAPE" and not K.active and K.Modal() == self
+        and not InCombatLockdown() and not X.PlayerSuspended() then
+        self:SetPropagateKeyboardInput(false)
+        self.closeButton:Click()
+      end
+    end)
+  end
   picker.state = picker:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   picker.state:SetPoint("TOPLEFT", 16, -40)
   picker.hint = picker:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -901,19 +918,22 @@ function AssignmentUI.BuildPicker(panel)
 end
 
 function AssignmentUI.OpenPicker(panel, class, slot, blockers, action)
+  if InCombatLockdown() or X.PlayerSuspended() then return end
   local picker = panel.picker
   picker.class, picker.slot = class, slot
   picker.blockers, picker.action = blockers, action
   if action then picker.draft = X.GetAssignment(class, slot) end
-  picker.backButton:SetShown(blockers ~= nil)
+  picker.backButton:SetText(L[blockers and "Cancel" or "Done"])
   picker.reviewButton:SetShown(blockers ~= nil)
   picker.hint:SetText(L[blockers and "Edit the draft, then review the changes before applying."
     or "Select spells for this cell. Changes apply immediately."])
   picker:SetFrameLevel(blockers and blockers:GetFrameLevel() + 5 or panel:GetFrameLevel() + 5)
+  picker.closeButton:SetFrameLevel(picker:GetFrameLevel() + 1)
+  panel.closeButton:Hide()
   picker.title:SetText(AssignmentUI.CellLabel(class, slot))
   picker:Show()
   AssignmentUI.Update()
-  if blockers and K.active and not K.edit then K.Move(1) end
+  if K.active and not K.edit then K.Move(1) end
 end
 
 function AssignmentUI.UpdateBlockers(panel)
@@ -2456,7 +2476,7 @@ function AssignmentUI.Build()
   title:SetPoint("TOPRIGHT", -241, -14)
   title:SetJustifyH("LEFT")
   title:SetText(L["Class & Role Assignments"])
-  AssignmentUI.CloseButton(panel, function() panel:Hide() end)
+  panel.closeButton = AssignmentUI.CloseButton(panel, function() panel:Hide() end)
   panel.enabled = MakeCheck(panel, L["Use Class & Role Assignments"], X.AssignmentEnabled, function(value)
     if InCombatLockdown() or X.PlayerSuspended() then return end
     X.SetAssignmentEnabled(value)
@@ -2521,8 +2541,13 @@ function AssignmentUI.Build()
     local blockers = picker.blockers
     picker.blockers, picker.action, picker.draft = nil, nil, nil
     if blockers and blockers.review then blockers.review:Hide() end
+    panel.closeButton:Show()
     GameTooltip:Hide()
-    if blockers and blockers:IsVisible() and K.active and not K.edit then K.Move(1) end
+    if K.active and not K.edit then
+      local cell = panel.cells[picker.class] and panel.cells[picker.class][picker.slot]
+      if not blockers and cell and K.InScope(cell.navigation) then K.Focus(cell.navigation)
+      elseif blockers and blockers:IsVisible() then K.Move(1) end
+    end
   end)
   if UISpecialFrames then
     table.insert(UISpecialFrames, "BuffRadarAssignments")
@@ -3050,8 +3075,15 @@ local function BuildConfig()
   cfg.blessingButton = MakeButton(buffs, L["Blessings by class"], 190, OpenBlessingPanel)
   cfg.blessingButton:SetPoint("TOPRIGHT", -15, -346)
   if CLASSIC_FEATURES then
-    cfg.assignmentButton = MakeButton(buffs, L["Class & Role Assignments"], 275, X.OpenAssignments)
+    cfg.assignmentButton = MakeButton(buffs, L["Class & Role Assignments"], 275, function() X.OpenAssignments() end)
     cfg.assignmentButton:SetPoint("TOPLEFT", 14, -379)
+    cfg.thornsOutdoors = MakeCheck(buffs, L["Thorns: Any Class Outdoors"],
+      function() return db.thornsAnyClassOutdoors end,
+      X.SetThornsAnyClassOutdoors)
+    cfg.thornsOutdoors:SetPoint("TOPLEFT", 310, -378)
+    Tip(cfg.thornsOutdoors, L["Thorns: Any Class Outdoors"],
+      L["Offer Thorns to any class in the open world. Explicit class and role assignments take precedence."])
+    cfg.thornsOutdoors:Hide()
   end
 
   cfg.rebuffHeads = {}
@@ -3836,9 +3868,14 @@ RefreshConfig = function()
     cfg.profileText:SetText(txt)
   end
 
-  local items = {}
+  local items, knowsThorns = {}, false
   for _, b in ipairs(myBuffs) do
     items[#items + 1] = { key = b.key, default = b.default, label = b.name, who = b.who }
+    if b.key == "THORNS" and not b.custom then knowsThorns = true end
+  end
+  if cfg.thornsOutdoors then
+    cfg.thornsOutdoors:SetShown(knowsThorns)
+    cfg.thornsOutdoors:Update()
   end
   cfg.blessingButton:SetShown(X.HasKnownBlessings())
   if cfg.blessingPanel and cfg.blessingPanel:IsShown() then

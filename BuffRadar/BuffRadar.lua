@@ -135,6 +135,7 @@ local DEFAULTS = {
   buffPrio = {},        -- your buff order: buff keys, first offered first (empty = normal order)
   blessingPreferences = {}, -- class token -> preferred blessing key
   assignmentEnabled = false,
+  thornsAnyClassOutdoors = false,
   buffAssignments = {},
   clickThrough = false, -- while locked, let clicks pass through the window to the game
   muteInInstance = false, -- no alert sound while in a dungeon, raid or battleground
@@ -592,6 +593,8 @@ local L = {
   ["combat"] = "combat",
   ["Blessings by class"] = "Blessings by class",
   ["Class & Role Assignments"] = "Class & Role Assignments",
+  ["Thorns: Any Class Outdoors"] = "Thorns: Any Class Outdoors",
+  ["Offer Thorns to any class in the open world. Explicit class and role assignments take precedence."] = "Offer Thorns to any class in the open world. Explicit class and role assignments take precedence.",
   ["Use Class & Role Assignments"] = "Use Class & Role Assignments",
   ["All Roles"] = "All Roles",
   ["World"] = "World",
@@ -733,6 +736,7 @@ local L = {
   ["Blessing of Wisdom"] = "Blessing of Wisdom",
   ["Back"] = "Back",
   ["Cancel"] = "Cancel",
+  ["Done"] = "Done",
   ["Edit the draft, then review the changes before applying."] = "Edit the draft, then review the changes before applying.",
   ["Gains: %s"] = "Gains: %s",
   ["Loses: %s"] = "Loses: %s",
@@ -1679,6 +1683,21 @@ function X.SetAssignmentEnabled(enabled)
   return true
 end
 
+function X.SetThornsAnyClassOutdoors(enabled)
+  if not CLASSIC_FEATURES or not db or type(enabled) ~= "boolean" then return false end
+  db.thornsAnyClassOutdoors = enabled
+  X.Refresh()
+  if X.RefreshConfig then X.RefreshConfig() end
+  if X.QueueAssignmentPreviewRefresh then X.QueueAssignmentPreviewRefresh() end
+  return true
+end
+
+function X.ThornsAnyClassOutdoors()
+  if not CLASSIC_FEATURES or not db.thornsAnyClassOutdoors then return false end
+  local ok, instanced = pcall(_G.IsInInstance)
+  return ok and type(instanced) == "boolean" and Readable(instanced) and not instanced
+end
+
 function X.GetAssignment(class, slot)
   local row = db and db.buffAssignments[class]
   if row then return X.CopyAssignment(row[slot]) end
@@ -2120,11 +2139,13 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
         Single.holder[b.key], Single.spell[b.key] = unit, b.name
       end
     end
-    local applies
+    local applies, outdoorThorns
     if b.self then
       applies = isSelf
     else
-      applies = b.classes[class] and (not isSelf or db.includeSelf)
+      outdoorThorns = assignment == nil and b.key == "THORNS" and not b.classes[class]
+        and X.ThornsAnyClassOutdoors()
+      applies = (b.classes[class] or outdoorThorns) and (not isSelf or db.includeSelf)
                 and (isGroup or isSelf or not b.groupOnly)
       if applies and b.role then
         if not roleRead then role, roleRead = AssignedRole(unit), true end
@@ -2137,6 +2158,9 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
     end
     local eligible = (not subgroupKey or subgroupKey == b.key and not b.self)
       and applies and IsOn(b.key, b.default) and X.ContextOK(b.key)
+    if report == "why" and eligible and outdoorThorns then
+      detail.rule = detail.rule .. " · " .. L["Thorns: Any Class Outdoors"]
+    end
     if report == "raidCoverage" then
       if eligible and not b.self then
         local has
@@ -8809,6 +8833,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     end
     if db.dbVersion < 18 then
       db.dbVersion = 18       -- Class and role assignments start disabled.
+    end
+    if db.dbVersion < 19 then
+      db.dbVersion = 19       -- Outdoor Thorns takes its default (off).
     end
     X.SpecSwap()
   elseif event == "PLAYER_LOGIN" then
