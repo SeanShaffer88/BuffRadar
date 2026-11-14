@@ -12,7 +12,7 @@ stub_path, addon_path = sys.argv[1], sys.argv[2]
 lua = lua51.LuaRuntime(unpack_returned_tuples=True)
 lua.execute(open(stub_path, encoding="utf-8").read())
 
-harness = lua.eval(r"""function(addonSrc, withTimer, noTemplates, forever, german, localeSrc, extrasSrc, dataSrc, configSrc, slashSrc)
+harness = lua.eval(r"""function(addonSrc, withTimer, noTemplates, forever, german, localeSrc, extrasSrc, dataSrc, configSrc, slashSrc, recapsSrc)
 local chat = {}
 local env = WOWSTUB(chat, withTimer, noTemplates, forever, german)
 local unitIsUnit = env.UnitIsUnit
@@ -104,6 +104,15 @@ if extrasSrc then
     local ech = assert(loadstring(extrasSrc, "=Extras.lua"))
     setfenv(ech, env)
     ech("BuffRadar", NS)
+  end)
+end
+
+if recapsSrc then
+  step("load Recaps.lua", function()
+    local rch = assert(loadstring(recapsSrc, "=Recaps.lua"))
+    setfenv(rch, env)
+    rch("BuffRadar", NS)
+    assert(NS.X.DeathRecap and NS.X.WipeCheck, "Recaps.lua did not publish its entry points")
   end)
 end
 
@@ -3743,6 +3752,8 @@ da_src = open(da_path, encoding="utf-8").read() if os.path.exists(da_path) else 
 cf_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Config.lua")
 cf_src = open(cf_path, encoding="utf-8").read() if os.path.exists(cf_path) else None
 sl_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Slash.lua")
+rc_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Recaps.lua")
+rc_src = open(rc_path, encoding="utf-8").read() if os.path.exists(rc_path) else None
 sl_src = open(sl_path, encoding="utf-8").read() if os.path.exists(sl_path) else None
 setups = [
     ("Retail: modern client (C_Timer, UI templates)", True, False, False, False),
@@ -3754,7 +3765,7 @@ setups = [
 if de_src:
     setups.append(("Retail: German client (Locales/deDE.lua)", True, False, False, True))
 for label, with_timer, no_templates, forever, german in setups:
-    results, chat = harness(src, with_timer, no_templates, forever, german, de_src if german else None, ex_src, da_src, cf_src, sl_src)
+    results, chat = harness(src, with_timer, no_templates, forever, german, de_src if german else None, ex_src, da_src, cf_src, sl_src, rc_src)
     bad = 0
     for i in range(1, len(results) + 1):
         name, status = results[i][1], results[i][2]
