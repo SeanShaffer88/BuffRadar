@@ -4125,6 +4125,207 @@ step("two-column layout splits a long list (1.9.0)", function()
   env.IsSpellInRange = nil
 end)
 
+step("scrolling virtualizes secure rows without moving the cast queue", function()
+  local X, db, O = NS.X, env.BuffRadarDB, env.__over
+  local saved, savedOverrides = {}, {}
+  local fields = { "includeSelf", "hidden", "groupOnly", "autoHide", "pauseInCities", "sortMode", "nameTrim",
+    "viewMode", "twoCol", "castMethod", "modClick", "groupCast", "roleFilter", "locked", "clickThrough", "showRealm" }
+  for _, field in ipairs(fields) do saved[field] = db[field] end
+  for key, value in pairs(O) do savedOverrides[key] = value end
+  local oldRaid, oldGroup, oldMembers = env.IsInRaid, env.IsInGroup, env.GetNumGroupMembers
+  local oldMouse, oldSearch = env.__mouseButtonDown, X.search
+  local frame = env.BuffRadarFrame
+  local head, tail = env.BuffRadarRow1, env.BuffRadarRow15
+  local nextButton, groupButton = env.BuffRadarNextButton, env.BuffRadarGroupButton
+  local count, scans, changedToken = 20, 0, nil
+  local function findIndex(unit)
+    local i = tonumber(unit:match("^raid(%d+)$"))
+    if i and i <= count then return i end
+  end
+  local function unitName(unit)
+    local i = findIndex(unit)
+    if i then return string.format("Scroll Raider %02d", i) end
+    if unit == "player" then return "Scroll Tester" end
+  end
+  local function position(button, target)
+    assert(button.entry and button.entry.unit == target,
+      "expected row " .. target .. ", got " .. tostring(button.entry and button.entry.unit))
+    assert(button:GetAttribute("type") == "spell" and button:GetAttribute("unit") == target,
+      "secure row did not bind " .. target)
+    assert(button:GetAttribute("spell") == button.entry.missing[1], "stale secure spell for " .. target)
+    local groupSpell = X.GroupSpellFor(button.entry.missing[1])
+    if env.__forever and groupSpell then
+      assert(button:GetAttribute("shift-type1") == "spell" and button:GetAttribute("shift-unit1") == target
+        and button:GetAttribute("shift-spell1") == groupSpell, "stale modifier binding for " .. target)
+    end
+    assert(button.name:GetText() == unitName(target), "displayed name differs from secure target")
+  end
+  local lockedWrites = {}
+  local function guard(frameToGuard)
+    local write = frameToGuard.SetAttribute
+    lockedWrites[frameToGuard] = frameToGuard.SetAttribute
+    frameToGuard.SetAttribute = function(self, ...)
+      assert(not env.__combat, "scroll wrote a protected cast attribute during combat")
+      return write(self, ...)
+    end
+  end
+  local function scroll(widget, delta)
+    local handler = assert(widget:GetScript("OnMouseWheel"), "missing registered wheel handler")
+    handler(widget, delta)
+  end
+  local function visibleRange(first, last, total)
+    local text = string.format(X.L["Rows %d–%d of %d"], first, last, total)
+    for _, fs in ipairs(env.__fontstrings) do
+      if fs:GetText() == text and fs:IsShown() then return true end
+    end
+    return false
+  end
+  local ok, err = pcall(function()
+    env.IsInRaid, env.IsInGroup = function() return true end, function() return true end
+    env.GetNumGroupMembers = function() return count + 1 end
+    O.UnitExists = function(unit) return unit == "player" or findIndex(unit) ~= nil end
+    O.UnitIsPlayer, O.UnitName = O.UnitExists, unitName
+    O.UnitFullName = function(unit) return unitName(unit), "TestRealm" end
+    O.UnitGUID = function(unit)
+      if unit == "player" then return "Player-1-0001" end
+      local i = findIndex(unit)
+      if i then return (unit == changedToken and "Player-1-changed-" or "Player-1-scroll-") .. i end
+    end
+    O.UnitClass = function(unit)
+      local class = unit == "player" and (env.__forever and "PRIEST" or "SHAMAN") or "WARRIOR"
+      return class, class
+    end
+    O.Aura = function() scans = scans + 1 end
+    O.IsSpellInRange = function() return 1 end
+    db.includeSelf, db.hidden, db.groupOnly, db.autoHide, db.pauseInCities = false, false, false, false, false
+    db.sortMode, db.viewMode, db.twoCol, db.castMethod = "name", "people", false, "target"
+    db.modClick, db.groupCast, db.roleFilter = true, false, "ALL"
+    db.locked, db.clickThrough, db.showRealm = false, false, false
+    db.nameTrim = 0
+    X.search = "scroll raider"
+    X.Refresh()
+
+    position(head, "raid1")
+    position(tail, "raid15")
+    assert(visibleRange(1, 15, 20), "initial viewport range is missing")
+    assert(frame:IsMouseWheelEnabled() and head:IsMouseWheelEnabled(), "overflow viewport did not enable wheel input")
+    assert(nextButton:GetAttribute("unit") == "raid1", "next was not armed for the queue head")
+    assert(groupButton:GetAttribute("unit") == "raid1", "group cast was not armed for the queue head")
+    local before = scans
+    scroll(head, -1)
+    position(head, "raid2")
+    position(tail, "raid16")
+    assert(visibleRange(2, 16, 20), "scroll did not update the viewport range")
+    assert(scans == before, "wheel input performed a new aura scan")
+    assert(nextButton:GetAttribute("unit") == "raid1" and groupButton:GetAttribute("unit") == "raid1",
+      "scrolling moved a cast keybind away from the queue head")
+
+    env.__mouseButtonDown = "LeftButton"
+    if head:GetScript("OnMouseDown") then head:GetScript("OnMouseDown")(head, "LeftButton") end
+    scroll(head, -1)
+    position(head, "raid2")
+    env.__mouseButtonDown = nil
+    if head:GetScript("OnMouseUp") then head:GetScript("OnMouseUp")(head, "LeftButton") end
+
+    changedToken = "raid17"
+    scroll(frame, -1)
+    position(head, "raid3")
+    assert(not tail:GetAttribute("type") and not tail:GetAttribute("shift-type1"),
+      "a recycled row stayed armed after its snapshot GUID changed")
+    changedToken = nil
+    refresh()
+    position(tail, "raid17")
+    changedToken = "raid17"
+    local clickStart = assert(tail:GetScript("PreClick"), "missing secure click preparation")
+    clickStart(tail, "LeftButton", false)
+    assert(not tail:GetAttribute("type") and not tail:GetAttribute("shift-type1"),
+      "row click could cast on a recycled unit token after scrolling")
+    local clickEnd = tail:GetScript("PostClick")
+    if clickEnd then clickEnd(tail, "LeftButton", false) end
+    changedToken = nil
+    refresh()
+    position(tail, "raid17")
+
+    env.__mouseButtonDown = "LeftButton"
+    head:GetScript("OnMouseDown")(head, "LeftButton")
+    env.__combat = true
+    fire("PLAYER_REGEN_DISABLED")
+    env.__combat = false
+    fire("PLAYER_REGEN_ENABLED")
+    env.__mouseButtonDown = nil
+    head:GetScript("OnMouseUp")(head, "LeftButton")
+    -- Simulate reusing the button between physical release and secure dispatch.
+    X.Refresh()
+    scroll(frame, -1)
+    position(head, "raid4")
+    head:GetScript("PreClick")(head, "LeftButton", false)
+    assert(not head:GetAttribute("type") and not head:GetAttribute("shift-type1"),
+      "mouse release after combat could cast on a different recipient than mouse down")
+    head:GetScript("PostClick")(head, "LeftButton", false)
+    refresh()
+
+    for _ = 1, 25 do scroll(frame, -1) end
+    position(head, "raid6")
+    position(tail, "raid20")
+    assert(not env.BuffRadarRow16, "scrolling expanded the secure row pool")
+
+    db.twoCol = true
+    refresh()
+    position(head, "raid6")
+    position(tail, "raid20")
+    assert(tail.points[1][4] > head.points[1][4], "last scrolled slot did not use the second column")
+
+    for i = 1, 15 do guard(env["BuffRadarRow" .. i]) end
+    guard(nextButton)
+    guard(groupButton)
+    env.__combat = true
+    fire("PLAYER_REGEN_DISABLED")
+    assert(not head:GetAttribute("type") and not tail:GetAttribute("type")
+      and not nextButton:GetAttribute("type") and not groupButton:GetAttribute("type"),
+      "secure drivers left scrolled casts armed during combat")
+    local lockedOffset, lockedScans = X.rowOffset, scans
+    scroll(head, 1)
+    scroll(frame, 1)
+    assert(X.rowOffset == lockedOffset and scans == lockedScans, "wheel changed the viewport during lockdown")
+    env.__combat = false
+    fire("PLAYER_REGEN_ENABLED")
+    refresh()
+    assert(head.entry and head:GetAttribute("unit") == head.entry.unit, "combat exit did not rearm the visible target")
+
+    db.viewMode = "buffs"
+    refresh()
+    assert(head.entry and head.entry.spell and head.entry.castGuid,
+      "folded view did not keep a concrete recipient")
+    assert(head:GetAttribute("unit") == head.entry.unit
+      and head:GetAttribute("spell") == head.entry.spell, "folded row lost its secure cast target")
+    assert(not frame:IsMouseWheelEnabled() and not tail:GetAttribute("type"),
+      "switching to a short folded view left overflowing casts armed")
+    db.viewMode = "people"
+    refresh()
+    position(head, "raid1")
+
+    X.search = "scroll raider 02"
+    refresh()
+    position(head, "raid2")
+    assert(not tail:IsShown() and not tail:GetAttribute("type") and not frame:IsMouseWheelEnabled(),
+      "filter shrink left an offscreen cast or scrolling enabled")
+    X.search = "scroll raider"
+    count = 4
+    refresh()
+    position(head, "raid1")
+    assert(not tail:IsShown() and not tail:GetAttribute("shift-type1"), "roster shrink left modifier casts armed")
+  end)
+  env.__combat, env.__mouseButtonDown = false, oldMouse
+  for widget, write in pairs(lockedWrites) do widget.SetAttribute = write end
+  for key in pairs(O) do O[key] = nil end
+  for key, value in pairs(savedOverrides) do O[key] = value end
+  for _, field in ipairs(fields) do db[field] = saved[field] end
+  env.IsInRaid, env.IsInGroup, env.GetNumGroupMembers = oldRaid, oldGroup, oldMembers
+  X.search = oldSearch
+  refresh()
+  assert(ok, err)
+end)
+
 step("coverage uptime scores the run (1.6.0)", function()
   local cleanup = partyOfTwo("V")
   env.IsSpellInRange = function() return 1 end

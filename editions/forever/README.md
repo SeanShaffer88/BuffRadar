@@ -47,6 +47,10 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
 - **The list grows downward.** The window is anchored by its top-left corner, so
   its top edge stays exactly where you put it as names come and go — only the
   bottom edge moves.
+- **Scroll long lists.** When more than 15 rows are available, use the mouse
+  wheel over the list or `/br scroll up|down`. The range under the list shows
+  which rows are visible. Cast Next Buff still starts at the head of the
+  full queue.
 - **You first.** Your own character is always checked first and sits at the top of the
   list whenever you're missing something.
 - **Class-aware.** Arcane Intellect only goes to mana users, Thorns to melee classes,

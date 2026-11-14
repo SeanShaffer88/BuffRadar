@@ -295,6 +295,12 @@ local function HandleSlash(msg)
     else
       Print("List view is " .. db.viewMode .. " - change it with /br view people|buffs")
     end
+  elseif cmd == "scroll" then
+    if rest == "up" or rest == "down" then
+      X.ScrollRows(rest == "down" and 1 or -1)
+    else
+      Print("Usage: /br scroll up|down")
+    end
   elseif cmd == "clickthrough" then
     db.clickThrough = not db.clickThrough
     X.ApplyClickThrough()
@@ -1358,6 +1364,7 @@ local function HandleSlash(msg)
     Print("  /br growup  - list grows upward   /br theme <name>  - color theme")
     Print("  Combat safety: the list hides and buff buttons are disabled until combat ends.")
     Print("  /br find <text> | findbox  - name finder   /br bars  - duration bars   /br markers  - raid markers")
+    Print("  /br scroll up|down  - move through a long buff list")
     Print("  /br focus  - focus target watch line")
     Print("  /br pets  - list group pets   /br context KEY raid|instance|always  - limit a buff")
     if CLASSIC_FEATURES then
