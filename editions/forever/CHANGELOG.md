@@ -37,7 +37,7 @@ All notable changes to BuffRadar are listed here. Newest first.
 
 **Verification:** the full offline gate and post-merge GitHub Actions gate passed
 (static checks, Lua 5.1 limits, German locale check and six fake-client setups).
-This release has not yet been field-tested in game.
+This release was field-tested on WoW Classic Forever on 2026-11-14 and passed.
 
 
 ## 1.15.5 — 2026-11-13 — Forever stable field test
