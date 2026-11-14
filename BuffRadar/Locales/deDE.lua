@@ -11,8 +11,9 @@
 --   4. Add the file to BuffRadar.toc, above BuffRadar.lua.
 -- tools\check.ps1 reports keys BuffRadar doesn't use and mismatched %d / %s.
 
-BuffRadarLocales = BuffRadarLocales or {}
-BuffRadarLocales.deDE = {
+local _, NS = ...
+NS.Locales = NS.Locales or {}
+NS.Locales.deDE = {
   ["Find"] = "Suchen",
   ["Find in this tab (Esc to close)"] = "In diesem Tab suchen (Esc schließt)",
   ["Matches: %d"] = "Treffer: %d",

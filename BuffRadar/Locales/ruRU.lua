@@ -3,8 +3,9 @@
 -- out falls back to English. Community corrections are welcome.
 -- Copyright (C) 2026 Malikor. GPLv3 or later.
 
-BuffRadarLocales = BuffRadarLocales or {}
-BuffRadarLocales.ruRU = {
+local _, NS = ...
+NS.Locales = NS.Locales or {}
+NS.Locales.ruRU = {
   ["Find"] = "Поиск",
   ["Find in this tab (Esc to close)"] = "Поиск на вкладке (Esc — закрыть)",
   ["Matches: %d"] = "Совпадений: %d",

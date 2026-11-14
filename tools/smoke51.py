@@ -70,6 +70,7 @@ local function step(name, fn)
   results[#results + 1] = { name, ok and (printedErr and ("addon printed: " .. printedErr) or "ok") or ("LUA ERROR: " .. tostring(err)) }
 end
 
+local NS = {}
 local chunk, cerr = loadstring(addonSrc, "=BuffRadar.lua")
 if not chunk then return { { "compile", "FAIL: " .. cerr } }, chat end
 setfenv(chunk, env)
@@ -77,10 +78,10 @@ if localeSrc then  -- Locales\*.lua load before BuffRadar.lua (.toc order)
   step("load translation file", function()
     local lchunk = assert(loadstring(localeSrc, "=Locales/deDE.lua"))
     setfenv(lchunk, env)
-    lchunk("BuffRadar", {})
+    lchunk("BuffRadar", NS)
+    assert(NS.Locales and NS.Locales.deDE and not env.BuffRadarLocales, "locale pack did not stay in the addon namespace")
   end)
 end
-local NS = {}
 if dataSrc then
   step("load Data.lua", function()
     local dch = assert(loadstring(dataSrc, "=Data.lua"))
@@ -2505,7 +2506,7 @@ step("empty list explains range, nameplate, and buff states", function()
   local oldRange, oldUnknown, oldPlates = X.rangeSilent, X.tallyUnknownUnits, X.FriendlyPlatesOn
   -- Expected text follows the client locale (the German setup shows deDE strings).
   local function T(s)
-    local pack = env.BuffRadarLocales and env.GetLocale and env.BuffRadarLocales[env.GetLocale()]
+    local pack = NS.Locales and env.GetLocale and NS.Locales[env.GetLocale()]
     return (type(pack) == "table" and pack[s]) or s
   end
   local ok, err = pcall(function()
@@ -4137,6 +4138,7 @@ setups = [
 ]
 if de_src:
     setups.append(("Retail: German client (Locales/deDE.lua)", True, False, False, True))
+failed = False
 for label, with_timer, no_templates, forever, german in setups:
     results, chat = harness(src, with_timer, no_templates, forever, german, de_src if german else None, ex_src, da_src, cf_src, sl_src, rc_src, pf_src)
     bad = 0
@@ -4146,3 +4148,5 @@ for label, with_timer, no_templates, forever, german in setups:
             bad += 1
             print(f"  {name}: {status}")
     print(f"{label}: {len(results)} steps, {bad} with errors")
+    failed = failed or bool(bad)
+sys.exit(1 if failed else 0)

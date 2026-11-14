@@ -3,8 +3,9 @@
 -- out falls back to English. Community corrections are welcome.
 -- Copyright (C) 2026 Malikor. GPLv3 or later.
 
-BuffRadarLocales = BuffRadarLocales or {}
-BuffRadarLocales.frFR = {
+local _, NS = ...
+NS.Locales = NS.Locales or {}
+NS.Locales.frFR = {
   ["Find"] = "Rechercher",
   ["Find in this tab (Esc to close)"] = "Rechercher dans cet onglet (Échap ferme)",
   ["Matches: %d"] = "Résultats : %d",

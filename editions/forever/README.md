@@ -13,11 +13,11 @@ You always come first.
 
 **BuffRadar list**
 
-![BuffRadar showing nearby players who still need buffs.](screenshots/buffradar-forever-list.png)
+![BuffRadar showing nearby players who still need buffs.](https://raw.githubusercontent.com/SeanShaffer88/BuffRadar/v1.15.7/editions/forever/screenshots/buffradar-forever-list.png)
 
 **BuffRadar settings**
 
-![BuffRadar settings for appearance and behavior options.](screenshots/buffradar-forever-settings.png)
+![BuffRadar settings for appearance and behavior options.](https://raw.githubusercontent.com/SeanShaffer88/BuffRadar/v1.15.7/editions/forever/screenshots/buffradar-forever-settings.png)
 
 ## TL;DR
 

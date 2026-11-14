@@ -495,7 +495,7 @@ end
 
 ---------------------------------------------------------------------------
 -- Localization scaffolding: enUS strings are the keys. A translation file
--- can set BuffRadarLocales["deDE"] = { ["Paused in a major city."] = "..." }
+-- can set the addon's private Locales["deDE"] before this file loads.
 -- before this file loads; only the window's status lines are wired so far.
 ---------------------------------------------------------------------------
 -- Every string the main window, its row tooltips and the minimap / addon-menu
@@ -616,7 +616,8 @@ local L = {
 setmetatable(L, { __index = function(_, k) return k end })
 do
   local loc = (GetLocale and GetLocale()) or "enUS"
-  local pack = _G.BuffRadarLocales and _G.BuffRadarLocales[loc]
+  local ns = select(2, ...)
+  local pack = ns and ns.Locales and ns.Locales[loc]
   if type(pack) == "table" then
     for k, v in pairs(pack) do if type(v) == "string" then L[k] = v end end
   end

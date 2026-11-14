@@ -3,8 +3,9 @@
 -- out falls back to English. Community corrections are welcome.
 -- Copyright (C) 2026 Malikor. GPLv3 or later.
 
-BuffRadarLocales = BuffRadarLocales or {}
-BuffRadarLocales.zhCN = {
+local _, NS = ...
+NS.Locales = NS.Locales or {}
+NS.Locales.zhCN = {
   ["Find"] = "查找",
   ["Find in this tab (Esc to close)"] = "在此标签页查找（Esc 关闭）",
   ["Matches: %d"] = "匹配项：%d",
