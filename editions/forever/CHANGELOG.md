@@ -5,6 +5,9 @@ All notable changes to BuffRadar are listed here. Newest first.
 
 ## Unreleased
 
+- Code only, no behaviour change: export/import strings, buff plans, saved profiles
+  and presets moved from `BuffRadar.lua` into a new `Profiles.lua` (file split
+  Slice E). `BuffRadar.lua` is about 360 lines shorter.
 - Code only, no behaviour change: the death recap and post-wipe report moved from
   `BuffRadar.lua` into a new `Recaps.lua` (file split Slice D). The shared
   missing-buff snapshot is now one helper (`X.SnapshotMissing`).

@@ -13,3 +13,5 @@ Data.lua
 BuffRadar.lua
 Config.lua
 Slash.lua
+Recaps.lua
+Profiles.lua
