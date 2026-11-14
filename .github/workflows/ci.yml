@@ -11,7 +11,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: python -m pip install --only-binary=:all: lupa==2.8
+      - run: |
+          python -m pip install --only-binary=:all: lupa==2.8
       - name: Gate (static checks + smoke on six fake-client setups)
         run: sh tools/gate.sh
       - name: Package (dry run)
