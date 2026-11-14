@@ -261,8 +261,8 @@ Hover over a name to see exactly what will be cast and what they still need.
 
 - **Combat:** the window hides and buff buttons are disabled while your character is
   in combat; it returns when combat ends.
-- **Line of sight:** addons can't reliably check it before casting. When the game
-  reports a line-of-sight failure, BuffRadar temporarily skips that target so the next
+- **Line of sight:** addons can't reliably check it before casting. When BuffRadar
+  can link a line-of-sight failure to its cast, it temporarily skips that target so the next
   keybind press can continue to the next eligible player.
 - **Targeting:** party and raid members are buffed directly, without touching your
   target. To buff a player outside your group, BuffRadar targets them by name,

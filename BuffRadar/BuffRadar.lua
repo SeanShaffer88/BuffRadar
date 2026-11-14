@@ -2584,7 +2584,7 @@ local OpenConfig, RefreshConfig, MakeMacro  -- defined further down
 local QueueRefresh  -- assigned to the event coalescer further down
 local BuildMinimapButton, RefreshMinimapButton  -- assigned in the minimap section further down
 local footerText
--- (X.sessionCasts, X.pendingCast, the double-buffered listed sets and
+-- (X.sessionCasts, the cast tracking, the double-buffered listed sets and
 -- X.recentlyGone live on X since 1.4.0 -- see the enhancement state block.)
 local lastSoundAt = 0
 
@@ -2630,44 +2630,253 @@ local function UpdateCounter()
   end
 end
 
-local function NotePendingCast(entry, spellOverride)
-  if entry and entry.missing and entry.missing[1] then
-    local spell = spellOverride or entry.missing[1]
-    X.pendingCast = { spell = spell, time = GetTime(),
-                      guid = entry.guid, key = X.KeyOfName(spell),
-                      who = entry.sortName }
-  end
-end
-
-function X.SkipPendingCast()
-  local pending = X.pendingCast
-  if not pending or not pending.guid or GetTime() - pending.time > 4 then return false end
-  X.failedTargets[pending.guid] = GetTime() + 30
-  X.pendingCast = nil
-  return true
-end
-
--- These errors mean the saved target is no longer castable right now.
--- Skip only target/range failures; mana, cooldown, and other errors stay pending.
-X.castTargetFailureGlobals = {
+do
+local castTargetFailureGlobals = {
   "SPELL_FAILED_LINE_OF_SIGHT", "ERR_SPELL_FAILED_LINE_OF_SIGHT",
   "SPELL_FAILED_OUT_OF_RANGE", "ERR_OUT_OF_RANGE", "ERR_SPELL_OUT_OF_RANGE",
   "SPELL_FAILED_BAD_TARGETS", "ERR_INVALID_TARGET", "ERR_BADATTACKTARGET",
   "SPELL_FAILED_TARGETS_DEAD", "ERR_TARGET_DEAD",
 }
-function X.IsTargetCastFailure(message)
+local function IsTargetCastFailure(message)
   if type(message) ~= "string" then return false end
   local lower = message:lower()
   if lower:find("line of sight", 1, true) or lower:find("out of range", 1, true)
     or lower:find("too far away", 1, true) or lower:find("invalid target", 1, true)
     or lower:find("bad target", 1, true) or lower:find("target is dead", 1, true)
     or lower:find("target no longer exists", 1, true) then return true end
-  for _, key in ipairs(X.castTargetFailureGlobals) do
+  for _, key in ipairs(castTargetFailureGlobals) do
     local token = _G[key]
-    if type(token) == "string" and token ~= "" and message:find(token, 1, true) then return true end
+    if Readable(token) and type(token) == "string" and token ~= "" and message == token then return true end
   end
   return false
 end
+
+local pending = {}
+local seenCastGUIDs = {}
+local dispatch, awaitingSent
+local traceSequence = 0
+
+local function Trace(label, ...)
+  if not db or not db.clickDebug then return end
+  traceSequence = traceSequence + 1
+  local parts = {}
+  for i = 1, select("#", ...) do parts[i] = SafeString((select(i, ...))) or "?" end
+  Print(string_format("|cffaaaaaa#%d %.3f %s: %s|r", traceSequence, GetTime(), label, table.concat(parts, ", ")))
+end
+
+local function StringField(value)
+  if Readable(value) and type(value) == "string" and value ~= "" then return value end
+end
+
+local function SpellID(value)
+  if Readable(value) and type(value) == "number" and value > 0
+      and value < math_huge and value == math_floor(value) then return value end
+end
+
+local function CastTargetNames(unit)
+  local name, realm
+  if UnitFullName then
+    local ok, short, unitRealm = pcall(UnitFullName, unit)
+    if not ok or (type(short) ~= "nil" and not Readable(short))
+      or (type(unitRealm) ~= "nil" and not Readable(unitRealm)) then return end
+    name, realm = StringField(short), StringField(unitRealm)
+  end
+  if not name then
+    local ok, short = pcall(UnitName, unit)
+    if ok then name = StringField(short) end
+  end
+  if not name then return end
+  local localRealm = GetNormalizedRealmName and StringField(GetNormalizedRealmName())
+  local full = realm or localRealm
+  return name, full and (name .. "-" .. full):lower() or nil,
+    (not realm or realm == localRealm) and name:lower() or nil
+end
+
+function X.BeginCastClick(btn, button, down, label)
+  local entry = btn.entry
+  Trace(label .. " pre", button, down and "down" or "up", entry and entry.missing and entry.missing[1])
+  if dispatch then dispatch.ambiguous = true; return end
+  if button ~= "LeftButton" or not db or InCombatLockdown() or X.PlayerSuspended() then return end
+  -- Hardware row clicks on Forever dispatch on release, even when both
+  -- phases are registered. Keys/macros follow their secure registration.
+  local keyDown = label ~= "click" and GetCVarBool and GetCVarBool("ActionButtonUseKeyDown")
+  local deferred = (not not down) == (not not keyDown)
+  local overlaps = awaitingSent and awaitingSent.expires > GetTime()
+  if deferred then awaitingSent = nil end
+  if not entry or not entry.unit or not entry.missing or not entry.missing[1] then return end
+  local shift = _G.IsShiftKeyDown and _G.IsShiftKeyDown()
+    and not (_G.IsControlKeyDown and _G.IsControlKeyDown())
+    and not (_G.IsAltKeyDown and _G.IsAltKeyDown()) and btn:GetAttribute("shift-type1")
+  local action = shift or btn:GetAttribute("type")
+  if action ~= "spell" and action ~= "macro" then return end
+  local guid = entry.castGuid or entry.guid -- folded rows borrow a real recipient
+  local ok, currentGUID = pcall(UnitGUID, entry.unit)
+  if not guid or not ok or StringField(currentGUID) ~= guid then return end
+  local nameOfTarget, full, short = CastTargetNames(entry.unit)
+  if not nameOfTarget then return end
+  local name = shift and X.GroupSpellFor(entry.missing[1]) or btn.bSpell or entry.missing[1]
+  local id = SpellID(btn:GetAttribute(shift and "shift-spell1" or "spell"))
+  local list = ranks[name]
+  if not id and list and list[1] then
+    local pick = db.castMethod == "rank" and X.PickRank(name, entry.unit) or list[#list]
+    id = pick and SpellID(pick.id)
+  end
+  if not id and C_Spell and C_Spell.GetSpellIDForSpellIdentifier then
+    local resolved, value = pcall(C_Spell.GetSpellIDForSpellIdentifier, name)
+    if resolved then id = SpellID(value) end
+  end
+  dispatch = { button = btn, spell = name, expectedID = id, guid = guid, who = nameOfTarget,
+    full = full, short = short, terminals = {}, ambiguous = overlaps and true or nil,
+    deferred = deferred and not entry.pet }
+  Trace("expected", name, id, nameOfTarget, guid)
+end
+
+local function ApplyCast(cast, terminal, targetError)
+  if terminal == "UNIT_SPELLCAST_SUCCEEDED" then
+    local name = cast.spell
+    X.failedTargets[cast.guid] = nil
+    X.sessionCasts = X.sessionCasts + 1
+    db.castsTotal = (db.castsTotal or 0) + 1
+    db.stats = db.stats or {}
+    db.stats[name] = (db.stats[name] or 0) + 1
+    db.history = db.history or {}
+    db.history[#db.history + 1] = { t = (time and time()) or 0, spell = name, who = cast.who }
+    while #db.history > 50 do table.remove(db.history, 1) end
+    UpdateCounter()
+    local key = X.KeyOfName(name)
+    if key then X.SyncSend(key, cast.guid) end
+    X.queueAt = GetTime()
+  elseif targetError and (terminal == "UNIT_SPELLCAST_FAILED" or terminal == "UNIT_SPELLCAST_FAILED_QUIET") then
+    X.failedTargets[cast.guid] = GetTime() + 30
+    if QueueRefresh then QueueRefresh() end
+  end
+end
+
+local function ConfirmCast(cast)
+  local now = GetTime()
+  for i = #seenCastGUIDs, 1, -1 do
+    local seenCast = seenCastGUIDs[i]
+    if seenCast.expires <= now then
+      table.remove(seenCastGUIDs, i)
+    elseif seenCast.guid == cast.sentGUID then
+      return
+    end
+  end
+  if #seenCastGUIDs == 16 then table.remove(seenCastGUIDs, 1) end
+  seenCastGUIDs[#seenCastGUIDs + 1] = { guid = cast.sentGUID, expires = now + 15 }
+  local terminal
+  for _, outcome in ipairs(cast.terminals) do
+    if outcome.guid == cast.sentGUID and outcome.id == cast.sentID then
+      terminal = outcome.event
+      break
+    end
+  end
+  if terminal then
+    ApplyCast(cast, terminal, cast.targetError)
+    if terminal == "UNIT_SPELLCAST_SUCCEEDED" and QueueRefresh then QueueRefresh() end
+    return
+  end
+  cast.button, cast.terminals = nil, nil
+  cast.expires = now + 15
+  if #pending == 8 then table.remove(pending, 1) end
+  pending[#pending + 1] = cast
+end
+
+function X.EndCastClick(btn, button, down, label)
+  local cast = dispatch
+  Trace(label .. " post", button, down and "down" or "up", cast and cast.sentGUID)
+  if not cast or cast.button ~= btn then return end
+  dispatch = nil
+  if cast.sentGUID and not cast.ambiguous then
+    ConfirmCast(cast)
+  elseif cast.deferred and cast.expectedID and not cast.sawSent and not cast.ambiguous and not cast.hadError then
+    -- The Forever field trace showed SENT arriving after PostClick. A short
+    -- window plus exact spell ID and target bounds the fallback. The client
+    -- exposes no origin token for an identical manual cast in this window.
+    cast.button, cast.expires = nil, GetTime() + 0.250
+    awaitingSent = cast
+  end
+  if cast.refresh and QueueRefresh then QueueRefresh() end
+end
+
+function X.CastEvent(event, unit, ...)
+  if event == "UI_ERROR_MESSAGE" then
+    Trace(event, unit, ...)
+    local message = StringField((...)) or StringField(unit)
+    if dispatch then
+      dispatch.hadError = true
+      if message and IsTargetCastFailure(message) then dispatch.targetError = true end
+    else
+      awaitingSent = nil
+    end
+    return false
+  end
+  if StringField(unit) ~= "player" then return false end
+  Trace(event, unit, ...)
+  local cast = dispatch
+  if event == "UNIT_SPELLCAST_SENT" then
+    local deferred = not cast
+    if deferred then
+      cast, awaitingSent = awaitingSent, nil
+      if cast and cast.expires <= GetTime() then return false end
+    elseif awaitingSent then
+      awaitingSent = nil -- an intervening player cast invalidates the older intent
+      cast.deferred = false
+    end
+    if not cast then return false end
+    if cast.sawSent then cast.ambiguous = true; return false end
+    cast.sawSent = true
+    local target, guid, id = ...
+    target, guid, id = StringField(target), StringField(guid), SpellID(id)
+    if not target or not guid or not id then return false end
+    local key = target:lower()
+    if key ~= cast.full and key ~= cast.short then return false end
+    if cast.expectedID then
+      if id ~= cast.expectedID then return false end
+    else
+      local ok, name = pcall(SpellName, id, nil)
+      if not ok or StringField(name) ~= cast.spell then return false end
+    end
+    cast.sentGUID, cast.sentID = guid, id
+    if deferred then ConfirmCast(cast) end
+    return false
+  end
+
+  local guid, id = ...
+  guid, id = StringField(guid), SpellID(id)
+  if guid and id then
+    local now = GetTime()
+    for i = #pending, 1, -1 do
+      local prior = pending[i]
+      if prior.expires <= now then
+        table.remove(pending, i)
+      elseif prior.sentGUID == guid and prior.sentID == id then
+        table.remove(pending, i)
+        ApplyCast(prior, event)
+        if cast and event == "UNIT_SPELLCAST_SUCCEEDED" then cast.refresh = true; return false end
+        return event == "UNIT_SPELLCAST_SUCCEEDED"
+      end
+    end
+    if cast and #cast.terminals < 8 then
+      cast.terminals[#cast.terminals + 1] = { guid = guid, id = id, event = event }
+    elseif cast then
+      cast.ambiguous = true
+    end
+  end
+  -- A manual buff still changes the aura list. Defer refresh during dispatch
+  -- so the bookkeeping operates on the original click rather than a new row.
+  if cast and event == "UNIT_SPELLCAST_SUCCEEDED" then cast.refresh = true end
+  return not cast and event == "UNIT_SPELLCAST_SUCCEEDED"
+end
+
+function X.ResetCastTracking()
+  dispatch, awaitingSent, pending, seenCastGUIDs = nil, nil, {}, {}
+end
+
+function X.ClearCastIntent()
+  dispatch, awaitingSent = nil, nil
+end
+end -- cast tracking
 
 ---------------------------------------------------------------------------
 -- Coordination (1.5.0): cast sync between BuffRadar users, chat buff
@@ -3421,24 +3630,11 @@ local function CreateRow(i)
     end
     if QueueRefresh then QueueRefresh() end
   end)
-  b:SetScript("PostClick", function(self, button, down)
-    -- (a right-click casts nothing, so it mustn't count toward the cast counter)
-    if button ~= "RightButton" and self:GetAttribute("type") then
-      -- Modifier click (Brief 3): bookkeep the spell the secure dispatch
-      -- actually cast (the group version), not the row's plain pick.
-      local override
-      if button == "LeftButton" and db.modClick and _G.IsShiftKeyDown and _G.IsShiftKeyDown()
-         and self.entry and self.entry.missing then
-        override = X.GroupSpellFor(self.entry.missing[1])
-      end
-      NotePendingCast(self.entry, override)
-    end
-    if db.clickDebug then
-      Print(string.format("click: %s %s | type=%s | %s", tostring(button),
-        down and "down" or "up", tostring(self:GetAttribute("type")),
-        tostring(self:GetAttribute("macrotext") or
-                 (tostring(self:GetAttribute("spell")) .. " @" .. tostring(self:GetAttribute("unit"))))))
-    end
+  b:HookScript("PreClick", function(self, button, down)
+    X.BeginCastClick(self, button, down, "click")
+  end)
+  b:HookScript("PostClick", function(self, button, down)
+    X.EndCastClick(self, button, down, "click")
   end)
   b:SetScript("OnEnter", Row_OnEnter)
   b:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -4460,15 +4656,13 @@ local function BuildNextButton()
       self:SetAttribute("shift-macrotext1", nil)
     ]])
   end
-  nextBtn:HookScript("PostClick", function(self, _, down)
-    NotePendingCast(self.entry)
+  nextBtn:HookScript("PreClick", function(self, button, down)
+    X.BeginCastClick(self, button, down, "next-buff key")
+  end)
+  nextBtn:HookScript("PostClick", function(self, button, down)
+    X.EndCastClick(self, button, down, "next-buff key")
     self.bGuid, self.isClear = nil, false  -- attributes changed outside our cache
     if not nextWrapped then ClearNext() end  -- one press = one cast
-    if db.clickDebug then
-      Print(string.format("next-buff key: %s | type=%s | %s", down and "down" or "up",
-        tostring(self:GetAttribute("type")), tostring(self:GetAttribute("macrotext") or
-        self:GetAttribute("spell"))))
-    end
   end)
 end
 
@@ -4503,16 +4697,13 @@ local function BuildGroupButton()
       self:SetAttribute("macrotext", nil)
     ]])
   end
-  btn:HookScript("PostClick", function(self, _, down)
-    local e = self.entry
-    NotePendingCast(e, e and e.missing and (CLASSIC_FEATURES and GroupSpellFor(e.missing[1])) or nil)
+  btn:HookScript("PreClick", function(self, button, down)
+    X.BeginCastClick(self, button, down, "group-buff key")
+  end)
+  btn:HookScript("PostClick", function(self, button, down)
+    X.EndCastClick(self, button, down, "group-buff key")
     self.bGuid, self.isClear = nil, false  -- attributes changed outside our cache
     if not X.groupWrapped then ClearGroup() end  -- one press = one cast
-    if db.clickDebug then
-      Print(string.format("group-buff key: %s | type=%s | %s", down and "down" or "up",
-        tostring(self:GetAttribute("type")), tostring(self:GetAttribute("macrotext") or
-        self:GetAttribute("spell"))))
-    end
   end)
 end
 
@@ -5074,7 +5265,8 @@ end
 
 function X.SuspendBuffUI()
   refreshIdle = true
-  X.pendingCast, X.pillPeek = nil, nil
+  X.ResetCastTracking()
+  X.pillPeek = nil
   X.HideOwnedTooltip()
   if X.HideConfig then X.HideConfig() end
   if X.wizardFrame and X.wizardFrame:IsShown() then X.wizardFrame:Hide() end
@@ -5413,7 +5605,7 @@ function X.BuildBuffView(list, n)
         end
         g.count = g.count + 1
         if (not e.outOfRange and (g.unit == nil or g.outOfRange)) or g.unit == nil then
-          g.unit, g.class = e.unit, e.class
+          g.unit, g.class, g.castGuid, g.pet = e.unit, e.class, e.guid, e.pet
           g.outOfRange = e.outOfRange and true or false
           g.rangeBucket, g.approximateRange = e.rangeBucket, e.approximateRange
         end
@@ -6017,7 +6209,8 @@ for _, ev in ipairs({
   "SPELLS_CHANGED", "LEARNED_SPELL_IN_TAB", "LEARNED_SPELL_IN_SKILL_LINE",
   "GROUP_ROSTER_UPDATE", "PARTY_MEMBERS_CHANGED", "RAID_ROSTER_UPDATE",
   "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "UNIT_AURA", "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
-  "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED", "UI_ERROR_MESSAGE",
+  "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED",
+  "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED", "UI_ERROR_MESSAGE",
   "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN", "CVAR_UPDATE", "UPDATE_BINDINGS",
   "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS",
   "SPELL_DATA_LOAD_RESULT", "UNIT_PORTRAIT_UPDATE",
@@ -6060,50 +6253,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     return
   end
   if event == "UNIT_SPELLCAST_SENT" or event == "UNIT_SPELLCAST_SUCCEEDED"
-     or event == "UI_ERROR_MESSAGE" then
-    if db and db.clickDebug and (event == "UI_ERROR_MESSAGE" or arg1 == "player") then
-      local parts = { SafeString(arg1) or "?" }  -- "?" = nil or protected
-      for i = 1, select("#", ...) do parts[#parts + 1] = SafeString((select(i, ...))) or "?" end
-      Print("|cffaaaaaa" .. event .. ": " .. table.concat(parts, ", ") .. "|r")
-    end
-    if event == "UI_ERROR_MESSAGE" and X.pendingCast then
-      local pending = X.pendingCast
-      if GetTime() - pending.time < 4 then
-        local message = type(arg1) == "string" and arg1 or ""
-        for i = 1, select("#", ...) do
-          local part = select(i, ...)
-          if type(part) == "string" then message = message .. " " .. part end
-        end
-        if X.IsTargetCastFailure(message) then
-          if X.SkipPendingCast() then Soon() end
-        end
-      end
-      return
-    end
-    if event ~= "UNIT_SPELLCAST_SUCCEEDED" or arg1 ~= "player" then return end
-    if arg1 == "player" and X.pendingCast and db then
-      local spellID = select(2, ...)
-      local ok, name = pcall(SpellName, spellID, nil)
-      name = ok and SafeString(name) or nil  -- compared and used as a stats key
-      if name and name == X.pendingCast.spell and GetTime() - X.pendingCast.time < 3 then
-        local pk, pg, pw = X.pendingCast.key, X.pendingCast.guid, X.pendingCast.who
-        X.pendingCast = nil
-        X.failedTargets[pg] = nil
-        X.sessionCasts = X.sessionCasts + 1
-        db.castsTotal = (db.castsTotal or 0) + 1
-        db.stats = db.stats or {}
-        db.stats[name] = (db.stats[name] or 0) + 1
-        -- Cast history (1.7.0): the last 50 casts through BuffRadar.
-        db.history = db.history or {}
-        db.history[#db.history + 1] = { t = (time and time()) or 0, spell = name,
-                                        who = (pw and pw ~= "") and pw or "?" }
-        while #db.history > 50 do table.remove(db.history, 1) end
-        UpdateCounter()
-        if pk and pg then X.SyncSend(pk, pg) end
-        X.queueAt = GetTime()  -- the new top row is "up next" for a moment (1.6.0)
-      end
-    end
-    Soon()
+     or event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET"
+     or event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UI_ERROR_MESSAGE" then
+    if db and X.CastEvent(event, arg1, ...) then Soon() end
     return
   end
   if event == "CVAR_UPDATE" then
@@ -6157,6 +6309,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     return
   end
   if event == "PLAYER_ENTERING_WORLD" then
+    X.ResetCastTracking()
     X.UpdatePlayerLife(event)
     Soon()
     return
@@ -6274,6 +6427,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     StartTicker()
     Soon()
   elseif event == "PLAYER_REGEN_DISABLED" then
+    X.ClearCastIntent()
     X.combatStart = GetTime()  -- the wipe report times the fight from here (1.9.0)
     if combatText then combatText:Show() end
     -- Drivers clear cast attributes in combat; protected drag and visibility
