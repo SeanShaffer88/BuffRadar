@@ -562,7 +562,8 @@ local L = {
   ["Default blessing"] = "Default blessing",
   ["Previously selected blessing unavailable"] = "Previously selected blessing unavailable",
   ["An active group blessing plan takes precedence."] = "An active group blessing plan takes precedence.",
-  ["+%d more"] = "+%d more",
+  ["Rows %d–%d of %d"] = "Rows %d–%d of %d",
+  ["Use the mouse wheel to see more rows."] = "Use the mouse wheel to see more rows.",
   ["Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time"] =
     "Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time",
   -- Compact form, used when the window is too narrow for the line above.
@@ -3602,6 +3603,28 @@ function X.InstallCombatDriver(button, snippet)
   return ok and accepted ~= false
 end
 
+function X.RowTargetMatches(e)
+  local guid = e and (e.castGuid or e.guid)
+  if not guid or not e.unit then return false end
+  local ok, current = pcall(UnitGUID, e.unit)
+  return ok and SafeString(current) == guid
+end
+
+function X.RowMouseHeld()
+  for button, expires in pairs(X.rowMouseButtons) do
+    local down = X.ReadUnitBool(_G.IsMouseButtonDown, button)
+    if down == false or (down == nil and GetTime() >= expires) then
+      X.rowMouseButtons[button] = nil
+    end
+  end
+  return next(X.rowMouseButtons) ~= nil
+end
+X.rowMouseButtons = {}
+
+function X.RowWheel(_, delta)
+  if delta ~= 0 then X.ScrollRows(delta < 0 and 1 or -1) end
+end
+
 local function CreateRow(i)
   local b = CreateFrame("Button", "BuffRadarRow" .. i, frame,
                         "SecureActionButtonTemplate,SecureHandlerStateTemplate")
@@ -3740,13 +3763,38 @@ local function CreateRow(i)
     if QueueRefresh then QueueRefresh() end
   end)
   b:HookScript("PreClick", function(self, button, down)
+    if button == "LeftButton" and not InCombatLockdown() and self.bGuid then
+      local press = not down and X.rowLeftPress
+      local changed = press and (press.row ~= self or press.guid ~= self.bGuid
+        or press.unit ~= self.bUnit or press.spell ~= self.bSpell)
+      if changed or not X.RowTargetMatches(self.entry) then
+        X.ClearRowCast(self)
+        self.entry, self.guid = nil, nil
+        if QueueRefresh then QueueRefresh() end
+        return
+      end
+    end
     X.BeginCastClick(self, button, down, "click")
   end)
   b:HookScript("PostClick", function(self, button, down)
     X.EndCastClick(self, button, down, "click")
+    if button == "LeftButton" and not down then X.rowLeftPress = nil end
   end)
   b:SetScript("OnEnter", Row_OnEnter)
   b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  b:HookScript("OnMouseDown", function(self, button)
+    if button == "LeftButton" or button == "RightButton" then X.rowMouseButtons[button] = GetTime() + 1 end
+    if button == "LeftButton" then
+      -- The mouse-up notification may precede the up-phase secure click.
+      -- Keep the presented binding through dispatch, independently of that notification.
+      X.rowLeftPress = { row = self, guid = self.bGuid, unit = self.bUnit, spell = self.bSpell }
+    end
+  end)
+  b:HookScript("OnMouseUp", function(_, button)
+    X.rowMouseButtons[button] = nil
+  end)
+  b:SetScript("OnMouseWheel", X.RowWheel)
+  b:EnableMouseWheel(false)
   b:Hide()
   rows[i] = b
 end
@@ -4195,6 +4243,9 @@ function X.Why(name)
       end
       if shown then
         Print(disp .. " is on the list (row " .. i .. "), missing: " .. table.concat(miss, ", ") .. ".")
+      elseif db.viewMode == "people" and X.rowView == entries
+          and (i <= (X.rowOffset or 0) or i > (X.rowOffset or 0) + MAX_ROWS) then
+        Print(disp .. " is outside the visible rows. " .. L["Use the mouse wheel to see more rows."])
       else
         Print(disp .. " needs " .. table.concat(miss, ", ") .. " and is collected, but the row is not shown -- the role filter under the title is the usual reason.")
       end
@@ -4414,6 +4465,7 @@ function X.ApplyClickThrough()
     if row and row.EnableMouse then row:EnableMouse(mouse) end
   end
   if nextBtn and nextBtn.EnableMouse then nextBtn:EnableMouse(mouse) end
+  X.ApplyRowWheel()
   if X.UpdateFade then X.UpdateFade() end
 end
 
@@ -4923,6 +4975,8 @@ local function BuildUI()
     frame:SetMaxResize(MAX_WIDTH, 4000)
   end
   frame:EnableMouse(true)
+  frame:SetScript("OnMouseWheel", X.RowWheel)
+  frame:EnableMouseWheel(false)
   frame:RegisterForDrag("LeftButton")
   frame:SetScript("OnDragStart", function(self)
     if not db.locked and not InCombatLockdown() then
@@ -4968,7 +5022,14 @@ local function BuildUI()
   frame:HookScript("OnLeave", X.UpdateFade)
   frame:HookScript("OnShow", X.UpdateFade)
   frame:HookScript("OnHide", function()
-    if not InCombatLockdown() then close:Hide() end
+    if not InCombatLockdown() then
+      close:Hide()
+      if db.hidden then
+        wipe(X.rowMouseButtons)
+        X.rowLeftPress = nil
+        X.ClearRowViewport()
+      end
+    end
   end)
   close:HookScript("OnLeave", X.UpdateFade)
 
@@ -5354,6 +5415,7 @@ end
 local refreshIdle = false
 local function ClearRow(row)
   row.entry, row.guid = nil, nil
+  if row.bGuid ~= nil then X.ClearRowCast(row) end
   if row:IsShown() then row:Hide() end
 end
 
@@ -5375,6 +5437,9 @@ end
 
 function X.SuspendBuffUI()
   refreshIdle = true
+  X.ClearRowViewport()
+  wipe(X.rowMouseButtons)
+  X.rowLeftPress = nil
   X.ResetCastTracking()
   X.pillPeek = nil
   X.HideOwnedTooltip()
@@ -5474,7 +5539,7 @@ do
   T[L["drinking"]] = "o"; T[L["asked for a buff"]] = "?"; T[L["pet"]] = "p"
 end
 
-local function RenderRow(row, e)
+local function RenderRow(row, e, cached)
   row.entry, row.guid = e, e.guid
   local m = e.missing
   if row.cGuid ~= e.guid or row.cUnit ~= e.unit then
@@ -5619,14 +5684,14 @@ local function RenderRow(row, e)
       cm[j] = spell
     end
   end
-  if e.outOfRange then
+  if e.outOfRange or (cached and not X.RowTargetMatches(e)) then
     -- Greyed placeholder row: no live binding behind the click, and the
     -- cached binding is cleared so a reused row can't cast a stale target.
     row:SetAlpha(0.6)
     if row.bGuid ~= nil then X.ClearRowCast(row) end
   else
     row:SetAlpha(1)
-    BindCached(row, e.unit, m[1], e.guid)
+    BindCached(row, e.unit, m[1], e.castGuid or e.guid)
   end
   if not row:IsShown() then row:Show() end
 end
@@ -5738,6 +5803,71 @@ end
 X.IsMajorCity, X.CurrentInstance = InMajorCity, InInstanceNow
 X.BindCached = BindCached
 
+function X.ApplyRowWheel()
+  if not frame or InCombatLockdown() then return end
+  local enabled = (X.rowViewCount or 0) > MAX_ROWS and not (db.clickThrough and db.locked)
+  if X.rowWheelEnabled == enabled then return end
+  X.rowWheelEnabled = enabled
+  frame:EnableMouseWheel(enabled)
+  for _, row in ipairs(rows) do row:EnableMouseWheel(enabled) end
+end
+
+function X.ClearRowViewport()
+  X.rowView, X.rowOffset, X.rowViewCount = nil, nil, nil
+  if frame and not InCombatLockdown() then
+    X.ApplyRowWheel()
+    SetShownIfChanged(overflowText, false)
+  end
+end
+
+function X.PaintRowViewport(cached)
+  local view, n = X.rowView, X.rowViewCount
+  X.rowOffset = math_min(X.rowOffset or 0, math_max(0, n - MAX_ROWS))
+  local shown = math_min(n, MAX_ROWS)
+  local wantCols = (db.twoCol and shown > 8) and 2 or 1
+  local rowsTall = wantCols == 2 and math_floor((shown + 1) / 2) or shown
+  if wantCols ~= (X.cols or 1) or rowsTall ~= (X.rowsTall or shown) then
+    X.cols, X.rowsTall = wantCols, rowsTall
+    X.rowsPerCol = wantCols == 2 and rowsTall or MAX_ROWS
+    X.ApplyRowLayout()
+    ApplyGeometry()
+  end
+  for i = 1, MAX_ROWS do
+    if i <= shown then RenderRow(rows[i], view[X.rowOffset + i], cached) else ClearRow(rows[i]) end
+  end
+  local overflow = n > MAX_ROWS
+  if overflow then
+    local y = -(X.topH or HEADER_H) - rowsTall * (X.rowH or ROW_H)
+      - math_max(0, rowsTall - 1) * (db.rowGap or 0) - 2
+    if overflowText.cY ~= y then
+      overflowText.cY = y
+      overflowText:ClearAllPoints()
+      overflowText:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, y)
+    end
+    SetTextIfChanged(overflowText, string_format(L["Rows %d–%d of %d"], X.rowOffset + 1, X.rowOffset + shown, n))
+  end
+  SetShownIfChanged(overflowText, overflow)
+  X.ApplyRowWheel()
+  return shown, rowsTall
+end
+
+function X.ScrollRows(step)
+  if not X.rowView or X.rowViewCount <= MAX_ROWS or db.hidden
+      or not frame:IsShown() or InCombatLockdown() or X.PlayerSuspended()
+      or (db.clickThrough and db.locked) or X.RowMouseHeld()
+      or X.ReadUnitBool(_G.IsMouseButtonDown, "LeftButton") == true
+      or X.ReadUnitBool(_G.IsMouseButtonDown, "RightButton") == true then return false end
+  if X.rowViewMode ~= db.viewMode or X.rowViewSearch ~= X.search
+      or X.rowViewRole ~= db.roleFilter or X.rowViewTwoCol ~= db.twoCol then return false end
+  local offset = math_max(0, math_min(X.rowOffset + step, X.rowViewCount - MAX_ROWS))
+  if offset == X.rowOffset then return false end
+  local owner = GameTooltip and GameTooltip.GetOwner and GameTooltip:GetOwner()
+  if owner == frame or (owner and owner.GetParent and owner:GetParent() == frame) then GameTooltip:Hide() end
+  X.rowOffset = offset
+  X.PaintRowViewport(true)
+  return true
+end
+
 local function Refresh()
   if not built then return end
   if X.PlayerSuspended() then
@@ -5745,6 +5875,7 @@ local function Refresh()
     return
   end
   if InCombatLockdown() then return end
+  if (X.rowViewCount or 0) > MAX_ROWS and X.RowMouseHeld() then return end
   refreshIdle = false
   X.applyFilter = true  -- the window honors the role filter; reports turn it off
   local wasAfterCombat = X.afterCombat
@@ -5753,6 +5884,7 @@ local function Refresh()
   if X.flashPending then ApplyAppearance() end
 
   if not hasAnyBuff then
+    X.ClearRowViewport()
     refreshIdle = true
     ClearNext()
     X.ClearGroup()
@@ -5770,6 +5902,7 @@ local function Refresh()
 
   -- No scanning in major cities
   if db.pauseInCities and X.IsMajorCity() then
+    X.ClearRowViewport()
     refreshIdle = true
     ClearNext()
     X.ClearGroup()
@@ -5786,6 +5919,7 @@ local function Refresh()
   -- No scanning in battlegrounds / arenas (optional; flag rules make lists noisy)
   local instType = X.CurrentInstance()
   if db.pauseInBG and (instType == "pvp" or instType == "arena") then
+    X.ClearRowViewport()
     refreshIdle = true
     ClearNext()
     X.ClearGroup()
@@ -5803,6 +5937,7 @@ local function Refresh()
   if db.pauseTaxi and _G.UnitOnTaxi then
     local ok, onTaxi = pcall(_G.UnitOnTaxi, "player")
     if ok and onTaxi then
+      X.ClearRowViewport()
       refreshIdle = true
       ClearNext()
     X.ClearGroup()
@@ -5819,6 +5954,7 @@ local function Refresh()
 
   -- Low-mana pause (optional): don't offer buffs you can't afford to cast.
   if db.lowMana and db.lowMana > 0 and X.LowMana() then
+      X.ClearRowViewport()
       ClearNext()
       X.ClearGroup()
       wipe(X.listedBefore)
@@ -5831,6 +5967,7 @@ local function Refresh()
       return
   end
 
+  X.rowView = nil
   local n = CollectEntries()
   X.CheckDrops()
   X.CheckRange()
@@ -5884,6 +6021,8 @@ local function Refresh()
   end
 
   if db.hidden or groupHidden then
+    X.ClearRowViewport()
+    for i = 1, MAX_ROWS do ClearRow(rows[i]) end
     SetShownIfChanged(frame, false)
     if X.pill then SetShownIfChanged(X.pill, false) end
     wipe(X.listedBefore)
@@ -5919,21 +6058,13 @@ local function Refresh()
   -- point (coverage, sounds, counts) still works on people
   local viewEntries, viewN = entries, n
   if db.viewMode == "buffs" then viewEntries, viewN = X.BuildBuffView(entries, n) end
-  local shown = math_min(viewN, MAX_ROWS)
-  -- Two-column layout (1.9.0): with the setting on and a long list, the
-  -- rows split into two columns and the frame widens to match. The
-  -- column state lives on X so ApplyRowLayout anchors consistently.
-  local wantCols = (db.twoCol and shown > 8) and 2 or 1
-  local rowsTall = wantCols == 2 and math_floor((shown + 1) / 2) or shown
-  if wantCols ~= (X.cols or 1) or rowsTall ~= (X.rowsTall or shown) then
-    X.cols, X.rowsTall = wantCols, rowsTall
-    X.rowsPerCol = wantCols == 2 and rowsTall or MAX_ROWS
-    X.ApplyRowLayout()
-    ApplyGeometry()
+  if X.rowViewMode ~= db.viewMode or X.rowViewSearch ~= X.search or X.rowViewRole ~= db.roleFilter then
+    X.rowOffset = nil
   end
-  for i = 1, MAX_ROWS do
-    if i <= shown then RenderRow(rows[i], viewEntries[i]) else ClearRow(rows[i]) end
-  end
+  X.rowViewMode, X.rowViewSearch, X.rowViewRole = db.viewMode, X.search, db.roleFilter
+  X.rowViewTwoCol = db.twoCol
+  X.rowView, X.rowViewCount = viewEntries, viewN
+  local shown, rowsTall = X.PaintRowViewport()
   -- Post-combat catch-up: one border pulse when the frozen list thaws with
   -- work waiting, so a pull's-end rebuff round doesn't go unnoticed.
   if wasAfterCombat and n > 0 and X.Flash then X.Flash() end
@@ -5943,20 +6074,6 @@ local function Refresh()
     SetTextIfChanged(emptyText, X.EmptyStatus())
   end
   SetShownIfChanged(emptyText, n == 0)
-  if viewN > MAX_ROWS then
-    if overflowText.cTall ~= rowsTall then  -- re-anchor when the column split changes (1.9.0)
-      overflowText.cTall = rowsTall
-      overflowText:ClearAllPoints()
-      overflowText:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -(X.topH or HEADER_H) - rowsTall * (X.rowH or ROW_H) - math_max(0, rowsTall - 1) * (db.rowGap or 0) - 2)
-    end
-    if overflowText.cCount ~= viewN then
-      overflowText.cCount = viewN
-      overflowText:SetText(string_format(L["+%d more"], viewN - MAX_ROWS))
-    end
-    SetShownIfChanged(overflowText, true)
-  else
-    SetShownIfChanged(overflowText, false)
-  end
 
   -- Coverage / progress line: shown while grouped (even when the list is
   -- empty -- "15/15 fully buffed" is the good-news form of the same line).
@@ -6131,7 +6248,7 @@ local function Refresh()
   local h = (X.topH or HEADER_H) + (shown > 0 and rowsTall * (X.rowH or ROW_H) + math_max(0, rowsTall - 1) * (db.rowGap or 0) or 18) + 8
   if coverShown then h = h + 13 end
   if focusShown then h = h + 13 end
-  if n > MAX_ROWS then h = h + 14 end
+  if viewN > MAX_ROWS then h = h + 14 end
   h = h + FOOTER_H  -- bottom row: settings gear + cast counter
   UpdateCounter()
   SetHeightIfChanged(frame, h)
@@ -6542,6 +6659,8 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     StartTicker()
     Soon()
   elseif event == "PLAYER_REGEN_DISABLED" then
+    wipe(X.rowMouseButtons)
+    if X.ReadUnitBool(_G.IsMouseButtonDown, "LeftButton") == false then X.rowLeftPress = nil end
     X.auraIds = nil
     X.ClearCastIntent()
     X.combatStart = GetTime()  -- the wipe report times the fight from here (1.9.0)

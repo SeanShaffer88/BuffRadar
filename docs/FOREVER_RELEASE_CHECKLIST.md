@@ -24,6 +24,13 @@ Run this against the exact candidate ZIP after CI passes. Record the version, cl
 - **Combat:** enter combat with buffs missing. Confirm no protected cast starts; after combat, verify the list resumes and catches up.
 - **Death and resurrection:** die in and out of combat. Check that BuffRadar's window, pill, minimap button, and open settings close, and that its cast bindings stay disarmed. Reload while dead and test release to ghost form, combat ending while dead, resurrection after releasing, and resurrection without releasing. Confirm the normal window and minimap preferences resume after resurrection and combat, including a window you hid manually before death. The game's AddOns and minimap-compartment entries can stay listed, but their BuffRadar controls should not open the addon while dead.
 - **Hover close:** with the title on and off, hover the list, then move onto and off the close button. Confirm it stays under the cursor, remains reachable near the screen edge, and leaves no header gap with the title off. Confirm locked click-through and the existing show/hide binding still work.
+- **Scrollable rows:** with more than 15 entries, scroll over the list to the
+  bottom and back. Confirm the row range updates and a click buffs the player
+  shown on that row. Verify the Cast Next Buff key still uses the first eligible
+  player in the full list. Test wheel input while holding a mouse button over a
+  row and after combat begins. Confirm the secure rows disarm in combat and
+  rebind correctly afterward. Repeat with two columns, a name filter, and a
+  list that shrinks below 15 entries.
 - **Settings and safety:** switch settings tabs and confirm search closes; check for overlapping controls and ADDON_ACTION_BLOCKED errors.
 - **Settings search:** use `/br config find` to focus Find. Search the active tab,
   close with Escape, and confirm the query clears and control contrast returns.

@@ -38,7 +38,8 @@ NS.Locales.deDE = {
   ["Previously selected blessing unavailable"] = "Gewählte Segnung nicht verfügbar",
   ["An active group blessing plan takes precedence."] = "Ein aktiver Segnungsplan der Gruppe hat Vorrang.",
   ["out of range"] = "außer Reichweite",
-  ["+%d more"] = "+%d weitere",
+  ["Rows %d–%d of %d"] = "Zeilen %d–%d von %d",
+  ["Use the mouse wheel to see more rows."] = "Mit dem Mausrad blättern.",
   ["Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time"] =
     "Zauber: |cffffffff%d|r diese Sitzung  ·  |cffffffff%d|r insgesamt",
   ["Casts: |cffffffff%d|r / |cffffffff%d|r"] = "Zauber: |cffffffff%d|r / |cffffffff%d|r",

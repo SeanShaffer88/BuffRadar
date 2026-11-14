@@ -94,6 +94,8 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     function methods.SetFrameStrata(self, s) self.strata = s end
     function methods.SetVertexColor(self, r, g, b) self.vcolor = { r, g, b } end
     function methods.EnableMouse(self, v) self.mouseEnabled = v end
+    function methods.EnableMouseWheel(self, v) self.wheelEnabled = v end
+    function methods.IsMouseWheelEnabled(self) return not not self.wheelEnabled end
     function methods.SetTextColor(self, r, g, b) self.color = { r, g, b } end
     function methods.SetBackdropBorderColor(self, r, g, b, a) self.borderColor = { r, g, b, a } end
     function methods.RegisterEvent(self, ev) self.events[ev] = true end
@@ -175,6 +177,9 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
   end
   env.__combat = false
   env.InCombatLockdown = function() return env.__combat end
+  env.IsMouseButtonDown = function(button)
+    return env.__mouseButtonDown ~= nil and (button == nil or env.__mouseButtonDown == button)
+  end
   -- The addon caches these functions at load, so tests change unit data
   -- through env.__over.<FunctionName> instead of replacing the functions.
   env.__over = {}
