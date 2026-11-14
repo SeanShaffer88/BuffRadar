@@ -2,6 +2,19 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.26 Caster Coordination Panel
+
+- In a group with cast sync on, open Caster Coordination from Class & Role
+  Assignments, then verify `/br coordinate panel` opens the same view.
+- Have a leader and caster opt in. Request reports, review a draft, and
+  publish it. Verify the caster sees the sender and duties before accepting.
+  Check that acknowledgement appears separately from actual buff coverage.
+- Replace a group member with a draft or inbox open. Repeat with an unchanged
+  roster while the current leader promotes someone else and keeps assistant
+  permissions. Confirm the old plan disappears and its controls cannot act.
+- Check keyboard navigation and narration in the panel. Enter combat with
+  the panel open and verify the panel closes.
+
 ## 1.15.24 Review Blocker Edits
 
 - From a blocker, edit an All Roles cell affecting multiple members with

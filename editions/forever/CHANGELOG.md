@@ -2,6 +2,14 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.26 — Forever test build
+
+- Open **Caster Coordination** from Class & Role Assignments or with
+  `/br coordinate panel`. Leaders can review reports, publish duties,
+  and see acknowledgements. Casters can review and respond to plans.
+- Clear stale plans after a roster or leadership change. The existing
+  `/br coordinate` commands are still available.
+
 ## 1.15.25 — WoW: Forever
 
 - **Raid Coverage** shows confirmed, missing, and unknown buffs by subgroup,

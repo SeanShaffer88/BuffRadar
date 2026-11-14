@@ -116,9 +116,14 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
 - **Raid Preparation** (`/br prep`) lists missing and expiring buffs, food,
   flasks, and estimated group reagents. Use `/br prep personal` to include
   weapon and pet reminders.
-- **Caster Coordination** uses cast sync with a separate group opt-in
-  (`/br coordinate on`). Group leaders and assistants request reports,
-  add requested buff keys with `need`, then `review` and `publish` a plan.
+- **Caster Coordination** is available in Class & Role Assignments or
+  through `/br coordinate panel`. Turn on cast sync, then join coordination
+  for the current group. Leaders and assistants can request reports, review
+  draft duties, publish them, and check acknowledgements. Casters can review
+  and respond to incoming plans. Roster or leadership changes clear stale plans.
+  To use slash commands, opt in with `/br coordinate on`. Leaders and
+  assistants can `request` reports, add buff keys with `need`, then
+  `review` and `publish` a plan.
   Recipients review it with `inbox` and choose `accept` or `decline`.
   The coordinator's `status` shows acknowledgements separately from coverage.
 - **Role ordering** option: you, tanks and leaders first.

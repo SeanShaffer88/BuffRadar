@@ -180,7 +180,17 @@ local function HandleSlash(msg)
     return
   elseif cmd == "coordinate" then
     local action, argument = rest:lower():match("^(%S*)%s*(.-)$")
-    X.Coordinate(action, argument)
+    if action == "panel" then
+      if not CLASSIC_FEATURES then
+        Print(L["Caster Coordination is available in WoW: Forever."])
+      elseif InCombatLockdown() then
+        Print("Can't do that during combat.")
+      elseif not X.PlayerSuspended() then
+        X.OpenCoordination()
+      end
+    else
+      X.Coordinate(action, argument)
+    end
     return
   elseif cmd == "buffassign" and rest:lower() == "preview" then
     if InCombatLockdown() then
@@ -1423,7 +1433,7 @@ local function HandleSlash(msg)
     Print("  /br stats export  - cast statistics as text   /br discord  - summary for Discord")
     Print("  /br offenders  - repeat offenders across sessions   /br context KEY raid|instance|always")
     Print("  /br assign <BUFF> <name>  - leader assigns a buff   /br buddy  - split the list")
-    if CLASSIC_FEATURES then Print(L["Use /br coordinate on|off|request|need|review|publish|status|inbox|accept|decline."]) end
+    if CLASSIC_FEATURES then Print(L["Use /br coordinate panel|on|off|request|need|review|publish|status|inbox|accept|decline."]) end
     Print("  /br readypost  - also post the ready-check summary to group chat")
     Print("  /br ready show|hide|next|prev  - local ready-check details")
     Print("  /br prep [personal]  - raid preparation and optional personal reminders")

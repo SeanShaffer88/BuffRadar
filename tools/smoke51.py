@@ -1864,6 +1864,9 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
     slash("coordinate accept")
     assert(#env.__addonSent == sent + 1 and not X.CoordinatedHolder("FORTITUDE"), "nonleader plan was accepted")
     inbound(payload)
+    local pending = X.CoordinationSnapshot()
+    assert(pending.pending.name == "Aaron-TestRealm" and pending.pending.keys[1] == "FORTITUDE"
+      and not pending.pending.reviewed and pending.nextRefreshAt > env.GetTime(), "recipient snapshot omitted pending details")
     slash("coordinate accept")
     assert(#env.__addonSent == sent + 1, "unreviewed plan was acknowledged")
     slash("coordinate inbox")
@@ -1879,6 +1882,7 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
     assert(#env.__addonSent == sent + 2, "stale plan revision allowed another acknowledgement")
     inbound("PLAN;1.1;10.3;" .. guid .. ";-")
     slash("coordinate inbox")
+    local priorClick = X.CoordinationSnapshot()
     env.SendAddonMessage = function() return false end
     slash("coordinate accept")
     assert(X.CoordinatedHolder("FORTITUDE") and #env.__addonSent == sent + 2, "failed ACK discarded accepted duties")
@@ -1888,14 +1892,19 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
       "reviewed empty replacement did not clear prior duties")
     inbound("PLAN;1.1;10.4;" .. guid .. ";FORTITUDE")
     slash("coordinate inbox")
+    X.Coordinate("accept", nil, priorClick.token)
+    assert(#env.__addonSent == sent + 3, "old UI click accepted a newer reviewed plan")
     slash("coordinate accept")
-    env.UnitIsGroupLeader = function() return false end
+    env.UnitIsGroupLeader = function(unit) return unit == "party2" end
+    env.UnitIsGroupAssistant = function(unit) return unit == "party1" end
     fire("PARTY_LEADER_CHANGED")
-    assert(not X.CoordinatedHolder("FORTITUDE"), "a deposed coordinator kept accepted duties active")
+    assert(not X.CoordinatedHolder("FORTITUDE") and not X.CoordinationSnapshot().active,
+      "an old leader kept accepted duties after becoming assistant")
     slash("coordinate off")
     assert(not X.CoordinatedHolder("FORTITUDE"), "opt-out retained the accepted duty")
 
     env.UnitIsGroupLeader = function(unit) return unit == "player" end
+    env.UnitIsGroupAssistant = function() return false end
     slash("coordinate on")
     slash("coordinate request")
     local request = env.__addonSent[#env.__addonSent].msg:match("^COORD;1;REQ;(.+)$")
@@ -1904,6 +1913,9 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
     X.assign.FORTITUDE = "Zed-TestRealm"
     slash("coordinate need THORNS")
     slash("coordinate review")
+    local reviewed = X.CoordinationSnapshot()
+    assert(reviewed.active and reviewed.leader and reviewed.reportRequest and reviewed.canPublish
+      and reviewed.draft and #reviewed.reports == 3, "leader snapshot omitted the reviewed draft or roster replies")
     sent = #env.__addonSent
     slash("coordinate publish")
     local plan = env.__addonSent[sent + 1]
@@ -1916,9 +1928,33 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
     slash("coordinate status")
     assert(chat[#chat]:find("Awaiting acknowledgement", 1, true), "unassigned member forged an acknowledgement")
     inbound("ACK;" .. revision)
+    local acknowledged
+    for _, row in ipairs(X.CoordinationSnapshot().sent) do
+      if row.name == "Aaron-TestRealm" and row.status == "acknowledged" then acknowledged = true end
+    end
+    assert(acknowledged, "snapshot omitted accepted acknowledgement")
     slash("coordinate status")
     assert(chat[#chat]:find("Acknowledged", 1, true), "expected caster did not acknowledge the outbox revision")
 
+    local currentTime, deadline = O.GetTime, env.GetTime() + 181
+    O.GetTime = function() return deadline end
+    local expired = X.CoordinationSnapshot()
+    assert(not expired.reportRequest and not expired.draft and #expired.sent == 0,
+      "expired coordination data remained visible or actionable")
+    O.GetTime = currentTime
+
+    slash("coordinate review")
+    local oldPublish = X.CoordinationSnapshot()
+    env.UnitIsGroupLeader = function(unit) return unit == "party1" end
+    env.UnitIsGroupAssistant = function(unit) return unit == "player" end
+    sent = #env.__addonSent
+    X.Coordinate("publish", nil, oldPublish.token)
+    assert(#env.__addonSent == sent and not X.CoordinationSnapshot().draft
+      and #X.CoordinationSnapshot().sent == 0, "same-roster handoff left the old publish action active")
+    env.UnitIsGroupLeader = function(unit) return unit == "player" end
+    env.UnitIsGroupAssistant = function() return false end
+    slash("coordinate on")
+    slash("coordinate request")
     slash("coordinate review")
     local oldGUID = O.UnitGUID
     O.UnitGUID = function(unit) if unit == "party1" then return "Player-1-Replaced" end return oldGUID(unit) end
@@ -1932,6 +1968,78 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
   db.sync, env.GetNumGroupMembers, env.UnitIsGroupLeader, env.UnitIsGroupAssistant = sync, size, leader, assist
   X.assign.FORTITUDE = prior
   cleanup()
+  assert(ok, err)
+end)
+step("Forever caster coordination panel sends reviewed actions and drops obsolete controls", function()
+  if not env.__forever then return end
+  local X = NS.X
+  local snapshot, coordinate = X.CoordinationSnapshot, X.Coordinate
+  local model = { available = true, generation = 1, token = 11, leader = true }
+  local actions = {}
+  local ok, err = pcall(function()
+    X.CoordinationSnapshot = function() return model end
+    X.Coordinate = function(action, arg, token)
+      assert(token == model.token, "panel did not forward current action token")
+      actions[#actions + 1] = action
+      if action == "on" then model.active, model.canRequest = true, true
+      elseif action == "request" then model.reportRequest = true
+      elseif action == "need" then assert(arg == "FORTITUDE", "buff key edit lost the argument")
+      elseif action == "review" then
+        model.draft, model.canPublish = { { key = "FORTITUDE", before = "Unassigned", after = "Aaron" } }, true
+      elseif action == "publish" then
+        model.draft, model.canPublish = nil, false
+        model.sent = { { name = "Aaron", status = "acknowledged" } }
+      elseif action == "inbox" then model.pending.reviewed = true
+      elseif action == "accept" then model.pending, model.accepted = nil, { keys = { "FORTITUDE" } }
+      end
+    end
+    X.OpenAssignments()
+    env.BuffRadarAssignments.coordinationButton:Click()
+    local view = env.BuffRadarCasterCoordination
+    assert(view and view:IsVisible() and view.participation:GetText() == "Opt In", "panel could not open while opted out")
+    view.participation:Click()
+    assert(view.participation:GetText() == "Opt Out" and view.request:IsVisible(), "leader controls did not open")
+    model.reports = { { name = "Aaron", keys = { "FORTITUDE" } }, { name = "Zed" } }
+    view.request:Click()
+    assert(view.rows[1].detail:GetText() == "FORTITUDE" and view.rows[2].detail:GetText() == "No response",
+      "reports did not distinguish replies")
+    view.need:SetText("FORTITUDE")
+    view.add:Click()
+    assert(actions[#actions] == "need", "manual buff demand was not sent")
+    view.review:Click()
+    assert(view.publish:IsVisible() and view.publish:IsEnabled() and view.rows[1].detail:GetText():find("Aaron", 1, true),
+      "review did not show the draft and publication action")
+    view.publish:Click()
+    view.tabs.delivery:Click()
+    assert(view.rows[1].detail:GetText() == "Acknowledged", "delivery did not reflect the acknowledgement")
+
+    view.tabs.reports:Click()
+    view.need:SetText("STALE")
+    model = { available = true, active = true, leader = false, generation = 2, token = 22,
+      pending = { name = "Aaron", keys = { "FORTITUDE" }, reviewed = false } }
+    X.QueueCoordinationRefresh()
+    assert(not view.tabs.draft:IsVisible() and not view.publish:IsVisible() and view.need:GetText() == "",
+      "authority change left stale leader controls or input")
+    assert(view.rows[1].title:GetText():find("Aaron", 1, true) and not view.accept:IsEnabled(),
+      "incoming plan lacked sender or allowed unreviewed acceptance")
+    view.inbox:Click()
+    view.accept:Click()
+    assert(actions[#actions] == "accept" and view.rows[2].title:GetText():find("FORTITUDE", 1, true),
+      "reviewed plan could not be accepted")
+    model = { available = false, reason = "Roster information is unavailable.", generation = 3, token = 33 }
+    X.QueueCoordinationRefresh()
+    assert(not view.rows[1]:IsShown() and not view.rows[2]:IsShown() and not view.accept:IsVisible() and not view.participation:IsEnabled(),
+      "unavailable roster left stale plan rows or actions")
+    env.__combat = true
+    fire("PLAYER_REGEN_DISABLED")
+    local cfg = env.BuffRadarConfig
+    cfg:GetScript("OnEvent")(cfg, "PLAYER_REGEN_DISABLED")
+    assert(not view:IsVisible(), "coordination panel stayed visible in combat")
+  end)
+  X.CoordinationSnapshot, X.Coordinate = snapshot, coordinate
+  env.__combat = false
+  env.BuffRadarConfig:Hide()
+  fire("PLAYER_REGEN_ENABLED")
   assert(ok, err)
 end)
 step("cast sync: your cast is broadcast to other users (1.5.0)", function()
