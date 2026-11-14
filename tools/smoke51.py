@@ -1232,7 +1232,7 @@ step("cast sync: another user's cast sinks the player (1.5.0)", function()
   refresh()
   local row2 = env.BuffRadarRow2
   assert(row2 and row2.entry and row2.entry.unit == "party1", "Aaron not second before sync")
-  fire("CHAT_MSG_ADDON", "BuffRadar", "CAST;SKYFURY;Player-1-P1S", "PARTY", "Other-Realm")
+  fire("CHAT_MSG_ADDON", "BuffRadar", "CAST;SKYFURY;Player-1-P1S", "PARTY", "Zed-TestRealm")
   refresh()
   row2 = env.BuffRadarRow2
   assert(row2 and row2.entry and row2.entry.unit == "party2",
@@ -1244,6 +1244,76 @@ step("cast sync: another user's cast sinks the player (1.5.0)", function()
       "handled tag wrong: " .. tostring(row3.tag and row3.tag.text))
   end
   cleanup()
+end)
+step("group sync validates current party members and canonical realm names", function()
+  local cleanup = partyOfTwo("V")
+  local X, db, O = NS.X, env.BuffRadarDB, env.__over
+  local sync, canAccess, assistant = db.sync, env.canaccessvalue, env.UnitIsGroupAssistant
+  local fullName, exists = O.UnitFullName, O.UnitExists
+  db.sync = true
+  O.UnitFullName = function(u)
+    if u == "party1" then return "Tera", "Realm One" end
+    if u == "party2" then return "Tera", "Realm Two" end
+    return fullName(u)
+  end
+  env.UnitIsGroupAssistant = function(u) return u == "party2" end
+  local key = env.__forever and "FORTITUDE" or "SKYFURY"
+  local sent = #env.__addonSent
+  fire("CHAT_MSG_ADDON", "BuffRadar", "HELLO;Tera", "PARTY", "Tera")
+  assert(#env.__addonSent == sent, "ambiguous short name received a reply")
+  fire("CHAT_MSG_ADDON", "BuffRadar", "HELLO;Tera-RealmOne", "WHISPER", "Tera-RealmOne")
+  assert(#env.__addonSent == sent, "wrong transport received a reply")
+  env.canaccessvalue = function(v) return v ~= "Tera-RealmOne" end
+  fire("CHAT_MSG_ADDON", "BuffRadar", "HELLO;Tera", "PARTY", "Tera-RealmOne")
+  assert(#env.__addonSent == sent, "unreadable sender received a reply")
+  env.canaccessvalue = canAccess
+  fire("CHAT_MSG_ADDON", "BuffRadar", "HERE;Tera-RealmOne", "PARTY", "Tera-RealmOne")
+  fire("CHAT_MSG_ADDON", "BuffRadar", "HELLO;Tera-RealmTwo", "PARTY", "Tera-RealmTwo")
+  assert(#env.__addonSent == sent + 1 and env.__addonSent[sent + 1].channel == "PARTY",
+    "valid cross-realm party member did not receive a response")
+  fire("CHAT_MSG_ADDON", "BuffRadar", "HELLO;Tera-RealmTwo", "PARTY", "Tera-RealmTwo")
+  assert(#env.__addonSent == sent + 1, "duplicate presence ping was answered immediately")
+  fire("CHAT_MSG_ADDON", "BuffRadar", "ASSIGN;" .. key .. ";Tera-RealmTwo", "PARTY", "Tera-RealmTwo")
+  assert(X.assign[key] == "Tera-RealmTwo", "valid assistant assignment was ignored")
+  fire("CHAT_MSG_ADDON", "BuffRadar", "COVER;Tera-RealmTwo", "PARTY", "Tera-RealmTwo")
+  assert(X.cover["Tera-RealmTwo"], "cover was not stored under canonical roster name")
+  fire("CHAT_MSG_ADDON", "BuffRadar", "BACK;Tera-RealmOne", "PARTY", "Tera-RealmOne")
+  assert(X.cover["Tera-RealmTwo"], "return from another realm cleared the wrong cover")
+  O.UnitExists = function(u) return u ~= "party2" and exists(u) end
+  fire("GROUP_ROSTER_UPDATE")
+  assert(not X.peers["tera-realmtwo"] and not X.cover["Tera-RealmTwo"], "departed peer was retained")
+  db.sync, env.UnitIsGroupAssistant = sync, assistant
+  cleanup()
+  fire("GROUP_ROSTER_UPDATE")
+end)
+step("group sync accepts current raid traffic and rejects unreadable authority", function()
+  local X, db, O = NS.X, env.BuffRadarDB, env.__over
+  local sync, raid, leader, assistant = db.sync, env.IsInRaid, env.UnitIsGroupLeader, env.UnitIsGroupAssistant
+  local canAccess, roster = env.canaccessvalue, env.GetRaidRosterInfo
+  local exists, fullName, isUnit = O.UnitExists, O.UnitFullName, O.UnitIsUnit
+  local protected = {}
+  db.sync = true
+  env.IsInRaid = function() return true end
+  O.UnitExists = function(u) return u == "player" or u == "raid1" or u == "raid2" end
+  O.UnitFullName = function(u)
+    if u == "player" or u == "raid1" then return "Me", "TestRealm" end
+    if u == "raid2" then return "Lian", "OtherRealm" end
+  end
+  O.UnitIsUnit = function(a, b) return a == b or a == "raid1" and b == "player" end
+  env.UnitIsGroupLeader, env.UnitIsGroupAssistant = nil, nil
+  env.GetRaidRosterInfo = function() return "Lian-OtherRealm", protected end
+  env.canaccessvalue = function(v) return v ~= protected end
+  local key = env.__forever and "FORTITUDE" or "SKYFURY"
+  fire("CHAT_MSG_ADDON", "BuffRadar", "ASSIGN;" .. key .. ";Lian", "RAID", "Lian-OtherRealm")
+  assert(not X.assign[key] and not X.peers["lian-otherrealm"], "unreadable rank changed state")
+  env.GetRaidRosterInfo = function(i) if i == 2 then return "Lian-OtherRealm", 1 end end
+  fire("CHAT_MSG_ADDON", "BuffRadar", "ASSIGN;" .. key .. ";Lian", "RAID", "Lian-OtherRealm")
+  assert(X.assign[key] == "Lian" and X.peers["lian-otherrealm"], "readable raid assistant was ignored")
+  X.assign[key], X.peers["lian-otherrealm"] = nil, nil
+  db.sync, env.IsInRaid = sync, raid
+  env.UnitIsGroupLeader, env.UnitIsGroupAssistant = leader, assistant
+  env.canaccessvalue, env.GetRaidRosterInfo = canAccess, roster
+  O.UnitExists, O.UnitFullName, O.UnitIsUnit = exists, fullName, isUnit
 end)
 step("cast sync: your cast is broadcast to other users (1.5.0)", function()
   if env.__forever then return end
@@ -1570,7 +1640,7 @@ step("buddy split shares the list between users (1.6.0)", function()
   env.IsInGroup = function() return false end
   fire("GROUP_ROSTER_UPDATE")
   env.IsInGroup = function() return true end
-  fire("CHAT_MSG_ADDON", "BuffRadar", "HELLO;Me-TestRealm", "PARTY", "Aaron-TestRealm")
+  fire("CHAT_MSG_ADDON", "BuffRadar", "HELLO;Aaron-TestRealm", "PARTY", "Aaron-TestRealm")
   refresh()
   -- Users sorted by key: aaron-testrealm, then me-testrealm (index 2), so
   -- an entry is mine when (sum of GUID bytes) % 2 == 1.
@@ -1665,7 +1735,7 @@ step("coverage line lists the BuffRadar users on duty (1.7.0)", function()
   env.IsInGroup = function() return false end
   fire("GROUP_ROSTER_UPDATE")
   env.IsInGroup = function() return true end
-  fire("CHAT_MSG_ADDON", "BuffRadar", "HELLO;Me-TestRealm", "PARTY", "Aaron-TestRealm")
+  fire("CHAT_MSG_ADDON", "BuffRadar", "HELLO;Aaron-TestRealm", "PARTY", "Aaron-TestRealm")
   refresh()
   local cover
   for _, fs in ipairs(env.__fontstrings) do
