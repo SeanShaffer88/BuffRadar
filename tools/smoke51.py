@@ -3693,6 +3693,68 @@ step("class and role assignment table supports mouse, keyboard and settings sear
   assert(ok, err)
 end)
 
+step("assignment preview opens, pages without scanning, and closes with settings", function()
+  local X, cfg, slash = NS.X, env.BuffRadarConfig, env.SlashCmdList.BUFFRADAR
+  if not env.__forever then
+    slash("buffassign preview")
+    assert(not env.BuffRadarAssignmentPreview, "assignment preview appeared on the other edition")
+    return
+  end
+  local original = X.AssignmentPreview
+  local ok, err = pcall(function()
+    local scans, members = 0, {}
+    for i = 1, 16 do
+      members[i] = { name = "Member" .. i, rule = "Druid role", evaluated = true, buffs = { "Thorns" }, available = {} }
+    end
+    members[2] = { name = "Member2", rule = "Rule unavailable", status = "Player details unavailable" }
+    X.AssignmentPreview = function() scans = scans + 1; return members end
+    slash("buffassign")
+    local panel = env.BuffRadarAssignments
+    panel.previewButton:Click()
+    local preview = env.BuffRadarAssignmentPreview
+    assert(preview:IsVisible() and scans == 1 and preview.rows[1].name == "Member1",
+      "preview did not open with a roster snapshot")
+    assert(preview.rows[1].description:find("Thorns", 1, true), "preview detail omitted a spell")
+    assert(preview.rows[2].detail:GetText() == "Player details unavailable", "unreadable row implied buff coverage")
+    slash("config navigate")
+    local input = cfg.navInput
+    local function advanceTo(widget)
+      for _ = 1, 15 do
+        if cfg.navOutline.shown and cfg.navOutline.points[1][2] == widget then return end
+        input.scripts.OnTabPressed(input)
+      end
+      error("could not focus a preview control")
+    end
+    advanceTo(preview.rows[1])
+    input.scripts.OnEnterPressed(input)
+    assert(scans == 1 and preview.rows[1].name == "Member1", "activating a member changed the snapshot")
+    advanceTo(preview.next)
+    input.scripts.OnEnterPressed(input)
+    assert(preview.rows[1].name == "Member8" and scans == 1, "keyboard paging scanned or selected the wrong page")
+    preview.scripts.OnMouseWheel(preview, -1)
+    assert(preview.rows[1].name == "Member15" and not preview.rows[3]:IsShown(),
+      "mouse paging did not clamp to the final members")
+
+    members = {}
+    preview.refresh:Click()
+    assert(scans == 2 and not preview.rows[1]:IsShown() and not preview.next:IsShown(),
+      "refresh retained departed members")
+    cfg.scripts.OnEvent(cfg, "PLAYER_REGEN_DISABLED")
+    assert(not preview:IsShown() and #preview.members == 0, "combat retained the preview")
+    X.RefreshConfig()
+    assert(scans == 2, "hidden preview scanned again")
+    slash("buffassign preview")
+    assert(preview:IsVisible() and scans == 3, "slash did not open a fresh preview")
+    slash("config find")
+    assert(not preview:IsShown() and cfg.searchBox:HasFocus(), "search did not close the preview")
+  end)
+  X.AssignmentPreview = original
+  if cfg.navInput:HasFocus() then cfg.navInput.scripts.OnEscapePressed(cfg.navInput) end
+  if cfg.searchBox:HasFocus() then cfg.searchBox.scripts.OnEscapePressed(cfg.searchBox) end
+  cfg.tabBtns.look:Click()
+  assert(ok, err)
+end)
+
 step("keyboard settings navigation changes tabs, checkboxes, sliders, and choices", function()
   local cfg = env.BuffRadarConfig
   cfg.tabBtns.look:Click()
@@ -4882,6 +4944,69 @@ step("Forever assignment rules route casts and coverage with safe group fallback
   env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled = oldRole, oldRules, oldMode
   env.C_Item.GetItemCount = oldCount
   X.InvalidateReagents()
+  cleanup()
+  refresh()
+  assert(ok, err)
+end)
+step("Forever assignment preview and why explain winning rules without changing secure rows", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("Preview")
+  local X, O, db = NS.X, env.__over, env.BuffRadarDB
+  local oldRole, oldRules, oldMode = env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled
+  local oldSize = env.GetNumGroupMembers
+  local ok, err = pcall(function()
+    local role = "DAMAGER"
+    env.GetNumGroupMembers = function() return 3 end
+    env.UnitGroupRolesAssigned = function(unit)
+      if unit == "party2" then return "TANK" end
+      if role == "THROW" then error("protected role") end
+      return role
+    end
+    env.IsSpellInRange = function() return 1 end
+    db.buffAssignments = {}
+    assert(X.SetAssignmentEnabled(true))
+    assert(X.SetAssignment("MAGE", "ALL", { FORTITUDE = true }))
+    assert(X.SetAssignment("MAGE", "DAMAGER", false))
+    assert(X.SetAssignment("MAGE", "WORLD", { DIVINE_SPIRIT = true }))
+    refresh()
+    local nextButton = env.BuffRadarNextButton
+    local entry, target = nextButton.entry, nextButton:GetAttribute("unit")
+    local conflicts, tally = X.assignmentGroupConflicts, X.tallyUnits
+    local function preview()
+      local members = X.AssignmentPreview()
+      assert(#members == 3, "preview did not count the party and player once: " .. #members)
+      assert(members[1].rule:find("Built-in rules", 1, true), "self did not use built-in rules")
+      return members[2], members[3]
+    end
+    local mage, warrior = preview()
+    assert(mage.name == "Aaron-TestRealm" and mage.rule:find("DPS rule", 1, true)
+      and mage.rule:find("None", 1, true) and #mage.buffs == 0, "preview ignored explicit None")
+    assert(warrior.group and warrior.group:find("conflict with an assignment", 1, true),
+      "preview lost group fallback reason")
+    assert(X.assignmentGroupConflicts == conflicts, "preview changed the live group conflict cache")
+    local before = #chat
+    env.SlashCmdList.BUFFRADAR("why Aaron")
+    assert(chatSince(before, "Applied rule for Aaron: " .. mage.rule .. "."),
+      "why lost winning rule: " .. tostring(chat[before + 1]))
+    role = "THROW"
+    mage = preview()
+    assert(mage.rule:find("World rule (role unavailable)", 1, true)
+      and mage.buffs[1] == "Divine Spirit", "protected role did not fall back to World")
+    assert(X.SetAssignment("MAGE", "WORLD", nil))
+    mage = preview()
+    assert(mage.rule:find("All Roles rule (role unavailable)", 1, true)
+      and mage.available[1] == "Power Word: Fortitude", "missing World did not fall back to All Roles")
+    assert(nextButton.entry == entry and nextButton:GetAttribute("unit") == target and X.tallyUnits == tally,
+      "preview changed the cast queue or coverage tallies: entry=" .. tostring(nextButton.entry == entry)
+      .. " target=" .. tostring(nextButton:GetAttribute("unit") == target) .. " tally=" .. tostring(X.tallyUnits == tally))
+    local exists = O.UnitExists
+    O.UnitExists = function(unit) if unit ~= "party2" then return exists(unit) end error("protected existence") end
+    _, warrior = preview()
+    assert(warrior.rule == "Rule unavailable" and warrior.status == "Player details unavailable"
+      and not warrior.evaluated, "preview claimed unreadable member was evaluated")
+  end)
+  env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled = oldRole, oldRules, oldMode
+  env.GetNumGroupMembers = oldSize
   cleanup()
   refresh()
   assert(ok, err)

@@ -2,6 +2,18 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.18 Assignment Preview
+
+- With a party or raid, open `/br buffassign preview`. Compare each row's
+  resolved assignment with `/br why <name>`. Include a known group role,
+  an unavailable role, an All fallback, an explicit None and a default.
+- With two paladins, compare the preview after setting a class assignment,
+  then a normal blessing exception. Check a missing reagent and a group
+  cast blocked by another member's rule.
+- Change a role, buff or roster member and refresh the preview. Check the
+  full roster using keyboard navigation and mouse paging. Confirm the
+  preview closes during combat and leaves the cast queue intact.
+
 ## 1.15.17 Assignment Table
 
 - Upgrade from 1.15.16. Confirm the table is off and the same eligible players

@@ -2,6 +2,15 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.18 — Forever test build
+
+- Preview how the assignment table applies to each member of your current
+  group, including buff eligibility and group-cast fallbacks.
+- Show the effective assignment rule in `/br why <name>`, including
+  inheritance and role information that Forever cannot provide.
+
+In-game verification is pending for this build.
+
 ## 1.15.17 — Forever test build
 
 - Add an optional Class & Role Assignments table under Buffs. Choose
@@ -10,7 +19,8 @@ All notable changes to BuffRadar are listed here. Newest first.
 - Save assignment rules in named profiles. The table starts off for
   existing installations, and an unset cell uses the standard buff rules.
 
-In-game verification is pending for this build.
+The maintainer confirmed live verification of the 1.15.17 field-test
+build `5578fbd4cce8` in WoW: Forever.
 
 ## 1.15.16 — 2026-11-14 — Forever update
 

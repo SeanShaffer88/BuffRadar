@@ -90,6 +90,10 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
   rules. The legacy `/br export` format omits the table. If a group version
   would conflict with another member's assignment, BuffRadar offers a
   single-target cast.
+- **Preview Current Group** in Class & Role Assignments shows the effective
+  rule and buff information for each group member. Open it with
+  `/br buffassign preview` or check one player with `/br why <name>`.
+  Use **Refresh** after roster, role, or buff changes.
 - **Role ordering** option: you, tanks and leaders first.
 - **Rezzed players first** (after you): someone who just came back from the dead
   has lost every buff, so their row jumps up with a *recently rezzed* marker.

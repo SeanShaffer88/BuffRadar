@@ -62,7 +62,8 @@ end
 function K.Modal()
   local assignments = cfg.assignmentPanel
   return assignments and assignments:IsShown()
-    and (assignments.picker:IsShown() and assignments.picker or assignments)
+    and (assignments.preview and assignments.preview:IsShown() and assignments.preview
+      or assignments.picker:IsShown() and assignments.picker or assignments)
     or cfg.blessingPanel and cfg.blessingPanel:IsShown() and cfg.blessingPanel
     or cfg.displayPanel and cfg.displayPanel:IsShown() and cfg.displayPanel
 end
@@ -872,6 +873,115 @@ function AssignmentUI.BuildPicker(panel)
   return picker
 end
 
+function AssignmentUI.UpdatePreview(preview)
+  local members = preview.members
+  local pages = math.max(1, math.ceil(#members / #preview.rows))
+  preview.page = math_min(pages, math.max(1, preview.page))
+  local first = (preview.page - 1) * #preview.rows + 1
+  local last = math_min(#members, first + #preview.rows - 1)
+  preview.count:SetText(#members == 0 and L["No group to preview."]
+    or string.format(L["Members %d–%d of %d"], first, last, #members))
+  preview.previous:SetShown(preview.page > 1)
+  preview.next:SetShown(preview.page < pages)
+  for index, row in ipairs(preview.rows) do
+    local member = members[first + index - 1]
+    if member then
+      local parts = {}
+      if member.evaluated and (#member.buffs > 0 or not member.unknown) then
+        parts[#parts + 1] = #member.buffs > 0
+          and string.format(L["Due: %s"], table.concat(member.buffs, ", ")) or L["No buffs due"]
+        parts[#parts + 1] = #member.available > 0
+          and string.format(L["Available: %s"], table.concat(member.available, ", ")) or L["No buffs available"]
+      end
+      if member.status then parts[#parts + 1] = member.status end
+      if member.group then parts[#parts + 1] = member.group end
+      row.name = member.name
+      row.heading:SetText(member.name .. " · " .. member.rule)
+      row.description = member.rule .. "\n" .. table.concat(parts, "\n")
+      row.detail:SetText(table.concat(parts, " · "))
+    end
+    row:SetShown(member ~= nil)
+  end
+  if K.active and not K.edit then
+    if K.InScope(K.current) then K.Focus(K.current) else K.Move(1) end
+  end
+end
+
+function AssignmentUI.RefreshPreview(preview)
+  if InCombatLockdown() or X.PlayerSuspended() or not preview:IsVisible() then return end
+  preview.members = X.AssignmentPreview()
+  AssignmentUI.UpdatePreview(preview)
+end
+
+function AssignmentUI.BuildPreview(panel)
+  local preview = AssignmentUI.CreatePanel(panel, "BuffRadarAssignmentPreview", 574, 405, panel:GetFrameLevel() + 5)
+  preview.page, preview.members, preview.rows = 1, {}, {}
+  local title = preview:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  title:SetPoint("TOPLEFT", 16, -14)
+  title:SetPoint("TOPRIGHT", -45, -14)
+  title:SetJustifyH("LEFT")
+  title:SetText(L["Preview Current Group"])
+  AssignmentUI.CloseButton(preview, function() preview:Hide() end)
+  preview.count = preview:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  preview.count:SetPoint("TOPLEFT", 16, -40)
+  preview.count:SetPoint("TOPRIGHT", -204, -40)
+  preview.count:SetJustifyH("LEFT")
+
+  preview.refresh = MakeButton(preview, L["Refresh Preview"], 172, function() AssignmentUI.RefreshPreview(preview) end)
+  preview.refresh:SetPoint("TOPRIGHT", -16, -35)
+  local function move(delta)
+    if not preview:IsVisible() then return end
+    preview.page = preview.page + delta
+    AssignmentUI.UpdatePreview(preview)
+  end
+  local function onWheel(_, delta) move(delta > 0 and -1 or 1) end
+  preview:EnableMouseWheel(true)
+  preview:SetScript("OnMouseWheel", onWheel)
+
+  for index = 1, 7 do
+    local row = CreateFrame("Button", nil, preview)
+    row:SetSize(542, 39)
+    row:SetPoint("TOPLEFT", 16, -65 - (index - 1) * 42)
+    row:EnableMouse(true)
+    row:EnableMouseWheel(true)
+    row:SetScript("OnMouseWheel", onWheel)
+    row.heading = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    row.heading:SetPoint("TOPLEFT", 3, -3)
+    row.heading:SetPoint("TOPRIGHT", -3, -3)
+    row.heading:SetJustifyH("LEFT")
+    row.heading:SetWordWrap(false)
+    row.detail = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    row.detail:SetPoint("TOPLEFT", 3, -20)
+    row.detail:SetPoint("TOPRIGHT", -3, -20)
+    row.detail:SetJustifyH("LEFT")
+    row.detail:SetWordWrap(false)
+    local function name() return row.name end
+    local function description() return row.description end
+    K.Register(row, preview, name, "detail", description)
+    Tip(row, name, description)
+    preview.rows[index] = row
+  end
+  preview.previous = MakeButton(preview, L["Previous"], 110, function() move(-1) end)
+  preview.previous:SetPoint("BOTTOMLEFT", 16, 12)
+  preview.next = MakeButton(preview, L["Next"], 110, function() move(1) end)
+  preview.next:SetPoint("LEFT", preview.previous, "RIGHT", 8, 0)
+  preview:HookScript("OnHide", function()
+    preview.members = {}
+    GameTooltip:Hide()
+  end)
+  if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarAssignmentPreview") end
+  return preview
+end
+
+function AssignmentUI.OpenPreview(panel)
+  if InCombatLockdown() or X.PlayerSuspended() then return end
+  panel.picker:Hide()
+  panel.preview = panel.preview or AssignmentUI.BuildPreview(panel)
+  panel.preview.page = 1
+  panel.preview:Show()
+  AssignmentUI.RefreshPreview(panel.preview)
+end
+
 function AssignmentUI.Build()
   local panel = AssignmentUI.CreatePanel(cfg, "BuffRadarAssignments", 574, 405, cfg:GetFrameLevel() + 8)
   local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -886,6 +996,8 @@ function AssignmentUI.Build()
     Refresh()
   end)
   panel.enabled:SetPoint("TOPLEFT", 11, -39)
+  panel.previewButton = MakeButton(panel, L["Preview Current Group"], 220, function() AssignmentUI.OpenPreview(panel) end)
+  panel.previewButton:SetPoint("TOPRIGHT", -16, -39)
   local hint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   hint:SetPoint("TOPLEFT", 15, -67)
   hint:SetPoint("TOPRIGHT", -15, -67)
@@ -924,6 +1036,7 @@ function AssignmentUI.Build()
   panel.picker = AssignmentUI.BuildPicker(panel)
   panel:HookScript("OnHide", function()
     panel.picker:Hide()
+    if panel.preview then panel.preview:Hide() end
     cfg.searchToggle:Show()
     GameTooltip:Hide()
   end)
@@ -934,7 +1047,7 @@ function AssignmentUI.Build()
   return panel
 end
 
-function X.OpenAssignments()
+function X.OpenAssignments(preview)
   if not CLASSIC_FEATURES or X.PlayerSuspended() or InCombatLockdown() then return end
   OpenConfig(true)
   SelectTab("buffs")
@@ -942,6 +1055,7 @@ function X.OpenAssignments()
   cfg.searchToggle:Hide()
   cfg.assignmentPanel:Show()
   AssignmentUI.Update()
+  if preview then AssignmentUI.OpenPreview(cfg.assignmentPanel) end
 end
 
 local function BuildConfig()

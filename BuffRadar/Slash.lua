@@ -170,6 +170,24 @@ local function HandleSlash(msg)
       or cmd == "summary" or cmd == "discord" or cmd == "why") and X.PlayerSuspended() then
     return
   end
+  -- Read-only diagnostics use the current queue and must not rebuild it.
+  if cmd == "why" then
+    if rest == "" then
+      Print("Usage: /br why <name> - say why a player is or is not on the list")
+    else
+      X.Why(rest)
+    end
+    return
+  elseif cmd == "buffassign" and rest:lower() == "preview" then
+    if InCombatLockdown() then
+      Print("Can't do that during combat.")
+    elseif not CLASSIC_FEATURES then
+      Print(L["Class & Role Assignments are available in WoW: Forever."])
+    else
+      X.OpenAssignments(true)
+    end
+    return
+  end
   if not built and not InCombatLockdown() then
     local ok, err = pcall(BuildUI)
     if not ok then Print("|cffff4040error building window:|r " .. tostring(err)) end
@@ -682,13 +700,6 @@ local function HandleSlash(msg)
     else db.pullFlash = not db.pullFlash end
     Print("Pull-timer flash " .. OnOff(db.pullFlash) ..
       " -- border flash and a countdown line when a group pull timer starts (the game's /countdown or a boss-mod pull).")
-  elseif cmd == "why" then
-    local nm = rest:match("^%s*(.-)%s*$")
-    if nm == "" then
-      Print("Usage: /br why <name> - say why a player is or is not on the list")
-    else
-      X.Why(nm)
-    end
   elseif cmd == "ready" then
     X.ReadyViewCommand(rest:match("^%s*(.-)%s*$"):lower())
   elseif cmd == "fallsound" then
@@ -1411,7 +1422,7 @@ local function HandleSlash(msg)
     Print("  /br autoprofile <context> <profile>  - load a profile by context")
     if CLASSIC_FEATURES then
       Print("  /br bless <CLASS> <BLESSING> [name]  - blessing planner")
-      Print("  /br buffassign [on|off]  - class and role buff assignments")
+      Print("  /br buffassign [on|off|preview]  - class and role buff assignments")
     end
     Print("  /br specscale  - remember the scale per specialization   /br snap  - Shift-snap the scale grips")
     Print("  /br tagsymbols | motion | rangewatch  - tag symbols, reduced motion, tell me when someone walks into range")

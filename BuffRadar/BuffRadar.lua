@@ -612,6 +612,36 @@ local L = {
   ["Class & Role Assignments enabled."] = "Class & Role Assignments enabled.",
   ["Class & Role Assignments disabled."] = "Class & Role Assignments disabled.",
   ["Group buff would conflict with an assignment."] = "Group buff would conflict with an assignment.",
+  ["Preview Current Group"] = "Preview Current Group",
+  ["Refresh Preview"] = "Refresh Preview",
+  ["No group to preview."] = "No group to preview.",
+  ["Members %d–%d of %d"] = "Members %d–%d of %d",
+  ["Due: %s"] = "Due: %s",
+  ["Available: %s"] = "Available: %s",
+  ["No buffs due"] = "No buffs due",
+  ["No buffs available"] = "No buffs available",
+  ["Previous"] = "Previous",
+  ["Next"] = "Next",
+  ["%s · %s rule"] = "%s · %s rule",
+  ["%s · %s rule (role unavailable)"] = "%s · %s rule (role unavailable)",
+  ["%s · %s rule (nearby player)"] = "%s · %s rule (nearby player)",
+  ["%s · Built-in rules"] = "%s · Built-in rules",
+  ["%s · None"] = "%s · None",
+  ["Rule unavailable"] = "Rule unavailable",
+  ["Applied rule for %s: %s."] = "Applied rule for %s: %s.",
+  ["Blessing: player exception"] = "Blessing: player exception",
+  ["Blessing: group plan"] = "Blessing: group plan",
+  ["Blessing assigned to another Paladin"] = "Blessing assigned to another Paladin",
+  ["Player details unavailable"] = "Player details unavailable",
+  ["Currently ineligible"] = "Currently ineligible",
+  ["Ignored"] = "Ignored",
+  ["Temporarily skipped after a failed cast"] = "Temporarily skipped after a failed cast",
+  ["Buff information unavailable"] = "Buff information unavailable",
+  ["On cooldown: %s"] = "On cooldown: %s",
+  ["Range could not be confirmed"] = "Range could not be confirmed",
+  ["No eligible rank or range"] = "No eligible rank or range",
+  ["Out of cast range"] = "Out of cast range",
+  ["Group option: %s"] = "Group option: %s",
   ["Default (%s)"] = "Default (%s)",
   ["Default blessing"] = "Default blessing",
   ["Previously selected blessing unavailable"] = "Previously selected blessing unavailable",
@@ -1528,22 +1558,24 @@ end
 function X.ResolveAssignment(class, role)
   local row = X.AssignmentEnabled() and db.buffAssignments[class]
   if row then
-    local cell = row[role or "WORLD"]
-    if cell ~= nil then return cell end
-    return row.ALL
+    local slot = role or "WORLD"
+    local cell = row[slot]
+    if cell ~= nil then return cell, slot end
+    if row.ALL ~= nil then return row.ALL, "ALL" end
   end
+  return nil, "DEFAULT"
 end
 
 function X.BlessingForClass(class, unit, assignment)
   local plan = X.blessPlan[class]
-  if plan and not plan.mine then return nil end
+  if plan and not plan.mine then return nil, "other" end
   if unit and X.blessingExceptions then
     local ok, guid = pcall(UnitGUID, unit)
     local key = ok and SafeString(guid)
     local exception = key and X.blessingExceptions[key]
-    if exception then return blessKnown[exception] end
+    if exception then return blessKnown[exception], "exception" end
   end
-  if plan then return blessKnown[plan.key] end
+  if plan then return blessKnown[plan.key], "plan" end
   if assignment ~= nil then
     if assignment then
       for _, key in ipairs(X.BLESSING_KEYS) do
@@ -1553,6 +1585,28 @@ function X.BlessingForClass(class, unit, assignment)
     return nil
   end
   return blessKnown[db.blessingPreferences[class]] or myBlessing[class]
+end
+
+function X.AssignmentForUnit(class, unit, isGroup, isSelf)
+  if not class or isSelf ~= false or not X.AssignmentEnabled() then return nil, "DEFAULT" end
+  local role = isGroup and AssignedRole(unit) or nil
+  local assignment, source = X.ResolveAssignment(class, role)
+  return assignment, source, role, isGroup
+end
+
+function X.AssignmentRuleText(class, role, source, assignment, isGroup)
+  if not class then return L["Rule unavailable"] end
+  local names = _G.LOCALIZED_CLASS_NAMES_MALE
+  local name = names and names[class] or class
+  if not source or source == "DEFAULT" then return string_format(L["%s · Built-in rules"], name) end
+  local label = source == "ALL" and L["All Roles"] or source == "WORLD" and L["World"]
+    or source == "TANK" and L["Tank"] or source == "HEALER" and L["Heal"] or L["DPS"]
+  local format = L["%s · %s rule"]
+  if source == "WORLD" or (source == "ALL" and not role) then
+    format = isGroup and L["%s · %s rule (role unavailable)"] or L["%s · %s rule (nearby player)"]
+  end
+  local text = string_format(format, name, label)
+  return assignment == false and string_format(L["%s · None"], text) or text
 end
 
 function X.SetBlessingException(name, key)
@@ -1645,13 +1699,14 @@ local function SpellCD(name)
   end
   return nil, nil
 end
-local function OnCooldown(name)
-  local c = cdCache[name]
+local function OnCooldown(name, cache)
+  cache = cache or cdCache
+  local c = cache[name]
   if c ~= nil then return c end
   local start, duration = SpellCD(name)
   local ok, cooling = pcall(IsCooling, start, duration)
   c = (ok and cooling) and true or false
-  cdCache[name] = c
+  cache[name] = c
   return c
 end
 
@@ -1781,7 +1836,10 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
   if not report then X.remainTmp, X.auraUnknown = nil, nil end
   local ok, _, class = pcall(UnitClass, unit)
   class = ok and SafeString(class) or nil  -- class is used as a table key
-  if not class then return 0, true, false end
+  if not class then
+    if report == "why" then detail.rule = L["Rule unavailable"] end
+    return 0, true, false
+  end
   if not report and isGroup and db.consumables then
     for _, cd in ipairs(X.CONS_DEFS) do
       local t = X.consTally[cd.key]
@@ -1794,12 +1852,10 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
   X.scanUnit = nil  -- force a fresh index scan (fallback path) for this unit
   local n = 0
   local unknown, checked
-  local role, roleRead = nil, false  -- assigned role, read once and only if a buff needs it
-  local assignment
-  if not isSelf and X.AssignmentEnabled() then
-    if isGroup then role, roleRead = AssignedRole(unit), true end
-    assignment = X.ResolveAssignment(class, role)
-    if report == "why" then detail.assignment = assignment ~= nil end
+  local assignment, source, role, roleRead = X.AssignmentForUnit(class, unit, isGroup, isSelf)
+  if report == "why" then
+    detail.assignment = assignment ~= nil
+    detail.rule = X.AssignmentRuleText(class, role, source, assignment, isGroup)
   end
   local lookup = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
   for i = 1, #myBuffs do
@@ -1832,7 +1888,7 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
       if report then
         checked = true
         if has == nil then unknown = true end
-        if report == "why" and has == false and OnCooldown(b.name) then
+        if report == "why" and has == false and OnCooldown(b.name, detail.cooldowns) then
           detail.cooldown[#detail.cooldown + 1] = b.name
         elseif has == false then
           n = n + 1; out[n] = b.name
@@ -1873,7 +1929,15 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
         end
       end
     end
-    local bl = CLASSIC_FEATURES and X.BlessingForClass(class, (isGroup or isSelf) and unit, assignment)
+    local bl, blessingSource
+    if CLASSIC_FEATURES then
+      bl, blessingSource = X.BlessingForClass(class, (isGroup or isSelf) and unit, assignment)
+    end
+    if report == "why" then
+      if blessingSource == "exception" then detail.blessing = L["Blessing: player exception"]
+      elseif blessingSource == "plan" then detail.blessing = L["Blessing: group plan"]
+      elseif blessingSource == "other" then detail.blessing = L["Blessing assigned to another Paladin"] end
+    end
     if bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf)
        and X.ContextOK("BLESSINGS") then
       local has = HasAny(unit, bl.names)
@@ -2553,10 +2617,10 @@ end
 
 -- Raid tokens already include the player. In a party, scan the player once
 -- before the party tokens. An unreadable occupied slot is unknown, not absent.
-function X.ForReportRoster(visit)
+function X.ForReportRoster(visit, limit)
   local raid = InRaid()
   local roster = raid and RAID or PARTY
-  for i = raid and 1 or 0, #roster do
+  for i = raid and 1 or 0, limit and math_min(limit, #roster) or #roster do
     local unit = roster[i] or "player"
     local exists = X.ReadUnitBool(UnitExists, unit)
     if exists ~= false then visit(unit, exists) end
@@ -2822,13 +2886,14 @@ end
 X.GroupSpellFor = GroupSpellFor
 
 local reagents = {}
-local function ReagentCount(item)
-  local cached = reagents[item]
+local function ReagentCount(item, cache)
+  cache = cache or reagents
+  local cached = cache[item]
   if cached ~= nil then return cached end
   local api = _G.C_Item and _G.C_Item.GetItemCount or _G.GetItemCount
   local count = X.ReadUnitNumber(api, item, false, false, false, false)
-  reagents[item] = count and count >= 0 and count or false
-  return reagents[item]
+  cache[item] = count and count >= 0 and count or false
+  return cache[item]
 end
 
 function X.InvalidateReagents()
@@ -2842,14 +2907,14 @@ end
 
 -- Broad spells use single-target fallback if the observed affected roster
 -- includes someone excluded by an assignment.
-local function GroupAssignmentConflict(spell, unit, greater, baseID)
+local function GroupAssignmentConflict(spell, unit, greater, baseID, cache)
   if not X.AssignmentEnabled() or not next(db.buffAssignments) then return false end
   if not baseID then return true end -- custom pair scope cannot be determined
   if not (X.IsSelf(unit) or unit:match("^party%d+$") or unit:match("^raid%d+$")) then return true end
   local targetClass = greater and UnitClassFile(unit)
   if greater and not targetClass then return true end
   local scope = targetClass and spell .. ":" .. targetClass or spell
-  local cache = X.assignmentGroupConflicts
+  cache = cache or X.assignmentGroupConflicts
   if cache and cache[scope] ~= nil then return cache[scope] end
   local buffKey
   if not greater then
@@ -2878,7 +2943,7 @@ local function GroupAssignmentConflict(spell, unit, greater, baseID)
 end
 
 -- Reapplied per roster/scan, shared by automatic, modifier and keybind offers.
-function X.GroupOffer(spell, unit)
+function X.GroupOffer(spell, unit, preview)
   if not CLASSIC_FEATURES then return nil end
   local name, baseID, greater = GroupSpellFor(spell)
   if not name then return nil end
@@ -2886,7 +2951,9 @@ function X.GroupOffer(spell, unit)
   local pick = X.BindingRank(name, unit, X.ReadUnitNumber(UnitLevel, unit), db.castMethod)
   if pick == false or (baseID and not known[name] and not X.ReadUnitBool(_G.IsPlayerSpell, baseID)
       and not X.ReadUnitBool(_G.IsSpellKnown, baseID)) then return nil end
-  if GroupAssignmentConflict(spell, unit, greater, baseID) then return nil, nil, nil, "assignment" end
+  if GroupAssignmentConflict(spell, unit, greater, baseID, preview and preview.conflicts) then
+    return nil, nil, nil, "assignment"
+  end
   if greater and X.blessingExceptions and next(X.blessingExceptions) then
     local class, conflict = UnitClassFile(unit), false
     X.ForReportRoster(function(member, exists)
@@ -2900,7 +2967,7 @@ function X.GroupOffer(spell, unit)
   end
   local exact = db.castMethod ~= "macro" and pick
   local item = X.groupReagents[(exact and exact.id) or (list and list[#list].id) or baseID]
-  local count = item and ReagentCount(item)
+  local count = item and ReagentCount(item, preview and preview.reagents)
   if count == false or count == 0 then return nil, item, count, "reagent" end
   return name, item, count, nil, greater
 end
@@ -2921,6 +2988,61 @@ function X.GroupOfferReason(item, count, reason)
     return string_format(count == false and L["Could not check reagent: %s."] or L["Missing reagent: %s."],
       ReagentName(item))
   end
+end
+
+-- Out-of-combat snapshot, separate from the live queue and secure cast rows.
+function X.AssignmentPreview()
+  local members = {}
+  if not CLASSIC_FEATURES or not db or not InGroup() or InCombatLockdown() or X.PlayerSuspended() then return members end
+  local cooldowns, groupPreview = {}, { conflicts = {}, reagents = {} }
+  local size = X.ReadUnitNumber(GetNumGroupMembers)
+  local limit = size and size > 0 and math_floor(size) - (InRaid() and 0 or 1) or nil
+  X.ForReportRoster(function(unit, exists)
+    local guid, full, short
+    if exists then guid, full, short = X.ReadyIdentity(unit) end
+    local row = { name = full or short or L["Player details unavailable"], buffs = {}, available = {} }
+    members[#members + 1] = row
+    local valid, isSelf = Valid(unit)
+    if not exists or not guid or not full then
+      row.rule, row.status = L["Rule unavailable"], L["Player details unavailable"]
+    elseif not valid or Ignore.Has(full, short) or X.SessionHas(full, short) then
+      local class = UnitClassFile(unit)
+      local assignment, source, role = X.AssignmentForUnit(class, unit, true, X.IsSelf(unit))
+      row.rule = X.AssignmentRuleText(class, role, source, assignment, true)
+      row.status = valid and L["Ignored"] or L["Currently ineligible"]
+    else
+      local detail = { cooldown = {}, cooldowns = cooldowns }
+      local _, unknown = Missing(unit, row.buffs, true, isSelf, "why", detail)
+      row.evaluated, row.unknown = true, unknown
+      row.rule = detail.rule
+      local _, _, rangeUnknown, rankLimited = X.FilterInRange(unit, row.buffs, row.available, isSelf, true)
+      if X.failedTargets[guid] and X.failedTargets[guid] > GetTime() then
+        row.status = L["Temporarily skipped after a failed cast"]
+        wipe(row.available)
+      elseif unknown then row.status = L["Buff information unavailable"]
+      elseif rangeUnknown then row.status = L["Range could not be confirmed"]
+      elseif rankLimited then row.status = L["No eligible rank or range"]
+      elseif #row.buffs > #row.available then row.status = L["Out of cast range"] end
+      if #detail.cooldown > 0 then
+        local note = string_format(L["On cooldown: %s"], table.concat(detail.cooldown, ", "))
+        row.status = row.status and row.status .. " · " .. note or note
+        for _, spell in ipairs(detail.cooldown) do row.buffs[#row.buffs + 1] = spell end
+      end
+      if detail.blessing then row.rule = row.rule .. " · " .. detail.blessing end
+      local group = {}
+      for _, spell in ipairs(row.available) do
+        local offer, item, count, reason = X.GroupOffer(spell, unit, groupPreview)
+        local text = X.GroupOfferReason(item, count, reason)
+        if offer then group[#group + 1] = string_format(L["Group option: %s"], offer)
+        elseif text then group[#group + 1] = spell .. " · " .. text end
+      end
+      if #group > 0 then row.group = table.concat(group, " · ") end
+    end
+  end, limit)
+  -- The index fallback is a one-unit scratch buffer. Invalidate it after
+  -- reading a roster so later live scans rebuild it for their own unit.
+  X.scanUnit = nil
+  return members
 end
 
 function X.ReagentSummary(report)
@@ -4639,22 +4761,39 @@ function X.Why(name)
   end
   local unit, full, short, isGroup, guid = selected.unit, selected.full, selected.short, selected.group, selected.guid
   local disp = short or full
+  local function printRule(detail)
+    if CLASSIC_FEATURES then
+      local rule = detail.rule or L["Rule unavailable"]
+      if detail.blessing then rule = rule .. " · " .. detail.blessing end
+      Print(string_format(L["Applied rule for %s: %s."], disp, rule))
+    end
+  end
+  local function printInactiveRule()
+    local ok, _, class = pcall(UnitClass, unit)
+    class = ok and SafeString(class) or nil
+    local assignment, source, role = X.AssignmentForUnit(class, unit, isGroup, X.IsSelf(unit))
+    printRule({ rule = X.AssignmentRuleText(class, role, source, assignment, isGroup) })
+  end
   if Ignore.Has(full, short) then
+    printInactiveRule()
     Print(disp .. " is on your ignore list, so they are never listed. /br unignore " .. disp .. " undoes it.")
     return
   end
   if X.SessionHas(full, short) then
+    printInactiveRule()
     Print(disp .. " is ignored for this session only (Shift+right-click on a row). It clears when you reload.")
     return
   end
   local valid, isSelf = Valid(unit)
   if not valid then
+    printInactiveRule()
     Print(disp .. " can't be buffed right now (dead, offline, in combat, charmed or in another phase), so they are not listed.")
     return
   end
   local allMiss, miss = {}, {}
-  local detail = { cooldown = {} }
+  local detail = { cooldown = {}, cooldowns = {} }
   local n, unknown, checked = Missing(unit, allMiss, isGroup, isSelf, "why", detail)
+  printRule(detail)
   -- The fallback aura index is rebuilt on demand after a diagnostic scan.
   X.scanUnit = nil
   if n == 0 then
@@ -4710,9 +4849,7 @@ function X.Why(name)
     Print(disp .. ": the game did not expose a readable player identity. Target them and check again.")
     return
   end
-  local reason = X.NoCastReason and X.NoCastReason()
-  Print(disp .. " is not on the list right now; they need: " .. table.concat(miss, ", ") .. "."
-    .. (reason and " " .. reason or ""))
+  Print(disp .. " is not on the list right now; they need: " .. table.concat(miss, ", ") .. ".")
 end
 
 function X.CheckDrops()
