@@ -139,9 +139,9 @@ function X.SelfTest()
     OnOff(db.auraWatch), OnOff(db.worldWatch), OnOff(db.drinkWatch), ocount))
   Print(string.format("  two columns %s · death recap %s · wipe report %s · wizard seen %s",
     OnOff(db.twoCol), OnOff(db.deathRecap), OnOff(db.wipeReport), OnOff(db.wizardSeen)))
-  Print(string.format("  view %s · saved themes %d · row gap %d · icons %s · layer %s · tooltips %s · buff order %d · click-through %s",
+  Print(string.format("  view %s · saved themes %d · row gap %d · icons %s · tooltips %s · buff order %d · click-through %s",
     tostring(db.viewMode), #(db.customThemes or {}), db.rowGap or 0,
-    (db.iconSize or 0) > 0 and tostring(db.iconSize) or "auto", tostring(db.strata),
+    (db.iconSize or 0) > 0 and tostring(db.iconSize) or "auto",
     tostring(db.tooltipLevel), #(db.buffPrio or {}), OnOff(db.clickThrough)))
   if #myBuffs == 0 then Print("  buffs found: none") end
   for _, b in ipairs(myBuffs) do
@@ -839,16 +839,6 @@ local function HandleSlash(msg)
     else
       Print("Usage: /br iconsize <0|10-24> — 0 is automatic (now " .. (db.iconSize or 0) .. ").")
     end
-  elseif cmd == "strata" then
-    local m = rest:upper()
-    if m == "LOW" or m == "MEDIUM" or m == "HIGH" or m == "DIALOG" then
-      db.strata = m
-      ApplyAppearance()
-      Print("Window layer set to " .. m .. ".")
-      if RefreshConfig then RefreshConfig() end
-    else
-      Print("Usage: /br strata low|medium|high|dialog (now " .. (db.strata or "MEDIUM") .. ").")
-    end
   elseif cmd == "twocol" then
     db.twoCol = not db.twoCol
     X.cols = nil  -- force the column split to re-decide on the next refresh
@@ -1359,7 +1349,7 @@ local function HandleSlash(msg)
     Print("  /br uptime  - coverage uptime %   /br preset raid|dungeon|solo")
     Print("  /br wizard  - run the one-minute setup wizard")
     Print("  /br theme save <name>  - save your current colors as a theme")
-    Print("  /br rowgap <0-8> | iconsize <0|10-24> | strata <layer>")
+    Print("  /br rowgap <0-8> | iconsize <0|10-24>")
     Print("  /br cover <part> on|off  - pick what the coverage line shows")
     Print("  /br rowcolor <rule> <color|off>  - colored marks on rows")
     Print("  /br tooltip minimal|standard|full  - row tooltip detail")

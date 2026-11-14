@@ -1852,24 +1852,17 @@ step("combat visibility leaves locked frames to the secure driver", function()
   frame.Hide, pill.Hide = hideFrame, hidePill
   assert(ok, err)
 end)
-step("appearance changes and delayed border restore wait for combat to end", function()
+step("appearance refresh never changes the frame layer and flash restore waits for combat", function() {
   local X, db = NS.X, env.BuffRadarDB
   local frame, pill = env.BuffRadarFrame, X.pill
-  local restoreFrame, restorePill = frame.SetFrameStrata, pill.SetFrameStrata
-  local oldStrata, oldMotion = db.strata, db.reduceMotion
-  local frameWrites, pillWrites = 0, 0
-  frame.SetFrameStrata = function(self, strata)
-    assert(not env.__combat, "SetFrameStrata called on the main frame during combat")
-    frameWrites = frameWrites + 1
-    restoreFrame(self, strata)
-  end
-  pill.SetFrameStrata = function(self, strata)
-    assert(not env.__combat, "SetFrameStrata called on the pill during combat")
-    pillWrites = pillWrites + 1
-    restorePill(self, strata)
-  end
+  local oldFrame, oldPill = frame.SetFrameStrata, pill.SetFrameStrata
+  local oldMotion, writes = db.reduceMotion, 0
+  frame.SetFrameStrata = function() writes = writes + 1; error("main frame layer is fixed") end
+  pill.SetFrameStrata = function() writes = writes + 1; error("pill frame layer is fixed") end
   local ok, err = pcall(function()
     db.reduceMotion = false
+    X.cfgAPI.ApplyAppearance()
+    assert(writes == 0, "appearance refresh changed a frame layer")
     local restoreBorder
     X.Flash()
     if env.C_Timer then
@@ -1881,38 +1874,18 @@ step("appearance changes and delayed border restore wait for combat to end", fun
     env.__combat = true
     local delayOk, delayErr = true, nil
     if restoreBorder then delayOk, delayErr = pcall(restoreBorder) end
-    local layer = env.BuffRadarConfig.strataBtn
-    db.strata = "LOW"
-    local firstOk, firstErr = pcall(layer.scripts.OnClick)
-    local lastOk, lastErr = pcall(layer.scripts.OnClick)
-    assert(delayOk and firstOk and lastOk,
-      tostring(delayErr) .. "; " .. tostring(firstErr) .. "; " .. tostring(lastErr))
-    assert(frameWrites == 0 and pillWrites == 0 and db.strata == "HIGH",
-      "combat changed the frame layer or lost the selected layer")
+    assert(delayOk, "border restore failed in combat: " .. tostring(delayErr))
+    assert(writes == 0, "combat flash restore changed a frame layer")
     env.__combat = false
     fire("PLAYER_REGEN_ENABLED")
-    assert(frame.strata == "HIGH" and pill.strata == "HIGH" and frameWrites == 1 and pillWrites == 1,
-      "latest frame and pill layers were not applied once after combat")
     assert(not X.flashPending, "appearance replay left a redundant fallback border restore")
-    fire("PLAYER_REGEN_ENABLED")
-    assert(frameWrites == 1 and pillWrites == 1, "appearance replay repeated without a pending change")
     X.cfgAPI.ApplyAppearance()
-    assert(frameWrites == 1 and pillWrites == 1, "unchanged layer caused protected writes")
-    frame.SetFrameStrata = function() error("client refused layer update") end
-    db.strata = "LOW"
-    X.cfgAPI.ApplyAppearance()
-    assert(frame.strata == "HIGH" and pill.strata == "LOW" and X.appearancePending,
-      "a rejected main layer change did not leave a retry pending")
-    frame.SetFrameStrata = restoreFrame
-    fire("PLAYER_REGEN_ENABLED")
-    assert(frame.strata == "LOW" and not X.appearancePending, "pending layer did not apply on regen")
+    assert(writes == 0, "appearance refresh attempted a protected frame-layer change")
   end)
   env.__combat = false
-  frame.SetFrameStrata, pill.SetFrameStrata, db.reduceMotion = restoreFrame, restorePill, oldMotion
-  env.SlashCmdList.BUFFRADAR("strata " .. string.lower(oldStrata))
+  frame.SetFrameStrata, pill.SetFrameStrata, db.reduceMotion = oldFrame, oldPill, oldMotion
   assert(ok, err)
 end)
-
 step("Lightning Shield secure actions rearm after combat and failed setup stays disarmed", function()
   if not env.__forever then return end
   local X, db, O = NS.X, NS.X.GetDB(), env.__over
@@ -2626,9 +2599,6 @@ step("settings controls and long labels stay within their columns", function()
     "Grow checkbox must clear the settings scale picker")
   assert(cfg.themeBtn.points[1][3] == -336 and cfg.saveThemeBtn.points[1][3] == -336,
     "theme buttons must clear the pill checkbox")
-  local layerBottom = -cfg.strataBtn.points[1][3] + cfg.strataBtn.size[2]
-  assert(layerBottom + 8 <= -cfg.pillCheck.points[1][3] - 4,
-    "Layer button must clear the wrapped pill checkbox label")
   assert(cfg.findCheck.points[1][2] == 300 and cfg.displayBtn.points[1][2] == 300,
     "Window controls must stay in the right column")
   for _, check in ipairs({cfg.pillCheck, cfg.findCheck, cfg.muteInstCheck, cfg.consCheck,
@@ -2648,7 +2618,7 @@ step("settings controls and long labels stay within their columns", function()
   error("reset buff order control missing")
 end)
 
-step("settings footer clears tab content and hides with Display Options", function()
+step("settings search opens on demand and closes cleanly on tab changes", function()
   local cfg = env.BuffRadarConfig
   local footer = cfg.searchFooter
   local searchPoint = (footer or cfg.searchBox).points[1]
@@ -2669,13 +2639,23 @@ step("settings footer clears tab content and hides with Display Options", functi
     assert(bottom[2] == cfg and bottom[5] >= searchPoint[5] + footer.size[2] + 8,
       "tab panel must end at least 8 units above the search footer")
   end
+  assert(not footer.shown and cfg.searchToggle.shown,
+    "the search bar should start collapsed with its Find button available")
+  cfg.searchToggle.scripts.OnClick(cfg.searchToggle)
+  assert(footer.shown, "Find did not open the search bar")
+  cfg.searchBox:SetText("buff")
+  cfg.tabBtns.alerts.scripts.OnClick()
+  assert(not footer.shown and cfg.searchBox.text == "" and cfg.searchToggle.shown,
+    "switching tabs should close and clear search without hiding its toggle")
   cfg.tabBtns.look.scripts.OnClick()
   cfg.displayBtn.scripts.OnClick()
-  assert(cfg.displayPanel.shown and not cfg.panels.look.shown and not footer.shown,
-    "Display Options should replace the current tab and its search footer")
+  assert(cfg.displayPanel.shown and not cfg.panels.look.shown and not footer.shown
+    and not cfg.searchToggle.shown,
+    "Display Options should replace the current tab and hide search controls")
   cfg.tabBtns.alerts.scripts.OnClick()
-  assert(cfg.panels.alerts.shown and not cfg.displayPanel.shown and footer.shown,
-    "selecting a tab should restore the search footer")
+  assert(cfg.panels.alerts.shown and not cfg.displayPanel.shown and not footer.shown
+    and cfg.searchToggle.shown,
+    "selecting a tab should restore only the Find toggle")
   cfg.tabBtns.look.scripts.OnClick()
 end)
 
@@ -2816,12 +2796,6 @@ step("saved themes, row spacing, icon size, window layer (1.10.0)", function()
   assert(r1.icons[1].size and r1.icons[1].size[1] == 20,
     "icon size not applied: " .. tostring(r1.icons[1].size and r1.icons[1].size[1]))
   env.SlashCmdList.BUFFRADAR("iconsize 0")
-  -- Window layer.
-  env.SlashCmdList.BUFFRADAR("strata high")
-  assert(db.strata == "HIGH", "strata not stored")
-  assert(env.BuffRadarFrame.strata == "HIGH",
-    "frame strata not applied: " .. tostring(env.BuffRadarFrame.strata))
-  env.SlashCmdList.BUFFRADAR("strata medium")
   cleanup()
 end)
 
