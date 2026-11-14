@@ -6,11 +6,18 @@ including the one where WoW silently refuses to load the whole addon.
 
 ## Run them
 
-From the project folder (the one holding `BuffRadar\` and `build.ps1`):
+On Windows, open **PowerShell 7** in the project folder (the one holding
+`BuffRadar\` and `build.ps1`). In File Explorer, open that folder and type
+`pwsh` into the address bar. Install Python 3 first if `py -3 --version`
+doesn't find it. Follow the one-time setup below, then run:
 
 ```powershell
 .\tools\check.ps1
 ```
+
+If you already have a BuffRadar tools folder, pass it with
+`-ToolsDir 'C:\path\to\brlua'`. From a Unix shell with Python 3 and Lupa
+available, use `sh tools/gate.sh` to run the same gate used by GitHub CI.
 
 It prints each check's result and ends with **All checks passed.** or
 **FAILED:** followed by what failed (exit code 1). Then build with `.\build.ps1`.
