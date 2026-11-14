@@ -178,6 +178,9 @@ local function HandleSlash(msg)
       X.Why(rest)
     end
     return
+  elseif cmd == "nearby" then
+    if X.OpenNearbyDiagnostics then X.OpenNearbyDiagnostics() end
+    return
   elseif cmd == "coordinate" then
     local action, argument = rest:lower():match("^(%S*)%s*(.-)$")
     if action == "panel" then
@@ -1379,26 +1382,7 @@ local function HandleSlash(msg)
       Print(rest .. " isn't ignored for this session.")
     end
   elseif cmd == "plates" then
-    if InCombatLockdown() then Print("Can't change nameplate settings during combat."); return end
-    local enabled, name = FriendlyPlatesOn()
-    local setter = (C_CVar and C_CVar.SetCVar) or SetCVar
-    if not name or not setter then
-      Print("Couldn't find a supported friendly nameplate setting on this client.")
-      return
-    end
-    if not enabled then pcall(setter, name, "1") end
-    if FriendlyPlatesOn() ~= true then
-      Print("Couldn't turn on friendly nameplates. Check the game's nameplate settings.")
-      return
-    end
-    if X.ReadBooleanCVar("nameplateShowAll") == false then
-      pcall(setter, "nameplateShowAll", "1")
-      if X.ReadBooleanCVar("nameplateShowAll") == false then
-        Print("Friendly nameplates are enabled. The game may still hide them outside combat.")
-        return
-      end
-    end
-    Print("Friendly nameplates turned on, so nearby non-group players can be listed.")
+    X.EnableFriendlyNameplates(Print)
   elseif X.ext[cmd] then
     X.ext[cmd](rest)
   else
@@ -1420,6 +1404,7 @@ local function HandleSlash(msg)
       "  - how clicks cast (default target)")
     Print("  /br clickreg both|down|up  - which half of the click casts")
     Print("  /br plates  - turn on friendly nameplates (needed for non-group players)")
+    if CLASSIC_FEATURES then Print("  /br nearby  - diagnose nearby players and your current target") end
     if CLASSIC_FEATURES then
       Print("  /br groupcast [on|off|<n>]  - offer group buffs when n+ players need one")
     end

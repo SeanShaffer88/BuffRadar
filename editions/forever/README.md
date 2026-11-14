@@ -329,6 +329,7 @@ Hover over a name to see exactly what will be cast and what they still need.
 | `/br lock` · `/br scale <n>` · `/br reset` | Lock (moving and resizing), set any scale from 0.5 to 2, or reset the window's position |
 | `/br autohide` | Hide the window when nobody needs anything |
 | `/br plates` | Turn on friendly nameplates |
+| `/br nearby` | Open Nearby Player Diagnostics to check friendly nameplates, the last scan count, and your current target |
 | `/br clicks` · `/br debug` | Troubleshooting output |
 
 ## Good to know

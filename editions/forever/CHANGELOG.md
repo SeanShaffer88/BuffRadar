@@ -2,12 +2,23 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.30 — Forever test build
+
+- Open **Nearby Player Diagnostics** from the question mark on the buff
+  window or with `/br nearby`. Check friendly nameplates, see how many player
+  nameplates the last scan found, and learn why your current target is listed
+  or missing.
+- Enable friendly nameplates directly from the panel when the game reports
+  they are off. Unreadable settings, range, and buff data are shown as unknown.
+
 ## 1.15.29 — Forever test build
 
 - Open the assignment grid directly from the Buffs tab. Close a cell editor
   to return to the grid with the saved choices.
 - Add **Thorns: Any Class Outdoors**, an opt-in setting for solo and grouped
   open-world play. Explicit assignment rules still take precedence.
+
+Live verification passed on WoW: Forever for candidate `3f286ba1b130`.
 
 ## 1.15.28 — Forever test build
 

@@ -24,6 +24,8 @@ macro to work through the list. Your character goes first by default.
   `/br macro` outside combat to create a cast-next macro for your action bar.
 - Open settings with `/br config`. Run `/br wizard` for guided setup or
   `/br why <name>` for a player's eligibility and assignment.
+- Click **?** on the buff window or run `/br nearby` to check friendly
+  nameplates, the last scan count, and your current target's eligibility.
 
 ## Features
 
