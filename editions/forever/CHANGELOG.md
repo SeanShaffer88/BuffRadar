@@ -5,6 +5,12 @@ All notable changes to BuffRadar are listed here. Newest first.
 
 ## Unreleased
 
+- Collapse settings search by default and reopen it with a small Find button
+  on each tab. Switching tabs clears the query and closes search.
+- Keep the main window and all-buffed pill on the client's default frame
+  layer; remove the custom layer control and its runtime `SetFrameStrata`
+  calls, which could trigger `ADDON_ACTION_BLOCKED` on Forever.
+
 - **Restricted game data in the eligibility check:** the phase check compared
   a value the client can refuse to describe, which throws rather than
   returning false, and five more unit flags were read the same raw way. All of

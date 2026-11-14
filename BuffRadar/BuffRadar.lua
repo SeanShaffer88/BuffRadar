@@ -173,7 +173,7 @@ local DEFAULTS = {
   customThemes = {},   -- your saved themes: { name, bg, border } (1.10.0)
   rowGap = 0,          -- extra space between rows, 0-8 (1.10.0)
   iconSize = 0,        -- buff icon size 10-24; 0 = automatic (1.10.0)
-  strata = "MEDIUM",   -- the window's screen layer (1.10.0)
+  strata = "MEDIUM",   -- legacy saved value; frames keep the client's default layer
   coverParts = {},     -- coverage-line parts switched OFF (absent = on) (1.10.0)
   tooltipLevel = "standard", -- row tooltips: minimal | standard | full (1.10.0)
   viewMode = "people",  -- list view: "people" (one row per player) or "buffs" (one row per buff still needed)
@@ -2371,7 +2371,7 @@ X.EXPORT_KEYS = { "locked", "includeSelf", "avoidPvP", "autoHide", "rebuff", "sc
   "pill", "queueTag", "consumables", "buddySplit", "readyPost", "weaponWatch", "enterFlash",
   "scanThrottle", "growUp", "theme", "findBox", "durationBars", "raidMarkers",
   "focusWatch", "pets", "auraWatch", "worldWatch", "drinkWatch", "twoCol",
-  "deathRecap", "wipeReport", "rowGap", "iconSize", "strata",
+  "deathRecap", "wipeReport", "rowGap", "iconSize",
   "tooltipLevel", "viewMode", "classColors", "showRealm", "nameTrim",
   "scalePerSpec", "gripSnap", "tagSymbols", "reduceMotion", "rangeWatch", "assumeRange",
   "fastAura", "modClick", "pullFlash", "fallSound" }
@@ -3825,14 +3825,6 @@ local function ApplyAppearance()
   end
   X.appearancePending = nil
   X.flashPending = nil
-  -- Window layer (1.10.0): the main frame and the pill share a strata.
-  local strata = db.strata or "MEDIUM"
-  for _, surface in ipairs({ frame, X.pill }) do
-    if surface.SetFrameStrata and surface.appliedStrata ~= strata then
-      local ok = pcall(surface.SetFrameStrata, surface, strata)
-      if ok then surface.appliedStrata = strata else X.appearancePending = true end
-    end
-  end
   local c = db.bgColor or DEFAULTS.bgColor
   local bc = X.ThemeBorder()
   if frame.SetBackdropColor then
@@ -4851,8 +4843,8 @@ local function BuildUI()
   frame = CreateFrame("Frame", "BuffRadarFrame", UIParent,
                       BackdropTemplateMixin and "BackdropTemplate" or nil)
   frame:SetSize(db.width or WIDTH, HEADER_H + 30)
-  frame:SetFrameStrata("MEDIUM")
-  frame.appliedStrata = "MEDIUM"
+  -- Keep the client's default MEDIUM layer. Changing strata on the live
+  -- frame can be blocked by some Forever clients and is not needed for casts.
   frame:SetClampedToScreen(true)
   frame:SetMovable(true)
   frame:SetResizable(true)
@@ -4954,8 +4946,6 @@ local function BuildUI()
                            BackdropTemplateMixin and "BackdropTemplate" or nil)
   pill:SetSize(150, 22)
   pill:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-  pill:SetFrameStrata("MEDIUM")
-  pill.appliedStrata = "MEDIUM"
   if pill.SetBackdrop then
     pill:SetBackdrop({
       bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",

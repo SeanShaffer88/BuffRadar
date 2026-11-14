@@ -245,8 +245,17 @@ local function SelectTab(key)
   cfg.curTab = key
   if cfg.displayPanel then cfg.displayPanel:Hide() end
   if cfg.blessingPanel then cfg.blessingPanel:Hide() end
-  cfg.searchFooter:Show()
+  if cfg.searchBox then
+    cfg.searchBox:ClearFocus()
+    cfg.searchBox:SetText("")
+  end
+  if cfg.searchFooter then cfg.searchFooter:Hide() end
   for k, panel in pairs(cfg.panels) do panel:SetShown(k == key) end
+  if cfg.searchToggle and cfg.panels[key] then
+    cfg.searchToggle:ClearAllPoints()
+    cfg.searchToggle:SetPoint("TOPRIGHT", cfg.panels[key], "TOPRIGHT", -8, -4)
+    cfg.searchToggle:Show()
+  end
   if cfg.nativeTabs then
     PanelTemplates_SetTab(cfg, cfg.tabBtns[key]:GetID())
   else
@@ -651,6 +660,7 @@ local function BuildConfig()
     for _, panel in pairs(cfg.panels) do panel:Hide() end
     cfg.searchBox:ClearFocus()
     cfg.searchFooter:Hide()
+    if cfg.searchToggle then cfg.searchToggle:Hide() end
     p:Show()
   end)
   cfg.displayBtn:SetPoint("TOPLEFT", 300, -428)
@@ -670,16 +680,6 @@ local function BuildConfig()
       RefreshConfig()
     end)
   cfg.cfgScaleDrop:SetPoint("LEFT", cfgScaleLabel, "RIGHT", 12, 0)
-
-  cfg.strataBtn = MakeButton(look, "Layer: Medium", 150, function()
-    local order = { "LOW", "MEDIUM", "HIGH", "DIALOG" }
-    local cur = 2
-    for i, k in ipairs(order) do if db.strata == k then cur = i end end
-    db.strata = order[cur % #order + 1]
-    ApplyAppearance()
-    RefreshConfig()
-  end)
-  cfg.strataBtn:SetPoint("TOPLEFT", 14, -328)
 
   ------------------------------------------------------------------
   -- Tab: Alerts
@@ -1231,7 +1231,6 @@ local function BuildConfig()
   Tip(cfg.twoColCheck, "Two columns when the list is long", "With more than 8 people on the list, the rows split into two side-by-side columns and the window widens, instead of growing one tall column. Same as /br twocol.")
   Tip(cfg.themeBtn, "Color theme", "Click to cycle the window's color themes: Midnight, Crimson, Forest, Parchment — plus any themes you saved yourself. Picking a custom background color afterwards switches back to a custom theme. Same as /br theme <name>.")
   Tip(cfg.saveThemeBtn, "Save as theme", "Saves the window's current background and border colors as your own theme, so it joins the theme cycle. It is named automatically; /br theme save <name> saves under your own name, /br theme delete <name> removes one. Up to 4 saved themes.")
-  Tip(cfg.strataBtn, "Window layer", "Which screen layer the window sits on: Low, Medium, High or Dialog. Raise it if other addons draw over BuffRadar; lower it if BuffRadar covers something it shouldn't. Same as /br strata <name>.")
   Tip(cfg.gapSlider, "Row spacing", "Extra empty space between the rows, 0 to 8. The window grows to fit. Same as /br rowgap <0-8>.")
   Tip(cfg.iconSlider, "Buff icon size", "How big the missing-buff icons on each row are, 10 to 24. At 0 the size is automatic (16, or 12 in compact rows). Same as /br iconsize <0|10-24>.")
   Tip(cfg.displayBtn, "More display options", "Opens a panel with the finer display choices: which parts the coverage line shows, colored edge marks on rows (your assignments, tanks, expiring soon, your buddy's rows), how much detail row tooltips carry, class-colored names, realm names and shortened names.")
@@ -1411,14 +1410,28 @@ local function BuildConfig()
   searchBox:SetMaxLetters(30)
   local searchHint = footer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   searchHint:SetPoint("LEFT", searchBox, "RIGHT", 8, 0)
-  searchHint:SetText("Find a setting")
+  searchHint:SetText("Find in this tab")
   searchBox:SetScript("OnTextChanged", function(self)
     local t = self:GetText() or ""
     local n = X.CfgFilter(t)
-    searchHint:SetText(t == "" and "Find a setting" or (n .. " matching"))
+    searchHint:SetText(t == "" and "Find in this tab" or (n .. " matching"))
   end)
   searchBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
   cfg.searchBox = searchBox
+  local searchToggle = CreateFrame("Button", nil, cfg, "UIPanelButtonTemplate")
+  searchToggle:SetSize(70, 22)
+  searchToggle:SetText("Find")
+  searchToggle:SetScript("OnClick", function()
+    if cfg.searchFooter:IsShown() then
+      cfg.searchBox:ClearFocus()
+      cfg.searchFooter:Hide()
+    else
+      cfg.searchFooter:Show()
+      cfg.searchBox:SetFocus()
+    end
+  end)
+  cfg.searchToggle = searchToggle
+  Tip(cfg.searchToggle, "Settings search", "Find matching settings on the current tab. The search bar closes and clears when you switch tabs.")
   X.cfgReg[#X.cfgReg + 1] = { w = cfg.slider, keys = "background opacity" }
   X.cfgReg[#X.cfgReg + 1] = { w = cfg.fadeSlider, keys = "idle fade" }
   X.cfgReg[#X.cfgReg + 1] = { w = cfg.gcSlider, keys = "group buff threshold" }
@@ -1427,6 +1440,9 @@ local function BuildConfig()
 
   cfg:SetScript("OnShow", function()
     if cfg.searchBox then cfg.searchBox:SetText("") end  -- fresh search each open
+    if cfg.searchBox then cfg.searchBox:ClearFocus() end
+    if cfg.searchFooter then cfg.searchFooter:Hide() end
+    if cfg.searchToggle then cfg.searchToggle:Show() end
     RefreshConfig()
   end)
   cfg:RegisterEvent("DISPLAY_SIZE_CHANGED")
@@ -1469,10 +1485,6 @@ RefreshConfig = function()
   if cfg.iconSlider then
     cfg.iconSlider:SetValue(db.iconSize or 0)
     cfg.iconValue:SetText((db.iconSize or 0) == 0 and "auto" or tostring(db.iconSize))
-  end
-  if cfg.strataBtn then
-    local st = db.strata or "MEDIUM"
-    cfg.strataBtn:SetText("Layer: " .. st:sub(1, 1) .. st:sub(2):lower())
   end
   if cfg.fadeSlider then
     cfg.fadeSlider:SetValue(db.idleFade or 0)

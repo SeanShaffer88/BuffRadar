@@ -35,9 +35,9 @@ A customization batch (all ten also exist as `/br` commands):
   it (`/br view buffs`).
 - **Your buff order** — rows offer your buffs in your order; the
   first is the click target (`/br prio`).
-- **Window layer + click-through** — window strata, and clicks pass
-  through the window while it is locked (`/br strata`, `/br
-  clickthrough`).
+- **Click-through** — clicks pass through the window while it is locked
+  (`/br clickthrough`). The window stays on the client's standard layer
+  to avoid a blocked frame action.
 - **Name formats** — class-colored names on/off, realm names
   shown/hidden, and a longest-name length.
 
