@@ -13,10 +13,30 @@ local Esc, Unesc, SanitizeDB = X.Esc, X.Unesc, X.SanitizeDB
 local IsProfileName, PROFILE_MAX_BYTES = X.IsProfileName, X.PROFILE_MAX_BYTES
 local math_floor, math_huge, math_max = math.floor, math.huge, math.max
 local string_format, table_sort = string.format, table.sort
+local CLIPBOARD_MAX_BYTES = 16384
+
+local function ClipboardText(text)
+  if type(text) ~= "string" then return nil, "Nothing to import." end
+  if #text > CLIPBOARD_MAX_BYTES then return nil, "That import exceeds 16 KiB." end
+  text = text:match("^%s*(.-)%s*$")
+  if text == "" then return nil, "Nothing to import." end
+  return text
+end
+
+local function DecodeString(text)
+  local value = Unesc(text)
+  if not value:find("%c") and Esc(value) == text then return value end
+end
+
+local function ClipboardExport(parts, kind)
+  local body = table.concat(parts, ";")
+  if #body > CLIPBOARD_MAX_BYTES then return nil, kind .. " exceeds the 16 KiB export limit." end
+  return body
+end
 
 function X.Export()
   local db = X.GetDB()
-  local parts = { "BR1" }
+  local parts = { "BR1", "complete=1" }
   for _, k in ipairs(X.EXPORT_KEYS) do
     local v = db[k]
     if type(v) == "boolean" then parts[#parts + 1] = k .. "=" .. (v and "1" or "0")
@@ -38,39 +58,8 @@ function X.Export()
   for name in pairs(db.ignored or {}) do names[#names + 1] = name end
   table_sort(names)
   for _, name in ipairs(names) do parts[#parts + 1] = "ignored." .. Esc(name) .. "=1" end
-  return table.concat(parts, ";")
-end
-
-function X.Import(text)
-  local db = X.GetDB()
-  if type(text) ~= "string" then return false, "Nothing to import." end
-  local fields = {}
-  for part in (text .. ";"):gmatch("(.-);") do fields[#fields + 1] = part end
-  if fields[1] ~= "BR1" then return false, "That doesn't look like a BuffRadar settings string." end
-  local patch = { enabled = {}, rebuffPer = {}, ignored = {} }
-  for i = 2, #fields do
-    local k, v = fields[i]:match("^(.-)=(.*)$")
-    if k and v then
-      local sub, sk = k:match("^(%a+)%.(.*)$")
-      if sub == "enabled" or sub == "rebuffPer" or sub == "ignored" then
-        local key = Unesc(sk)
-        if sub == "rebuffPer" then patch.rebuffPer[key] = tonumber(v)
-        else patch[sub][key] = (v == "1") end
-      elseif k == "bgColor" then
-        local r, g, b = v:match("^([%d%.]+),([%d%.]+),([%d%.]+)$")
-        if r then patch.bgColor = { tonumber(r), tonumber(g), tonumber(b) } end
-      else
-        local dt = type(DEFAULTS[k])
-        if dt == "boolean" then patch[k] = (v == "1")
-        elseif dt == "number" then patch[k] = tonumber(v)
-        elseif dt == "string" then patch[k] = Unesc(v) end
-      end
-    end
-  end
-  for k, v in pairs(patch) do if v ~= nil then db[k] = v end end
-  SanitizeDB(db)  -- repairs anything out of range or mistyped in the string
-  Ignore.Rebuild()
-  return true, "Settings imported."
+  parts[#parts + 1] = "endExport=1"
+  return ClipboardExport(parts, "Settings")
 end
 
 -- BR2 is the named profile format. Keep BR1 exports readable by older clients.
@@ -85,6 +74,17 @@ do
     blessingPreferences = "blessing",
   }
   local scalarKeys, scalarList, legacyScalars = {}, {}, {}
+  -- Fields common to every full BR1 export since the original 1.4 writer.
+  local legacyRequired = {
+    "locked", "includeSelf", "avoidPvP", "autoHide", "rebuff", "scale",
+    "width", "cfgScale", "castMethod", "clickReg", "bgAlpha", "showTitle",
+    "showBorder", "playSound", "showCounter", "groupOnly", "pauseInCities",
+    "groupCast", "groupCastMin", "sortMode", "alertSound", "muteInInstance",
+    "showMinimap", "lowMana", "bgColor",
+  }
+  local retiredScalars = { strata = "string", showOutOfRange = "boolean",
+    hideInCombat = "boolean", rangeText = "boolean" }
+  local retiredLayers = { LOW = true, MEDIUM = true, HIGH = true, DIALOG = true }
   for _, key in ipairs(X.EXPORT_KEYS) do
     if type(DEFAULTS[key]) ~= "table" then
       scalarKeys[key], legacyScalars[key] = true, true
@@ -137,7 +137,7 @@ do
     elseif kind == "number" then
       return Number(raw)
     elseif kind == "string" then
-      return Unesc(raw)
+      return DecodeString(raw)
     elseif kind == "color" then
       local r, g, b = raw:match("^([^,]+),([^,]+),([^,]+)$")
       r, g, b = Number(r), Number(g), Number(b)
@@ -148,8 +148,8 @@ do
       if (key == "new" or key == "drop" or key == "ask" or key == "fall")
          and (raw == "droplet" or raw == "system" or raw == "none") then return raw end
     elseif kind == "priority" then
-      local buff = Unesc(raw)
-      if #buff > 0 and #buff <= 40 then return buff end
+      local buff = DecodeString(raw)
+      if buff and #buff > 0 and #buff <= 40 then return buff end
     elseif kind == "context" then
       if raw == "raid" or raw == "instance" then return raw end
     elseif kind == "blessing" then
@@ -157,21 +157,26 @@ do
     end
   end
 
-  function X.ParseProfile(body)
-    if type(body) ~= "string" or #body > PROFILE_MAX_BYTES then return nil end
+  local function ParseProfile(body, directImport)
+    if type(body) ~= "string" or #body > (directImport and CLIPBOARD_MAX_BYTES or PROFILE_MAX_BYTES) then return nil end
     local version, payload = body:match("^(BR[12]);(.+)$")
-    if not version then return nil end
+    if not version or (directImport and version ~= "BR1") then return nil end
     local modern = version == "BR2"
     local patch, count, scalarFields, priorityKeys = {}, 0, {}, {}
-    for map in pairs(modern and profileMaps or legacyMaps) do patch[map] = {} end
+    if modern then
+      for map in pairs(profileMaps) do patch[map] = {} end
+    end
+    local firstField = true
     for field in (payload .. ";"):gmatch("(.-);") do
+      if scalarFields.endExport then return nil end
       local key, raw = field:match("^([^=]+)=(.*)$")
       if not key then return nil end
       local map, member = key:match("^(%a+)%.(.*)$")
       local kind = map and profileMaps[map]
       if kind and (modern or legacyMaps[map]) then
-        member = Unesc(member)
-        if member == "" then return nil end
+        member = DecodeString(member)
+        if not member or member == "" then return nil end
+        patch[map] = patch[map] or {}
         if map == "buffPrio" then
           member = Number(member)
           if not member or member < 1 or member > 24 or member ~= math_floor(member) then return nil end
@@ -196,9 +201,17 @@ do
         if value == nil or scalarFields[key] or not X.ProfileScalarValid(key, value) then return nil end
         patch[key], scalarFields[key] = value, true
         count = count + 1
-      elseif modern then
+      elseif (modern and key == "strata") or (not modern and retiredScalars[key]) then
+        local value = Decode(retiredScalars[key], key, raw)
+        if value == nil or scalarFields[key] or (key == "strata" and not retiredLayers[value]) then return nil end
+        scalarFields[key] = true
+      elseif not modern and (key == "complete" or key == "endExport") then
+        if raw ~= "1" or scalarFields[key] or (key == "complete" and not firstField) then return nil end
+        scalarFields[key] = true
+      else
         return nil
       end
+      firstField = false
     end
     if count == 0 then return nil end
     if modern then
@@ -207,14 +220,44 @@ do
         patch.blessingPreferences = nil  -- older BR2 profiles leave the preference alone
       end
       if not patch.bgColor then return nil end
-      for _, key in ipairs(scalarList) do if not scalarFields[key] then return nil end end
+      for _, key in ipairs(scalarList) do
+        if not scalarFields[key] then
+          if key ~= "assumeRange" or not scalarFields.strata then return nil end
+          patch.assumeRange = false
+        end
+      end
       local highest, priorityCount = 0, 0
       for index in pairs(patch.buffPrio) do
         highest, priorityCount = math_max(highest, index), priorityCount + 1
       end
       if highest ~= priorityCount then return nil end
+    else
+      if scalarFields.complete ~= scalarFields.endExport then return nil end
+      local complete = true
+      for _, key in ipairs(legacyRequired) do
+        if not scalarFields[key] then complete = false; break end
+      end
+      if (directImport or scalarFields.complete) and not complete then return nil end
+      if scalarFields.complete then
+        for key in pairs(legacyScalars) do
+          if not scalarFields[key] then return nil end
+        end
+      end
+      if complete then
+        for map in pairs(legacyMaps) do patch[map] = patch[map] or {} end
+      end
     end
     return patch
+  end
+
+  X.ParseProfile = ParseProfile
+
+  function X.ParseSettingsImport(text)
+    local body, err = ClipboardText(text)
+    if not body then return nil, err end
+    local patch = ParseProfile(body, true)
+    if not patch then return nil, "Paste a complete, valid BuffRadar settings export." end
+    return patch, body
   end
 
   function X.ApplyProfile(patch)
@@ -228,6 +271,13 @@ do
     X.prioDirty = true
     Ignore.Rebuild()
   end
+end
+
+function X.Import(text)
+  local patch, result = X.ParseSettingsImport(text)
+  if not patch then return false, result end
+  X.ApplyProfile(patch)
+  return true, "Settings imported."
 end
 
 -- Buff plan strings (1.8.0): the group's plan — assignments, the
@@ -256,57 +306,86 @@ function X.PlanExport()
   for _, c in ipairs(ctxs) do
     parts[#parts + 1] = "P;" .. Esc(c) .. ";" .. Esc(db.autoProfile[c])
   end
-  return table.concat(parts, ";")
+  return ClipboardExport(parts, "The group plan")
 end
 
-function X.PlanImport(text)
-  local db = X.GetDB()
-  if type(text) ~= "string" then return false, "Nothing to import." end
+local planContexts = { raid = true, dungeon = true, pvp = true, world = true, solo = true }
+
+local function PlanHolder(value)
+  return value and #value <= 128 and value:match("^%S") and value:match("%S$")
+    and not value:find("[;|]")
+end
+
+local function ParsePlan(text)
   local fields = {}
   for part in (text .. ";"):gmatch("(.-);") do fields[#fields + 1] = part end
-  if fields[1] ~= "BRPLAN1" then
-    return false, "That doesn't look like a BuffRadar plan string."
-  end
-  local nA, nB, nP = 0, 0, 0
+  if fields[1] ~= "BRPLAN1" then return nil end
+  local assignments, blessings, auto = {}, {}, {}
   local i = 2
   while i <= #fields do
     local tag = fields[i]
-    if tag == "A" and fields[i + 2] then
-      X.assign[Unesc(fields[i + 1])] = Unesc(fields[i + 2])
-      nA = nA + 1
+    if not fields[i + 2] then return nil end
+    local key, value = DecodeString(fields[i + 1]), DecodeString(fields[i + 2])
+    if not key or not value then return nil end
+    if tag == "A" then
+      if #key > 40 or not key:match("^[A-Z0-9_]+$") or not PlanHolder(value) or assignments[key] then return nil end
+      assignments[key] = value
       i = i + 3
-    elseif tag == "B" and fields[i + 3] then
-      local cls, bkey, holder = Unesc(fields[i + 1]), Unesc(fields[i + 2]),
-        Unesc(fields[i + 3])
-      if BLESSINGS[bkey] then
-        local me = Ignore.UnitNames("player")
-        X.blessPlan[cls] = { key = bkey, name = holder,
-          mine = me ~= nil and Ignore.Key(holder) == Ignore.Key(me) }
-        nB = nB + 1
-      end
+    elseif tag == "B" then
+      local holder = fields[i + 3] and DecodeString(fields[i + 3])
+      if not X.BLESSING_CLASSES[key] or not BLESSINGS[value] or not PlanHolder(holder) or blessings[key] then return nil end
+      blessings[key] = { key = value, name = holder }
       i = i + 4
-    elseif tag == "P" and fields[i + 2] then
-      db.autoProfile[Unesc(fields[i + 1])] = Unesc(fields[i + 2])
-      nP = nP + 1
+    elseif tag == "P" then
+      if not planContexts[key] or not IsProfileName(value) or auto[key] then return nil end
+      auto[key] = value
       i = i + 3
     else
-      i = i + 1
+      return nil
     end
   end
-  -- Share the plan onward, so the group converges on the same plan.
-  if nA > 0 and X.AmLead() then
-    for k, v in pairs(X.assign) do X.Broadcast("ASSIGN;" .. k .. ";" .. v) end
+  return assignments, blessings, auto
+end
+
+function X.PlanImport(text)
+  local body, err = ClipboardText(text)
+  if not body then return false, err end
+  local assignments, blessings, auto = ParsePlan(body)
+  if not assignments then return false, "Paste a complete, valid BuffRadar plan export." end
+  if not (next(assignments) or next(blessings) or next(auto)) then
+    return true, "The imported plan has no entries. Nothing changed."
   end
-  if nB > 0 then
-    local _, myClass = UnitClass("player")
-    if X.AmLead() or myClass == "PALADIN" then
-      for c, p in pairs(X.blessPlan) do
-        X.Broadcast("BLESS;" .. c .. ";" .. p.key .. ";" .. p.name)
-      end
+
+  local db = X.GetDB()
+  local myName = Ignore.UnitNames("player")
+  local nA, nB, nP = 0, 0, 0
+  local outbound = {}
+  local inGroup = X.InGroup()
+  local share = inGroup and X.AmLead()
+  local _, myClass = UnitClass("player")
+  local shareBlessing = share or (inGroup and myClass == "PALADIN")
+  for key, value in pairs(assignments) do
+    if X.assign[key] ~= value and share then
+      outbound[#outbound + 1] = "ASSIGN;" .. key .. ";" .. value
     end
+    X.assign[key] = value
+    nA = nA + 1
   end
-  -- (No repaint here: the import window's accept button repaints on OK.)
-  if RefreshConfig then RefreshConfig() end
+  for class, plan in pairs(blessings) do
+    local previous = X.blessPlan[class]
+    if shareBlessing and (not previous or previous.key ~= plan.key or previous.name ~= plan.name) then
+      outbound[#outbound + 1] = "BLESS;" .. class .. ";" .. plan.key .. ";" .. plan.name
+    end
+    plan.mine = myName ~= nil and X.SameUser(plan.name, myName)
+    X.blessPlan[class] = plan
+    nB = nB + 1
+  end
+  for context, name in pairs(auto) do
+    db.autoProfile[context] = name
+    nP = nP + 1
+  end
+  for _, message in ipairs(outbound) do X.Broadcast(message) end
+  -- The import window repaints after successful commits.
   return true, string_format("Plan imported: %d assignments, %d blessings, %d auto profiles.",
     nA, nB, nP)
 end
@@ -336,7 +415,6 @@ function X.ProfileImport(text)
     return false, "The profile's settings string is damaged."
   end
   db.profiles[name] = body
-  if RefreshConfig then RefreshConfig() end
   return true, "Profile imported: " .. name
     .. " — /br profile load " .. name .. " applies it."
 end
