@@ -14,6 +14,7 @@ local READY_ROWS = 7
 local READY_RETENTION = 15
 local readyCheck, readyView, readyShow
 local readyOffset = 0
+local prep, prepView, prepOffset
 
 local function ReadStatus(unit)
   if type(GetReadyCheckStatus) ~= "function" then return nil end
@@ -48,14 +49,38 @@ local function ReadyDetails(member)
   return member.checked and L["Checked buffs present"] or L["No applicable buffs"]
 end
 
+local function DrawPrep()
+  for index, row in ipairs(prepView.rows) do
+    local member = prep.members[prepOffset + index]
+    row:SetShown(member ~= nil)
+    if member then
+      row.label:SetText(member.full or member.name)
+      row.detail:SetText(member.text)
+    end
+  end
+  local total = #prep.members
+  prepView.footer:SetText(total > READY_ROWS and string.format(L["Players %d–%d of %d · Scroll or /br prep next"],
+    prepOffset + 1, math_min(prepOffset + READY_ROWS, total), total) or "")
+  prepView.summary:SetText(prep.summary)
+  prepView.reagents:SetText(prep.reagents or "")
+  prepView.snapshot:SetText(prep.personal or L["Out-of-combat snapshot · Refresh for current results"])
+end
+
+local function MovePrep(delta)
+  if not prepView or not prepView:IsShown() or not prep then return end
+  prepOffset = math.max(0, math_min(prepOffset + delta, #prep.members - READY_ROWS))
+  DrawPrep()
+end
+
 local function ScrollReady(delta)
   if not readyCheck then return end
   readyOffset = math.max(0, math_min(readyOffset + delta, #readyCheck.members - READY_ROWS))
   X.RenderReadyCheck()
 end
 
-local function BuildReadyView()
-  local f = CreateFrame("Frame", "BuffRadarReadyCheck", UIParent)
+local function BuildReadyView(isPrep)
+  local f = CreateFrame("Frame", isPrep and "BuffRadarRaidPreparation" or "BuffRadarReadyCheck", UIParent)
+  local scroll = isPrep and MovePrep or ScrollReady
   f:SetSize(430, 350)
   f:SetPoint("CENTER", UIParent, "CENTER", 0, 85)
   f:SetClampedToScreen(true)
@@ -66,7 +91,7 @@ local function BuildReadyView()
   f:SetScript("OnDragStart", function(self) self:StartMoving() end)
   f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
   f:EnableMouseWheel(true)
-  f:SetScript("OnMouseWheel", function(_, delta) ScrollReady(delta > 0 and -1 or 1) end)
+  f:SetScript("OnMouseWheel", function(_, delta) scroll(delta > 0 and -1 or 1) end)
   local bg = f:CreateTexture(nil, "BACKGROUND")
   bg:SetAllPoints(f)
   bg:SetColorTexture(0.055, 0.065, 0.08, 0.96)
@@ -74,10 +99,12 @@ local function BuildReadyView()
   title:SetPoint("TOPLEFT", 13, -12)
   title:SetPoint("TOPRIGHT", -34, -12)
   title:SetJustifyH("LEFT")
-  title:SetText(L["BuffRadar Ready Check"])
+  title:SetText(isPrep and L["Raid Preparation"] or L["BuffRadar Ready Check"])
   local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
   close:SetPoint("TOPRIGHT", -2, -2)
-  close:SetScript("OnClick", function() X.ReadyViewCommand("hide") end)
+  close:SetScript("OnClick", function()
+    if isPrep then X.CloseRaidPreparation() else X.ReadyViewCommand("hide") end
+  end)
   f.summary = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   f.summary:SetPoint("TOPLEFT", 13, -37)
   f.summary:SetPoint("TOPRIGHT", -13, -37)
@@ -92,9 +119,11 @@ local function BuildReadyView()
   f.reagents:SetJustifyH("LEFT")
   f.reagents:SetWordWrap(false)
   reagentLine:SetScript("OnEnter", function(self)
-    if not readyCheck or not readyCheck.reagents then return end
+    local snapshot = readyCheck
+    if isPrep then snapshot = prep end
+    if not snapshot or not snapshot.reagents then return end
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(readyCheck.reagents, 1, 1, 1, true)
+    GameTooltip:AddLine(snapshot.reagents, 1, 1, 1, true)
     GameTooltip:Show()
   end)
   reagentLine:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -109,7 +138,7 @@ local function BuildReadyView()
     row:SetHeight(32)
     row:EnableMouse(true)
     row:EnableMouseWheel(true)
-    row:SetScript("OnMouseWheel", function(_, delta) ScrollReady(delta > 0 and -1 or 1) end)
+    row:SetScript("OnMouseWheel", function(_, delta) scroll(delta > 0 and -1 or 1) end)
     row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     row.label:SetPoint("TOPLEFT")
     row.label:SetPoint("TOPRIGHT")
@@ -137,6 +166,66 @@ local function BuildReadyView()
   f.snapshot = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   f.snapshot:SetPoint("BOTTOMLEFT", 13, 24)
   return f
+end
+
+function X.CloseRaidPreparation()
+  if prepView and prepView:IsShown() then prepView:Hide() end
+  prep, prepOffset = nil, nil
+end
+
+function X.RaidPreparationCommand(mode)
+  if not X.CLASSIC then return end
+  if mode == "hide" then X.CloseRaidPreparation(); return end
+  if InCombatLockdown() or X.PlayerSuspended() then return end
+  if mode == "next" or mode == "prev" then MovePrep(mode == "next" and 1 or -1); return end
+  if mode ~= "" and mode ~= "show" and mode ~= "personal" then
+    Print(L["Use /br prep show, personal, hide, next, or prev."])
+    return
+  end
+  if not X.InGroup() then Print(L["Join a party or raid to use Raid Preparation."]); return end
+  local report = X.GroupBuffReport(false, true)
+  local members = {}
+  for _, member in ipairs(report.members) do
+    if not member.ignored then
+      local parts = { ReadyDetails(member) }
+      for _, def in ipairs(X.CONS_DEFS) do
+        local has
+        if X.ReadUnitBool(UnitExists, member.unit) == true
+          and X.ReadUnitBool(UnitIsDeadOrGhost, member.unit) == false
+          and X.ReadUnitBool(UnitIsConnected, member.unit) == true then
+          has = X.ConsHas(member.unit, def)
+        end
+        if has == false then parts[#parts + 1] = string.format(L["%s missing"], L[def.label])
+        elseif has == nil then parts[#parts + 1] = string.format(L["%s unavailable"], L[def.label]) end
+      end
+      members[#members + 1] = { name = member.name, full = member.full, text = table.concat(parts, " · ") }
+    end
+  end
+  local personal
+  if mode == "personal" then
+    local notices = {}
+    if X.WeaponEnchantMissing() then notices[#notices + 1] = L["Temporary weapon coating missing"] end
+    local ok, _, class = pcall(UnitClass, "player")
+    if ok and X.Readable(class) and (class == "HUNTER" or class == "WARLOCK")
+      and X.ReadUnitBool(UnitExists, "pet") == false then notices[#notices + 1] = L["No active pet"] end
+    personal = #notices > 0 and table.concat(notices, " · ") or L["No personal reminders"]
+  end
+  prep = { members = members, reagents = X.ReagentSummary(report), personal = personal,
+    summary = string.format(L["%d Players · %d Missing Buffs · %d Players With Unknown Buffs"],
+      #members, report.buffs, report.unknown) }
+  prepOffset = 0
+  if not prepView then
+    prepView = BuildReadyView(true)
+    local refresh = CreateFrame("Button", nil, prepView, "UIPanelButtonTemplate")
+    refresh:SetSize(150, 22)
+    refresh:SetPoint("BOTTOMRIGHT", -10, 8)
+    refresh:SetText(L["Refresh Preparation"])
+    refresh:SetScript("OnClick", function() X.RaidPreparationCommand(prep and prep.personal and "personal" or "show") end)
+    prepView.refresh = refresh
+    if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarRaidPreparation") end
+  end
+  DrawPrep()
+  prepView:Show()
 end
 
 local READY_LABELS = { ready = "Ready", notready = "Not ready", waiting = "Waiting",

@@ -2,13 +2,28 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.25 — WoW: Forever
+
+- **Raid Coverage** shows confirmed, missing, and unknown buffs by subgroup,
+  with affected players listed under each buff.
+- **Practice Mode** demonstrates blocker edits and Review Changes on a sample
+  roster. **Undo Last Change** restores the last eligible live blocker edit.
+- **Subgroup Responsibilities** limit the cast queue for each buff and fall
+  back to single-target casts when the group version could reach an unassigned group.
+- **Raid Preparation** collects missing or expiring buffs, consumables, estimated
+  group reagents, and optional personal reminders.
+- **Caster Coordination** lets leaders request learned buff capabilities, review
+  a draft, and share duties with opted-in players. Acknowledgements show which
+  casters accepted a duty.
+
 ## 1.15.24 — Forever test build
 
 - Review staged blocker edits to see whose buff offers would change.
 - Recheck the current group on Apply and refresh the blocker list after
   saving.
 
-In-game verification is pending for this build.
+The maintainer confirmed live verification of the 1.15.24 field-test
+build `d79512f7b020` in WoW: Forever.
 
 ## 1.15.23 — Forever test build
 

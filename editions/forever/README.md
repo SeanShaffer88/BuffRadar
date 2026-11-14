@@ -104,6 +104,23 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
   When a group member's role is unavailable, select their row to set or
   clear a role for assignment rules. A role reported by the game takes
   precedence. Overrides clear when the member leaves or the UI reloads.
+- **Raid Coverage** in Class & Role Assignments or `/br coverage` shows
+  confirmed, missing, and unknown readings for the buffs you offer in each
+  subgroup. Select a buff to see the players with missing or unknown coverage.
+- **Practice Mode** (`/br practice`) walks through a sample blocker edit.
+  **Undo Last Change** (`/br undo`) restores the last blocker edit in this
+  session while the target rule, profile, and applicable roster still match.
+- **Subgroup Responsibilities** (`/br subgroup FORTITUDE 1,2`) limit a buff's
+  raid cast queue to selected subgroups. Use `/br subgroup` for buff keys and
+  current selections, or `ALL` to clear a filter.
+- **Raid Preparation** (`/br prep`) lists missing and expiring buffs, food,
+  flasks, and estimated group reagents. Use `/br prep personal` to include
+  weapon and pet reminders.
+- **Caster Coordination** uses cast sync with a separate group opt-in
+  (`/br coordinate on`). Group leaders and assistants request reports,
+  add requested buff keys with `need`, then `review` and `publish` a plan.
+  Recipients review it with `inbox` and choose `accept` or `decline`.
+  The coordinator's `status` shows acknowledgements separately from coverage.
 - **Role ordering** option: you, tanks and leaders first.
 - **Rezzed players first** (after you): someone who just came back from the dead
   has lost every buff, so their row jumps up with a *recently rezzed* marker.
