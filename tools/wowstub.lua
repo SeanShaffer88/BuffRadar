@@ -33,7 +33,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
       if was and self.scripts.OnHide then self.scripts.OnHide(self) end end
     function methods.SetShown(self, v) if v then self:Show() else self:Hide() end end
     function methods.IsShown(self) return self.shown end
-    function methods.IsVisible(self) return self.shown end
+    function methods.IsVisible(self) return self.shown and (not self.parent or self.parent:IsVisible()) end
     function methods.SetAttribute(self, k, v) self.attrs[k] = v end
     function methods.GetAttribute(self, k) return self.attrs[k] end
     function methods.SetText(self, t) self.text = t end
@@ -58,7 +58,22 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     function methods.GetValue(self) return self.value or 0 end
     function methods.SetValue(self, v) self.value = v
       if self.scripts.OnValueChanged then self.scripts.OnValueChanged(self, v) end end
-    function methods.HasFocus() return false end
+    function methods.IsEnabled(self) return not self.disabled end
+    function methods.Click(self)
+      if self:IsEnabled() and self.scripts.OnClick then self.scripts.OnClick(self, "LeftButton") end
+    end
+    function methods.GetFrameLevel() return 1 end
+    function methods.HasFocus(self) return env.__editFocus == self end
+    function methods.ClearFocus(self)
+      if not self:HasFocus() then return end
+      env.__editFocus = nil
+      if self.scripts.OnEditFocusLost then self.scripts.OnEditFocusLost(self) end
+    end
+    function methods.SetFocus(self)
+      if env.__editFocus then env.__editFocus:ClearFocus() end
+      env.__editFocus = self
+      if self.scripts.OnEditFocusGained then self.scripts.OnEditFocusGained(self) end
+    end
     function methods.GetName(self) return self.name end
     function methods.SetID(self, id) self.id = id end
     function methods.GetID(self) return self.id or 0 end
@@ -106,6 +121,12 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
   function env.CreateFrame(kind, name, parent, template)
     local f = newObject(kind, name)
     f.template = template
+    f.parent = parent
+    if template == "ButtonFrameTemplate" and not noTemplates then
+      f.CloseButton = newObject("Button")
+      f.CloseButton.parent = f
+      f.CloseButton:SetScript("OnClick", function() f:Hide() end)
+    end
     if name then env[name] = f end
     frames[#frames + 1] = f
     return f

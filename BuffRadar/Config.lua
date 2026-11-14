@@ -38,6 +38,286 @@ do
 local cfg
 local CONFIG_WIDTH, CONFIG_HEIGHT = 600, 610
 local NATIVE_TAB_DEPTH = 30  -- 32-unit native tabs start 2 units above the bottom edge
+local K = {}  -- keyboard navigation and speech are opt-in for this settings session
+local navigationHelp = L["Tab or Shift-Tab moves. Enter or Space selects. Arrows adjust. F1 toggles speech. Escape exits."]
+
+function K.Register(widget, panel, label, role, value, adjust)
+  if not cfg then return end
+  local entry = { widget = widget, panel = panel, label = label, role = role, value = value, adjust = adjust }
+  widget.navigation = entry
+  entry.order = #cfg.navControls + 1
+  cfg.navControls[entry.order] = entry
+  widget:HookScript("OnMouseDown", function()
+    if K.active then K.Stop() end
+  end)
+  return entry
+end
+
+function K.Available(entry)
+  if not entry or not entry.widget:IsVisible() then return false end
+  local role = entry.role
+  return role == "tab" or not entry.widget.IsEnabled or entry.widget:IsEnabled()
+end
+
+function K.Modal()
+  return cfg.blessingPanel and cfg.blessingPanel:IsShown() and cfg.blessingPanel
+    or cfg.displayPanel and cfg.displayPanel:IsShown() and cfg.displayPanel
+end
+
+function K.InScope(entry)
+  if not K.Available(entry) then return false end
+  local modal = K.Modal()
+  return entry.panel == (modal or cfg.panels[cfg.curTab]) or (not modal and entry.panel == cfg)
+end
+
+function K.Controls()
+  local modal = K.Modal()
+  local panel = modal or cfg.panels[cfg.curTab]
+  local entries, controls = {}, {}
+  for _, entry in ipairs(cfg.navControls) do
+    if K.Available(entry) then
+      if entry.panel == panel then
+        controls[#controls + 1] = entry
+      elseif not modal and entry.role == "tab" then
+        entries[#entries + 1] = entry
+      end
+    end
+  end
+  -- Main tabs first, then the visible controls in row order.
+  table_sort(controls, function(a, b)
+    local y1, y2 = math_floor((a.widget:GetTop() or 0) / 8), math_floor((b.widget:GetTop() or 0) / 8)
+    if y1 ~= y2 then return y1 > y2 end
+    local x1, x2 = a.widget:GetLeft() or 0, b.widget:GetLeft() or 0
+    if x1 ~= x2 then return x1 < x2 end
+    return a.order < b.order
+  end)
+  for _, entry in ipairs(controls) do entries[#entries + 1] = entry end
+  if not modal then
+    for _, widget in ipairs({ cfg.searchToggle, cfg.searchBox, cfg.closeButton }) do
+      if K.Available(widget.navigation) then entries[#entries + 1] = widget.navigation end
+    end
+  end
+  return entries
+end
+
+function K.Speak(text)
+  K.sequence = (K.sequence or 0) + 1
+  if not K.narrate then return end
+  local sequence = K.sequence
+  local function speak()
+    if K.sequence ~= sequence or not K.active then return end
+    -- Blizzard's Windows TTS accepts XML. Speak only plain setting labels and values.
+    text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("[<>&|%c]", " ")
+    local ok, available = pcall(function()
+      local voice = TextToSpeech_GetSelectedVoice(Enum.TtsVoiceType.Standard)
+      if voice then
+        C_VoiceChat.SpeakText(voice.voiceID, text, C_TTSSettings.GetSpeechRate(), C_TTSSettings.GetSpeechVolume(), false)
+        return true
+      end
+    end)
+    if not ok or not available then
+      K.narrate = false
+      Print(L["Settings narration is unavailable. Check the game's Text to Speech settings."])
+    end
+  end
+  if C_Timer and C_Timer.After then C_Timer.After(0.18, speak) else speak() end
+end
+
+function K.Focus(entry)
+  K.current = entry
+  if not entry then
+    cfg.navOutline:Hide()
+    cfg.navStatus:SetText("")
+    K.sequence = (K.sequence or 0) + 1
+    return
+  end
+  local widget = entry.widget
+  local label = entry.label
+  if type(label) == "function" then label = label() end
+  if type(label) ~= "string" or label == "" then label = L["Setting"] end
+  local value = entry.value and entry.value()
+  if entry.role == "check" then value = widget:GetChecked() and L["Checked"] or L["Not checked"]
+  elseif entry.role == "tab" and entry.key == cfg.curTab then value = L["Selected tab"]
+  elseif entry.role == "tab" then value = L["Tab"]
+  elseif entry.role == "edit" then value = value or L["Edit field"]
+  elseif entry.role == "button" then value = value or L["Button"] end
+  local text = value and (label .. ", " .. value) or label
+  cfg.navStatus:SetText(text)
+  local border = cfg.navOutline
+  border:ClearAllPoints()
+  border:SetPoint("TOPLEFT", widget, "TOPLEFT", -2, 2)
+  if entry.role == "check" then
+    border:SetPoint("BOTTOMRIGHT", widget.label, "BOTTOMRIGHT", 2, -2)
+  else
+    border:SetPoint("BOTTOMRIGHT", widget, "BOTTOMRIGHT", 2, -2)
+  end
+  border:Show()
+  K.Speak(text)
+end
+
+function K.Move(delta)
+  local entries = K.Controls()
+  if #entries == 0 then K.Focus(nil); return end
+  local at = delta > 0 and 0 or 1
+  for i, entry in ipairs(entries) do
+    if entry == K.current then at = i; break end
+  end
+  K.Focus(entries[(at - 1 + delta) % #entries + 1])
+end
+
+function K.Stop(cancel)
+  if not K.active then return end
+  local edit = K.edit
+  K.active, K.narrate, K.current, K.edit, K.transition = nil, nil, nil, nil, nil
+  K.sequence = (K.sequence or 0) + 1
+  if edit and edit:HasFocus() then
+    local escape = cancel and edit:GetScript("OnEscapePressed")
+    if escape then escape(edit) else edit:ClearFocus() end
+  end
+  cfg.navInput:ClearFocus()
+  cfg.navInput:Hide()
+  cfg.navOutline:Hide()
+  cfg.navStatus:Hide()
+  cfg.navButton:SetText(L["Keyboard Navigation"])
+end
+
+function K.Edit(box)
+  K.edit, K.transition = box, true
+  cfg.navStatus:Hide()
+  cfg.navInput:ClearFocus()
+  box:SetFocus()
+  K.transition = nil
+  if not box:HasFocus() then K.Stop() end
+end
+
+function K.RegisterEdit(box, panel, label, value)
+  K.Register(box, panel, label, "edit", value)
+  box:HookScript("OnEditFocusLost", function(self)
+    if K.edit == self and not K.transition then K.Stop() end
+  end)
+  for _, event in ipairs({ "OnEnterPressed", "OnEscapePressed", "OnTabPressed" }) do
+    local original = box:GetScript(event)
+    box:SetScript(event, function(self)
+      if K.edit ~= self then
+        if original then original(self) end
+        return
+      end
+      K.transition = true
+      if original then original(self) end
+      if self:HasFocus() then self:ClearFocus() end
+      if not K.active then return end
+      K.edit = nil
+      cfg.navInput:SetFocus()
+      K.transition = nil
+      if not cfg.navInput:HasFocus() then K.Stop(); return end
+      if not cfg.searchFooter:IsShown() then cfg.navStatus:Show() end
+      if event == "OnTabPressed" or not K.InScope(K.current) then
+        K.Move(IsShiftKeyDown() and -1 or 1)
+      else
+        K.Focus(K.current)
+      end
+    end)
+  end
+end
+
+function K.Act(delta)
+  local entry = K.current
+  if not K.InScope(entry) then K.Move(1); return end
+  local widget = entry.widget
+  if delta and entry.adjust then
+    entry.adjust(delta)
+  elseif delta then
+    return
+  elseif entry.role == "edit" then
+    K.Edit(widget)
+    return
+  elseif entry.adjust then
+    if entry.role ~= "slider" then entry.adjust(1) end
+  elseif entry.role == "tab" and entry.key == cfg.curTab then
+    return
+  elseif entry.role == "check" then
+    widget:SetChecked(not widget:GetChecked())
+    widget:GetScript("OnClick")(widget)
+  else
+    widget:Click()
+  end
+  if K.active and not K.edit and not cfg.navInput:HasFocus() then K.Stop(); return end
+  if K.active and not K.edit then
+    if K.InScope(entry) then K.Focus(entry) else K.Move(1) end
+  end
+end
+
+function K.Start(narrate)
+  if X.PlayerSuspended() or InCombatLockdown() then
+    Print(L["Settings keyboard navigation is unavailable in combat or while dead."])
+    return
+  end
+  if K.active then K.Stop() end
+  K.active, K.narrate = true, narrate
+  cfg.navButton:SetText(L["Exit Navigation"])
+  cfg.navInput:Show()
+  -- Leave a visible search query and result count intact when taking focus.
+  if cfg.searchBox:HasFocus() then cfg.searchBox:ClearFocus() end
+  cfg.navInput:SetFocus()
+  if not cfg.navInput:HasFocus() then K.Stop(); return end
+  if not cfg.searchFooter:IsShown() then cfg.navStatus:Show() end
+  Print(navigationHelp)
+  K.Move(1)
+end
+
+function K.Build()
+  local button = CreateFrame("Button", nil, cfg, "UIPanelButtonTemplate")
+  button:SetSize(166, 22)
+  button:SetPoint("BOTTOMRIGHT", cfg, "BOTTOMRIGHT", -16, 9)
+  button:SetText(L["Keyboard Navigation"])
+  button:SetScript("OnClick", function()
+    if K.active then K.Stop() else K.Start(false) end
+  end)
+  cfg.navButton = button
+  local status = cfg:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  status:SetPoint("BOTTOMLEFT", cfg, "BOTTOMLEFT", 16, 12)
+  status:SetPoint("RIGHT", button, "LEFT", -10, 0)
+  status:SetJustifyH("LEFT")
+  status:SetWordWrap(false)
+  status:Hide()
+  cfg.navStatus = status
+  local border = CreateFrame("Frame", nil, cfg, BackdropTemplateMixin and "BackdropTemplate" or nil)
+  if border.SetBackdrop then
+    border:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 2 })
+    border:SetBackdropBorderColor(1, 0.82, 0.24, 1)
+  end
+  border:SetFrameLevel(cfg:GetFrameLevel() + 20)
+  border:Hide()
+  cfg.navOutline = border
+  local input = CreateFrame("EditBox", nil, cfg)
+  input:SetSize(1, 1)
+  input:SetPoint("CENTER", button)
+  input:SetAlpha(0)
+  input:EnableMouse(false)
+  input:SetFontObject("GameFontHighlightSmall")
+  input:SetAutoFocus(false)
+  input:SetAltArrowKeyMode(false)
+  input:SetMaxLetters(1)
+  input:SetScript("OnChar", function(self) self:SetText("") end)
+  input:SetScript("OnEditFocusLost", function() if not K.transition then K.Stop() end end)
+  input:SetScript("OnTabPressed", function() K.Move(IsShiftKeyDown() and -1 or 1) end)
+  input:SetScript("OnEnterPressed", function() K.Act() end)
+  input:SetScript("OnSpacePressed", function() K.Act() end)
+  input:SetScript("OnEscapePressed", function() K.Stop() end)
+  input:SetScript("OnArrowPressed", function(_, key)
+    if key == "LEFT" or key == "DOWN" then K.Act(-1)
+    elseif key == "RIGHT" or key == "UP" then K.Act(1) end
+  end)
+  input:SetScript("OnKeyDown", function(_, key)
+    if key == "F1" then
+      K.narrate = not K.narrate
+      Print(K.narrate and L["Settings narration on"] or L["Settings narration off"])
+      K.Focus(K.current)
+    end
+  end)
+  input:Hide()
+  cfg.navInput = input
+end
 
 local function ApplyConfigScale()
   local scale = db.cfgScale or 1
@@ -80,6 +360,7 @@ local function MakeCheck(parent, label, getter, setter)
   cb:FitLabel()
   cb:SetScript("OnClick", function(self) setter(self:GetChecked() and true or false) end)
   cb.Update = function(self) self:SetChecked(getter() and true or false) end
+  K.Register(cb, parent, function() return cb.label:GetText() end, "check")
   if label and label ~= "" then  -- settings search registry (1.8.0)
     RegisterSearch(cb, parent, label)
   end
@@ -132,11 +413,17 @@ local function CloseSearch()
   X.CfgFilter("")
   cfg.searchHint:SetText(L["Find in this tab (Esc to close)"])
   cfg.searchFooter:Hide()
+  if K.active and not K.edit then cfg.navStatus:Show() end
 end
 
 local function OpenSearch()
   cfg.searchFooter:Show()
-  cfg.searchBox:SetFocus()
+  if K.active then
+    K.Focus(cfg.searchBox.navigation)
+    K.Edit(cfg.searchBox)
+  else
+    cfg.searchBox:SetFocus()
+  end
 end
 
 -- Hover help for a settings control: a white title line plus wrapped detail.
@@ -186,11 +473,12 @@ local function MakeButton(parent, text, width, onClick)
   b:SetScript("OnClick", onClick)
   if text and text ~= "" then  -- settings search registry (1.8.0)
     RegisterSearch(b, parent, text)
+    K.Register(b, parent, function() return b:GetText() end, "button")
   end
   return b
 end
 
-local function MakeSlider(parent, x, y, width, minV, maxV, step, onChange)
+local function MakeSlider(parent, x, y, width, minV, maxV, step, onChange, label, valueText)
   local slider = CreateFrame("Slider", nil, parent, BackdropTemplateMixin and "BackdropTemplate" or nil)
   slider:SetOrientation("HORIZONTAL")
   slider:SetSize(width, 17)
@@ -209,14 +497,17 @@ local function MakeSlider(parent, x, y, width, minV, maxV, step, onChange)
   if slider.SetObeyStepOnDrag then slider:SetObeyStepOnDrag(true) end
   slider:EnableMouse(true)
   slider:EnableMouseWheel(true)
-  slider:SetScript("OnMouseWheel", function(self, delta)
-    self:SetValue(math.max(minV, math.min(maxV, self:GetValue() + delta * step)))
-  end)
+  local function adjust(delta)
+    slider:SetValue(math.max(minV, math.min(maxV, slider:GetValue() + delta * step)))
+  end
+  slider:SetScript("OnMouseWheel", function(_, delta) adjust(delta) end)
   slider:SetScript("OnValueChanged", function(_, v) onChange(v) end)
+  K.Register(slider, parent, label, "slider", valueText, adjust)
   return slider
 end
 
 local function OpenColorPicker()
+  K.Stop()
   local c = db.bgColor
   local prev = { c[1], c[2], c[3] }
   local function apply()
@@ -252,7 +543,28 @@ local function PercentText(v) return math_floor(v * 100 + 0.5) .. "%" end
 -- Scale picker: the game's menu dropdown, with one entry per SCALE_PRESETS value.
 -- A scale set by /br scale that isn't a preset shows as "Custom (n%)". Clients
 -- without the dropdown template get a button that steps through the presets.
-local function MakeScaleDropdown(parent, getter, setter)
+local function MakeScaleDropdown(parent, getter, setter, label)
+  local function value()
+    local current = getter()
+    for _, preset in ipairs(SCALE_PRESETS) do
+      if math.abs(preset - current) < 0.001 then return PercentText(preset) end
+    end
+    return string.format(L["Custom (%s)"], PercentText(current))
+  end
+  local function adjust(delta)
+    local current = getter()
+    local nextValue = delta > 0 and SCALE_PRESETS[1] or SCALE_PRESETS[#SCALE_PRESETS]
+    if delta > 0 then
+      for _, preset in ipairs(SCALE_PRESETS) do
+        if preset > current + 0.001 then nextValue = preset; break end
+      end
+    else
+      for i = #SCALE_PRESETS, 1, -1 do
+        if SCALE_PRESETS[i] < current - 0.001 then nextValue = SCALE_PRESETS[i]; break end
+      end
+    end
+    setter(nextValue)
+  end
   local ok, dd = pcall(CreateFrame, "DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
   if ok and dd and dd.SetupMenu then
     dd:SetWidth(120)
@@ -264,20 +576,18 @@ local function MakeScaleDropdown(parent, getter, setter)
       end
     end)
     dd.Update = function(self)
-      if self.SetDefaultText then self:SetDefaultText("Custom (" .. PercentText(getter()) .. ")") end
+      if self.SetDefaultText then self:SetDefaultText(value()) end
       if self.GenerateMenu then self:GenerateMenu() end
     end
+    K.Register(dd, parent, label, "choice", value, adjust)
     return dd
   end
   local b = MakeButton(parent, "", 120, function(self)
-    local cur, nextV = getter(), SCALE_PRESETS[1]
-    for _, v in ipairs(SCALE_PRESETS) do
-      if v > cur + 0.001 then nextV = v; break end
-    end
-    setter(nextV)
+    adjust(1)
     self:Update()
   end)
   b.Update = function(self) self:SetText(PercentText(getter())) end
+  K.Register(b, parent, label, "choice", value, adjust)
   return b
 end
 
@@ -307,9 +617,26 @@ local function BlessingOptionLabel(option)
   return L["Default blessing"]
 end
 
-local function MakeBlessingSelector(parent, class)
+local function MakeBlessingSelector(parent, class, label)
   local function choose(key)
     if X.SetBlessingPreference(class, key) then RefreshConfig(); Refresh() end
+  end
+  local function value()
+    local current = X.BlessingPreference(class)
+    for _, option in ipairs(X.BlessingOptions(class)) do
+      if option.key == current then return BlessingOptionLabel(option) end
+    end
+    return L["Previously selected blessing unavailable"]
+  end
+  local function adjust(delta)
+    local current = X.BlessingPreference(class)
+    local options = X.BlessingOptions(class)
+    if #options == 0 then return end
+    local index = delta > 0 and 0 or 1
+    for i, option in ipairs(options) do
+      if option.key == current then index = i; break end
+    end
+    choose(options[(index - 1 + delta) % #options + 1].key)
   end
   local ok, dd = pcall(CreateFrame, "DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
   if ok and dd and dd.SetupMenu then
@@ -324,24 +651,12 @@ local function MakeBlessingSelector(parent, class)
       if self.SetDefaultText then self:SetDefaultText(L["Previously selected blessing unavailable"]) end
       if self.GenerateMenu then self:GenerateMenu() end
     end
+    K.Register(dd, parent, label, "choice", value, adjust)
     return dd
   end
-  local button = MakeButton(parent, "", 290, function()
-    local current = X.BlessingPreference(class)
-    local options = X.BlessingOptions(class)
-    local following = options[1]
-    for i, option in ipairs(options) do
-      if option.key == current then following = options[i + 1] or options[1]; break end
-    end
-    choose(following.key)
-  end)
-  button.Update = function(self)
-    local current = X.BlessingPreference(class)
-    for _, option in ipairs(X.BlessingOptions(class)) do
-      if option.key == current then self:SetText(BlessingOptionLabel(option)); return end
-    end
-    self:SetText(L["Previously selected blessing unavailable"])
-  end
+  local button = MakeButton(parent, "", 290, function() adjust(1) end)
+  button.Update = function(self) self:SetText(value()) end
+  K.Register(button, parent, label, "choice", value, adjust)
   return button
 end
 
@@ -370,13 +685,14 @@ local function OpenBlessingPanel()
     local close = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -5, -5)
     close:SetScript("OnClick", function() panel:Hide() end)
+    K.Register(close, panel, L["Close"], "button")
     for i, class in ipairs(X.BLESSING_CLASS_ORDER) do
       local y = -52 - (i - 1) * 30
       local label = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
       label:SetPoint("TOPLEFT", 22, y - 5)
       local classNames = _G.LOCALIZED_CLASS_NAMES_MALE
       label:SetText((classNames and classNames[class]) or class)
-      local selector = MakeBlessingSelector(panel, class)
+      local selector = MakeBlessingSelector(panel, class, label:GetText())
       selector:SetPoint("TOPLEFT", 158, y)
       cfg.blessingSelectors[i] = selector
     end
@@ -404,17 +720,23 @@ local function BuildConfig()
     cfg = CreateFrame("Frame", "BuffRadarConfig", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
   end
   cfg:SetSize(CONFIG_WIDTH, CONFIG_HEIGHT)
+  cfg.navControls = {}
   cfg:SetPoint("CENTER")
   cfg:SetFrameStrata("DIALOG")
   cfg:SetClampedToScreen(true)
   cfg:SetMovable(true)
   cfg:EnableMouse(true)
+  cfg:HookScript("OnMouseDown", function() K.Stop() end)
   cfg:RegisterForDrag("LeftButton")
-  cfg:SetScript("OnDragStart", cfg.StartMoving)
+  cfg:SetScript("OnDragStart", function(self)
+    K.Stop()
+    self:StartMoving()
+  end)
   cfg:SetScript("OnDragStop", cfg.StopMovingOrSizing)
   if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarConfig") end -- Esc closes it
 
   if native then
+    cfg.closeButton = cfg.CloseButton
     cfg:SetTitle("BuffRadar Settings")
     if ButtonFrameTemplate_HideButtonBar then ButtonFrameTemplate_HideButtonBar(cfg) end
     if cfg.SetPortraitToAsset then
@@ -438,7 +760,10 @@ local function BuildConfig()
     head:SetText("|cff33ccffBuff|rRadar Settings")
     local close = CreateFrame("Button", nil, cfg, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -2, -2)
+    close:SetScript("OnClick", function() cfg:Hide() end)
+    cfg.closeButton = close
   end
+  K.Register(cfg.closeButton, cfg, L["Close settings"], "button")
 
   -- Tabs: Blizzard's bottom tabs on the standard window (named
   -- BuffRadarConfigTab1..5, as PanelTemplates expects), otherwise the
@@ -468,9 +793,11 @@ local function BuildConfig()
       prevTab = btn
       tabList[i] = btn
     else
-      btn = MakeButton(cfg, label, 106, onClick)
+      btn = MakeButton(cfg, "", 106, onClick)
+      btn:SetText(label)
       btn:SetPoint("TOPLEFT", 16 + (i - 1) * 112, -40)
     end
+    K.Register(btn, cfg, label, "tab").key = key
     cfg.tabBtns[key] = btn
     local panel = CreateFrame("Frame", nil, cfg)
     if native then  -- inside the template's inset area, below the title bar
@@ -514,6 +841,7 @@ local function BuildConfig()
   end
   swatch:SetScript("OnClick", OpenColorPicker)
   cfg.swatch = swatch
+  K.Register(swatch, look, L["Background color"], "button")
 
   local alphaLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   alphaLabel:SetPoint("TOPLEFT", 14, -64)
@@ -526,7 +854,7 @@ local function BuildConfig()
     db.bgAlpha = v / 100
     alphaValue:SetText(v .. "%")
     ApplyAppearance()
-  end)
+  end, L["Background opacity"], function() return cfg.alphaValue:GetText() end)
 
   cfg.titleCheck = MakeCheck(look, L["Show BuffRadar title"],
     function() return db.showTitle end,
@@ -571,7 +899,7 @@ local function BuildConfig()
     gapValue:SetText(tostring(v))
     X.ApplyRowLayout()
     Refresh()
-  end)
+  end, L["Row spacing"], function() return cfg.gapValue:GetText() end)
 
   local iconLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   iconLabel:SetPoint("TOPLEFT", 274, -82)
@@ -586,7 +914,7 @@ local function BuildConfig()
     X.ApplyRowLayout()
     InvalidateRows()
     Refresh()
-  end)
+  end, L["Buff icon size"], function() return cfg.iconValue:GetText() end)
 
   local fadeLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   fadeLabel:SetPoint("TOPLEFT", 304, -240)
@@ -599,7 +927,7 @@ local function BuildConfig()
     db.idleFade = v
     fadeValue:SetText(v .. "%")
     X.curAlpha = nil
-  end)
+  end, L["Idle fade (mouse away)"], function() return cfg.fadeValue:GetText() end)
 
   local scaleLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   scaleLabel:SetPoint("TOPLEFT", 14, -178)
@@ -611,7 +939,7 @@ local function BuildConfig()
       db.scale = v
       ApplyGeometry()
       RefreshConfig()
-    end)
+    end, L["Window scale"])
   cfg.scaleDrop:SetPoint("LEFT", scaleLabel, "RIGHT", 12, 0)
   local widthHint = look:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   widthHint:SetPoint("TOPLEFT", 14, -206)
@@ -646,6 +974,7 @@ local function BuildConfig()
   cfg.twoColCheck:SetPoint("TOPLEFT", 10, -396)
 
   cfg.wizardBtn = MakeButton(look, "Run the setup wizard", 150, function()
+    K.Stop()
     X.OpenWizard()
   end)
   cfg.wizardBtn:SetPoint("TOPLEFT", 134, -232)
@@ -657,6 +986,11 @@ local function BuildConfig()
     X.ApplyTheme(order[cur % #order + 1])
   end)
   cfg.themeBtn:SetPoint("TOPLEFT", 250, -336)
+  cfg.themeBtn.navigation.label = L["Theme"]
+  cfg.themeBtn.navigation.value = function()
+    local theme = X.ThemeDef(db.theme)
+    return theme and not X.SavedTheme(db.theme) and theme.label or L["Custom theme"]
+  end
 
   cfg.saveThemeBtn = MakeButton(look, "Save as theme", 150, function()
     local n = 1
@@ -714,7 +1048,7 @@ local function BuildConfig()
     function(v)
       db.cfgScale = v
       RefreshConfig()
-    end)
+    end, L["Settings window scale"])
   cfg.cfgScaleDrop:SetPoint("LEFT", cfgScaleLabel, "RIGHT", 12, 0)
 
   ------------------------------------------------------------------
@@ -803,7 +1137,10 @@ local function BuildConfig()
   keyText2:SetPoint("TOPLEFT", 14, -270)
   cfg.keyText, cfg.keyText2 = keyText, keyText2
 
-  local setKey = MakeButton(alerts, "Set keybind", 120, OpenKeybinds)
+  local setKey = MakeButton(alerts, "Set keybind", 120, function()
+    K.Stop()
+    OpenKeybinds()
+  end)
   setKey:SetPoint("TOPLEFT", 14, -288)
   local makeMacro = MakeButton(alerts, "Create macro", 120, function() MakeMacro(false) end)
   makeMacro:SetPoint("LEFT", setKey, "RIGHT", 10, 0)
@@ -845,6 +1182,11 @@ local function BuildConfig()
         Refresh()
       end)
     cb.rebuffBox:SetPoint("LEFT", buffs, "TOPLEFT", cols[col] + 236, -46 - row * 26)
+    K.RegisterEdit(cb.rebuffBox, buffs, function()
+      return string.format(L["Rebuff time for %s"], cb.itemLabel or L["Buff"])
+    end, function()
+      return cb.rebuffBox:GetText() ~= "" and cb.rebuffBox:GetText() or L["Use all-buff setting"]
+    end)
     Tip(cb.rebuffBox, "Rebuff time (seconds)", rebuffTip)
     cb:Hide()
     cb.rebuffBox:Hide()
@@ -897,6 +1239,8 @@ local function BuildConfig()
       Refresh()
     end)
   cfg.rebuffDefault:SetPoint("LEFT", rebuffLabel, "RIGHT", 10, 0)
+  K.RegisterEdit(cfg.rebuffDefault, buffs, L["Rebuff time for all buffs (seconds)"],
+    function() return cfg.rebuffDefault:GetText() end)
   local rebuffUnit = buffs:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   rebuffUnit:SetPoint("LEFT", cfg.rebuffDefault, "RIGHT", 6, 0)
   rebuffUnit:SetText("seconds remain (all buffs)")
@@ -959,7 +1303,7 @@ local function BuildConfig()
     db.groupCastMin = math.floor(v + 0.5)
     gcValue:SetText(tostring(db.groupCastMin))
     Refresh()
-  end)
+  end, L["Group buff threshold"], function() return cfg.gcValue:GetText() end)
   -- Group-cast offers need group versions of buffs (Classic only): hide the
   -- controls here and move the rest of the column up into their space.
   local castY = 0
@@ -1145,6 +1489,7 @@ local function BuildConfig()
       GameTooltip:Show()
     end)
     x:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    K.Register(x, data, string.format(L["Remove ignored player %d"], i), "button")
     cell.text = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     cell.text:SetPoint("LEFT", x, "RIGHT", 4, 0)
     cell.text:SetPoint("RIGHT", cell, "RIGHT", -2, 0)
@@ -1186,6 +1531,7 @@ local function BuildConfig()
   cfg.profileBox:SetMaxLetters(40)
   cfg.profileBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
   cfg.profileBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+  K.RegisterEdit(cfg.profileBox, data, L["Profile name"])
   local function profName()
     return (cfg.profileBox:GetText() or ""):match("^%s*(.-)%s*$")
   end
@@ -1220,6 +1566,7 @@ local function BuildConfig()
     local name = profName()
     local text = X.ProfileShareText(name)
     if text then
+      K.Stop()
       X.ShowExport(text, false, "BuffRadar profile: " .. name)
     else
       Print("No profile named '" .. name .. "'.")
@@ -1377,6 +1724,8 @@ local function BuildConfig()
       btn:SetText(X.RowColorName(rule))
     end)
     btn:SetPoint("TOPLEFT", 170, -208 - (i - 1) * 26)
+    btn.navigation.label = rd[2]
+    btn.navigation.value = function() return btn:GetText() end
     cfg.colorBtns[rule] = btn
   end
   cfg.classColorCheck = MakeCheck(dpanel, "Class-colored names",
@@ -1421,6 +1770,8 @@ local function BuildConfig()
     cfg.tooltipBtn:SetText(db.tooltipLevel:sub(1, 1):upper() .. db.tooltipLevel:sub(2))
   end)
   cfg.tooltipBtn:SetPoint("TOPLEFT", 110, -446)
+  cfg.tooltipBtn.navigation.label = L["Row tooltips"]
+  cfg.tooltipBtn.navigation.value = function() return cfg.tooltipBtn:GetText() end
   local trimLab = dpanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   trimLab:SetPoint("TOPLEFT", 250, -450)
   trimLab:SetText("Name length")
@@ -1434,6 +1785,8 @@ local function BuildConfig()
     Refresh()
   end)
   cfg.trimBtn:SetPoint("TOPLEFT", 336, -446)
+  cfg.trimBtn.navigation.label = L["Name length"]
+  cfg.trimBtn.navigation.value = function() return cfg.trimBtn:GetText() end
 
   -- Keep search in a separate footer below the tab content.
   local footer = CreateFrame("Frame", nil, cfg)
@@ -1451,6 +1804,9 @@ local function BuildConfig()
   searchBox:SetScript("OnTextChanged", UpdateSearch)
   searchBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
   searchBox:SetScript("OnEscapePressed", CloseSearch)
+  K.RegisterEdit(searchBox, cfg, L["Find in this tab"], function()
+    return cfg.searchHint:GetText()
+  end)
   cfg.searchBox = searchBox
   local searchToggle = CreateFrame("Button", nil, cfg, "UIPanelButtonTemplate")
   searchToggle:SetSize(70, 22)
@@ -1463,6 +1819,7 @@ local function BuildConfig()
     end
   end)
   cfg.searchToggle = searchToggle
+  K.Register(searchToggle, cfg, L["Find in this tab"], "button")
   Tip(cfg.searchToggle, L["Find"], L["Find in this tab (Esc to close)"])
   RegisterSearch(cfg.slider, look, "background opacity " .. L["Background opacity"])
   RegisterSearch(cfg.fadeSlider, look, "idle fade " .. L["Idle fade (mouse away)"])
@@ -1475,11 +1832,15 @@ local function BuildConfig()
     if cfg.searchToggle then cfg.searchToggle:Show() end
     RefreshConfig()
   end)
-  cfg:HookScript("OnHide", CloseSearch)
+  K.Build()
+  Tip(cfg.navButton, L["Keyboard Navigation"], navigationHelp)
+  cfg:HookScript("OnHide", function() K.Stop(true); CloseSearch() end)
   cfg:RegisterEvent("DISPLAY_SIZE_CHANGED")
   cfg:RegisterEvent("UI_SCALE_CHANGED")
-  cfg:SetScript("OnEvent", function()
-    if cfg:IsShown() then ApplyConfigScale() end
+  cfg:RegisterEvent("PLAYER_REGEN_DISABLED")
+  cfg:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_REGEN_DISABLED" then K.Stop(true)
+    elseif cfg:IsShown() then ApplyConfigScale() end
   end)
   SelectTab("look")
   cfg:Hide()
@@ -1664,6 +2025,7 @@ RefreshConfig = function()
   cfg.noBuffs:SetShown(#items == 0)
   cfg.selfCheck:Update()
   if cfg.searchFooter:IsShown() then UpdateSearch() end
+  if K.active and not K.edit and not K.InScope(K.current) then K.Move(1) end
 end
 
 -- Toggles the settings window; forceShow opens it without toggling it closed.
@@ -1682,6 +2044,15 @@ function X.OpenSettingsSearch()
     SelectTab(cfg.curTab or "look")
   end
   OpenSearch()
+end
+
+function X.OpenSettingsNavigation(narrate)
+  if X.PlayerSuspended() or InCombatLockdown() then
+    Print(L["Settings keyboard navigation is unavailable in combat or while dead."])
+    return
+  end
+  OpenConfig(true)
+  K.Start(narrate)
 end
 
 function X.HideConfig()

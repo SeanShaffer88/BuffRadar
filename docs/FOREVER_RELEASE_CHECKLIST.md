@@ -25,6 +25,14 @@ Run this against the exact candidate ZIP after CI passes. Record the version, cl
 - **Settings and safety:** switch settings tabs and confirm search closes; check for overlapping controls and ADDON_ACTION_BLOCKED errors.
 - **Settings search:** use `/br config find` to focus Find. Search the active tab,
   close with Escape, and confirm the query clears and control contrast returns.
+- **Settings keyboard navigation:** run `/br config navigate`. Move forward and
+  back with Tab and Shift+Tab, activate tabs and controls with the displayed
+  activation key, and use the arrow keys where the footer indicates. Include
+  a checkbox, a slider, a dropdown, a native text field, and a secondary settings
+  panel. Confirm focus stays visible and skips hidden or disabled controls.
+- **Settings narration:** run `/br config narrate` and listen for the focus label
+  and current value. Check rapid navigation and text-field editing, then confirm
+  Escape, closing settings, and starting combat return control to the game.
 - **Ready check and wipe:** confirm missing buffs are reported for a group member
   beyond cast range. Check that unreadable aura data is marked unverified and
   a ready check leaves the visible cast target unchanged. In a raid, confirm

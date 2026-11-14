@@ -186,12 +186,15 @@ header space above the list.
 | Buff someone | Click their name in the window |
 | Buff the next person | Your *Cast next buff* key, or the BuffRadar macro |
 | Settings | Gear icon in the bottom-left corner, right-click the minimap button or the addon menu entry, Esc > Options > AddOns > BuffRadar (on clients that list addon options), or `/br config` — hover any setting for a short explanation |
+
 | Show / hide from the minimap | Left-click the minimap button or BuffRadar in the minimap's addon menu |
 | Rebuff timing | Settings > Buffs: a seconds box per buff (empty = the all-buffs time) and one for all buffs |
 | Move the window | Drag it (lock it with `/br lock`) |
 | Resize the window | Drag either bottom corner (scales window, rows and text), or pick a scale in Settings > Window; `/br width <180-400>` sets the width |
 | Hide or show the window | Your *Show / hide window* key, or `/br` |
 | Mute the sound | Your *Mute / unmute sound* key, or `/br sound` |
+
+Use **Keyboard Navigation** in the settings footer or `/br config navigate` outside combat. **Tab** and **Shift+Tab** move between tabs and visible controls. **Enter** or **Space** activates the focused control, and arrow keys adjust sliders and choices. In a text field, **Enter** returns to navigation after editing, **Tab** advances, and **Escape** ends editing using that field's usual cancel behavior. **Escape** from navigation exits the mode. Use `/br config narrate` to start with speech, or **F1** to toggle it while navigating. Narration uses the installed game voice and its rate and volume. The color picker, keybind prompt, setup wizard, and profile share dialog use their own controls.
 
 Hover over a name to see exactly what will be cast and what they still need.
 
@@ -215,6 +218,8 @@ Hover over a name to see exactly what will be cast and what they still need.
 |---|---|
 | `/br` | Show or hide the window |
 | `/br config` | Open the settings window |
+| `/br config navigate` | Open settings in keyboard navigation mode |
+| `/br config narrate` | Open keyboard navigation with the game's text-to-speech voice |
 | `/br key` | Open Key Bindings at the BuffRadar section |
 | `/br macro` | Create the BuffRadar macro |
 | `/br buffs` | List the buffs you can cast and whether each is on |

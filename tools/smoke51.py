@@ -3332,6 +3332,134 @@ step("settings search counts only visible controls and clears on close", functio
     "changing tabs did not restore search appearance")
 end)
 
+step("keyboard settings navigation changes tabs, checkboxes, sliders, and choices", function()
+  local cfg = env.BuffRadarConfig
+  cfg.tabBtns.look:Click()
+  env.SlashCmdList.BUFFRADAR("config navigate")
+  local input = cfg.navInput
+  local function focused(widget)
+    return cfg.navOutline.shown and cfg.navOutline.points[1][2] == widget
+  end
+  local function advanceTo(widget)
+    for _ = 1, 80 do
+      if focused(widget) then return end
+      input.scripts.OnTabPressed(input)
+    end
+    error("could not focus requested control")
+  end
+  assert(input:HasFocus() and focused(cfg.tabBtns.look), "keyboard mode did not focus the first tab")
+  input.scripts.OnTabPressed(input)
+  assert(focused(cfg.tabBtns.alerts), "Tab did not focus Alerts")
+  input.scripts.OnEnterPressed(input)
+  assert(cfg.curTab == "alerts" and focused(cfg.tabBtns.alerts), "Enter did not select Alerts")
+  env.IsShiftKeyDown = function() return true end
+  input.scripts.OnTabPressed(input)
+  env.IsShiftKeyDown = function() return false end
+  input.scripts.OnEnterPressed(input)
+  assert(cfg.curTab == "look" and focused(cfg.tabBtns.look), "Shift-Tab did not return to Window")
+  local check, slider, choice = cfg.titleCheck, cfg.slider, cfg.scaleDrop
+  local enabled, alpha, scale = check:GetChecked(), slider:GetValue(), env.BuffRadarDB.scale
+  advanceTo(check)
+  input.scripts.OnSpacePressed(input)
+  assert(check:GetChecked() ~= enabled, "Space did not activate checkbox")
+  input.scripts.OnEnterPressed(input)
+  advanceTo(slider)
+  input.scripts.OnArrowPressed(input, alpha == 100 and "LEFT" or "RIGHT")
+  assert(slider:GetValue() ~= alpha, "slider did not change via arrow")
+  slider:SetValue(alpha)
+  advanceTo(choice)
+  input.scripts.OnArrowPressed(input, "RIGHT")
+  assert(env.BuffRadarDB.scale ~= scale, "dropdown did not change via arrow")
+  env.BuffRadarDB.scale = scale
+  advanceTo(cfg.displayBtn)
+  input.scripts.OnEnterPressed(input)
+  assert(cfg.displayPanel:IsShown() and not cfg.searchToggle:IsShown(), "display panel did not open")
+  advanceTo(cfg.barsCheck)
+  local bars = cfg.barsCheck:GetChecked()
+  input.scripts.OnEnterPressed(input)
+  assert(cfg.barsCheck:GetChecked() ~= bars, "navigation did not activate a display option")
+  input.scripts.OnEnterPressed(input)
+  input.scripts.OnEscapePressed(input)
+  assert(not input:HasFocus() and not cfg.navOutline.shown, "Escape did not exit navigation")
+  cfg.tabBtns.look:Click()
+end)
+
+step("keyboard settings preserve native text editing and release gameplay focus", function()
+  local cfg = env.BuffRadarConfig
+  cfg.tabBtns.look:Click()
+  env.SlashCmdList.BUFFRADAR("config navigate")
+  local input, search = cfg.navInput, cfg.searchBox
+  local function advanceTo(widget)
+    for _ = 1, 80 do
+      if cfg.navOutline.points[1][2] == widget then return end
+      input.scripts.OnTabPressed(input)
+    end
+    error("could not focus requested control")
+  end
+  advanceTo(cfg.searchToggle)
+  input.scripts.OnEnterPressed(input)
+  assert(search:HasFocus() and cfg.searchFooter:IsShown() and not input:HasFocus(), "Find did not enter native editing")
+  search:SetText("opacity")
+  search.scripts.OnTextChanged(search)
+  search.scripts.OnEnterPressed(search)
+  assert(input:HasFocus() and search:GetText() == "opacity", "search commit did not retain results and return focus")
+  input.scripts.OnEnterPressed(input)
+  search.scripts.OnEscapePressed(search)
+  assert(input:HasFocus() and not cfg.searchFooter:IsShown() and search:GetText() == "", "search escape did not cancel and return")
+  advanceTo(cfg.searchToggle)
+  input.scripts.OnEnterPressed(input)
+  env.__combat = true
+  cfg.scripts.OnEvent(cfg, "PLAYER_REGEN_DISABLED")
+  assert(not search:HasFocus() and not input:HasFocus() and not cfg.navOutline.shown and not cfg.searchFooter:IsShown(),
+    "combat did not release native editing or clean up the settings search")
+  env.__combat = false
+  env.SlashCmdList.BUFFRADAR("config navigate")
+  cfg.titleCheck.scripts.OnMouseDown(cfg.titleCheck)
+  assert(not input:HasFocus() and not cfg.navOutline.shown, "mouse takeover did not exit navigation")
+  env.SlashCmdList.BUFFRADAR("config navigate")
+  cfg:Hide()
+  assert(not input:HasFocus(), "closing settings did not release keyboard mode")
+  env.SlashCmdList.BUFFRADAR("config navigate")
+  local external = env.CreateFrame("EditBox", nil, env.UIParent)
+  external:SetFocus()
+  assert(external:HasFocus() and not input:HasFocus() and not cfg.navOutline.shown,
+    "external focus takeover revived BuffRadar keyboard mode")
+  external:ClearFocus()
+end)
+
+step("settings narration uses the standard game voice and cancels stale speech", function()
+  local cfg = env.BuffRadarConfig
+  local spoken, scheduled = {}, {}
+  local oldVoice, oldEnum, oldSpeech, oldSettings, oldTimer = env.TextToSpeech_GetSelectedVoice, env.Enum,
+    env.C_VoiceChat, env.C_TTSSettings, env.C_Timer
+  env.Enum = { TtsVoiceType = { Standard = 0 } }
+  env.TextToSpeech_GetSelectedVoice = function(voiceType)
+    assert(voiceType == 0, "narration did not select the standard voice")
+    return { voiceID = 42 }
+  end
+  env.C_TTSSettings = { GetSpeechRate = function() return 3 end, GetSpeechVolume = function() return 70 end }
+  env.C_VoiceChat = { SpeakText = function(...) spoken[#spoken + 1] = { ... } end }
+  env.C_Timer = { After = function(_, f) scheduled[#scheduled + 1] = f end }
+  local before = #scheduled
+  env.SlashCmdList.BUFFRADAR("config narrate")
+  cfg.navInput.scripts.OnTabPressed(cfg.navInput)
+  for i = before + 1, #scheduled do scheduled[i]() end
+  assert(#spoken == 1 and spoken[1][1] == 42 and spoken[1][3] == 3 and spoken[1][4] == 70 and spoken[1][5] == false,
+    "narration did not debounce or use the selected voice settings")
+  assert(spoken[1][2] == cfg.navStatus:GetText():gsub("&", " "), "spoken text and focus status diverged")
+  cfg.navInput.scripts.OnTabPressed(cfg.navInput)
+  cfg.navInput.scripts.OnEscapePressed(cfg.navInput)
+  scheduled[#scheduled]()
+  assert(#spoken == 1, "queued narration spoke after navigation exited")
+  env.TextToSpeech_GetSelectedVoice, env.Enum, env.C_VoiceChat, env.C_TTSSettings, env.C_Timer =
+    oldVoice, oldEnum, oldSpeech, oldSettings, oldTimer
+  local count = #chat
+  env.SlashCmdList.BUFFRADAR("config narrate")
+  if env.__timers then env.__timers[#env.__timers]() end
+  assert(cfg.navInput:HasFocus() and #chat > count + 1, "missing voice did not preserve focus and report a status")
+  cfg.navInput.scripts.OnEscapePressed(cfg.navInput)
+end)
+
 step("death recap snapshots the group when you die (1.9.0)", function()
   local cleanup = partyOfTwo("DD")
   local db = env.BuffRadarDB

@@ -14,6 +14,7 @@ NS = NS or {}
 local X = NS.X or {}
 NS.X = X
 local A = X.slashAPI or {}
+local L = X.cfgAPI.L
 
 local db  -- the live settings table; read fresh by syncState (X.GetDB)
 local Print, Refresh, PlayAlert = A.Print, A.Refresh, A.PlayAlert
@@ -198,8 +199,11 @@ local function HandleSlash(msg)
   elseif cmd == "hide" then
     db.hidden, sessionShow = true, false
   elseif cmd == "config" or cmd == "options" or cmd == "settings" then
-    if rest:lower() == "find" and X.OpenSettingsSearch then
+    local subcommand = rest:lower()
+    if subcommand == "find" and X.OpenSettingsSearch then
       X.OpenSettingsSearch()
+    elseif (subcommand == "navigate" or subcommand == "narrate") and X.OpenSettingsNavigation then
+      X.OpenSettingsNavigation(subcommand == "narrate")
     else
       OpenConfig()
     end
@@ -1303,6 +1307,7 @@ local function HandleSlash(msg)
     Print("Commands:")
     Print("  /br  - show/hide the window   (/br debug if it won't appear)")
     Print("  /br config  - settings window   /br config find - search settings")
+    Print(L["  /br config navigate - keyboard navigation   /br config narrate - keyboard navigation with speech"])
     Print("  /br macro  - create a 'BuffRadar' macro that casts the next buff")
     Print("  /br key  - open Key Bindings to bind 'Cast next buff'")
     Print("  /br sound  - toggle the water droplet alert")
