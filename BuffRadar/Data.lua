@@ -23,6 +23,16 @@ do
 end
 X.classic = CLASSIC_FEATURES
 
+-- Forever group spells consume one reagent per cast. The spellbook rank ID
+-- selects the item, because the first ranks of two spells use cheaper items.
+X.groupReagents = {
+  [21562] = 17028, [21564] = 17029, [27681] = 17029, [27683] = 17029,
+  [21849] = 17021, [21850] = 17026, [23028] = 17020,
+  [25782] = 21177, [25916] = 21177, [25894] = 21177, [25918] = 21177,
+  [25898] = 21177, [25895] = 21177, [25890] = 21177, [25899] = 21177,
+  [27141] = 21177, [27143] = 21177, [27169] = 21177,
+}
+
 ---------------------------------------------------------------------------
 -- Buff data. Edit freely.
 --   id/name : rank-1 spell id (used to get the localized name) + English fallback

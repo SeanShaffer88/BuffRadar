@@ -2,6 +2,20 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.16 — Forever test build
+
+- Explain why a nearby player is missing from the list, including when
+  friendly nameplates are off or buff and range information is unavailable.
+- Check reagents for group buffs, offer a single-target cast when the group
+  cast is blocked, and show an estimate of the reagents needed before a pull.
+- Choose a buff rank for the recipient when the client provides their level,
+  and show the next player, spell, and rank in the cast preview.
+- Set a normal blessing for an individual in your current group.
+- View ready-check responses with each member's missing, expiring, or
+  unreadable buff information in a local panel.
+
+In-game verification is pending for this build.
+
 
 ## 1.15.11 — 2026-11-14 — Forever update
 

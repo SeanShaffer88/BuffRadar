@@ -674,8 +674,9 @@ local function HandleSlash(msg)
       Print("Usage: /br why <name> - say why a player is or is not on the list")
     else
       X.Why(nm)
-      Refresh()  -- rebuild the tallies Why's scan touched
     end
+  elseif cmd == "ready" then
+    X.ReadyViewCommand(rest:match("^%s*(.-)%s*$"):lower())
   elseif cmd == "fallsound" then
     local m = rest:lower()
     if m == "on" then db.fallSound = true
@@ -1047,7 +1048,20 @@ local function HandleSlash(msg)
       local cls, bkey, bname = rest:match("^(%S*)%s*(%S*)%s*(.-)%s*$")
       cls = (cls or ""):upper()
       bkey = (bkey or ""):upper()
-      if cls == "PREFER" then
+      if cls == "PLAYER" then
+        local name, key = rest:match("^%S+%s+(.+)%s+(%S+)%s*$")
+        if not name then
+          Print("Usage: /br bless player <player name> <BLESSING|DEFAULT>.")
+        else
+          local who, reason = X.SetBlessingException(name:match("^%s*(.-)%s*$"):lower(), key:upper())
+          if who then
+            Print("Group blessing exception: " .. who .. " = " .. key:upper() .. ".")
+            Refresh()
+          else
+            Print(reason)
+          end
+        end
+      elseif cls == "PREFER" then
         local key = bname:upper()
         if bkey == "" or key == "" then
           Print("Usage: /br bless prefer <CLASS> <BLESSING|DEFAULT>.")
@@ -1356,6 +1370,7 @@ local function HandleSlash(msg)
     Print("  /br offenders  - repeat offenders across sessions   /br context KEY raid|instance|always")
     Print("  /br assign <BUFF> <name>  - leader assigns a buff   /br buddy  - split the list")
     Print("  /br readypost  - also post the ready-check summary to group chat")
+    Print("  /br ready show|hide|next|prev  - local ready-check details")
     Print("  /br death [show]  - recap of who was missing buffs when you died")
     Print("  /br wipe [show]  - rebuff report after a wipe")
     Print("  /br pin <name>  - keep a player at the top   /br pin none  - clear the pin")

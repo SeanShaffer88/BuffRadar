@@ -522,7 +522,10 @@ step("modifier clicks: group spell mapping + shift-click bookkeeping (1.14.0)", 
   row.bSpell = "Power Word: Fortitude"
   row.attrs["type"], row.attrs["spell"] = "spell", 1244
   row.attrs["shift-type1"], row.attrs["shift-spell1"] = nil, nil
-  if NS.X.classic then row.attrs["shift-type1"], row.attrs["shift-spell1"] = "spell", 21562 end
+  if NS.X.classic then
+    row.attrs["shift-type1"], row.attrs["shift-spell1"] = "spell", 21562
+    row.bGroupSpell = "Prayer of Fortitude"
+  end
   env.IsShiftKeyDown = function() return true end
   local expected = NS.X.classic and 21562 or 1244
   row.scripts.PreClick(row, "LeftButton", false)
@@ -552,6 +555,7 @@ step("custom group-cast pairs feed modifier clicks (1.15.0)", function()
   local count = db.castsTotal
   row.entry = { missing = { "Thorns" }, guid = env.UnitGUID("player"), unit = "player" }
   row.bSpell = "Thorns"
+  row.bGroupSpell = "Thorns of the Grove"
   row.attrs["type"], row.attrs["spell"] = "spell", 467
   row.attrs["shift-type1"], row.attrs["shift-spell1"] = "spell", 9999
   env.IsShiftKeyDown = function() return true end
@@ -1374,6 +1378,46 @@ step("ready check reports who is missing buffs (1.4.0)", function()
   local n = #chat
   fire("READY_CHECK")
   assert(chatSince(n, "Ready check: 3 people are missing buffs"), "no ready-check summary")
+  cleanup()
+end)
+step("local ready-check view retains independent coverage and exact responses", function()
+  local cleanup = partyOfTwo("READY")
+  local X, O = NS.X, env.__over
+  local now = 100
+  O.GetTime = function() return now end
+  O.Aura = function(unit)
+    if unit == "party1" then return { expirationTime = now + 15 } end
+    if unit == "party2" then return end
+    return nil
+  end
+  O.AuraList = function(unit) if unit == "party2" then error("unreadable aura") end end
+  env.GetReadyCheckStatus = function(unit) return unit == "player" and "ready" or "waiting" end
+  env.SlashCmdList.BUFFRADAR("ready show")
+  refresh()
+  local tally, armed = X.tally, shownRows().party1
+  armed = armed and armed.row
+  fire("READY_CHECK")
+  local view = env.BuffRadarReadyCheck
+  assert(view and view:IsShown() and view.summary:GetText():find(string.format(X.L["Waiting %d"], 2), 1, true))
+  assert(view.rows[2].detail:GetText():find("15", 1, true), "expiry detail missing")
+  assert(view.rows[3].detail:GetText():find(string.format(X.L["%s unavailable"], ""), 1, true), "unknown aura treated as missing")
+  local current = shownRows().party1
+  assert(X.tally == tally and (current and current.row) == armed, "ready check changed armed rows or scan tallies")
+  fire("READY_CHECK_CONFIRM", "party1", false)
+  assert(view.rows[2].label:GetText():find(X.L["Not ready"], 1, true), "decline lost")
+  env.GetReadyCheckStatus = function() return nil end
+  fire("READY_CHECK_FINISHED", false)
+  assert(view:IsShown() and view.summary:GetText():find(string.format(X.L["No response %d"], 1), 1, true)
+    and view.rows[2].label:GetText():find(X.L["Not ready"], 1, true), "finish cleared captured responses")
+  now = now + 16
+  X.ExpireReadyCheck()
+  assert(not view:IsShown(), "finished ready check did not expire")
+  fire("READY_CHECK")
+  assert(view:IsShown(), "session opt-in lost")
+  fire("READY_CHECK_FINISHED", true)
+  assert(not view:IsShown(), "preempted ready check stayed visible")
+  env.SlashCmdList.BUFFRADAR("ready hide")
+  env.GetReadyCheckStatus = nil
   cleanup()
 end)
 step("group reports respect ignored players and chat refusal", function()
@@ -4574,7 +4618,35 @@ step("/br why explains listing decisions (1.15.0)", function()
   env.SlashCmdList.BUFFRADAR("unignore Aaron")
   n = #chat
   env.SlashCmdList.BUFFRADAR("why Nobody")
-  assert(chatSince(n, "no player named"), "why did not report an unknown name")
+  assert(chatSince(n, "no readable player matches"), "why did not report an unknown name")
+  cleanup()
+end)
+step("/br why finds nearby and mouseover players and disambiguates names", function()
+  local cleanup = partyOfTwo("WHY")
+  local O, X = env.__over, NS.X
+  local oldExists, oldClass, oldGUID, oldName = O.UnitExists, O.UnitClass, O.UnitGUID, O.UnitFullName
+  local extras = { nameplate7 = { "Aaron", "OtherRealm" }, mouseover = { "Nearby", "TestRealm" } }
+  O.UnitExists = function(u) return extras[u] ~= nil or oldExists(u) end
+  O.UnitIsPlayer = O.UnitExists
+  O.UnitFullName = function(u)
+    if extras[u] then return unpack(extras[u]) end
+    return oldName(u)
+  end
+  O.UnitGUID = function(u) return extras[u] and "Player-1-" .. u or oldGUID(u) end
+  O.UnitClass = function(u) if extras[u] then return "Mage", "MAGE" end return oldClass(u) end
+  O.UnitCanAssist = function(_, u) return O.UnitExists(u) end
+  env.IsSpellInRange = function() return 1 end
+  refresh()
+  local before, tally = #chat, X.tally
+  env.SlashCmdList.BUFFRADAR("why Aaron")
+  assert(chatSince(before, "more than one player"), "ambiguous short name was chosen")
+  before = #chat
+  env.SlashCmdList.BUFFRADAR("why Aaron-OtherRealm")
+  assert(chatSince(before, "Aaron is on the list"), "friendly nameplate was not resolved")
+  before = #chat
+  env.SlashCmdList.BUFFRADAR("why Nearby")
+  assert(chatSince(before, "Nearby is on the list"), "mouseover did not resolve")
+  assert(X.tally == tally, "listing diagnostic rebuilt live scan state")
   cleanup()
 end)
 step("pull countdown shows on the coverage line (1.15.0)", function()
@@ -4620,6 +4692,129 @@ step("group-cast keybind button arms the group version (1.15.0)", function()
   end
   env.IsSpellInRange = nil
   cleanup()
+end)
+step("Forever uses the eligible rank and falls back from an unaffordable group cast", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("GroupReagent")
+  local X, O, db = NS.X, env.__over, env.BuffRadarDB
+  local oldSpell, oldCount = env.C_Spell, env.C_Item.GetItemCount
+  local oldMode, oldCast, oldMinimum, oldSelf, oldMod =
+    db.castMethod, db.groupCast, db.groupCastMin, db.includeSelf, db.modClick
+  local oldSort = db.sortMode
+  local stock, targetLevel, queries = 0, 12, 0
+  local ok, err = pcall(function()
+    env.C_Spell = { GetSpellLevelLearned = function(id)
+      return ({ [1243] = 1, [1244] = 24, [21562] = 20, [14752] = 50 })[id]
+    end }
+    env.C_Item.GetItemCount = function(id, banks, charges, reagentBank, accountBank)
+      assert(id == 17028 and not banks and not charges and not reagentBank and not accountBank,
+        "wrong reagent or counted storage outside the bag")
+      queries = queries + 1
+      return stock
+    end
+    O.UnitLevel = function(u) return u == "party1" and targetLevel or 60 end
+    O.Aura = function(u, name)
+      if u == "player" and name == "Inner Fire" then return { expirationTime = env.GetTime() + 1000 } end
+    end
+    env.IsSpellInRange = function() return 1 end
+    db.castMethod, db.groupCast, db.groupCastMin, db.includeSelf, db.modClick = "target", false, 2, false, true
+    db.sortMode = "name"
+    X.InvalidateReagents()
+    refresh()
+    local row = assert(shownRows().party1.row)
+    local nextButton, group = env.BuffRadarNextButton, env.BuffRadarGroupButton
+    assert(row:GetAttribute("spell") == 1243 and nextButton:GetAttribute("spell") == 1243,
+      "low-level target did not receive rank 1: row=" .. tostring(row:GetAttribute("spell")) ..
+      ", next=" .. tostring(nextButton:GetAttribute("spell")) .. ", unit=" ..
+      tostring(nextButton.entry and nextButton.entry.unit) .. ", level=" .. tostring(env.UnitLevel("party1")))
+    assert(row:GetAttribute("shift-spell1") == 1243 and group:GetAttribute("spell") == 1243,
+      "reagent-free fallback did not use the same eligible single-target rank")
+    assert(nextButton.bSpellText == "Power Word: Fortitude(Rank 1)", "preview spell rank differs")
+    assert(queries == 1, "bags were re-read per row")
+    local report = { unknown = 0, people = {
+      { unit = "party1", buffs = { "Power Word: Fortitude" } },
+      { unit = "party2", buffs = { "Power Word: Fortitude" } },
+    } }
+    assert(X.ReagentSummary(report):find("17028 0/1", 1, true), "raid-wide reagent estimate double-counted targets")
+    db.groupCast = true
+    refresh()
+    assert(shownRows().party1.row:GetAttribute("spell") == 1243, "automatic group offer ignored empty bags")
+    stock = 2
+    fire("BAG_UPDATE_DELAYED")
+    refresh()
+    assert(shownRows().party1.row:GetAttribute("spell") == "Prayer of Fortitude", "restocked bags did not arm a group cast")
+    stock = nil
+    fire("BAG_UPDATE_DELAYED")
+    refresh()
+    assert(shownRows().party1.row:GetAttribute("spell") == 1243 and X.NoCastReason():find("Could not check reagent"),
+      "unreadable bags armed a reagent spell or hid the reason")
+    targetLevel = 30
+    refresh()
+    assert(shownRows().party1.row:GetAttribute("spell") == 1244, "level change left a stale cast rank")
+    assert(X.DefaultRank("Divine Spirit", 12) == false, "definitively ineligible single-rank spell was admitted")
+  end)
+  env.C_Spell, env.C_Item.GetItemCount = oldSpell, oldCount
+  db.castMethod, db.groupCast, db.groupCastMin, db.includeSelf, db.modClick =
+    oldMode, oldCast, oldMinimum, oldSelf, oldMod
+  db.sortMode = oldSort
+  X.InvalidateReagents()
+  cleanup()
+  fire("SPELLS_CHANGED")
+  refresh()
+  assert(ok, err)
+end)
+step("Forever blessing exceptions follow group GUIDs and preserve class plans", function()
+  if not env.__forever then return end
+  local cleanup = partyOfTwo("BlessingException")
+  local X, O = NS.X, env.__over
+  local oldName, oldInfo, oldTab = env.GetSpellBookItemName, env.GetSpellBookItemInfo, env.GetSpellTabInfo
+  local oldPlan = X.blessPlan.MAGE
+  local displaced
+  local ok, err = pcall(function()
+    local book = {
+      { "Blessing of Kings", 20217 }, { "Blessing of Wisdom", 19742 },
+      { "Greater Blessing of Kings", 25898 }, { "Greater Blessing of Wisdom", 25894 },
+    }
+    env.GetSpellBookItemName = function(i) if book[i] then return book[i][1], "" end end
+    env.GetSpellBookItemInfo = function(i) if book[i] then return "SPELL", book[i][2] end end
+    env.GetSpellTabInfo = function() return "Holy", nil, 0, #book end
+    fire("SPELLS_CHANGED")
+    refresh()
+    local guid = O.UnitGUID
+    O.UnitGUID = function(u)
+      if u == "target" or u == "party1" then
+        if displaced == "unknown" then error("inaccessible GUID") end
+        if displaced then return "Player-New" end
+        return guid("party1")
+      end
+      return guid(u)
+    end
+    X.blessPlan.MAGE = { key = "KINGS", mine = false }
+    assert(not X.SetBlessingException("target", "WISDOM"), "exception stole another paladin's duty")
+    X.blessPlan.MAGE.mine = true
+    env.SlashCmdList.BUFFRADAR("bless player target WISDOM")
+    assert(X.BlessingForClass("MAGE", "party1").name == "Blessing of Wisdom",
+      "local blessing exception was not applied")
+    local greater, _, _, reason = X.GroupOffer("Blessing of Wisdom", "party1")
+    assert(not greater and reason == "exception", "exception could publish a conflicting Greater cast")
+    displaced = "unknown"
+    X.PruneBlessingExceptions()
+    displaced = nil
+    assert(X.BlessingForClass("MAGE", "party1").name == "Blessing of Wisdom",
+      "temporarily unreadable roster erased the exception")
+    displaced = true
+    X.PruneBlessingExceptions()
+    displaced = nil
+    assert(X.BlessingForClass("MAGE", "party1").name == "Blessing of Kings",
+      "departed player exception was retained")
+  end)
+  env.GetSpellBookItemName, env.GetSpellBookItemInfo, env.GetSpellTabInfo = oldName, oldInfo, oldTab
+  X.blessPlan.MAGE = oldPlan
+  cleanup()
+  X.PruneBlessingExceptions()
+  fire("SPELLS_CHANGED")
+  refresh()
+  assert(ok, err)
 end)
 step("buff falling off mid-fight plays the fall alert (1.15.0, #33)", function()
   if not env.__forever then return end

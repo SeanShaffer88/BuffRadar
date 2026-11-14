@@ -54,3 +54,28 @@ Run this against the exact candidate ZIP after CI passes. Record the version, cl
   beyond cast range. Check that unreadable aura data is marked unverified and
   a ready check leaves the visible cast target unchanged. In a raid, confirm
   the wipe report counts the player once.
+
+## 1.15.16 field checks
+
+- **Nearby-player diagnostics:** With friendly nameplates on, use
+  `/br why <name>` for an ungrouped player without targeting them. Turn
+  nameplates off and repeat with the same player under the mouse. Move the
+  mouse away and verify the message offers a way to diagnose discovery.
+- **Group reagents:** With group casting enabled and enough unbuffed members
+  in range, spend the last reagent. Confirm the next action updates to a
+  single-target cast. Try the row, Shift-click, and Cast Next Group Buff with
+  empty bags, then restock and confirm the group action is available again.
+  Verify the pre-pull estimate distinguishes bags from needed casts.
+- **Recipient rank and identity:** Test a low-level party member and then an
+  ungrouped low-level player. Check the next-cast preview, cast once with
+  `/br clicks` on and confirm the recipient receives the displayed rank. Verify
+  the original target is preserved. Repeat after scrolling, a roster change,
+  and combat. Turn tracing off with `/br clicks`.
+- **Blessing exception:** With two Paladin buff recipients of the same class,
+  give one a different normal blessing. Confirm a group cast does not replace
+  that exception, the other player still follows the class choice, and a
+  departed player does not carry the session exception back on rejoin.
+- **Ready-check detail:** Enable the ready-check view and have group members
+  answer Ready, decline, and leave one response pending. Include missing and
+  soon-expiring buffs. Check the retained results after completion, then leave
+  the group and verify the results clear. Confirm the cast queue stays usable.

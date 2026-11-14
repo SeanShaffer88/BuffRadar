@@ -554,6 +554,35 @@ local L = {
   ["Some buff information is unavailable."] = "Some buff information is unavailable.",
   ["Estimated range"] = "Estimated range",
   ["Friendly nameplates are off."] = "Friendly nameplates are off.",
+  ["Next buff: %s — %s"] = "Next buff: %s — %s",
+  ["Group buff key: %s"] = "Group buff key: %s",
+  ["Group blessing would conflict with a player exception."] = "Group blessing would conflict with a player exception.",
+  ["Could not check reagent: %s."] = "Could not check reagent: %s.",
+  ["Missing reagent: %s."] = "Missing reagent: %s.",
+  ["Estimated group reagents (carried/needed): %s"] = "Estimated group reagents (carried/needed): %s",
+  ["some needs unknown"] = "some needs unknown",
+  ["Use /br plates to see nearby players."] = "Use /br plates to see nearby players.",
+  ["Move closer or use /br why <name>."] = "Move closer or use /br why <name>.",
+  ["No cast target is available."] = "No cast target is available.",
+  ["BuffRadar Ready Check"] = "BuffRadar Ready Check",
+  ["Buffs ignored"] = "Buffs ignored",
+  ["%s missing"] = "%s missing",
+  ["%s expires in %ds"] = "%s expires in %ds",
+  ["%s unavailable"] = "%s unavailable",
+  ["Buff coverage unavailable"] = "Buff coverage unavailable",
+  ["Checked buffs present"] = "Checked buffs present",
+  ["No applicable buffs"] = "No applicable buffs",
+  ["Ready"] = "Ready",
+  ["Not ready"] = "Not ready",
+  ["Waiting"] = "Waiting",
+  ["Unknown"] = "Unknown",
+  ["No response"] = "No response",
+  ["No response %d"] = "No response %d",
+  ["Waiting %d"] = "Waiting %d",
+  ["Ready %d · %s · Not ready %d · Unknown %d"] = "Ready %d · %s · Not ready %d · Unknown %d",
+  ["Players %d–%d of %d · Scroll or /br ready next"] = "Players %d–%d of %d · Scroll or /br ready next",
+  ["Ready-check details will open at the next ready check in your group."] = "Ready-check details will open at the next ready check in your group.",
+  ["Showing buff coverage at the end of the ready check."] = "Showing buff coverage at the end of the ready check.",
   ["Range could not be confirmed; the list may be incomplete."] = "Range could not be confirmed; the list may be incomplete.",
   ["No supported buffs in your spellbook."] = "No supported buffs in your spellbook.",
   ["combat"] = "combat",
@@ -846,7 +875,7 @@ do
     if ok then return RangeResult(value) end
   end
 
-  local function InRange(spell, unit)
+  local function InRange(spell, unit, diagnostic)
     local modern = C_Spell and C_Spell.IsSpellInRange
     local legacy = IsSpellInRange
     if modern then
@@ -877,26 +906,34 @@ do
     -- client has already filtered both by proximity, so the guess is a narrow
     -- one; the row is flagged estimated and a cast that is really too far just
     -- fails with the game's own out-of-range error.
-    X.rangeSilent = true
-    if db.assumeRange then return true, true end
-    return false
+    if not diagnostic then X.rangeSilent = true end
+    if db.assumeRange then return true, true, true end
+    return false, nil, true
   end
 
-  function X.FilterInRange(unit, source, out, isSelf)
+  function X.FilterInRange(unit, source, out, isSelf, diagnostic)
     wipe(out)
     if isSelf == nil then isSelf = X.IsSelf(unit) end
     if isSelf == nil then return 0 end
-    local n, approximate = 0, false
+    local n, approximate, unknown, rankLimited = 0, false, false, false
+    local level = CLASSIC_FEATURES and db.castMethod == "target" and X.ReadUnitNumber(UnitLevel, unit)
     for i = 1, #source do
-      local inRange, estimated
-      if isSelf then inRange = true else inRange, estimated = InRange(source[i], unit) end
+      local inRange, estimated, unreadable
+      if level and X.DefaultRank(source[i], level) == false then
+        rankLimited = true
+      elseif isSelf then
+        inRange = true
+      else
+        inRange, estimated, unreadable = InRange(source[i], unit, diagnostic)
+      end
+      if unreadable then unknown = true end
       if inRange then
         n = n + 1
         out[n] = source[i]
         if n == 1 then approximate = estimated or false end
       end
     end
-    return n, approximate
+    return n, approximate, unknown, rankLimited
   end
 end
 
@@ -1414,10 +1451,80 @@ function X.SetBlessingPreference(class, key)
   return true
 end
 
-function X.BlessingForClass(class)
+function X.BlessingForClass(class, unit)
   local plan = X.blessPlan[class]
-  if plan then return plan.mine and blessKnown[plan.key] or nil end
+  if plan and not plan.mine then return nil end
+  if unit and X.blessingExceptions then
+    local ok, guid = pcall(UnitGUID, unit)
+    local key = ok and SafeString(guid)
+    local exception = key and X.blessingExceptions[key]
+    if exception then return blessKnown[exception] end
+  end
+  if plan then return blessKnown[plan.key] end
   return blessKnown[db.blessingPreferences[class]] or myBlessing[class]
+end
+
+function X.SetBlessingException(name, key)
+  if not CLASSIC_FEATURES or InCombatLockdown() or not InGroup() or X.PlayerSuspended() then
+    return nil, "Join a group and leave combat to set a blessing exception."
+  end
+  if key ~= "DEFAULT" and not blessKnown[key] then return nil, "Choose a blessing you know or use DEFAULT." end
+  local targetGUID
+  if name == "target" then
+    local ok, guid = pcall(UnitGUID, "target")
+    targetGUID = ok and SafeString(guid)
+    if not targetGUID then return nil, "Target an exact party or raid member." end
+  end
+  local exact, exactGUID, short, shortGUID, exactAmbiguous, shortAmbiguous
+  X.ForReportRoster(function(unit, exists)
+    if not exists then return end
+    local full, first = X.Ignore.UnitNames(unit)
+    local ok, guid = pcall(UnitGUID, unit)
+    guid = ok and SafeString(guid)
+    if not guid then return end
+    if guid == targetGUID or (not targetGUID and full and full:lower() == name) then
+      if exactGUID and exactGUID ~= guid then exactAmbiguous = true end
+      exact, exactGUID = unit, guid
+    end
+    if not targetGUID and first and first:lower() == name then
+      if shortGUID and shortGUID ~= guid then shortAmbiguous = true end
+      short, shortGUID = unit, guid
+    end
+  end)
+  local unit = not exactAmbiguous and (exact or (not shortAmbiguous and short))
+  if not unit then return nil, "Choose an exact party or raid member name." end
+  local ok, guid = pcall(UnitGUID, unit)
+  local classOK, _, class = pcall(UnitClass, unit)
+  guid = ok and SafeString(guid)
+  class = classOK and SafeString(class)
+  if not guid or not X.BLESSING_CLASSES[class] then
+    return nil, "Choose an exact party or raid member name."
+  end
+  local plan = X.blessPlan[class]
+  if key ~= "DEFAULT" and plan and not plan.mine then
+    return nil, "The group plan assigns that class to another paladin."
+  end
+  X.blessingExceptions = X.blessingExceptions or {}
+  if key == "DEFAULT" then X.blessingExceptions[guid] = nil
+  else X.blessingExceptions[guid] = key end
+  return X.Ignore.UnitNames(unit)
+end
+
+-- A roster update retires departed GUIDs, even if their unit tokens are reused.
+function X.PruneBlessingExceptions()
+  if not X.blessingExceptions or not next(X.blessingExceptions) then return end
+  if not InGroup() then wipe(X.blessingExceptions); return end
+  local seen, incomplete = {}, false
+  X.ForReportRoster(function(unit, exists)
+    local ok, guid = pcall(UnitGUID, unit)
+    guid = ok and SafeString(guid)
+    if exists and guid then seen[guid] = true end
+    if not exists or not guid then incomplete = true end
+  end)
+  if incomplete then return end
+  for guid in pairs(X.blessingExceptions) do
+    if not seen[guid] then X.blessingExceptions[guid] = nil end
+  end
 end
 
 local function IsOn(key, default)
@@ -1578,7 +1685,7 @@ function X.TrackDeaths(list, extra)
   if extra then X.Track(extra) end
 end
 
-local function Missing(unit, out, isGroup, isSelf, report)
+local function Missing(unit, out, isGroup, isSelf, report, detail)
   wipe(out)
   if not report then X.remainTmp, X.auraUnknown = nil, nil end
   local ok, _, class = pcall(UnitClass, unit)
@@ -1618,12 +1725,18 @@ local function Missing(unit, out, isGroup, isSelf, report)
       end
     end
     if applies and IsOn(b.key, b.default) and X.ContextOK(b.key) then
-      local thr = report and 0 or (db.rebuffPer and db.rebuffPer[b.key]) or db.rebuff
+      local thr = report and report ~= "why" and 0
+        or (db.rebuffPer and db.rebuffPer[b.key]) or db.rebuff
       local has = HasAny(unit, b.names, thr)
       if report then
         checked = true
         if has == nil then unknown = true end
-        if has == false then n = n + 1; out[n] = b.name end
+        if report == "why" and has == false and OnCooldown(b.name) then
+          detail.cooldown[#detail.cooldown + 1] = b.name
+        elseif has == false then
+          n = n + 1; out[n] = b.name
+        end
+        if report == "ready" then X.RecordReadyAura(detail, unit, b.name, b.names, has, b.key) end
       else
           if has == nil then X.auraUnknown = true end
           local t
@@ -1659,7 +1772,7 @@ local function Missing(unit, out, isGroup, isSelf, report)
         end
       end
     end
-    local bl = CLASSIC_FEATURES and X.BlessingForClass(class)
+    local bl = CLASSIC_FEATURES and X.BlessingForClass(class, (isGroup or isSelf) and unit)
     if bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf)
        and X.ContextOK("BLESSINGS") then
       local has = HasAny(unit, bl.names)
@@ -1667,6 +1780,7 @@ local function Missing(unit, out, isGroup, isSelf, report)
         checked = true
         if has == nil then unknown = true end
         if has == false then n = n + 1; out[n] = bl.name end
+        if report == "ready" then X.RecordReadyAura(detail, unit, bl.name, bl.names, has, "BLESSINGS") end
       else
       if has == nil then X.auraUnknown = true end
       local t
@@ -2348,33 +2462,78 @@ function X.ForReportRoster(visit)
   end
 end
 
+function X.ReadyIdentity(unit)
+  local ok, guid = pcall(UnitGUID, unit)
+  local full, name = Ignore.UnitNames(unit)
+  return ok and SafeString(guid) or nil, full, name
+end
+
 -- Coverage is independent of cast distance, cooldowns and window filters.
 -- Keep the report out of the live entry pool so it cannot alter click metadata.
-function X.GroupBuffReport(survivorsOnly)
+function X.GroupBuffReport(survivorsOnly, details)
   local report = { people = {}, buffs = 0, checked = 0, unknown = 0 }
+  if details then report.members = {} end
   X.ForReportRoster(function(unit, exists)
     local dead = X.ReadUnitBool(UnitIsDeadOrGhost, unit)
     if survivorsOnly and dead == true then return end
     local isSelf = X.IsSelf(unit)
+    local full, name
+    if exists then full, name = Ignore.UnitNames(unit) end
+    local detail
+    if details then
+      local guid
+      if exists then guid = X.ReadyIdentity(unit) end
+      detail = { unit = unit, name = name or unit, full = full,
+        guid = guid, missing = {}, expiring = {}, unavailable = {} }
+      report.members[#report.members + 1] = detail
+    end
     if not exists or isSelf == nil or dead ~= false
       or X.ReadUnitBool(UnitIsConnected, unit) == false then
       report.unknown = report.unknown + 1
+      if detail then detail.unknown = true end
       return
     end
-    local full, name = Ignore.UnitNames(unit)
-    if Ignore.Has(full, name) or X.SessionHas(full, name) then return end
-    local buffs = {}
-    local n, unknown, checked = Missing(unit, buffs, true, isSelf, true)
+    if Ignore.Has(full, name) or X.SessionHas(full, name) then
+      if detail then detail.ignored = true end
+      return
+    end
+    local buffs = detail and detail.missing or {}
+    local n, unknown, checked = Missing(unit, buffs, true, isSelf, detail and "ready" or true, detail)
+    if detail then detail.unknown, detail.checked = unknown, checked end
     if unknown then report.unknown = report.unknown + 1
     elseif checked then report.checked = report.checked + 1 end
     if n > 0 then
-      report.people[#report.people + 1] = { name = name or unit, buffs = buffs }
+      report.people[#report.people + 1] = { name = name or unit, buffs = buffs, unit = unit,
+        guid = detail and detail.guid }
       report.buffs = report.buffs + n
     end
   end)
   -- The fallback aura cache belongs to the last scanned unit.
   X.scanUnit = nil
   return report
+end
+
+function X.RecordReadyAura(detail, unit, spell, names, has, key)
+  if has == nil then
+    detail.unavailable[#detail.unavailable + 1] = spell
+  elseif has == true then
+    local limit = (db.rebuffPer and db.rebuffPer[key]) or db.rebuff
+    local longest, timerUnknown = 0, false
+    for _, name in ipairs(names) do
+      local seconds, presence, uncertain = X.Remaining(unit, name)
+      if seconds and seconds > longest then longest = seconds end
+      if presence == "unknown" or (presence == "present" and (not seconds or uncertain)) then
+        timerUnknown = true
+      end
+    end
+    if longest > 0 and longest <= limit and timerUnknown then
+      detail.unavailable[#detail.unavailable + 1] = spell
+    elseif longest > 0 and longest <= limit then
+      detail.expiring[#detail.expiring + 1] = { name = spell, seconds = math_ceil(longest) }
+    elseif longest == 0 and timerUnknown then
+      detail.unavailable[#detail.unavailable + 1] = spell
+    end
+  end
 end
 
 function X.GroupCoverageNote(report)
@@ -2402,9 +2561,9 @@ function X.SnapshotMissing(report)
   return lines
 end
 
-function X.ReadyReport()
+function X.ReadyReport(report)
   if X.PlayerSuspended() then return end
-  local report = X.GroupBuffReport()
+  report = report or X.GroupBuffReport()
   local people = #report.people
   local note = X.GroupCoverageNote(report)
   if people == 0 then
@@ -2495,14 +2654,19 @@ local function LevelLearned(id)
   if lvl and lvl > 0 then return lvl end
 end
 
-local function PickRank(name, unit)
+local function RankRequirement(record)
+  if not record.learned then record.learned = LevelLearned(record.id) end
+  return record.learned
+end
+
+local function PickRank(name, unit, targetLevel)
   local list = ranks[name]
   if not list or #list == 0 then return nil end
-  local targetLevel = unit and X.ReadUnitNumber(UnitLevel, unit) or 0
+  if targetLevel == nil then targetLevel = unit and X.ReadUnitNumber(UnitLevel, unit) or 0 end
   local pick = list[#list]
   if targetLevel and targetLevel > 0 then
     for k = #list, 1, -1 do
-      local req = LevelLearned(list[k].id)
+      local req = RankRequirement(list[k])
       if not req or req - 10 <= targetLevel then pick = list[k]; break end
       pick = list[k]  -- keep falling back toward rank 1
     end
@@ -2510,12 +2674,28 @@ local function PickRank(name, unit)
   return pick
 end
 
-local function CastText(name, unit)
-  local pick = PickRank(name, unit)
+local function CastText(name, pick)
   if pick and pick.sub and pick.sub ~= "" and pick.rank > 0 then
     return name .. "(" .. pick.sub .. ")"
   end
   return name
+end
+
+function X.DefaultRank(spell, level)
+  local list = ranks[spell]
+  if not list or not level or level <= 0 then return nil end
+  for i = #list, 1, -1 do
+    local record = list[i]
+    local requirement = RankRequirement(record)
+    if not requirement then return nil end
+    if requirement - 10 <= level then return #list > 1 and record or nil end
+  end
+  return false
+end
+
+function X.BindingRank(spell, unit, level, method)
+  if method == "target" then return X.DefaultRank(spell, level) end
+  return PickRank(spell, unit, level)
 end
 
 -- Group version of a castable buff, for modifier clicks (1.14.0, Brief 3):
@@ -2526,12 +2706,12 @@ local function GroupSpellFor(spell)
   for _, d in ipairs(X.BUFF_DEFS or {}) do
     if d.groupCast then
       local cn = d.id and SpellName(d.id, d.name) or d.name
-      if cn == spell then return SpellName(d.groupCast[1], d.groupCast[2]) end
+      if cn == spell then return SpellName(d.groupCast[1], d.groupCast[2]), d.groupCast[1] end
     end
   end
   for _, b in pairs(X.BLESSINGS or {}) do
     if b.greater and SpellName(b.id, b.name) == spell then
-      return SpellName(b.greater[1], b.greater[2])
+      return SpellName(b.greater[1], b.greater[2]), b.greater[1], true
     end
   end
   local cg = db and db.customGroup and db.customGroup[spell]
@@ -2540,9 +2720,103 @@ local function GroupSpellFor(spell)
 end
 X.GroupSpellFor = GroupSpellFor
 
-function Bind(btn, unit, spell, isSelf)
-  local pick = PickRank(spell, unit)
-  local gspell = (db.modClick and CLASSIC_FEATURES) and GroupSpellFor(spell) or nil
+local reagents = {}
+local function ReagentCount(item)
+  local cached = reagents[item]
+  if cached ~= nil then return cached end
+  local api = _G.C_Item and _G.C_Item.GetItemCount or _G.GetItemCount
+  local count = X.ReadUnitNumber(api, item, false, false, false, false)
+  reagents[item] = count and count >= 0 and count or false
+  return reagents[item]
+end
+
+function X.InvalidateReagents()
+  wipe(reagents)
+end
+
+local function UnitClassFile(unit)
+  local ok, _, class = pcall(UnitClass, unit)
+  return ok and SafeString(class)
+end
+
+-- Reapplied per roster/scan, shared by automatic, modifier and keybind offers.
+function X.GroupOffer(spell, unit)
+  if not CLASSIC_FEATURES then return nil end
+  local name, baseID, greater = GroupSpellFor(spell)
+  if not name then return nil end
+  local list = ranks[name]
+  local pick = X.BindingRank(name, unit, X.ReadUnitNumber(UnitLevel, unit), db.castMethod)
+  if pick == false or (baseID and not known[name] and not X.ReadUnitBool(_G.IsPlayerSpell, baseID)
+      and not X.ReadUnitBool(_G.IsSpellKnown, baseID)) then return nil end
+  if greater and X.blessingExceptions and next(X.blessingExceptions) then
+    local class, conflict = UnitClassFile(unit), false
+    X.ForReportRoster(function(member, exists)
+      if conflict or not exists or UnitClassFile(member) ~= class then return end
+      local ok, guid = pcall(UnitGUID, member)
+      local key = ok and SafeString(guid)
+      local exception = key and X.blessingExceptions[key]
+      if exception and blessKnown[exception] and (member == unit or blessKnown[exception].name ~= spell) then conflict = true end
+    end)
+    if conflict then return nil, nil, nil, "exception" end
+  end
+  local exact = db.castMethod ~= "macro" and pick
+  local item = X.groupReagents[(exact and exact.id) or (list and list[#list].id) or baseID]
+  local count = item and ReagentCount(item)
+  if count == false or count == 0 then return nil, item, count, "reagent" end
+  return name, item, count, nil, greater
+end
+
+local function ReagentName(item)
+  local api = (_G.C_Item and _G.C_Item.GetItemNameByID) or _G.GetItemInfo
+  if api then
+    local ok, name = pcall(api, item)
+    if ok and type(name) == "string" and Readable(name) and name ~= "" then return name end
+  end
+  return tostring(item)
+end
+
+function X.GroupOfferReason(item, count, reason)
+  if reason == "exception" then return L["Group blessing would conflict with a player exception."] end
+  if reason == "reagent" then
+    return string_format(count == false and L["Could not check reagent: %s."] or L["Missing reagent: %s."],
+      ReagentName(item))
+  end
+end
+
+function X.ReagentSummary(report)
+  if not CLASSIC_FEATURES or not report then return nil end
+  local needed, scopes, unclassified = {}, {}, false
+  for _, person in ipairs(report.people) do
+    for _, spell in ipairs(person.buffs) do
+      local name, _, greater = GroupSpellFor(spell)
+      if name then
+        local offer, item, _, reason = X.GroupOffer(spell, person.unit)
+        local class = not greater and "" or UnitClassFile(person.unit)
+        if item and class then
+          local scope = name .. ":" .. class
+          if scopes[scope] == nil then scopes[scope] = item
+          elseif scopes[scope] ~= item then scopes[scope] = false; unclassified = true end
+        elseif offer or (not class and reason ~= "exception") then
+          unclassified = true
+        end
+      end
+    end
+  end
+  for _, item in pairs(scopes) do
+    if item then needed[item] = (needed[item] or 0) + 1 end
+  end
+  local parts = {}
+  for item, amount in pairs(needed) do
+    local count = ReagentCount(item)
+    parts[#parts + 1] = string_format("%s %s/%d", ReagentName(item), count == false and "?" or count, amount)
+  end
+  if #parts == 0 and not unclassified and report.unknown == 0 then return nil end
+  table_sort(parts)
+  if unclassified or report.unknown > 0 then parts[#parts + 1] = L["some needs unknown"] end
+  return string_format(L["Estimated group reagents (carried/needed): %s"], table.concat(parts, ", "))
+end
+
+function Bind(btn, unit, spell, isSelf, pick, gspell, gpick)
   btn:SetAttribute("shift-type1", nil)
   btn:SetAttribute("shift-spell1", nil)
   btn:SetAttribute("shift-unit1", nil)
@@ -2553,8 +2827,8 @@ function Bind(btn, unit, spell, isSelf)
     -- by their group unit (party2, raid14, ...), so your target never changes.
     -- Anyone else -- nameplate, target or mouseover units, which can point at
     -- a different player by the time you click -- uses BuffYou's approach
-    -- (MIT, by datdata): target them by exact name, cast the buff by plain
-    -- name (your highest rank), then restore your previous target.
+    -- (MIT, by datdata): target them by exact name, cast the buff,
+    -- then restore your previous target.
     -- Group units are rebound on every roster change (GROUP_ROSTER_UPDATE
     -- refreshes the list); only a roster change during combat, while the
     -- list is frozen, can leave a row pointing at whoever took that slot.
@@ -2564,22 +2838,22 @@ function Bind(btn, unit, spell, isSelf)
     btn:SetAttribute("macrotext", nil)
     if isSelf then
       btn:SetAttribute("type", "spell")
-      btn:SetAttribute("spell", spell)
+      btn:SetAttribute("spell", (pick and pick.id) or spell)
       btn:SetAttribute("unit", "player")
       if gspell then
         btn:SetAttribute("shift-type1", "spell")
-        btn:SetAttribute("shift-spell1", gspell)
+        btn:SetAttribute("shift-spell1", (gpick and gpick.id) or gspell)
         btn:SetAttribute("shift-unit1", "player")
       end
       return
     end
     if unit:match("^party%d+$") or unit:match("^raid%d+$") then
       btn:SetAttribute("type", "spell")
-      btn:SetAttribute("spell", spell)
+      btn:SetAttribute("spell", (pick and pick.id) or spell)
       btn:SetAttribute("unit", unit)
       if gspell then
         btn:SetAttribute("shift-type1", "spell")
-        btn:SetAttribute("shift-spell1", gspell)
+        btn:SetAttribute("shift-spell1", (gpick and gpick.id) or gspell)
         btn:SetAttribute("shift-unit1", unit)
       end
       return
@@ -2588,10 +2862,10 @@ function Bind(btn, unit, spell, isSelf)
     name = ok and SafeString(name) or nil  -- a protected name can't build a macro: no cast
     if name and name ~= "" then
       btn:SetAttribute("type", "macro")
-      btn:SetAttribute("macrotext", "/targetexact " .. name .. "\n/cast " .. spell .. "\n/targetlasttarget")
+      btn:SetAttribute("macrotext", "/targetexact " .. name .. "\n/cast " .. CastText(spell, pick) .. "\n/targetlasttarget")
       if gspell then
         btn:SetAttribute("shift-type1", "macro")
-        btn:SetAttribute("shift-macrotext1", "/targetexact " .. name .. "\n/cast " .. gspell .. "\n/targetlasttarget")
+        btn:SetAttribute("shift-macrotext1", "/targetexact " .. name .. "\n/cast " .. CastText(gspell, gpick) .. "\n/targetlasttarget")
       end
     end
   elseif method == "id" and pick and pick.id then
@@ -2600,25 +2874,24 @@ function Bind(btn, unit, spell, isSelf)
     btn:SetAttribute("spell", pick.id)
     btn:SetAttribute("macrotext", nil)
     if gspell then
-      local gpick = PickRank(gspell, unit)
       btn:SetAttribute("shift-type1", "spell")
       btn:SetAttribute("shift-unit1", unit)
       btn:SetAttribute("shift-spell1", (gpick and gpick.id) or gspell)
     end
   else
-    local text = (method == "rank") and CastText(spell, unit) or spell
+    local text = (method == "rank") and CastText(spell, pick) or spell
     btn:SetAttribute("type", "macro")
     btn:SetAttribute("unit", nil)
     btn:SetAttribute("spell", nil)
     btn:SetAttribute("macrotext", "/cast [@" .. unit .. ",help,nodead] " .. text)
     if gspell then
-      local gtext = (method == "rank") and CastText(gspell, unit) or gspell
+      local gtext = (method == "rank") and CastText(gspell, gpick) or gspell
       btn:SetAttribute("shift-type1", "macro")
       btn:SetAttribute("shift-macrotext1", "/cast [@" .. unit .. ",help,nodead] " .. gtext)
     end
   end
 end
-X.PickRank, X.CastText = PickRank, CastText  -- for BindGroup (1.15.0), outside the block
+X.PickRank, X.CastText = PickRank, CastText
 end -- Bind block
 
 ---------------------------------------------------------------------------
@@ -2783,8 +3056,11 @@ function X.BeginCastClick(btn, button, down, label)
   if action == "macro" and not macro then return end
   local nameOfTarget, full, short, preferred = CastTargetNames(entry.unit, macro)
   if not nameOfTarget then return end
-  local name = shift and X.GroupSpellFor(entry.missing[1]) or btn.bSpell or entry.missing[1]
+  local name = (shift and btn.bGroupSpell) or btn.bSpell or entry.missing[1]
   local id = SpellID(btn:GetAttribute(shift and "shift-spell1" or "spell"))
+  if not id then
+    if shift then id = SpellID(btn.bGroupID) else id = SpellID(btn.bActionID) end
+  end
   local list = ranks[name]
   if not id and list and list[1] then
     local pick = db.castMethod == "rank" and X.PickRank(name, entry.unit) or list[#list]
@@ -2816,6 +3092,7 @@ local function ApplyCast(cast, terminal, targetError)
   if terminal == "UNIT_SPELLCAST_SUCCEEDED" then
     local name = cast.spell
     X.failedTargets[cast.guid] = nil
+    X.lastTargetCastProblem = nil
     X.sessionCasts = X.sessionCasts + 1
     db.castsTotal = (db.castsTotal or 0) + 1
     db.stats = db.stats or {}
@@ -2829,7 +3106,10 @@ local function ApplyCast(cast, terminal, targetError)
     X.queueAt = GetTime()
     Trace("attributed", terminal, cast.sentGUID)
   elseif targetError and IsFailedCast(terminal) then
-    X.failedTargets[cast.guid] = GetTime() + 30
+    local expires = GetTime() + 30
+    X.failedTargets[cast.guid] = expires
+    X.lastTargetCastProblem = { guid = cast.guid, expires = expires, message = targetError }
+    Print(cast.who .. ": " .. targetError)
     Trace("target skipped", cast.sentGUID)
     if QueueRefresh then QueueRefresh() end
   end
@@ -2894,13 +3174,13 @@ function X.CastEvent(event, unit, ...)
     local failure = recentFailure
     recentFailure = nil
     if failure and failure.time == GetTime() and message and IsTargetCastFailure(message) then
-      ApplyCast(failure.cast, failure.event, true)
+      ApplyCast(failure.cast, failure.event, message)
     elseif failure then
       Trace("failure reason ignored", failure.cast.sentGUID)
     end
     if dispatch then
       dispatch.hadError = true
-      if not failure and message and IsTargetCastFailure(message) then dispatch.targetError = true end
+      if not failure and message and IsTargetCastFailure(message) then dispatch.targetError = message end
     else
       if awaitingSent and awaitingSent.press then awaitingSent.press.settled = true end
       awaitingSent = nil
@@ -2980,6 +3260,7 @@ end
 
 function X.ResetCastTracking()
   dispatch, awaitingSent, rowPress, recentFailure, pending, seenCastGUIDs = nil, nil, nil, nil, {}, {}
+  X.lastTargetCastProblem = nil
 end
 
 function X.ClearCastIntent()
@@ -3321,6 +3602,7 @@ end
 -- summary, not every roster shuffle afterwards.
 function X.OnRoster()
   local g = InGroup()
+  X.PruneBlessingExceptions()
   if db then X.SendCover() end  -- roster changes refresh a live cover (1.7.0)
   if X.inGroupPrev == false and g and db and db.joinDigest and hasAnyBuff then
     if C_Timer and C_Timer.After then
@@ -3508,12 +3790,13 @@ local function Row_OnEnter(self)
     GameTooltip:AddLine(L["Out of range — move closer to cast:"], 1, 0.5, 0.3)
     GameTooltip:AddLine("|cff00ff00" .. e.missing[1] .. "|r")
   else
-    GameTooltip:AddLine(string_format(L["Click to cast: %s"], "|cff00ff00" .. e.missing[1] .. "|r"))
+    GameTooltip:AddLine(string_format(L["Click to cast: %s"], "|cff00ff00" .. (self.bSpellText or e.missing[1]) .. "|r"))
     if db.modClick and CLASSIC_FEATURES then
-      local gs = X.GroupSpellFor(e.missing[1])
+      local gs = self.bGroupText or self.bGroupSpell
       if gs then
         GameTooltip:AddLine(string_format(L["Shift-click to cast: %s"], "|cff00ff00" .. gs .. "|r"))
       end
+      if self.bOfferReason then GameTooltip:AddLine(self.bOfferReason, 1, 0.7, 0.3) end
     end
   end
   if e.groupCast then
@@ -4177,34 +4460,43 @@ function X.CheckFalls()
 end
 
 -- /br why <name> (1.15.0): explain, in plain words, why a player is or
--- is not on the list. Runs the same checks the scan runs, in the same
--- order, and reports the first one that decides it; when none does, the
--- player is listed and this says what they are missing. Missing() with
--- isGroup=true feeds the coverage tallies, so the caller refreshes
--- right after to rebuild them.
+-- is not on the list. Reuse cast eligibility rules without updating coverage tallies.
 function X.Why(name)
   if not db then return end
   local want = (name or ""):lower()
-  local unit, full, short, isGroup
+  if want == "" then return end
+  local selected, best, ambiguous
   local function try(u, grp)
-    if not UnitExists(u) then return false end
+    if X.ReadUnitBool(UnitExists, u) ~= true or X.ReadUnitBool(UnitIsPlayer, u) ~= true
+      or X.ReadUnitBool(UnitCanAssist, "player", u) == false and u ~= "player" then return end
     local f, s = Ignore.UnitNames(u)
-    if not f then return false end
+    if not f then return end
     local fl, sl = f:lower(), (s or ""):lower()
-    if fl == want or sl == want or fl:find(want, 1, true) or sl:find(want, 1, true) then
-      unit, full, short, isGroup = u, f, s, grp
-      return true
+    local score = fl == want and 3 or sl == want and 2 or fl:find(want, 1, true) and 1 or 0
+    if score == 0 or best and score < best then return end
+    local ok, raw = pcall(UnitGUID, u)
+    local guid = ok and SafeString(raw) or nil
+    if not best or score > best then
+      selected, best, ambiguous = { unit = u, full = f, short = s, group = grp, guid = guid }, score, false
+    elseif (guid and selected.guid and guid ~= selected.guid) or selected.full:lower() ~= fl then
+      ambiguous = true
     end
-    return false
   end
   local list = InRaid() and RAID or PARTY
-  for i = 1, #list do if try(list[i], true) then break end end
-  if not unit then try("player", true) end
-  if not unit then try("target", false) end
-  if not unit then
-    Print("Why: no player named '" .. name .. "' in your group.")
+  try("player", true)
+  for i = 1, #list do try(list[i], true) end
+  try("target", false)
+  try("mouseover", false)
+  for i = 1, #PLATES do try(PLATES[i], false) end
+  if ambiguous then
+    Print("Why: more than one player matches. Use their full name, including realm.")
     return
   end
+  if not selected then
+    Print("Why: no readable player matches '" .. name .. "'. Target or mouse over them, or enable friendly nameplates with /br plates.")
+    return
+  end
+  local unit, full, short, isGroup, guid = selected.unit, selected.full, selected.short, selected.group, selected.guid
   local disp = short or full
   if Ignore.Has(full, short) then
     Print(disp .. " is on your ignore list, so they are never listed. /br unignore " .. disp .. " undoes it.")
@@ -4220,23 +4512,39 @@ function X.Why(name)
     return
   end
   local allMiss, miss = {}, {}
-  local n = Missing(unit, allMiss, isGroup, isSelf)
+  local detail = { cooldown = {} }
+  local n, unknown, checked = Missing(unit, allMiss, isGroup, isSelf, "why", detail)
+  -- The fallback aura index is rebuilt on demand after a diagnostic scan.
+  X.scanUnit = nil
   if n == 0 then
-    if X.auraUnknown then
+    if unknown then
       Print(disp .. ": buff information is unavailable.")
+    elseif #detail.cooldown > 0 then
+      Print(disp .. " needs " .. table.concat(detail.cooldown, ", ") .. ", but those spells are on cooldown.")
+    elseif not checked then
+      Print(disp .. ": no enabled buffs apply to this player.")
     else
       Print(disp .. " already has every buff you can give them.")
     end
     return
   end
-  local inRange = X.FilterInRange(unit, allMiss, miss, isSelf)
+  local inRange, _, rangeUnknown, rankLimited = X.FilterInRange(unit, allMiss, miss, isSelf, true)
   if inRange == 0 then
-    Print(disp .. " needs " .. table.concat(allMiss, ", ") .. " but none are in cast range; move closer before buffing.")
+    Print(disp .. " needs " .. table.concat(allMiss, ", ") .. (rankLimited
+      and ", but no learned rank fits their level, or another needed spell is out of range."
+      or rangeUnknown
+      and ", but the game could not confirm cast range. Move closer and check again."
+      or " but none are in cast range; move closer before buffing."))
     return
   end
-  local guid = SafeString(UnitGUID(unit))
+  if guid and X.failedTargets[guid] and X.failedTargets[guid] > GetTime() then
+    local failure = X.lastTargetCastProblem
+    Print(disp .. " was temporarily skipped after a failed cast."
+      .. (failure and failure.guid == guid and " " .. failure.message or "") .. " Try again in a few seconds.")
+    return
+  end
   for i = 1, nEntries do
-    if entries[i].guid == guid then
+    if guid and entries[i].guid == guid then
       local shown = false
       for r = 1, MAX_ROWS do
         if rows[r] and rows[r].entry == entries[i] then shown = true break end
@@ -4256,7 +4564,13 @@ function X.Why(name)
     Print(disp .. " needs " .. table.concat(miss, ", ") .. ", but the name finder ('" .. X.search .. "') hides them. Clear the finder text to see everyone.")
     return
   end
-  Print(disp .. " is not on the list right now; they need: " .. table.concat(miss, ", ") .. ".")
+  if not guid then
+    Print(disp .. ": the game did not expose a readable player identity. Target them and check again.")
+    return
+  end
+  local reason = X.NoCastReason and X.NoCastReason()
+  Print(disp .. " is not on the list right now; they need: " .. table.concat(miss, ", ") .. "."
+    .. (reason and " " .. reason or ""))
 end
 
 function X.CheckDrops()
@@ -4465,6 +4779,7 @@ function X.ApplyClickThrough()
     if row and row.EnableMouse then row:EnableMouse(mouse) end
   end
   if nextBtn and nextBtn.EnableMouse then nextBtn:EnableMouse(mouse) end
+  if X.nextPreview then X.nextPreview:EnableMouse(mouse) end
   X.ApplyRowWheel()
   if X.UpdateFade then X.UpdateFade() end
 end
@@ -4680,9 +4995,7 @@ X.ClearGroup = ClearGroup
 -- Mirrors Bind's cast-method branches for the single spell it writes;
 -- Bind itself is untouched (rows and the next-buff button keep their
 -- proven path).
-local function BindGroup(btn, unit, spell, isSelf)
-  local gspell = (CLASSIC_FEATURES and X.GroupSpellFor(spell)) or spell
-  local pick = X.PickRank(gspell, unit)
+local function BindGroup(btn, unit, gspell, isSelf, pick)
   local method = db.castMethod
   if method == "target" then
     btn:SetAttribute("type", nil)
@@ -4691,13 +5004,13 @@ local function BindGroup(btn, unit, spell, isSelf)
     btn:SetAttribute("macrotext", nil)
     if isSelf then
       btn:SetAttribute("type", "spell")
-      btn:SetAttribute("spell", gspell)
+      btn:SetAttribute("spell", (pick and pick.id) or gspell)
       btn:SetAttribute("unit", "player")
       return
     end
     if unit:match("^party%d+$") or unit:match("^raid%d+$") then
       btn:SetAttribute("type", "spell")
-      btn:SetAttribute("spell", gspell)
+      btn:SetAttribute("spell", (pick and pick.id) or gspell)
       btn:SetAttribute("unit", unit)
       return
     end
@@ -4705,7 +5018,7 @@ local function BindGroup(btn, unit, spell, isSelf)
     name = ok and SafeString(name) or nil  -- a protected name can't build a macro: no cast
     if name and name ~= "" then
       btn:SetAttribute("type", "macro")
-      btn:SetAttribute("macrotext", "/targetexact " .. name .. "\n/cast " .. gspell .. "\n/targetlasttarget")
+      btn:SetAttribute("macrotext", "/targetexact " .. name .. "\n/cast " .. X.CastText(gspell, pick) .. "\n/targetlasttarget")
     end
   elseif method == "id" and pick and pick.id then
     btn:SetAttribute("type", "spell")
@@ -4713,7 +5026,7 @@ local function BindGroup(btn, unit, spell, isSelf)
     btn:SetAttribute("spell", pick.id)
     btn:SetAttribute("macrotext", nil)
   else
-    local text = (method == "rank") and X.CastText(gspell, unit) or gspell
+    local text = (method == "rank") and X.CastText(gspell, pick) or gspell
     btn:SetAttribute("type", "macro")
     btn:SetAttribute("unit", nil)
     btn:SetAttribute("spell", nil)
@@ -4725,16 +5038,23 @@ local function BindGroupCached(btn, unit, spell, guid)
   if not btn.combatDriver then return false end
   local isSelf = X.IsSelf(unit)
   if isSelf == nil then ClearGroup(); return false end
-  local gspell = (CLASSIC_FEATURES and X.GroupSpellFor(spell)) or spell
+  local offer, item, count, reason = X.GroupOffer(spell, unit)
+  local gspell = offer or spell
   local method = db.castMethod
   local lvl = X.ReadUnitNumber(UnitLevel, unit) or 0
+  local pick = X.BindingRank(gspell, unit, lvl, method)
+  if pick == false then ClearGroup(); return false end
+  local id = pick and pick.id
+  btn.bOfferReason = X.GroupOfferReason(item, count, reason)
   if btn.bGuid == guid and btn.bUnit == unit and btn.bSpell == gspell
-     and btn.bMethod == method and btn.bLevel == lvl and btn.bSelf == isSelf then
+     and btn.bMethod == method and btn.bLevel == lvl and btn.bSelf == isSelf and btn.bRankID == id then
     return btn:GetAttribute("type") ~= nil
   end
-  BindGroup(btn, unit, spell, isSelf)
+  BindGroup(btn, unit, gspell, isSelf, pick)
   btn.bGuid, btn.bUnit, btn.bSpell, btn.bMethod, btn.bLevel = guid, unit, gspell, method, lvl
   btn.bSelf = isSelf
+  btn.bRankID, btn.bActionID, btn.bSpellText = id, id, X.CastText(gspell, pick)
+  if method == "macro" then btn.bActionID, btn.bSpellText = nil, gspell end
   btn.isClear = false
   return btn:GetAttribute("type") ~= nil
 end
@@ -4762,15 +5082,28 @@ local function BindCached(btn, unit, spell, guid)
   end
   local method = db.castMethod
   local lvl = X.ReadUnitNumber(UnitLevel, unit) or 0
+  local pick = X.BindingRank(spell, unit, lvl, method)
+  if pick == false then X.ClearRowCast(btn); return false end
+  local gspell, item, count, reason
+  if db.modClick then gspell, item, count, reason = X.GroupOffer(spell, unit) end
+  if reason then gspell = spell end -- explicit Shift fallback mirrors the primary binding
+  local gpick = gspell and X.BindingRank(gspell, unit, lvl, method)
+  local id, gid = pick and pick.id, gpick and gpick.id
+  btn.bOfferReason = X.GroupOfferReason(item, count, reason)
   if btn.bGuid == guid and btn.bUnit == unit and btn.bSpell == spell
      and btn.bMethod == method and btn.bLevel == lvl and btn.bSelf == isSelf
-     and btn.bMod == (db.modClick and true or false) then
+     and btn.bRankID == id and btn.bGroupSpell == gspell and btn.bGroupRankID == gid then
     return btn:GetAttribute("type") ~= nil
   end
-  Bind(btn, unit, spell, isSelf)
+  Bind(btn, unit, spell, isSelf, pick, gspell, gpick)
   btn.bGuid, btn.bUnit, btn.bSpell, btn.bMethod, btn.bLevel = guid, unit, spell, method, lvl
   btn.bSelf = isSelf
-  btn.bMod = db.modClick and true or false
+  btn.bRankID, btn.bGroupRankID, btn.bGroupSpell = id, gid, gspell
+  btn.bActionID, btn.bGroupID, btn.bSpellText = id, gid, X.CastText(spell, pick)
+  btn.bGroupText = gspell and X.CastText(gspell, gpick)
+  if method == "macro" then
+    btn.bActionID, btn.bGroupID, btn.bSpellText, btn.bGroupText = nil, nil, spell, gspell
+  end
   btn.isClear = false
   return btn:GetAttribute("type") ~= nil
 end
@@ -4780,6 +5113,27 @@ end
 function X.ArmGroupBtn(first)
   if not X.groupBtn then return end
   X.groupBtn.entry = BindGroupCached(X.groupBtn, first.unit, first.missing[1], first.guid) and first or nil
+end
+
+function X.NoCastReason()
+  return X.groupFallback
+    or (X.groupBtn and X.groupBtn.entry and X.groupBtn.bOfferReason)
+end
+
+function X.ShowNextPreview(owner)
+  if InCombatLockdown() or X.PlayerSuspended() or (db.locked and db.clickThrough) then return end
+  local entry = nextBtn and nextBtn.entry
+  if not entry or not nextBtn:GetAttribute("type") then return end
+  GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+  GameTooltip:AddLine(string_format(L["Next buff: %s — %s"], entry.fullName or entry.name,
+    nextBtn.bSpellText or entry.missing[1]), 1, 1, 1, true)
+  local group = X.groupBtn
+  if group and group.entry and group.bSpellText then
+    GameTooltip:AddLine(string_format(L["Group buff key: %s"], group.bSpellText), 0.8, 0.9, 1, true)
+  end
+  local reason = X.NoCastReason()
+  if reason then GameTooltip:AddLine(reason, 1, 0.7, 0.3, true) end
+  GameTooltip:Show()
 end
 
 local function BuildNextButton()
@@ -5067,6 +5421,15 @@ local function BuildUI()
   footerText:SetJustifyH("LEFT")
   if footerText.SetWordWrap then footerText:SetWordWrap(false) end
   X.footerText = footerText
+  if CLASSIC_FEATURES then
+    local preview = CreateFrame("Frame", nil, frame)
+    preview:SetPoint("TOPLEFT", footerText, "TOPLEFT", 0, 0)
+    preview:SetPoint("BOTTOMRIGHT", footerText, "BOTTOMRIGHT", 0, 0)
+    preview:EnableMouse(true)
+    preview:SetScript("OnEnter", X.ShowNextPreview)
+    preview:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    X.nextPreview = preview
+  end
 
   -- Coverage line (1.4.0): "12/15 fully buffed · Fortitude 13/15 · ...",
   -- directly above the footer; Refresh() grows the window when it's shown.
@@ -5744,7 +6107,18 @@ function X.EmptyStatus()
   if X.rangeSilent then
     return L["Range could not be confirmed; the list may be incomplete."]
   end
+  if (X.lastTargetCastProblem and GetTime() < X.lastTargetCastProblem.expires)
+     or (X.NoCastReason and X.NoCastReason()) then return L["No cast target is available."] end
   return L["Everyone nearby is buffed."]
+end
+
+function X.EmptyStatusHint()
+  if X.FriendlyPlatesOn() == false then return L["Use /br plates to see nearby players."] end
+  if X.rangeSilent then return L["Move closer or use /br why <name>."] end
+  if X.lastTargetCastProblem and GetTime() < X.lastTargetCastProblem.expires then
+    return X.lastTargetCastProblem.message
+  end
+  if X.NoCastReason then return X.NoCastReason() end
 end
 
 -- True while the last refresh found nothing that time alone can change: no
@@ -5967,7 +6341,7 @@ local function Refresh()
       return
   end
 
-  X.rowView = nil
+  X.rowView, X.groupFallback = nil, nil
   local n = CollectEntries()
   X.CheckDrops()
   X.CheckRange()
@@ -5997,13 +6371,20 @@ local function Refresh()
       local e = entries[i]
       if e.outOfRange then break end
       local converted = false
-      for _, b in ipairs(myBuffs) do
-        if b.name == e.missing[1] and b.groupName
-           and (tally[b.key] or 0) >= (db.groupCastMin or 3) then
-          e.missing[1] = b.groupName
-          e.groupCast = true
-          converted = true
-          break
+      if e.group then
+        for _, b in ipairs(myBuffs) do
+          if b.name == e.missing[1] and b.groupName
+             and (tally[b.key] or 0) >= (db.groupCastMin or 3) then
+            local offer, item, count, reason = X.GroupOffer(b.name, e.unit)
+            if offer then
+              e.missing[1] = offer
+              e.groupCast = true
+              converted = true
+            else
+              X.groupFallback = X.GroupOfferReason(item, count, reason)
+            end
+            break
+          end
         end
       end
       if converted then break end
@@ -6071,7 +6452,8 @@ local function Refresh()
 
   SetTextIfChanged(countText, n > 0 and n or "")
   if n == 0 then
-    SetTextIfChanged(emptyText, X.EmptyStatus())
+    local hint = X.EmptyStatusHint()
+    SetTextIfChanged(emptyText, X.EmptyStatus() .. (hint and "\n" .. hint or ""))
   end
   SetShownIfChanged(emptyText, n == 0)
 
@@ -6246,6 +6628,7 @@ local function Refresh()
   if X.focusText then SetShownIfChanged(X.focusText, focusShown) end
 
   local h = (X.topH or HEADER_H) + (shown > 0 and rowsTall * (X.rowH or ROW_H) + math_max(0, rowsTall - 1) * (db.rowGap or 0) or 18) + 8
+  if n == 0 and X.EmptyStatusHint() then h = h + 13 end
   if coverShown then h = h + 13 end
   if focusShown then h = h + 13 end
   if viewN > MAX_ROWS then h = h + 14 end
@@ -6338,6 +6721,7 @@ if C_Timer and C_Timer.NewTicker and C_Timer.After then
       if X.ReadUnitBool(_G.UnitIsDeadOrGhost, "player") == false then X.UpdatePlayerLife() end
     end
     if X.playerDead then return end
+    if X.ExpireReadyCheck then X.ExpireReadyCheck() end
     X.UpdateFade()
     if refreshIdle or InCombatLockdown() then return end
     if ScanThrottled() then
@@ -6370,6 +6754,7 @@ else
         if X.ReadUnitBool(_G.UnitIsDeadOrGhost, "player") == false then X.UpdatePlayerLife() end
       end
       if X.playerDead then return end
+      if X.ExpireReadyCheck then X.ExpireReadyCheck() end
       X.UpdateFade()
       if eventPending or not refreshIdle then SafeRefresh() end
     end)
@@ -6440,8 +6825,9 @@ for _, ev in ipairs({
   "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED", "UI_ERROR_MESSAGE",
   "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN", "CVAR_UPDATE", "UPDATE_BINDINGS",
   "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS",
-  "SPELL_DATA_LOAD_RESULT", "UNIT_PORTRAIT_UPDATE",
-  "READY_CHECK", "PLAYER_TALENT_UPDATE", "ACTIVE_TALENT_GROUP_CHANGED",
+  "SPELL_DATA_LOAD_RESULT", "UNIT_PORTRAIT_UPDATE", "BAG_UPDATE_DELAYED",
+  "READY_CHECK", "READY_CHECK_CONFIRM", "READY_CHECK_FINISHED",
+  "PLAYER_TALENT_UPDATE", "ACTIVE_TALENT_GROUP_CHANGED",
   "CHAT_MSG_ADDON", "CHAT_MSG_WHISPER", "CHAT_MSG_SAY", "CHALLENGE_MODE_START",
   "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST", "PLAYER_FLAGS_CHANGED",
   "PLAYER_FOCUS_CHANGED",
@@ -6504,6 +6890,10 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   elseif event == "UPDATE_BINDINGS" then
     if RefreshConfig then RefreshConfig() end
     return
+  elseif event == "BAG_UPDATE_DELAYED" then
+    X.InvalidateReagents()
+    Soon()
+    return
   elseif event == "SPELL_DATA_LOAD_RESULT" then
     if watchedSpells[arg1] then
       watchedSpells[arg1] = nil
@@ -6511,7 +6901,13 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     end
     return
   elseif event == "READY_CHECK" then
-    if db then X.ReadyReport() end
+    if db then X.ReadyReport(X.StartReadyCheck()) end
+    return
+  elseif event == "READY_CHECK_CONFIRM" then
+    if db then X.ConfirmReadyCheck(arg1, (...)) end
+    return
+  elseif event == "READY_CHECK_FINISHED" then
+    if db then X.FinishReadyCheck(arg1) end
     return
   elseif event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED" then
     if db then X.SpecSwap(); Soon() end
@@ -6533,7 +6929,10 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   end
   if event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST" then
     X.UpdatePlayerLife(event)
-    if event == "PLAYER_DEAD" and db and X.DeathRecap then X.DeathRecap(db.deathRecap) end  -- (1.9.0)
+    if event == "PLAYER_DEAD" and db then
+      X.ClearReadyCheck()
+      if X.DeathRecap then X.DeathRecap(db.deathRecap) end
+    end
     return
   end
   if event == "PLAYER_FLAGS_CHANGED" then
@@ -6542,12 +6941,14 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   end
   if event == "PLAYER_ENTERING_WORLD" then
     X.ResetCastTracking()
+    X.ClearReadyCheck()
     X.UpdatePlayerLife(event)
     Soon()
     return
   end
   if event == "GROUP_ROSTER_UPDATE" then
     if db then X.OnRoster() end
+    if not InGroup() then X.ClearReadyCheck() end
     if db and X.AutoProfileCheck then X.AutoProfileCheck() end
     Soon()
     return

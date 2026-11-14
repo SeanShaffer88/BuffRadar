@@ -58,7 +58,9 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
   Fear Ward to warriors, and so on. Paladins give each class one fitting blessing.
 - **One-key buffing.** Bind *Cast next buff* or use the BuffRadar macro to work through
   the list without clicking.
-- **Highest rank.** Buffs are cast by name, so your highest known rank is always used.
+- **Recipient rank.** When Forever provides the recipient's level and spell
+  rank information, BuffRadar can select a rank the recipient can receive.
+  Hover over the window footer to preview the spell prepared for the next player.
 - **Smart checks.** Group versions (Arcane Brilliance, Prayer of Fortitude, Gift of the
   Wild, Greater Blessings) count as "already buffed". Buffs about to expire are offered
   again. Spells on cooldown are skipped.
@@ -67,14 +69,17 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
   instances).
 - **Group-cast offers:** when enough of your party or raid needs the same buff,
   BuffRadar offers the group version (Prayer of Fortitude, Gift of the Wild…)
-  instead — one cast for everyone.
+  instead. If the group spell's reagent is missing, it offers the
+  single-target spell. The ready-check view shows estimated reagent needs.
 - **Only eligible players appear:** your character must know a useful buff, and
   both characters must be out of combat. When Forever cannot report spell-specific
   range, BuffRadar uses the client's proximity estimate. **Right-click a row**
   to ignore a player who doesn't want buffs.
 - **Paladin blessings by class:** choose a known blessing for each class from
   the Buffs tab, or use `/br bless prefer <CLASS> <BLESSING|DEFAULT>`. An active
-  group blessing plan takes precedence.
+  group blessing plan takes precedence. Use
+  `/br bless player <target|name> <BLESSING|DEFAULT>` to set or clear a
+  normal blessing exception for a member of your current group.
 - **Role ordering** option: you, tanks and leaders first.
 - **Rezzed players first** (after you): someone who just came back from the dead
   has lost every buff, so their row jumps up with a *recently rezzed* marker.
@@ -85,7 +90,8 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
 - **Session-only ignore:** Shift-right-click a row to ignore someone until
   you log out (nothing saved).
 - **`/br announce`** posts the group's missing buffs to party/raid chat, and
-  a ready check prints you a local summary.
+  a ready check prints you a local summary. Use `/br ready show` to see
+  individual responses and buff status locally.
 - **Low-mana pause** (optional): listing pauses while your mana is under a
   percentage you set.
 - **Distance ordering** option: nearest first.
@@ -246,6 +252,8 @@ Hover over a name to see exactly what will be cast and what they still need.
 | `/br profile save\|load\|delete\|list <name>` | Named settings profiles |
 | `/br watch` · `/br taxi` | Alert when your single-target buff drops · pause on flight paths |
 | `/br bless <CLASS> <BLESSING> [name]` | Plan which blessing each class gets |
+| `/br bless player <target\|name> <BLESSING\|DEFAULT>` | Set or clear a normal blessing exception for a member of your current group |
+| `/br ready show\|hide\|next\|prev` | Show, hide, or scroll the local ready-check detail |
 | `/br assign <BUFF> <name\|none>` | Leader assigns a buff to one player (rows float/sink by owner) |
 | `/br buddy` · `/br pill` | Split the list with other BuffRadar users · all-buffed pill |
 | `/br pin <name\|none>` · `/br readypost` | Pin a player to the top · post ready-check summaries |
