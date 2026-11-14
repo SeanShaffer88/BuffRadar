@@ -354,8 +354,8 @@ stays hidden on those characters.
 
 - No buffing during combat: the window is hidden, secure buff buttons
   are disabled, and players in combat are excluded.
-- No pre-cast line-of-sight check: when the game reports a failed cast,
-  that target is temporarily skipped so the next keybind press moves on.
+- No pre-cast line-of-sight check. A line-of-sight error can advance the
+  queue when BuffRadar can link it to the attempted cast.
 - No discovery beyond group, target, mouseover and friendly
   nameplates — there is no API for a general nearby-player list.
 

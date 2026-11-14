@@ -468,22 +468,30 @@ step("modifier clicks: group spell mapping + shift-click bookkeeping (1.14.0)", 
     assert(NS.X.GroupSpellFor("Power Word: Fortitude") == nil, "retail defs carry no groupCast")
   end
   local row = env.BuffRadarRow1
-  row.entry = { missing = { "Power Word: Fortitude" }, guid = "g1", sortName = "Bob" }
-  row.attrs["type"] = "spell"
+  local db = env.BuffRadarDB
+  local count = db.castsTotal
+  row.entry = { missing = { "Power Word: Fortitude" }, guid = env.UnitGUID("player"), unit = "player" }
+  row.bSpell = "Power Word: Fortitude"
+  row.attrs["type"], row.attrs["spell"] = "spell", 1244
+  row.attrs["shift-type1"], row.attrs["shift-spell1"] = nil, nil
+  if NS.X.classic then row.attrs["shift-type1"], row.attrs["shift-spell1"] = "spell", 21562 end
   env.IsShiftKeyDown = function() return true end
-  NS.X.pendingCast = nil
+  local expected = NS.X.classic and 21562 or 1244
+  row.scripts.PreClick(row, "LeftButton", false)
+  fire("UNIT_SPELLCAST_SENT", "player", env.UnitName("player"), "cast-shift", expected)
   row.scripts.PostClick(row, "LeftButton", false)
-  if NS.X.classic then
-    assert(NS.X.pendingCast and NS.X.pendingCast.spell == "Prayer of Fortitude",
-      "shift-click booked the wrong spell: " .. tostring(NS.X.pendingCast and NS.X.pendingCast.spell))
-  else
-    assert(NS.X.pendingCast and NS.X.pendingCast.spell == "Power Word: Fortitude", "retail shift-click must book the plain spell")
-  end
+  fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-shift", expected)
+  local spell = NS.X.classic and "Prayer of Fortitude" or "Power Word: Fortitude"
+  assert(db.castsTotal == count + 1 and db.history[#db.history].spell == spell, "wrong modifier spell credited")
   env.IsShiftKeyDown = function() return false end
-  NS.X.pendingCast = nil
+  row.scripts.PreClick(row, "LeftButton", false)
+  fire("UNIT_SPELLCAST_SENT", "player", env.UnitName("player"), "cast-plain", 1244)
   row.scripts.PostClick(row, "LeftButton", false)
-  assert(NS.X.pendingCast and NS.X.pendingCast.spell == "Power Word: Fortitude", "plain click booked the wrong spell")
+  fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-plain", 1244)
+  assert(db.castsTotal == count + 2 and db.history[#db.history].spell == "Power Word: Fortitude",
+    "plain click did not record the correct book spell")
   env.SlashCmdList.BUFFRADAR("modclick off")
+  runQueued()
 end)
 step("custom group-cast pairs feed modifier clicks (1.15.0)", function()
   if not NS.X.classic then return end
@@ -492,17 +500,24 @@ step("custom group-cast pairs feed modifier clicks (1.15.0)", function()
   assert(NS.X.GroupSpellFor("Thorns") == "Thorns of the Grove", "custom pair not used by GroupSpellFor")
   assert(env.BuffRadarDB.customGroup["Thorns"] == "Thorns of the Grove", "pair not saved")
   local row = env.BuffRadarRow1
-  row.entry = { missing = { "Thorns" }, guid = "g1", sortName = "Bob" }
-  row.attrs["type"] = "spell"
+  local db = env.BuffRadarDB
+  local count = db.castsTotal
+  row.entry = { missing = { "Thorns" }, guid = env.UnitGUID("player"), unit = "player" }
+  row.bSpell = "Thorns"
+  row.attrs["type"], row.attrs["spell"] = "spell", 467
+  row.attrs["shift-type1"], row.attrs["shift-spell1"] = "spell", 9999
   env.IsShiftKeyDown = function() return true end
-  NS.X.pendingCast = nil
+  row.scripts.PreClick(row, "LeftButton", false)
+  fire("UNIT_SPELLCAST_SENT", "player", env.UnitName("player"), "cast-custom", 9999)
   row.scripts.PostClick(row, "LeftButton", false)
-  assert(NS.X.pendingCast and NS.X.pendingCast.spell == "Thorns of the Grove",
-    "shift-click ignored the custom pair: " .. tostring(NS.X.pendingCast and NS.X.pendingCast.spell))
+  fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-custom", 9999)
+  assert(db.castsTotal == count + 1 and db.history[#db.history].spell == "Thorns of the Grove",
+    "shift-click ignored the custom pair")
   env.IsShiftKeyDown = function() return false end
   env.SlashCmdList.BUFFRADAR('grouppair clear "Thorns"')
   assert(NS.X.GroupSpellFor("Thorns") == nil, "cleared pair still active")
   env.SlashCmdList.BUFFRADAR("modclick off")
+  runQueued()
 end)
 step("fast aura: unwatched payload skipped, watched payload refreshes (1.14.0)", function()
   if not env.__timers then return end
@@ -842,57 +857,174 @@ step("unreadable unit eligibility results never offer a buff", function()
   cleanup()
   assert(#errors == 0, table.concat(errors, "; "))
 end)
-step("line-of-sight failures skip that target for the session window", function()
+local function clickCast(row, castGUID, spellID, target, during, event, after)
+  row.scripts.PreClick(row, "LeftButton", false)
+  if not after then fire("UNIT_SPELLCAST_SENT", "player", target, castGUID, spellID) end
+  if during then during() end
+  row.scripts.PostClick(row, "LeftButton", false)
+  if after then fire("UNIT_SPELLCAST_SENT", "player", target, castGUID, spellID) end
+  if event then fire(event, "player", castGUID, spellID) end
+end
+
+step("only correlated target failures temporarily skip the target", function()
   local cleanup = partyOfTwo("L")
-  local O = env.__over
-  env.IsSpellInRange = function() return 1 end
+  local O, X = env.__over, NS.X
+  O.IsSpellInRange = function() return 1 end
   refresh()
-  local guid = "Player-1-P1L"
-  NS.X.pendingCast = {
-    spell = "Skyfury", time = env.GetTime(), guid = guid,
-    key = "SKYFURY", who = "Aaron",
-  }
+  local displayed = shownRows().party1
+  assert(displayed, "Aaron's row not found")
+  local row = displayed.row
+  local guid = row.entry.guid
+  local spellID = env.__forever and 1244 or 462854
+  local spell = row.entry.missing[1]
+  local original = env.C_Spell
+  env.C_Spell = { GetSpellIDForSpellIdentifier = function() return spellID end,
+    GetSpellName = function() return spell end }
+  env.SPELL_FAILED_OUT_OF_RANGE = "That target is too distant."
+  clickCast(row, "cast-range", spellID, "Aaron", function()
+    fire("UI_ERROR_MESSAGE", 1, "That target is too distant.")
+    fire("UNIT_SPELLCAST_FAILED", "player", "cast-range", spellID)
+  end)
+  assert(X.failedTargets[guid], "correlated range failure did not skip the target")
+  refresh()
+  assert(not shownRows().party1 and shownRows().party2, "failed target stayed listed or next target disappeared")
+
+  X.failedTargets[guid] = nil
+  refresh()
+  displayed = shownRows().party1
+  assert(displayed, "target did not return after its skip cleared")
+  row = displayed.row
+  clickCast(row, "cast-mana", spellID, "Aaron", function()
+    fire("UI_ERROR_MESSAGE", 1, "Not enough mana.")
+    fire("UNIT_SPELLCAST_FAILED", "player", "cast-mana", spellID)
+  end)
+  assert(not X.failedTargets[guid], "mana failure skipped the player")
+  clickCast(row, "cast-los", spellID, "Aaron")
   fire("UI_ERROR_MESSAGE", 1, "Target is not in line of sight")
-  assert(NS.X.failedTargets[guid], "line-of-sight failure did not mark the target")
-  assert(NS.X.pendingCast == nil, "failed cast remained pending")
-  refresh()
-  local rows = shownRows()
-  assert(not rows.party1 and rows.party2,
-    "failed target stayed listed or the next eligible target disappeared")
-  NS.X.failedTargets[guid] = nil
-  refresh()
-  assert(shownRows().party1, "target did not return after its temporary skip cleared")
+  fire("UNIT_SPELLCAST_FAILED", "player", "cast-los", spellID)
+  assert(not X.failedTargets[guid], "delayed unkeyed error skipped a player")
+  clickCast(row, "cast-target", spellID, "Aaron", function()
+    fire("UI_ERROR_MESSAGE", 1, "Invalid target.")
+    fire("UNIT_SPELLCAST_FAILED", "player", "not-our-cast", spellID)
+  end)
+  fire("UNIT_SPELLCAST_FAILED", "player", "cast-target", spellID)
+  assert(not X.failedTargets[guid], "mismatched or delayed failure skipped a player")
+  env.SPELL_FAILED_OUT_OF_RANGE = nil
+  env.C_Spell = original
   cleanup()
 end)
-step("range and invalid-target failures skip the current player", function()
-  local cleanup = partyOfTwo("R")
-  local X = NS.X
-  local oldOutOfRange = env.SPELL_FAILED_OUT_OF_RANGE
-  local ok, err = pcall(function()
-    env.__over.IsSpellInRange = function() return 1 end
-    if env.C_Spell then env.C_Spell.IsSpellInRange = function() return 1 end end
-    refresh()
-    local guid = "Player-1-P1R"
-    env.SPELL_FAILED_OUT_OF_RANGE = "That target is too distant."
-    X.pendingCast = { spell = "Skyfury", time = env.GetTime(), guid = guid, key = "SKYFURY", who = "Aaron" }
-    fire("UI_ERROR_MESSAGE", 1, "That target is too distant.")
-    assert(X.failedTargets[guid], "localized out-of-range failure did not skip the target")
-    refresh()
-    local rows = shownRows()
-    assert(not rows.party1 and rows.party2, "range failure did not leave the next eligible player available")
-    X.failedTargets[guid] = nil
-    X.pendingCast = { spell = "Skyfury", time = env.GetTime(), guid = guid, key = "SKYFURY", who = "Aaron" }
-    fire("UI_ERROR_MESSAGE", 1, "Invalid target.")
-    assert(X.failedTargets[guid], "invalid-target failure did not skip the target")
-    X.failedTargets[guid] = nil
-    X.pendingCast = { spell = "Skyfury", time = env.GetTime(), guid = guid, key = "SKYFURY", who = "Aaron" }
-    fire("UI_ERROR_MESSAGE", 1, "Not enough mana.")
-    assert(X.pendingCast and not X.failedTargets[guid], "non-target cast failure incorrectly skipped the player")
-    X.pendingCast = nil
-  end)
-  env.SPELL_FAILED_OUT_OF_RANGE = oldOutOfRange
+
+step("Forever event order correlates exact identity and consumes a GUID once", function()
+  local cleanup = partyOfTwo("Attribution")
+  local O, X, db = env.__over, NS.X, env.BuffRadarDB
+  local original = env.C_Spell
+  local spellID = env.__forever and 1244 or 462854
+  env.C_Spell = { GetSpellIDForSpellIdentifier = function() return spellID end }
+  O.IsSpellInRange = function() return 1 end
+  local now = 1000
+  O.GetTime = function() return now end
+  local name = "Moo Tate"
+  local oldName, oldFullName = O.UnitName, O.UnitFullName
+  O.UnitName = function(unit) return unit == "party1" and name or oldName(unit) end
+  O.UnitFullName = function(unit) if unit == "party1" then return name, "TestRealm" end; return oldFullName(unit) end
+  refresh()
+  local row = shownRows().party1.row
+  X.ResetCastTracking()
+  local initial = db.castsTotal
+  local function click(button, down)
+    row.scripts.PreClick(row, button, down or false)
+    row.scripts.PostClick(row, button, down or false)
+  end
+  local function sent(guid, id, target)
+    fire("UNIT_SPELLCAST_SENT", "player", target or name, guid, id or spellID)
+  end
+  local function done(guid, id, terminal)
+    fire(terminal or "UNIT_SPELLCAST_SUCCEEDED", "player", guid, id or spellID)
+  end
+  click("LeftButton", true)
+  sent("wrong-phase"); done("wrong-phase")
+  click("RightButton")
+  sent("right-click"); done("right-click")
+  click("LeftButton")
+  done("manual-no-sent")
+  sent("wrong-player", spellID, "MooTate"); done("wrong-player")
+  sent("after-competition"); done("after-competition")
+  click("LeftButton")
+  sent("wrong-rank", spellID + 1); done("wrong-rank", spellID + 1)
+  click("LeftButton")
+  now = now + 0.300
+  sent("expired"); done("expired")
+  click("LeftButton"); click("LeftButton")
+  sent("overlap"); done("overlap")
+  click("LeftButton")
+  row.scripts.PreClick(row, "LeftButton", false)
+  sent("overlap-in-new-click")
+  row.scripts.PostClick(row, "LeftButton", false)
+  done("overlap-in-new-click")
+  click("LeftButton")
+  local masked = {}
+  env.issecretvalue = function(v) return v == masked end
+  fire("UNIT_SPELLCAST_SENT", "player", name, masked, spellID)
+  local readableFullName = O.UnitFullName
+  O.UnitFullName = function(unit) if unit == "party1" then return name, masked end; return readableFullName(unit) end
+  click("LeftButton")
+  sent("secret-realm"); done("secret-realm")
+  O.UnitFullName = readableFullName
+  env.issecretvalue = nil
+  sent("after-secret"); done("after-secret")
+  assert(db.castsTotal == initial, "unproven spell was attributed")
+
+  click("LeftButton")
+  now = now + 0.050
+  sent("confirmed")
+  done("confirmed", spellID + 1)
+  done("different-guid")
+  assert(db.castsTotal == initial, "wrong terminal credited")
+  done("confirmed"); done("confirmed")
+  assert(db.castsTotal == initial + 1 and db.history[#db.history].who == name, "confirmed cast did not count once")
+  click("LeftButton")
+  sent("confirmed"); done("confirmed")
+  assert(db.castsTotal == initial + 1, "replayed cast GUID counted again")
+
+  click("LeftButton")
+  sent("quiet-fail")
+  done("quiet-fail", spellID, "UNIT_SPELLCAST_FAILED_QUIET"); done("quiet-fail")
+  click("LeftButton")
+  sent("interrupt")
+  done("interrupt", spellID, "UNIT_SPELLCAST_INTERRUPTED"); done("interrupt")
+  assert(db.castsTotal == initial + 1, "failed or interrupted cast was credited")
+
+  row.scripts.PreClick(row, "LeftButton", false)
+  done("synchronous")
+  sent("synchronous")
+  row.scripts.PostClick(row, "LeftButton", false)
+  assert(db.castsTotal == initial + 2, "synchronous out-of-order terminal was missed")
+  local prior = env.BuffRadarNextButton
+  local group = env.BuffRadarGroupButton
+  assert(prior.entry and group.entry, "hidden cast buttons are not armed")
+  clickCast(prior, "key-next", spellID, env.UnitName(prior.entry.unit), nil, "UNIT_SPELLCAST_SUCCEEDED", true)
+  local groupID = env.__forever and 21562 or spellID
+  clickCast(group, "key-group", groupID, env.UnitName(group.entry.unit), nil, "UNIT_SPELLCAST_SUCCEEDED", true)
+  assert(db.castsTotal == initial + 4, "hidden cast button did not record its cast")
+  assert(db.history[#db.history].spell == (env.__forever and "Prayer of Fortitude" or "Skyfury"),
+    "hidden group button recorded the single-target spell")
+  local originalCVar = env.GetCVarBool
+  env.GetCVarBool = function(key) return key == "ActionButtonUseKeyDown" or originalCVar(key) end
+  fire("CVAR_UPDATE", "ActionButtonUseKeyDown")
+  prior.scripts.PreClick(prior, "LeftButton", true)
+  prior.scripts.PostClick(prior, "LeftButton", true)
+  sent("key-down", spellID, env.UnitName(prior.entry.unit)); done("key-down")
+  assert(db.castsTotal == initial + 5, "cast on configured key-down phase did not count")
+  env.GetCVarBool = originalCVar
+  fire("CVAR_UPDATE", "ActionButtonUseKeyDown")
+  click("LeftButton")
+  fire("PLAYER_REGEN_DISABLED")
+  sent("after-combat"); done("after-combat")
+  assert(db.castsTotal == initial + 5, "unconfirmed intent survived combat entry")
+  X.ResetCastTracking()
+  env.C_Spell = original
   cleanup()
-  assert(ok, err)
+  runQueued()
 end)
 
 step("coverage line: progress and per-buff counts (1.4.0)", function()
@@ -1446,10 +1578,9 @@ step("cast sync: your cast is broadcast to other users (1.5.0)", function()
     if r and r.entry and r.entry.unit == "party1" then row = r end
   end
   assert(row, "Aaron's row not found")
-  row.scripts.PostClick(row, "LeftButton")  -- primes the pending cast
-  env.C_Spell = { GetSpellName = function() return "Skyfury" end }
+  env.C_Spell = { GetSpellIDForSpellIdentifier = function() return 462854 end }
   env.__addonSent = {}
-  fire("UNIT_SPELLCAST_SUCCEEDED", "player", "castline", 4242)
+  clickCast(row, "cast-sync", 462854, "Aaron", nil, "UNIT_SPELLCAST_SUCCEEDED", true)
   env.C_Spell = nil
   assert(#env.__addonSent == 1, "no sync broadcast sent (" .. #env.__addonSent .. ")")
   local m = env.__addonSent[1]
@@ -1616,10 +1747,9 @@ step("cast queue: next row tagged after a cast lands (1.6.0)", function()
     if r and r.entry and r.entry.unit == "party1" then row = r end
   end
   assert(row, "Aaron's row not found")
-  local spell = row.entry.missing[1]
-  row.scripts.PostClick(row, "LeftButton")
-  env.C_Spell = { GetSpellName = function() return spell end }
-  fire("UNIT_SPELLCAST_SUCCEEDED", "player", "castline", 4242)
+  local spellID = env.__forever and 1244 or 462854
+  env.C_Spell = { GetSpellIDForSpellIdentifier = function() return spellID end }
+  clickCast(row, "cast-queue", spellID, "Aaron", nil, "UNIT_SPELLCAST_SUCCEEDED", true)
   env.C_Spell = nil
   refresh()
   local tagged
@@ -2026,10 +2156,10 @@ step("cast history records your casts (1.7.0)", function()
     if r and r.entry and r.entry.unit == "party1" then row = r end
   end
   assert(row, "Aaron's row not found")
-  row.scripts.PostClick(row, "LeftButton")  -- primes the pending cast
   local main = env.__forever and "Power Word: Fortitude" or "Skyfury"
-  env.C_Spell = { GetSpellName = function() return main end }
-  fire("UNIT_SPELLCAST_SUCCEEDED", "player", "castline", 4242)
+  local spellID = env.__forever and 1244 or 462854
+  env.C_Spell = { GetSpellIDForSpellIdentifier = function() return spellID end }
+  clickCast(row, "cast-history", spellID, "Aaron", nil, "UNIT_SPELLCAST_SUCCEEDED", true)
   env.C_Spell = nil
   assert(#db.history == 1, "cast not recorded in history")
   assert(db.history[1].spell == main, "history spell: " .. tostring(db.history[1].spell))
@@ -3514,6 +3644,15 @@ step("group-by-buff view (1.10.0)", function()
     "buff row has no cast target")
   assert(r1.entry.missing and r1.entry.missing[1] == firstBuff,
     "buff row would not cast its own spell")
+  assert(r1.entry.castGuid == env.UnitGUID(r1.entry.unit), "folded row lost the real target GUID")
+  local count = db.castsTotal
+  local spellID = env.__forever and 1244 or 462854
+  local oldSpell = env.C_Spell
+  env.C_Spell = { GetSpellIDForSpellIdentifier = function() return spellID end }
+  clickCast(r1, "folded-row-cast", spellID, env.UnitName(r1.entry.unit), nil, "UNIT_SPELLCAST_SUCCEEDED", true)
+  env.C_Spell = oldSpell
+  assert(db.castsTotal == count + 1 and db.history[#db.history].who == env.UnitName(r1.entry.unit),
+    "folded row failed to record its actual recipient")
   env.SlashCmdList.BUFFRADAR("view people")
   assert(db.viewMode == "people", "view mode not restored")
   refresh()
