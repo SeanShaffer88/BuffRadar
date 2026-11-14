@@ -3,6 +3,22 @@
 All notable changes to BuffRadar are listed here. Newest first.
 
 
+## 1.15.9 — 2026-11-14 — Forever update
+
+- Match BuffRadar casts to the game’s cast GUID, spell, and recipient, including
+  characters with two-part names. Count each successful cast once and handle
+  cast events that arrive after either phase of a click.
+- Temporarily skip a target when a matching cast failure is followed by a
+  line-of-sight error in the same frame. Cooldown errors keep the target in
+  the queue.
+- Navigate settings with `/br config navigate` or the **Keyboard Navigation**
+  button. Use `/br config narrate` to hear the focused setting through the
+  game’s text-to-speech voice.
+
+The maintainer confirmed keyboard navigation and narration in field-test
+build `56e47f9` and cast behavior in field-test build `580bf3f` in WoW: Forever
+on 2026-11-14.
+
 ## 1.15.8 — 2026-11-14 — Forever update
 
 - Ready checks and recaps report buff coverage independently of cast range and

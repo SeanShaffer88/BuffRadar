@@ -1,11 +1,11 @@
 # BuffRadar — Features (Forever edition)
 
-The full feature list for BuffRadar 1.15.8 (Forever edition) for
+The full feature list for BuffRadar 1.15.9 (Forever edition) for
 WoW: Forever (Interface 16001). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
 Prepared 2026-10-24 from the shipped 1.3.2 Forever README and
-CHANGELOG; updated 2026-11-14 for 1.15.8. Since 1.3.2 both editions are built from one source —
+CHANGELOG; updated 2026-11-14 for 1.15.9. Since 1.3.2 both editions are built from one source —
 the addon picks the Forever buff set when it loads on the Forever
 client — and the Forever buff set itself is unchanged from 1.2.4.
 **From 1.8.0 BuffRadar is Forever-only**: Retail support was dropped
@@ -361,7 +361,9 @@ stays hidden on those characters.
 
 ## Verification status
 
-**Current stable release:** the 1.15.4 field-test build (the same source tree as 1.15.5) was tested in-game on WoW Classic Forever and passed.
+**Current stable release:** 1.15.9. The maintainer confirmed keyboard navigation
+and narration in field-test build `56e47f9` and cast behavior in field-test build
+`580bf3f` in WoW: Forever on 2026-11-14.
 
 - 1.2.2 and earlier were confirmed working live by SEAN on
   2026-10-20. **1.12.0 was verified in game by SEAN on Forever
