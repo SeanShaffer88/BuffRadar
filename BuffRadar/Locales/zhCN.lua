@@ -5,6 +5,14 @@
 
 BuffRadarLocales = BuffRadarLocales or {}
 BuffRadarLocales.zhCN = {
+  ["Find"] = "查找",
+  ["Find in this tab (Esc to close)"] = "在此标签页查找（Esc 关闭）",
+  ["Matches: %d"] = "匹配项：%d",
+  ["Background opacity"] = "背景不透明度",
+  ["Idle fade (mouse away)"] = "鼠标移开时淡出",
+  ["Window scale"] = "窗口缩放",
+  ["Settings window scale"] = "设置窗口缩放",
+  ["Group buff threshold"] = "团队增益阈值",
   ["Paused in a major city."] = "在主城中已暂停。",
   ["Paused in a battleground."] = "在战场中已暂停。",
   ["Everyone nearby is buffed."] = "附近所有人都已获得增益。",

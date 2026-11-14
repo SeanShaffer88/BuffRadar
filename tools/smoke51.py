@@ -3054,20 +3054,54 @@ step("settings scale fits a small UI and restores the saved preference", functio
   NS.X.RefreshConfig()
 end)
 
-step("settings search dims what does not match (1.8.0)", function()
+step("settings search counts only visible controls and clears on close", function()
   if not (env.BuffRadarConfig and env.BuffRadarConfig.shown) then
     env.SlashCmdList.BUFFRADAR("config")
   end
   local cfg = env.BuffRadarConfig
   local sb = cfg.searchBox
   assert(sb, "no settings search box")
+  cfg.tabBtns.look.scripts.OnClick()
+  cfg.searchToggle.scripts.OnClick(cfg.searchToggle)
+  cfg.titleCheck:SetAlpha(0.8)
   sb:SetText("opacity")
   sb.scripts.OnTextChanged(sb)
-  assert(cfg.slider.alpha == 1, "the opacity slider was dimmed by its own search")
-  assert(cfg.soundCheck.alpha == 0.25, "an unrelated control was not dimmed")
-  sb:SetText("")
+  assert(cfg.slider:GetAlpha() == 1, "the opacity slider was dimmed by its own search")
+  assert(cfg.titleCheck:GetAlpha() == 0.2, "a current-tab non-match was not dimmed")
+  assert(cfg.soundCheck:GetAlpha() == 1, "a different tab's control was changed")
+  assert(NS.X.CfgFilter("opacity") == 1, "current-tab result count was wrong")
+  if env.__german then
+    sb:SetText("hintergrunddeckkraft")
+    sb.scripts.OnTextChanged(sb)
+    assert(cfg.searchHint:GetText() == "Treffer: 1",
+      "a localized search did not match its visible label")
+  end
+  local opacity
+  for _, entry in ipairs(NS.X.cfgReg) do
+    if entry.w == cfg.slider then opacity = entry.keys; break end
+  end
+  assert(opacity)
+  cfg.slider:Hide()
+  assert(NS.X.CfgFilter(opacity) == 0, "a hidden control still counted")
+  cfg.slider:Show()
+  cfg.searchToggle.scripts.OnClick(cfg.searchToggle)
+  assert(not cfg.searchFooter.shown and sb:GetText() == "" and cfg.titleCheck:GetAlpha() == 0.8,
+    "closing Find retained the query or did not restore the original alpha")
+  cfg.titleCheck:SetAlpha(1)
+  cfg.searchToggle.scripts.OnClick(cfg.searchToggle)
+  sb:SetText("opacity")
   sb.scripts.OnTextChanged(sb)
-  assert(cfg.soundCheck.alpha == 1, "clearing the search did not restore the controls")
+  sb.scripts.OnEscapePressed(sb)
+  assert(not cfg.searchFooter.shown and sb:GetText() == "" and cfg.titleCheck:GetAlpha() == 1,
+    "Escape did not close and clear search")
+  cfg.tabBtns.alerts.scripts.OnClick()
+  cfg.searchToggle.scripts.OnClick(cfg.searchToggle)
+  sb:SetText("opacity")
+  sb.scripts.OnTextChanged(sb)
+  assert(NS.X.CfgFilter("opacity") == 0, "a match on Window leaked into Alerts")
+  cfg.tabBtns.look.scripts.OnClick()
+  assert(not cfg.searchFooter.shown and sb:GetText() == "" and cfg.soundCheck:GetAlpha() == 1,
+    "changing tabs did not restore search appearance")
 end)
 
 step("death recap snapshots the group when you die (1.9.0)", function()
@@ -3261,6 +3295,13 @@ step("coverage parts, tooltip levels, names, row colors (1.10.0)", function()
   local arow2 = findRow()
   assert(arow2 and arow2.name.text == "Aaro…",
     "realm + shortened name wrong: " .. tostring(arow2 and arow2.name.text))
+  cleanup2()
+  cleanup2 = partyOfTwo("UTF8")
+  O2.UnitFullName = function(u) if u == "party1" then return "Äë哈😀z", "OtherRealm" end end
+  refresh()
+  arow2 = findRow()
+  assert(arow2 and arow2.name.text == "Äë哈😀…",
+    "shortened name split a UTF-8 character: " .. tostring(arow2 and arow2.name.text))
   db2.showRealm = false
   db2.nameTrim = 0
   cleanup2()

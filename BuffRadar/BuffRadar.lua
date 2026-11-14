@@ -503,6 +503,14 @@ end
 -- Strings with %d / %s are string.format patterns: keep the placeholders.
 -- Any key a translation leaves out falls back to English.
 local L = {
+  ["Find"] = "Find",
+  ["Find in this tab (Esc to close)"] = "Find in this tab (Esc to close)",
+  ["Matches: %d"] = "Matches: %d",
+  ["Background opacity"] = "Background opacity",
+  ["Idle fade (mouse away)"] = "Idle fade (mouse away)",
+  ["Window scale"] = "Window scale",
+  ["Settings window scale"] = "Settings window scale",
+  ["Group buff threshold"] = "Group buff threshold",
   -- window status lines
   ["Paused in a major city."] = "Paused in a major city.",
   ["Paused in a battleground."] = "Paused in a battleground.",
@@ -5115,7 +5123,15 @@ end
 local function DispName(e)
   local nm = (db.showRealm and e.fullName) or e.name or ""
   local trim = db.nameTrim or 0
-  if trim > 0 and #nm > trim then nm = nm:sub(1, trim) .. "…" end
+  if trim > 0 and Readable(nm) and type(nm) == "string" and #nm > trim then
+    local count = 0
+    -- Skip UTF-8 continuation bytes when looking for the first character
+    -- beyond the display limit. Keep the engine's original text if unreadable.
+    for offset in nm:gmatch("()[^\128-\191]") do
+      if count == trim then return nm:sub(1, offset - 1) .. "…" end
+      count = count + 1
+    end
+  end
   return nm
 end
 

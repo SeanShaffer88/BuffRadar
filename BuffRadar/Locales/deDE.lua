@@ -13,6 +13,14 @@
 
 BuffRadarLocales = BuffRadarLocales or {}
 BuffRadarLocales.deDE = {
+  ["Find"] = "Suchen",
+  ["Find in this tab (Esc to close)"] = "In diesem Tab suchen (Esc schließt)",
+  ["Matches: %d"] = "Treffer: %d",
+  ["Background opacity"] = "Hintergrunddeckkraft",
+  ["Idle fade (mouse away)"] = "Verblassen ohne Mauszeiger",
+  ["Window scale"] = "Fensterskalierung",
+  ["Settings window scale"] = "Skalierung der Einstellungen",
+  ["Group buff threshold"] = "Schwelle für Gruppenbuffs",
   -- window status lines
   ["Paused in a major city."] = "In einer Hauptstadt pausiert.",
   ["Paused in a battleground."] = "Auf einem Schlachtfeld pausiert.",
