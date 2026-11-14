@@ -9,6 +9,7 @@ BuffRadarLocales.frFR = {
   ["Paused in a battleground."] = "En pause sur un champ de bataille.",
   ["Everyone nearby is buffed."] = "Tout le monde à proximité est bénéficié.",
   ["Friendly nameplates are off."] = "Les barres de nom amicales sont désactivées.",
+  ["Range could not be confirmed; the list may be incomplete."] = "Portée impossible à vérifier ; la liste peut être incomplète.",
   ["No supported buffs in your spellbook."] = "Aucun buff pris en charge dans votre grimoire.",
   ["combat"] = "combat",
   ["out of range"] = "hors de portée",

@@ -9,6 +9,7 @@ BuffRadarLocales.esES = {
   ["Paused in a battleground."] = "En pausa en un campo de batalla.",
   ["Everyone nearby is buffed."] = "Todos los cercanos tienen sus beneficios.",
   ["Friendly nameplates are off."] = "Las placas de nombre amistosas están desactivadas.",
+  ["Range could not be confirmed; the list may be incomplete."] = "No se puede confirmar el alcance; la lista puede estar incompleta.",
   ["No supported buffs in your spellbook."] = "No hay beneficios compatibles en tu libro de hechizos.",
   ["combat"] = "combate",
   ["out of range"] = "fuera de alcance",

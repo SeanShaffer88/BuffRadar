@@ -9,6 +9,7 @@ BuffRadarLocales.ruRU = {
   ["Paused in a battleground."] = "Пауза на поле боя.",
   ["Everyone nearby is buffed."] = "Все поблизости получили баффы.",
   ["Friendly nameplates are off."] = "Именные таблички дружественных игроков отключены.",
+  ["Range could not be confirmed; the list may be incomplete."] = "Не удалось проверить дальность; список может быть неполным.",
   ["No supported buffs in your spellbook."] = "В книге заклинаний нет поддерживаемых баффов.",
   ["combat"] = "бой",
   ["out of range"] = "вне зоны досягаемости",

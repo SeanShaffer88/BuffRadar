@@ -9,6 +9,7 @@ BuffRadarLocales.zhCN = {
   ["Paused in a battleground."] = "在战场中已暂停。",
   ["Everyone nearby is buffed."] = "附近所有人都已获得增益。",
   ["Friendly nameplates are off."] = "友方姓名板已关闭。",
+  ["Range could not be confirmed; the list may be incomplete."] = "无法确认施法距离；列表可能不完整。",
   ["No supported buffs in your spellbook."] = "你的法术书中没有受支持的增益。",
   ["combat"] = "战斗",
   ["out of range"] = "超出范围",

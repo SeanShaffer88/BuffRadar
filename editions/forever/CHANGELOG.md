@@ -5,11 +5,6 @@ All notable changes to BuffRadar are listed here. Newest first.
 
 ## Unreleased
 
-- Translate the last eight English strings (blessing-plan, default-blessing,
-  estimated-range and cast-count text) in esES, frFR, ruRU and zhCN.
-- SECURITY.md now lists every in-game communication path (addon messages,
-  opt-in group chat posts, local reading of whispers/say for buff requests).
-- Retail guide marked as a frozen edition.
 
 ## 1.15.6 — 2026-11-14 — Forever update
 
