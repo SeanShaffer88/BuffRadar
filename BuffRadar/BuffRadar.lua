@@ -2109,6 +2109,8 @@ local function CollectEntries()
     end
   end
   for guid, h in pairs(X.handled) do if nowT - h.t > 60 then X.handled[guid] = nil end end
+  for key, p in pairs(X.peers) do if nowT - p.t >= 90 then X.peers[key] = nil end end
+  for name, exp in pairs(X.cover) do if exp <= nowT then X.cover[name] = nil end end
   for guid, t in pairs(X.asked) do if nowT - t > 180 then X.asked[guid] = nil end end
   -- Assignments + buddy split (1.6.0): your assigned buffs float, buffs
   -- assigned to someone else sink; with buddy split on, the entries are
@@ -2615,10 +2617,15 @@ function X.InitSync()
   end
 end
 
+local function SyncChannel()
+  if InRaid() then return "RAID" end
+  if InGroup() then return "PARTY" end
+end
+
 -- One broadcast to the group's BuffRadar users (party or raid channel).
 function X.Broadcast(msg)
   if not db or not db.sync then return end
-  local channel = InRaid() and "RAID" or (InGroup() and "PARTY" or nil)
+  local channel = SyncChannel()
   if not channel then return end
   if _G.C_ChatInfo and _G.C_ChatInfo.SendAddonMessage then
     pcall(_G.C_ChatInfo.SendAddonMessage, "BuffRadar", msg, channel)
@@ -2650,21 +2657,6 @@ function X.SendCover()
   X.Broadcast((covered and "COVER;" or "BACK;") .. me)
 end
 
--- The unit a message sender is playing, or nil when they're not in the
--- group right now. Sender names arrive as "Name-Realm".
-function X.SenderUnit(sender)
-  local ks = Ignore.Key(sender)
-  local function hit(u)
-    if not UnitExists(u) then return false end
-    local full, short = Ignore.UnitNames(u)
-    return (full and Ignore.Key(full) == ks) or (short and Ignore.Key(short) == ks)
-  end
-  if hit("player") then return "player" end
-  local list = InRaid() and RAID or PARTY
-  for i = 1, #list do if hit(list[i]) then return list[i] end end
-  return nil
-end
-
 -- Do two player names refer to the same user? Names ride the wire as
 -- typed (often the bare short name), while identity checks use full
 -- "Name-Realm" strings. Same when the full names match, or the short
@@ -2681,95 +2673,177 @@ function X.SameUser(a, b)
   return true
 end
 
--- May this sender set group-wide plans? The leader and assistants may;
--- for blessing plans a paladin may too (paladins plan among themselves).
-function X.SenderTrusted(sender, forBless)
-  local u = X.SenderUnit(sender)
-  if not u then return false end
-  if _G.UnitIsGroupLeader and _G.UnitIsGroupLeader(u) then return true end
-  if _G.UnitIsGroupAssistant and _G.UnitIsGroupAssistant(u) then return true end
-  local idx = u:match("^raid(%d+)$")
-  if idx and GetRaidRosterInfo then
-    local ok, _, rank = pcall(GetRaidRosterInfo, tonumber(idx))
-    if ok and rank and rank >= 1 then return true end
-  end
-  if forBless then
-    local _, cl = UnitClass(u)
-    if cl == "PALADIN" then return true end
-  end
-  return false
-end
+do
+  local supportedKeys = { BLESSINGS = true }
+  for _, def in ipairs(BUFF_DEFS) do supportedKeys[def.key] = true end
+  for _, def in ipairs(X.AURA_DEFS or {}) do supportedKeys[def.key] = true end
 
--- Am I allowed to set group-wide plans from this client?
-function X.AmLead()
-  if _G.UnitIsGroupLeader and _G.UnitIsGroupLeader("player") then return true end
-  if _G.UnitIsGroupAssistant and _G.UnitIsGroupAssistant("player") then return true end
-  if InRaid() and GetRaidRosterInfo then
-    for i = 1, 40 do
-      if X.IsSelf(RAID[i]) == true then
-        local ok, _, rank = pcall(GetRaidRosterInfo, i)
-        if ok and rank and rank >= 1 then return true end
+  local function ReadText(value)
+    return type(value) == "string" and Readable(value)
+  end
+
+  local function ValidName(name)
+    return ReadText(name) and #name <= 128 and name:find("%S") and not name:find("[%c;|]")
+  end
+
+  local function ValidBuffKey(key)
+    return supportedKeys[key] or (#key <= 16 and key:match("^CUSTOM[1-9]%d*$"))
+  end
+
+  -- A refused realm is different from a readable empty realm, which means local.
+  -- The ignore list can fall back to a short name, but roster authorization
+  -- must never fill in a realm the game withheld.
+  local function RosterNames(unit)
+    local ok, name, realm = pcall(UnitFullName or UnitName, unit)
+    if not ok or not ValidName(name) then return end
+    if type(realm) ~= "nil" and (not ReadText(realm) or (realm ~= "" and not ValidName(realm))) then return end
+    if not realm or realm == "" then
+      if GetNormalizedRealmName then
+        local realmOK, localRealm = pcall(GetNormalizedRealmName)
+        if realmOK and ValidName(localRealm) then realm = localRealm end
       end
     end
+    return realm and realm ~= "" and name .. "-" .. realm:gsub("%s+", "") or name, name
   end
-  return false
-end
 
-function X.OnAddonMsg(prefix, msg, sender)
-  if prefix ~= "BuffRadar" or not db or not db.sync then return end
-  if type(msg) ~= "string" or type(sender) ~= "string" then return end
-  local me = Ignore.UnitNames("player")
-  if me and Ignore.Key(sender) == Ignore.Key(me) then return end  -- my own note
-  -- Any traffic from another user marks their presence (buddy split).
-  X.peers[Ignore.Key(sender)] = { t = GetTime(), name = sender }
-  local key, guid = msg:match("^CAST;([%w_]+);(.+)$")
-  if key and guid then
-    X.handled[guid] = { key = key, t = GetTime() }
-    if QueueRefresh then QueueRefresh() end
-    return
-  end
-  -- Buff assignments (1.6.0): only the leader or an assistant may set them.
-  local ak, av = msg:match("^ASSIGN;([%w_]+);(.+)$")
-  if ak then
-    if X.SenderTrusted(sender) then
-      if av == "none" then X.assign[ak] = nil else X.assign[ak] = av end
-      if QueueRefresh then QueueRefresh() end
+  -- Match a full name exactly, or accept a bare name only if it is unique
+  -- across the readable roster. The raid list already includes the player.
+  function X.SenderUnit(sender)
+    if not ValidName(sender) then return end
+    local key = Ignore.Key(sender)
+    local qualified = key:find("-", 1, true)
+    local raid = InRaid()
+    local roster = raid and RAID or PARTY
+    local found, canonical
+    for i = raid and 1 or 0, #roster do
+      local unit = roster[i] or "player"
+      if X.ReadUnitBool(UnitExists, unit) == true then
+        local full, short = RosterNames(unit)
+        if not full then
+          if not qualified then return end
+        elseif key == Ignore.Key(qualified and full or short) then
+          if found then return end
+          found, canonical = unit, full
+        end
+      end
     end
-    return
+    return found, canonical
   end
-  -- Blessing plan (1.6.0, Forever): leaders, assistants and paladins.
-  local bc, bk, bn = msg:match("^BLESS;([%w_]+);([%w_]+);(.+)$")
-  if bc then
-    if X.SenderTrusted(sender, true) then
-      if bn == "none" or bk == "NONE" then
-        X.blessPlan[bc] = nil
+
+  local function HasPlanRole(unit, forBless)
+    if X.ReadUnitBool(_G.UnitIsGroupLeader, unit) == true
+      or X.ReadUnitBool(_G.UnitIsGroupAssistant, unit) == true then return true end
+    local idx = unit:match("^raid(%d+)$")
+    if idx and GetRaidRosterInfo then
+      local ok, _, rank = pcall(GetRaidRosterInfo, tonumber(idx))
+      if ok and type(rank) == "number" and Readable(rank) and (rank == 1 or rank == 2) then
+        return true
+      end
+    end
+    if forBless then
+      local ok, _, class = pcall(UnitClass, unit)
+      return ok and ReadText(class) and class == "PALADIN"
+    end
+    return false
+  end
+
+  function X.SenderTrusted(sender, forBless)
+    local unit = X.SenderUnit(sender)
+    return unit ~= nil and HasPlanRole(unit, forBless)
+  end
+
+  function X.AmLead()
+    if HasPlanRole("player") then return true end
+    if InRaid() then
+      for i = 1, #RAID do
+        if X.IsSelf(RAID[i]) == true then return HasPlanRole(RAID[i]) end
+      end
+    end
+    return false
+  end
+
+  function X.PruneSyncRoster()
+    if not next(X.peers) and not next(X.cover) then return end
+    local roster = InRaid() and RAID or PARTY
+    local present = {}
+    for _, unit in ipairs(roster) do
+      if X.ReadUnitBool(UnitExists, unit) == true then
+        local full = RosterNames(unit)
+        if full then present[Ignore.Key(full)] = true end
+      end
+    end
+    for key in pairs(X.peers) do
+      if not present[key] then X.peers[key] = nil end
+    end
+    for name in pairs(X.cover) do
+      if not present[Ignore.Key(name)] then X.cover[name] = nil end
+    end
+  end
+
+  local function RememberCast(guid, key, now)
+    if not X.handled[guid] then
+      local count, oldestGuid, oldestTime = 0, nil, now
+      for seenGuid, handled in pairs(X.handled) do
+        count = count + 1
+        if not oldestGuid or handled.t < oldestTime then
+          oldestGuid, oldestTime = seenGuid, handled.t
+        end
+      end
+      if count >= 128 then X.handled[oldestGuid] = nil end
+    end
+    X.handled[guid] = { key = key, t = now }
+  end
+
+  function X.OnAddonMsg(prefix, msg, channel, sender)
+    if not db or not db.sync or not ReadText(prefix) or prefix ~= "BuffRadar" then return end
+    if not ReadText(channel) or channel ~= SyncChannel() then return end
+    if not ReadText(msg) or #msg > 255 then return end
+    local kind, first, rest = msg:match("^([A-Z]+);([^;]+)(.*)$")
+    if not kind then return end
+    local unit, name = X.SenderUnit(sender)
+    if not unit then return end
+    local me = RosterNames("player")
+    local senderKey = Ignore.Key(name)
+    if unit == "player" or (me and senderKey == Ignore.Key(me)) then return end
+    if channel == "RAID" then
+      local isSelf = X.IsSelf(unit)
+      if isSelf == true or (isSelf == nil and not me) then return end
+    end
+
+    local now = GetTime()
+    if kind == "CAST" then
+      local guid = rest:match("^;([%a]+%-%w[%w%-]*)$")
+      if not guid or #guid > 85 or not ValidBuffKey(first) then return end
+      RememberCast(guid, first, now)
+    elseif kind == "ASSIGN" then
+      local holder = rest:match("^;([^;]+)$")
+      if not ValidBuffKey(first) or not ValidName(holder) or not HasPlanRole(unit) then return end
+      if holder:lower() == "none" then X.assign[first] = nil else X.assign[first] = holder end
+    elseif kind == "BLESS" then
+      local key, holder = rest:match("^;([%w_]+);([^;]+)$")
+      if not key or not X.BLESSING_CLASSES[first] or not ValidName(holder)
+        or (key ~= "NONE" and not BLESSINGS[key]) or not HasPlanRole(unit, true) then return end
+      if key == "NONE" or holder == "none" then
+        X.blessPlan[first] = nil
       else
-        X.blessPlan[bc] = { key = bk, name = bn,
-                            mine = me ~= nil and X.SameUser(bn, me) }
+        X.blessPlan[first] = { key = key, name = holder, mine = me ~= nil and X.SameUser(holder, me) }
       end
-      if QueueRefresh then QueueRefresh() end
+    elseif kind == "COVER" or kind == "BACK" or kind == "HELLO" or kind == "HERE" then
+      if rest ~= "" or not ValidName(first) or not X.SameUser(first, name) then return end
+      if kind == "COVER" then X.cover[name] = now + 300 end
+      if kind == "BACK" then X.cover[name] = nil end
+    else
+      return
     end
-    return
-  end
-  -- Cover-me handoff (1.7.0): a dead or AFK user's duties pass to the
-  -- rest of us until they're back. No trust gate — covering is a favour,
-  -- and its effect is local (their share stops sinking on my list).
-  if msg:match("^COVER;") then
-    X.cover[sender] = GetTime() + 300
-    if QueueRefresh then QueueRefresh() end
-    return
-  end
-  if msg:match("^BACK;") then
-    for cname in pairs(X.cover) do
-      if X.SameUser(cname, sender) then X.cover[cname] = nil end
+
+    local peer = X.peers[senderKey] or {}
+    peer.t, peer.name = now, name
+    X.peers[senderKey] = peer
+    if kind == "HELLO" and me and (not peer.replyAt or now - peer.replyAt >= 10) then
+      peer.replyAt = now
+      X.Broadcast("HERE;" .. me)
     end
     if QueueRefresh then QueueRefresh() end
-    return
-  end
-  -- Presence ping: answer once so the sender knows a buddy is here.
-  if msg:match("^HELLO;") then
-    if me then X.Broadcast("HERE;" .. me) end
-    return
   end
 end
 
@@ -2891,11 +2965,14 @@ function X.OnRoster()
     local me = Ignore.UnitNames("player")
     if me then X.Broadcast("HELLO;" .. me) end
   end
-  if not g then
+  if g then
+    X.PruneSyncRoster()
+  else
     wipe(X.assign)
     wipe(X.blessPlan)
     wipe(X.peers)
     wipe(X.cover)
+    wipe(X.handled)
     X.upTotal, X.upFull = 0, 0  -- the run is over (1.6.0)
     -- Repeat-offender history (1.8.0): the session that just ended
     -- counts once for everyone who was seen unbuffed during it.
@@ -5854,7 +5931,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     return
   end
   if event == "CHAT_MSG_ADDON" then
-    if db then X.OnAddonMsg(arg1, (select(1, ...)), (select(3, ...))) end
+    if db then X.OnAddonMsg(arg1, ...) end
     return
   end
   if event == "CHAT_MSG_WHISPER" or event == "CHAT_MSG_SAY" then

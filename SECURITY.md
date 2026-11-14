@@ -7,10 +7,11 @@ ignore list, profiles and cast statistics, all on your own machine).
 
 Communication, all inside the game:
 
-- **Addon messages** on the `BuffRadar` prefix, inside your current group only
-  (cast notes, cover-me handoff, group plans). Group-plan messages
-  (assignments, blessing plan) are only accepted from the group leader, an
-  assistant, or — for the blessing plan — a paladin.
+- **Addon messages** on the `BuffRadar` prefix coordinate cast notes,
+  cover-me handoff, and group plans. The receiver requires the current
+  party or raid channel and an unambiguous, readable roster identity.
+  Assignments require a group leader or assistant. Blessing plans also
+  accept a paladin in the group.
 - **Group chat posts**, only when you are the leader or an assistant and the
   matching option is on: the ready-check summary (`readyPost`, off by default)
   and the post-wipe summary (`wipeReport`, off by default).
