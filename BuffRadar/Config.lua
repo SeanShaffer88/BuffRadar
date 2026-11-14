@@ -64,7 +64,8 @@ function K.Modal()
   local preview = assignments and assignments.preview
   local blockers = preview and preview.blockers
   return assignments and assignments:IsShown()
-    and (assignments.coverage and assignments.coverage:IsVisible() and assignments.coverage
+    and (assignments.coordination and assignments.coordination:IsVisible() and assignments.coordination
+      or assignments.coverage and assignments.coverage:IsVisible() and assignments.coverage
       or assignments.practice and assignments.practice:IsVisible()
         and (assignments.practice.review and assignments.practice.review:IsVisible() and assignments.practice.review or assignments.practice)
       or blockers and blockers.review and blockers.review:IsVisible() and blockers.review
@@ -1168,6 +1169,7 @@ function X.OpenPractice()
   X.OpenAssignments()
   local parent = cfg.assignmentPanel
   parent.picker:Hide()
+  if parent.coordination then parent.coordination:Hide() end
   if parent.preview then parent.preview:Hide() end
   if parent.coverage then parent.coverage:Hide() end
   local practice = parent.practice or AssignmentUI.BuildPractice(parent)
@@ -1588,6 +1590,7 @@ end
 function AssignmentUI.OpenPreview(panel)
   if InCombatLockdown() or X.PlayerSuspended() then return end
   panel.picker:Hide()
+  if panel.coordination then panel.coordination:Hide() end
   if panel.coverage then panel.coverage:Hide() end
   panel.preview = panel.preview or AssignmentUI.BuildPreview(panel)
   panel.preview.page = 1
@@ -1728,6 +1731,7 @@ end
 function AssignmentUI.OpenCoverage(panel)
   if InCombatLockdown() or X.PlayerSuspended() then return end
   panel.picker:Hide()
+  if panel.coordination then panel.coordination:Hide() end
   if panel.preview then panel.preview:Hide() end
   if panel.practice then panel.practice:Hide() end
   panel.coverage = panel.coverage or AssignmentUI.BuildCoverage(panel)
@@ -1737,11 +1741,257 @@ function AssignmentUI.OpenCoverage(panel)
   AssignmentUI.RefreshCoverage(view)
 end
 
+function AssignmentUI.UpdateCoordination(view)
+  local model, lines = view.model, {}
+  local leader = model.active == true and model.leader == true
+  if view.tab ~= "inbox" and not leader then view.tab, view.page = "inbox", 1 end
+  local tab = view.tab
+  local pending = model.pending
+  local status = model.reason and L[model.reason]
+    or (model.active and L["Caster Coordination is on for this group."] or L["Caster Coordination is off."])
+  view.notice:SetText(status)
+  view.participation:SetText(model.active and L["Opt Out"] or L["Opt In"])
+  view.tabs.inbox:SetText(pending and L["Inbox"] .. " (1)" or L["Inbox"])
+  if model.active or model.available then view.participation:Enable() else view.participation:Disable() end
+  for key, button in pairs(view.tabs) do
+    button:SetShown(model.active == true and (key == "inbox" or leader))
+    if key == tab then button:Disable() else button:Enable() end
+  end
+  view.request:SetShown(leader and tab == "reports")
+  if model.canRequest then view.request:Enable() else view.request:Disable() end
+  view.review:SetShown(leader and (tab == "reports" or tab == "draft") and model.reportRequest == true)
+  view.publish:SetShown(leader and tab == "draft" and model.draft ~= nil)
+  if model.canPublish then view.publish:Enable() else view.publish:Disable() end
+  view.need:SetShown(leader and tab == "reports")
+  view.needLabel:SetShown(leader and tab == "reports")
+  view.add:SetShown(leader and tab == "reports")
+  view.inbox:SetShown(tab == "inbox" and pending ~= nil)
+  if pending and not pending.reviewed then view.inbox:Enable() else view.inbox:Disable() end
+  view.accept:SetShown(tab == "inbox" and pending ~= nil)
+  view.decline:SetShown(tab == "inbox" and pending ~= nil)
+  if pending and pending.reviewed then view.accept:Enable() else view.accept:Disable() end
+
+  if model.active and tab == "reports" then
+    if model.reportRequest then
+      for _, report in ipairs(model.reports or {}) do
+        local keys = report.keys
+        lines[#lines + 1] = { title = report.name, detail = keys and
+          (#keys > 0 and table.concat(keys, ", ") or L["No learned buff capabilities have been reported."]) or L["No response"] }
+      end
+    else
+      lines[1] = { title = L["No caster reports requested."] }
+    end
+  elseif model.active and tab == "draft" then
+    for _, row in ipairs(model.draft or {}) do
+      lines[#lines + 1] = { title = row.key, detail = row.before .. " → " .. row.after }
+    end
+    if #lines == 0 then
+      lines[1] = { title = model.draft and L["No learned buff capabilities have been reported."] or L["No reviewed draft."] }
+    end
+  elseif model.active and tab == "delivery" then
+    local delivery = { sent = L["Awaiting acknowledgement"], acknowledged = L["Acknowledged"],
+      failed = L["Send failed"], localOnly = L["Assigned locally"] }
+    for _, recipient in ipairs(model.sent or {}) do
+      lines[#lines + 1] = { title = recipient.name, detail = delivery[recipient.status] }
+    end
+    if #lines == 0 then lines[1] = { title = L["No plan has been published."] } end
+    view.notice:SetText(L["Delivery status is separate from buff coverage."])
+  elseif model.active and tab == "inbox" then
+    if pending then
+      lines[1] = { title = string.format(L["Plan from %s"], pending.name) }
+      for _, key in ipairs(pending.keys) do lines[#lines + 1] = { title = key } end
+      if #pending.keys == 0 then lines[2] = { title = L["No assigned buffs"] } end
+    else
+      lines[1] = { title = L["No plan waiting for review."] }
+    end
+    if model.accepted then
+      lines[#lines + 1] = { title = string.format(L["Your accepted duties: %s"], table.concat(model.accepted.keys, ", ")) }
+    end
+  end
+  local pages = math.max(1, math.ceil(#lines / #view.rows))
+  view.page = math.max(1, math_min(view.page, pages))
+  view.previous:SetShown(view.page > 1)
+  view.next:SetShown(view.page < pages)
+  for index, row in ipairs(view.rows) do
+    local line = lines[(view.page - 1) * #view.rows + index]
+    local previousTitle, previousDetail = row.title:GetText(), row.detail:GetText()
+    row.title:SetText(line and line.title or "")
+    row.detail:SetText(line and line.detail or "")
+    row:SetShown(line ~= nil)
+    if line and K.active and not K.edit and K.current == row.navigation
+      and (previousTitle ~= line.title or previousDetail ~= (line.detail or "")) then K.Focus(row.navigation) end
+  end
+  if K.active and not K.edit and not K.InScope(K.current) then K.Move(1) end
+end
+
+function AssignmentUI.RefreshCoordination(view)
+  if not view:IsVisible() or InCombatLockdown() or X.PlayerSuspended() then return end
+  local model = X.CoordinationSnapshot()
+  local before = view.model
+  if before and before.generation ~= model.generation then
+    view.page = 1
+    view.need:ClearFocus()
+    view.need:SetText("")
+  end
+  view.model = model
+  AssignmentUI.UpdateCoordination(view)
+  local deadline = model.nextRefreshAt
+  if view.deadline == deadline then return end
+  view.deadline, view.refreshTicket = deadline, nil
+  if deadline and C_Timer and C_Timer.After then
+    local ticket = {}
+    view.refreshTicket = ticket
+    C_Timer.After(math.max(0.05, deadline - GetTime() + 0.05), function()
+      if view.refreshTicket ~= ticket then return end
+      view.deadline, view.refreshTicket = nil, nil
+      AssignmentUI.RefreshCoordination(view)
+    end)
+  end
+end
+
+function X.QueueCoordinationRefresh()
+  local panel = cfg and cfg.assignmentPanel
+  local view = panel and panel.coordination
+  if view then AssignmentUI.RefreshCoordination(view) end
+end
+
+function AssignmentUI.BuildCoordination(panel)
+  local view = AssignmentUI.CreatePanel(panel, "BuffRadarCasterCoordination", 574, 405, panel:GetFrameLevel() + 5)
+  local title = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  title:SetPoint("TOPLEFT", 16, -14)
+  title:SetText(L["Caster Coordination"])
+  AssignmentUI.CloseButton(view, function() view:Hide() end)
+  view.notice = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  view.notice:SetPoint("TOPLEFT", 17, -44)
+  view.notice:SetPoint("TOPRIGHT", -147, -44)
+  view.notice:SetJustifyH("LEFT")
+  view.notice:SetWordWrap(true)
+  local function command(action, value, selected)
+    if not view:IsVisible() or not view.model or InCombatLockdown() or X.PlayerSuspended() then return end
+    if selected then view.tab, view.page = selected, 1 end
+    X.Coordinate(action, value, view.model.token)
+    AssignmentUI.RefreshCoordination(view)
+  end
+  view.participation = MakeButton(view, L["Opt In"], 124, function()
+    if view.model then command(view.model.active and "off" or "on", nil, "reports") end
+  end)
+  view.participation:SetPoint("TOPRIGHT", -16, -39)
+  view.tabs = {}
+  local sections = { { "reports", L["Reports"] }, { "draft", L["Draft"] },
+    { "delivery", L["Delivery"] }, { "inbox", L["Inbox"] } }
+  for index, section in ipairs(sections) do
+    local key = section[1]
+    local tab = MakeButton(view, section[2], 124, function()
+      view.tab, view.page = key, 1
+      AssignmentUI.RefreshCoordination(view)
+    end)
+    tab:SetPoint("TOPLEFT", 16 + (index - 1) * 132, -77)
+    view.tabs[key] = tab
+  end
+  local function move(delta)
+    if not view.model then return end
+    view.page = view.page + delta
+    AssignmentUI.RefreshCoordination(view)
+  end
+  local function wheel(_, delta) move(delta > 0 and -1 or 1) end
+  view:EnableMouseWheel(true)
+  view:SetScript("OnMouseWheel", wheel)
+  view.rows = {}
+  for index = 1, 5 do
+    local row = CreateFrame("Button", nil, view)
+    row:SetSize(542, 40)
+    row:SetPoint("TOPLEFT", 16, -109 - (index - 1) * 42)
+    row.title = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    row.title:SetPoint("TOPLEFT", 3, -2)
+    row.title:SetPoint("TOPRIGHT", -3, -2)
+    row.title:SetJustifyH("LEFT")
+    row.title:SetWordWrap(false)
+    row.detail = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.detail:SetPoint("TOPLEFT", 3, -19)
+    row.detail:SetPoint("TOPRIGHT", -3, -19)
+    row.detail:SetJustifyH("LEFT")
+    row.detail:SetWordWrap(false)
+    row:EnableMouseWheel(true)
+    row:SetScript("OnMouseWheel", wheel)
+    local function heading() return row.title:GetText() end
+    local function detail()
+      local value = row.detail:GetText()
+      if value and value ~= "" then return value end
+    end
+    Tip(row, heading, detail)
+    K.Register(row, view, heading, "detail", detail)
+    view.rows[index] = row
+  end
+  view.request = MakeButton(view, L["Request Reports"], 175, function() command("request") end)
+  view.request:SetPoint("BOTTOMLEFT", 16, 13)
+  view.review = MakeButton(view, L["Review Caster Plan"], 192, function() command("review", nil, "draft") end)
+  view.review:SetPoint("BOTTOMRIGHT", -16, 13)
+  view.publish = MakeButton(view, L["Publish Plan"], 157, function() command("publish", nil, "draft") end)
+  view.publish:SetPoint("BOTTOMLEFT", 16, 13)
+  view.inbox = MakeButton(view, L["Review Incoming Plan"], 200, function() command("inbox") end)
+  view.inbox:SetPoint("BOTTOMLEFT", 16, 13)
+  view.accept = MakeButton(view, L["Accept"], 114, function() command("accept") end)
+  view.accept:SetPoint("BOTTOMRIGHT", -138, 13)
+  view.decline = MakeButton(view, L["Decline"], 114, function() command("decline") end)
+  view.decline:SetPoint("BOTTOMRIGHT", -16, 13)
+  view.previous = MakeButton(view, L["Previous"], 114, function() move(-1) end)
+  view.previous:SetPoint("BOTTOMLEFT", 16, 42)
+  view.next = MakeButton(view, L["Next"], 114, function() move(1) end)
+  view.next:SetPoint("LEFT", view.previous, "RIGHT", 6, 0)
+  view.needLabel = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  view.needLabel:SetPoint("BOTTOMLEFT", 260, 65)
+  view.needLabel:SetText(L["Buff Key"])
+  view.need = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
+  view.need:SetSize(122, 20)
+  view.need:SetPoint("BOTTOMLEFT", 265, 42)
+  view.need:SetAutoFocus(false)
+  view.need:SetMaxLetters(30)
+  local function add()
+    local key = (view.need:GetText() or ""):match("^%s*(.-)%s*$")
+    if key ~= "" then command("need", key) end
+    view.need:ClearFocus()
+    view.need:SetText("")
+  end
+  view.need:SetScript("OnEnterPressed", add)
+  view.need:SetScript("OnEscapePressed", function(box) box:SetText(""); box:ClearFocus() end)
+  K.RegisterEdit(view.need, view, L["Buff Key"])
+  view.add = MakeButton(view, L["Add Needed Buff"], 164, add)
+  view.add:SetPoint("BOTTOMRIGHT", -16, 41)
+  view:HookScript("OnHide", function()
+    view.need:ClearFocus()
+    view.need:SetText("")
+    view.model, view.deadline, view.refreshTicket = nil, nil, nil
+    if K.active and not K.edit and panel:IsVisible() then K.Move(1) end
+  end)
+  if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarCasterCoordination") end
+  return view
+end
+
+function X.OpenCoordination()
+  if not CLASSIC_FEATURES or X.PlayerSuspended() or InCombatLockdown() then return end
+  X.OpenAssignments()
+  local panel = cfg.assignmentPanel
+  panel.picker:Hide()
+  if panel.preview then panel.preview:Hide() end
+  if panel.coverage then panel.coverage:Hide() end
+  if panel.practice then panel.practice:Hide() end
+  panel.coordination = panel.coordination or AssignmentUI.BuildCoordination(panel)
+  local view = panel.coordination
+  view.tab, view.page = "reports", 1
+  view:Show()
+  AssignmentUI.RefreshCoordination(view)
+  if view.model and view.model.pending then
+    view.tab = "inbox"
+    AssignmentUI.UpdateCoordination(view)
+  end
+  if K.active and not K.edit then K.Move(1) end
+end
+
 function AssignmentUI.Build()
   local panel = AssignmentUI.CreatePanel(cfg, "BuffRadarAssignments", 574, 405, cfg:GetFrameLevel() + 8)
   local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   title:SetPoint("TOPLEFT", 15, -14)
-  title:SetPoint("TOPRIGHT", -45, -14)
+  title:SetPoint("TOPRIGHT", -241, -14)
   title:SetJustifyH("LEFT")
   title:SetText(L["Class & Role Assignments"])
   AssignmentUI.CloseButton(panel, function() panel:Hide() end)
@@ -1759,6 +2009,8 @@ function AssignmentUI.Build()
   undo:SetPoint("BOTTOMRIGHT", -15, 11)
   panel.coverageButton = MakeButton(panel, L["Raid Coverage"], 172, function() AssignmentUI.OpenCoverage(panel) end)
   panel.coverageButton:SetPoint("LEFT", practice, "RIGHT", 12, 0)
+  panel.coordinationButton = MakeButton(panel, L["Caster Coordination"], 190, X.OpenCoordination)
+  panel.coordinationButton:SetPoint("TOPRIGHT", -45, -9)
   local hint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   hint:SetPoint("TOPLEFT", 15, -67)
   hint:SetPoint("TOPRIGHT", -15, -67)
@@ -1797,6 +2049,7 @@ function AssignmentUI.Build()
     if panel.practice then panel.practice:Hide() end
     if panel.preview then panel.preview:Hide() end
     if panel.coverage then panel.coverage:Hide() end
+    if panel.coordination then panel.coordination:Hide() end
     cfg.searchToggle:Show()
     GameTooltip:Hide()
   end)

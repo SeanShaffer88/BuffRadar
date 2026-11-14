@@ -652,6 +652,28 @@ local L = {
   ["%s: %s -> %s"] = "%s: %s -> %s",
   ["Caster plan from %s. Use /br coordinate inbox to review it."] = "Caster plan from %s. Use /br coordinate inbox to review it.",
   ["Caster Coordination is available in WoW: Forever."] = "Caster Coordination is available in WoW: Forever.",
+  ["Caster Coordination"] = "Caster Coordination",
+  ["Opt In"] = "Opt In",
+  ["Opt Out"] = "Opt Out",
+  ["Reports"] = "Reports",
+  ["Draft"] = "Draft",
+  ["Delivery"] = "Delivery",
+  ["Inbox"] = "Inbox",
+  ["Request Reports"] = "Request Reports",
+  ["Publish Plan"] = "Publish Plan",
+  ["Review Incoming Plan"] = "Review Incoming Plan",
+  ["Accept"] = "Accept",
+  ["Decline"] = "Decline",
+  ["Buff Key"] = "Buff Key",
+  ["Add Needed Buff"] = "Add Needed Buff",
+  ["No caster reports requested."] = "No caster reports requested.",
+  ["No reviewed draft."] = "No reviewed draft.",
+  ["No plan has been published."] = "No plan has been published.",
+  ["Plan from %s"] = "Plan from %s",
+  ["No plan waiting for review."] = "No plan waiting for review.",
+  ["Your accepted duties: %s"] = "Your accepted duties: %s",
+  ["Delivery status is separate from buff coverage."] = "Delivery status is separate from buff coverage.",
+  ["Caster coordination was cleared because the group or its leadership changed."] = "Caster coordination was cleared because the group or its leadership changed.",
   ["Caster Coordination is off."] = "Caster Coordination is off.",
   ["Caster Coordination needs cast sync and a group outside combat."] = "Caster Coordination needs cast sync and a group outside combat.",
   ["Roster information is unavailable."] = "Roster information is unavailable.",
@@ -676,7 +698,7 @@ local L = {
   ["Caster reports or assignments changed. Review the updated draft before publishing."] = "Caster reports or assignments changed. Review the updated draft before publishing.",
   ["No new caster duties to send."] = "No new caster duties to send.",
   ["No assigned buffs"] = "No assigned buffs",
-  ["Use /br coordinate on|off|request|need|review|publish|status|inbox|accept|decline."] = "Use /br coordinate on|off|request|need|review|publish|status|inbox|accept|decline.",
+  ["Use /br coordinate panel|on|off|request|need|review|publish|status|inbox|accept|decline."] = "Use /br coordinate panel|on|off|request|need|review|publish|status|inbox|accept|decline.",
   ["Apply"] = "Apply",
   ["Undo Last Change"] = "Undo Last Change",
   ["There is no blocker edit to undo."] = "There is no blocker edit to undo.",
@@ -4438,16 +4460,24 @@ do
     return found, canonical
   end
 
-  local function HasPlanRole(unit, forBless)
-    if X.ReadUnitBool(_G.UnitIsGroupLeader, unit) == true
-      or X.ReadUnitBool(_G.UnitIsGroupAssistant, unit) == true then return true end
+  local function PlanRank(unit)
+    local leader = X.ReadUnitBool(_G.UnitIsGroupLeader, unit)
+    if leader == true then return 2 end
+    local assistant = X.ReadUnitBool(_G.UnitIsGroupAssistant, unit)
     local idx = unit:match("^raid(%d+)$")
     if idx and GetRaidRosterInfo then
       local ok, _, rank = pcall(GetRaidRosterInfo, tonumber(idx))
-      if ok and type(rank) == "number" and Readable(rank) and (rank == 1 or rank == 2) then
-        return true
-      end
+      if ok and type(rank) == "number" and Readable(rank) and rank == 2 then return 2 end
+      if ok and type(rank) == "number" and Readable(rank) and rank == 1 then return 1 end
+      if assistant == true then return 1 end
+      if ok and type(rank) == "number" and Readable(rank) and rank == 0 then return 0 end
     end
+    if assistant == true then return 1 end
+    if leader == false and (assistant == false or not InRaid()) then return 0 end
+  end
+
+  local function HasPlanRole(unit, forBless)
+    if (PlanRank(unit) or 0) > 0 then return true end
     if forBless then
       local ok, _, class = pcall(UnitClass, unit)
       return ok and ReadText(class) and class == "PALADIN"
@@ -4503,7 +4533,22 @@ do
   end
 
   do
-    local active, sequence = nil, 0
+    local active, sequence, generation, token = nil, 0, 0, 0
+    local resetReason
+    local statusLabels = { sent = "Awaiting acknowledgement", acknowledged = "Acknowledged",
+      failed = "Send failed", localOnly = "Assigned locally" }
+
+    local function SetSession(session, rosterChanged)
+      active = session
+      resetReason = rosterChanged and "Caster coordination was cleared because the group or its leadership changed." or nil
+      generation = generation + 1
+      token = token + 1
+    end
+
+    local function NotifyCoordination()
+      token = token + 1
+      if X.QueueCoordinationRefresh then X.QueueCoordinationRefresh() end
+    end
 
     local function CoordinationGUID(unit)
       local ok, guid = pcall(UnitGUID, unit)
@@ -4517,9 +4562,10 @@ do
       X.ForReportRoster(function(unit, exists)
         local guid = exists and CoordinationGUID(unit)
         local name = guid and RosterNames(unit)
-        if name and not members[guid] then
+        local rank = name and PlanRank(unit)
+        if rank ~= nil and not members[guid] then
           members[guid] = { name = name, unit = unit }
-          ids[#ids + 1] = guid
+          ids[#ids + 1] = guid .. "=" .. rank
         end
       end)
       if size ~= #ids or #ids == 0 then return end
@@ -4528,13 +4574,10 @@ do
     end
 
     local function Session()
-      if not active or not db.sync then return end
+      if not active then return end
+      if not db or not db.sync then SetSession(nil); return end
       local members, identity = CoordinationRoster()
-      if not identity then active = nil; return end
-      if active.identity ~= identity then active = nil; return end
-      local accepted = active.accepted
-      local coordinator = accepted and members[accepted.coordinator]
-      if accepted and (not coordinator or not HasPlanRole(coordinator.unit)) then active.accepted = nil end
+      if not identity or active.identity ~= identity then SetSession(nil, true); return end
       return active, members
     end
 
@@ -4550,11 +4593,15 @@ do
       return keys
     end
 
-    local function KeyList(keys)
+    local function SortedKeys(keys)
       local list = {}
       for key in pairs(keys) do list[#list + 1] = key end
       table_sort(list)
-      return table.concat(list, ",")
+      return list
+    end
+
+    local function KeyList(keys)
+      return table.concat(SortedKeys(keys), ",")
     end
 
     local function ParseKeys(list)
@@ -4580,11 +4627,12 @@ do
       return string_format("%d.%d", math_floor(GetTime() * 1000), sequence)
     end
 
-    local function DraftPlan(session, members)
+    local function DraftPlan(session, members, localGUID, localKeys)
       local demand, ordered, rows, loads = {}, {}, {}, {}
       for key in pairs(session.requested) do demand[key] = true end
       for guid, report in pairs(session.reports) do
         if members[guid] then
+          if guid == localGUID then report = localKeys end
           for key in pairs(report) do demand[key] = true end
         end
       end
@@ -4595,6 +4643,7 @@ do
         local choice
         if not manual then
           for guid, report in pairs(session.reports) do
+            if guid == localGUID then report = localKeys end
             if members[guid] and report[key] then
               local load, existing = loads[guid] or 0, loads[choice] or 0
               if not choice or load < existing or (load == existing and guid < choice) then choice = guid end
@@ -4616,13 +4665,20 @@ do
       return true
     end
 
+    local function PlanNames(row, members)
+      local before = row.manual or L["Unassigned"]
+      local after = row.guid and members[row.guid].name or row.manual or L["Provider unavailable"]
+      return before, after
+    end
+
     local function ReviewPlan(session, members)
+      local me = CoordinationGUID("player")
+      if me then session.reports[me] = LearnedKeys() end
       session.draft = DraftPlan(session, members)
       Print(L["Review Caster Plan"])
       if #session.draft == 0 then Print(L["No learned buff capabilities have been reported."]) end
       for _, row in ipairs(session.draft) do
-        local before = row.manual or L["Unassigned"]
-        local after = row.guid and members[row.guid].name or row.manual or L["Provider unavailable"]
+        local before, after = PlanNames(row, members)
         Print(string_format(L["%s: %s -> %s"], row.key, before, after))
       end
     end
@@ -4640,6 +4696,85 @@ do
         or (tonumber(millis) == tonumber(oldMillis) and tonumber(order) > tonumber(oldOrder))
     end
 
+    local function PendingPlan(session, members, now)
+      local pending = session.pending
+      local coordinator = pending and members[pending.sender]
+      local reply = coordinator and session.replies[pending.sender]
+      if reply and reply.id == pending.id and now - reply.time <= 180 and HasPlanRole(coordinator.unit) then
+        return pending, reply.time + 180
+      end
+    end
+
+    function X.CoordinationSnapshot()
+      local snapshot = { generation = generation, token = token, reports = {}, sent = {} }
+      if not CLASSIC_FEATURES then
+        snapshot.reason = "Caster Coordination is available in WoW: Forever."
+        return snapshot
+      end
+      if not db or not db.sync or not SyncChannel() or InCombatLockdown() or X.PlayerSuspended() then
+        snapshot.reason = "Caster Coordination needs cast sync and a group outside combat."
+        return snapshot
+      end
+      local session, members = Session()
+      snapshot.generation, snapshot.token, snapshot.available = generation, token, true
+      if not session then
+        local _, identity = CoordinationRoster()
+        if not identity then
+          snapshot.available, snapshot.reason = false, "Roster information is unavailable."
+        else
+          snapshot.reason = resetReason
+        end
+        return snapshot
+      end
+      local now = GetTime()
+      local function Deadline(time)
+        if time and time > now and (not snapshot.nextRefreshAt or time < snapshot.nextRefreshAt) then
+          snapshot.nextRefreshAt = time
+        end
+      end
+      snapshot.active, snapshot.leader = true, X.AmLead()
+      local pending, pendingAt = PendingPlan(session, members, now)
+      if pending then
+        snapshot.pending = { name = pending.name, keys = SortedKeys(pending.keys),
+          revision = pending.revision, reviewed = pending.reviewed == true }
+        Deadline(pendingAt + 0.01)
+      end
+      if session.accepted and now <= session.accepted.expires then
+        snapshot.accepted = { keys = SortedKeys(session.accepted.keys) }
+        Deadline(session.accepted.expires + 0.01)
+      end
+      if not snapshot.leader then return snapshot end
+      local readyAt = session.requestAt and session.requestAt + 10
+      snapshot.canRequest = not readyAt or now >= readyAt
+      Deadline(readyAt)
+      snapshot.reportRequest = session.request ~= nil and now <= session.expires
+      if snapshot.reportRequest then
+        Deadline(session.expires + 0.01)
+        local currentReports = {}
+        for guid, member in pairs(members) do
+          local keys = session.reports[guid]
+          currentReports[#currentReports + 1] = { name = member.name, keys = keys and SortedKeys(keys) }
+        end
+        table_sort(currentReports, function(a, b) return a.name < b.name end)
+        snapshot.reports = currentReports
+        if session.draft then
+          snapshot.draft = {}
+          for _, row in ipairs(session.draft) do
+            local before, after = PlanNames(row, members)
+            snapshot.draft[#snapshot.draft + 1] = { key = row.key, before = before, after = after }
+          end
+          snapshot.canPublish = SamePlan(session.draft, DraftPlan(session, members, CoordinationGUID("player"), LearnedKeys()))
+        end
+      end
+      if session.sent and now <= session.sent.expires then
+        Deadline(session.sent.expires + 0.01)
+        for _, guid in ipairs(session.sent.order) do
+          snapshot.sent[#snapshot.sent + 1] = { name = members[guid].name, status = session.sent.recipients[guid] }
+        end
+      end
+      return snapshot
+    end
+
     local function OnCoordMessage(body, unit, name, now)
       local kind, id, rest = body:match("^;(%u+);(%d+%.%d+)(.*)$")
       if not kind or #id > 32 then return end
@@ -4651,10 +4786,14 @@ do
         if session.replies[guid] and now - session.replies[guid].time < 10 then return end
         session.replies[guid] = { id = id, time = now }
         SendCoord("REPORT", id, guid, KeyList(LearnedKeys()))
+        if session.pending and session.pending.sender == guid then NotifyCoordination() end
       elseif kind == "REPORT" and session.request == id and now <= session.expires and X.AmLead() then
         local target, list = rest:match("^;([^;]+);([^;]+)$")
         if not list or target ~= me or session.reports[guid] then return end
-        session.reports[guid] = ParseKeys(list)
+        local keys = ParseKeys(list)
+        if not keys then return end
+        session.reports[guid] = keys
+        NotifyCoordination()
       elseif kind == "PLAN" and HasPlanRole(unit) then
         if rest:sub(1, 1) ~= ";" then return end
         local reply = session.replies[guid]
@@ -4666,19 +4805,23 @@ do
         reply.revision = revision
         session.pending = { sender = guid, name = name, id = id, revision = revision, keys = keys }
         Print(string_format(L["Caster plan from %s. Use /br coordinate inbox to review it."], name))
-      elseif kind == "ACK" and session.sent and id == session.sent.revision and rest == "" then
-        if session.sent.recipients[guid] == "sent" then session.sent.recipients[guid] = "acknowledged" end
+        NotifyCoordination()
+      elseif kind == "ACK" and session.sent and now <= session.sent.expires and id == session.sent.revision and rest == "" then
+        if session.sent.recipients[guid] == "sent" then
+          session.sent.recipients[guid] = "acknowledged"
+          NotifyCoordination()
+        end
       end
     end
 
-    function X.OnCoordinationRoster()
-      if not active then return end
-      if not SyncChannel() then active = nil; return end
-      Session()
+    function X.OnCoordinationRoster(leaderChanged)
+      if leaderChanged and active then SetSession(nil, true) else Session() end
+      if X.QueueCoordinationRefresh then X.QueueCoordinationRefresh() end
     end
 
     function X.StopCoordination()
-      active = nil
+      SetSession(nil)
+      if X.QueueCoordinationRefresh then X.QueueCoordinationRefresh() end
     end
 
     function X.CoordinatedHolder(key)
@@ -4686,7 +4829,7 @@ do
       if accepted and GetTime() <= accepted.expires then return accepted.keys[key] and accepted.name end
     end
 
-    function X.Coordinate(command, argument)
+    local function Coordinate(command, argument)
       if not CLASSIC_FEATURES then Print(L["Caster Coordination is available in WoW: Forever."]); return end
       if command == "off" then
         X.StopCoordination()
@@ -4695,7 +4838,7 @@ do
         return
       end
       if command == "" then
-        Print(L["Use /br coordinate on|off|request|need|review|publish|status|inbox|accept|decline."])
+        Print(L["Use /br coordinate panel|on|off|request|need|review|publish|status|inbox|accept|decline."])
         return
       end
       if not db or not db.sync or not SyncChannel() or InCombatLockdown() or X.PlayerSuspended() then
@@ -4704,7 +4847,7 @@ do
       if command == "on" then
         local _, identity = CoordinationRoster()
         if not identity then Print(L["Roster information is unavailable."]); return end
-        active = { identity = identity, reports = {}, replies = {}, requested = {} }
+        SetSession({ identity = identity, reports = {}, replies = {}, requested = {} })
         Print(L["Caster Coordination is on for this group."]); return
       end
       local session, members = Session()
@@ -4713,10 +4856,8 @@ do
       local now = GetTime()
       if not me or not members[me] then Print(L["Roster information is unavailable."]); return end
       if command == "inbox" or command == "accept" or command == "decline" then
-        local pending = session.pending
-        local coordinator = pending and members[pending.sender]
-        local reply = coordinator and session.replies[pending.sender]
-        if not reply or not HasPlanRole(coordinator.unit) or now - reply.time > 180 then
+        local pending = PendingPlan(session, members, now)
+        if not pending then
           session.pending = nil; Print(L["No current caster plan to review."]); return
         end
         if command == "inbox" then
@@ -4759,9 +4900,7 @@ do
       elseif command == "status" and session.sent then
         for _, guid in ipairs(session.sent.order) do
           local status = session.sent.recipients[guid]
-          local labels = { sent = L["Awaiting acknowledgement"], acknowledged = L["Acknowledged"],
-            failed = L["Send failed"], localOnly = L["Assigned locally"] }
-          Print(string_format(L["%s: %s"], members[guid].name, labels[status]))
+          Print(string_format(L["%s: %s"], members[guid].name, L[statusLabels[status]]))
         end
       elseif not session.request or now > session.expires then
         Print(L["Request fresh caster reports with /br coordinate request."])
@@ -4787,7 +4926,7 @@ do
         end
         if not next(plan) then Print(L["No new caster duties to send."]); return end
         table_sort(order)
-        local sent = { revision = revision, order = order, recipients = {} }
+        local sent = { revision = revision, order = order, recipients = {}, expires = now + 180 }
         for _, guid in ipairs(order) do
           local keys = plan[guid]
           if guid == me then
@@ -4802,10 +4941,22 @@ do
         end
         session.sent, session.draft = sent, nil
         if QueueRefresh then QueueRefresh() end
-        X.Coordinate("status")
+        Coordinate("status")
       else
         ReviewPlan(session, members)
       end
+    end
+
+    function X.Coordinate(command, argument, expectedToken)
+      if expectedToken ~= nil then
+        Session()
+        if expectedToken ~= token then
+          if X.QueueCoordinationRefresh then X.QueueCoordinationRefresh() end
+          return
+        end
+      end
+      Coordinate(command, argument)
+      NotifyCoordination()
     end
 
     function X.HandleCoordinationMessage(version, body, unit, name, now)
@@ -4867,6 +5018,7 @@ do
       peer.replyAt = now
       X.Broadcast("HERE;" .. me)
     end
+    if kind == "ASSIGN" and X.QueueCoordinationRefresh then X.QueueCoordinationRefresh() end
     if QueueRefresh then QueueRefresh() end
   end
 end
@@ -8284,7 +8436,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if RefreshConfig then RefreshConfig() end
     return
   elseif event == "PARTY_LEADER_CHANGED" then
-    X.OnCoordinationRoster()
+    X.OnCoordinationRoster(true)
     Soon()
     return
   elseif event == "PLAYER_ROLES_ASSIGNED" then
