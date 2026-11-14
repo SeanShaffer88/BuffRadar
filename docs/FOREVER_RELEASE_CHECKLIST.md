@@ -16,9 +16,11 @@ Run this against the exact candidate ZIP after CI passes. Record the version, cl
   action produced each sequence. Run `/br clicks` again to stop tracing.
 - **Failure recovery:** test line of sight, range and an invalid target while
   tracing. Verify that a failed cast never advances the counter and that an
-  unrelated error never skips the target. Capture whether a failed cast reports
-  a cast GUID and whether it advances the queue, so the failure path can be
-  verified against the actual client.
+  unrelated error never skips the target. For line of sight, look for
+  `SENT` and `FAILED` with the same spell ID and cast GUID, then the
+  line-of-sight message in the same frame. Check that this sequence advances
+  the queue. Retry during the global cooldown and confirm the cooldown error
+  leaves the target in the queue.
 - **Combat:** enter combat with buffs missing. Confirm no protected cast starts; after combat, verify the list resumes and catches up.
 - **Death and resurrection:** die in and out of combat. Check that BuffRadar's window, pill, minimap button, and open settings close, and that its cast bindings stay disarmed. Reload while dead and test release to ghost form, combat ending while dead, resurrection after releasing, and resurrection without releasing. Confirm the normal window and minimap preferences resume after resurrection and combat, including a window you hid manually before death. The game's AddOns and minimap-compartment entries can stay listed, but their BuffRadar controls should not open the addon while dead.
 - **Hover close:** with the title on and off, hover the list, then move onto and off the close button. Confirm it stays under the cursor, remains reachable near the screen edge, and leaves no header gap with the title off. Confirm locked click-through and the existing show/hide binding still work.

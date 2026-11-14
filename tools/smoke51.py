@@ -923,7 +923,7 @@ step("Forever event order correlates exact identity and consumes a GUID once", f
   O.IsSpellInRange = function() return 1 end
   local now = 1000
   O.GetTime = function() return now end
-  local name = "Moo Tate"
+  local name = "Sample Player"
   local oldName, oldFullName = O.UnitName, O.UnitFullName
   O.UnitName = function(unit) return unit == "party1" and name or oldName(unit) end
   O.UnitFullName = function(unit) if unit == "party1" then return name, "TestRealm" end; return oldFullName(unit) end
@@ -941,13 +941,11 @@ step("Forever event order correlates exact identity and consumes a GUID once", f
   local function done(guid, id, terminal)
     fire(terminal or "UNIT_SPELLCAST_SUCCEEDED", "player", guid, id or spellID)
   end
-  click("LeftButton", true)
-  sent("wrong-phase"); done("wrong-phase")
   click("RightButton")
   sent("right-click"); done("right-click")
   click("LeftButton")
   done("manual-no-sent")
-  sent("wrong-player", spellID, "MooTate"); done("wrong-player")
+  sent("wrong-player", spellID, "SamplePlayer"); done("wrong-player")
   sent("after-competition"); done("after-competition")
   click("LeftButton")
   sent("wrong-rank", spellID + 1); done("wrong-rank", spellID + 1)
@@ -1023,6 +1021,140 @@ step("Forever event order correlates exact identity and consumes a GUID once", f
   assert(db.castsTotal == initial + 5, "unconfirmed intent survived combat entry")
   X.ResetCastTracking()
   env.C_Spell = original
+  cleanup()
+  runQueued()
+end)
+
+step("Forever live trace attributes full roleplay names on either mouse phase", function()
+  local cleanup = partyOfTwo("LiveTrace")
+  local O, X, db = env.__over, NS.X, env.BuffRadarDB
+  local original, getUnitName, nameUtil = env.C_Spell, env.GetUnitName, env.NameUtil
+  local spellID = env.__forever and 1244 or 462854
+  env.C_Spell = { GetSpellIDForSpellIdentifier = function() return spellID end }
+  O.IsSpellInRange = function() return 1 end
+  local now = 1000
+  O.GetTime = function() return now end
+  env.GetUnitName = function(unit) return unit == "party1" and "Aaron Example" or env.UnitName(unit) end
+  if env.__forever then
+    local unitName = O.UnitName
+    O.UnitName = function(unit)
+      if unit == "party1" then return "Aaron", "Example" end
+      return unitName(unit)
+    end
+    local function fullName(name, surname)
+      return surname and (name .. " " .. surname) or name
+    end
+    env.NameUtil = {
+      GetFullNameWithoutRealm = fullName,
+      FormatUnitNameForDisplay = function(unit) return fullName(env.UnitName(unit)) end,
+    }
+  end
+  refresh()
+  local row = shownRows().party1.row
+  local targetGUID = row.entry.guid
+  local initial = db.castsTotal
+  local function click(down)
+    row.scripts.PreClick(row, "LeftButton", down)
+    row.scripts.PostClick(row, "LeftButton", down)
+  end
+  local function sent(guid, name)
+    fire("UNIT_SPELLCAST_SENT", "player", name or "Aaron Example", guid, spellID)
+  end
+  local function done(guid, event)
+    fire(event or "UNIT_SPELLCAST_SUCCEEDED", "player", guid, spellID)
+  end
+  local function los()
+    fire("UI_ERROR_MESSAGE", 57, "Target not in line of sight")
+  end
+
+  X.ResetCastTracking()
+  click(true)
+  now = now + 0.090
+  sent("live-down"); done("live-down")
+  now = now + 0.400
+  click(false)
+  sent("manual-after-release"); done("manual-after-release")
+  assert(db.castsTotal == initial + 1, "down cast or release duplicate was mishandled")
+
+  click(true)
+  now = now + 0.090
+  click(false)
+  now = now + 0.210
+  done("synthetic-quiet", "UNIT_SPELLCAST_FAILED_QUIET")
+  sent("live-up"); done("live-up")
+  assert(db.castsTotal == initial + 2 and db.history[#db.history].who == "Aaron Example",
+    "up cast with readable roleplay name was not counted")
+
+  click(true)
+  now = now + 0.090
+  sent("stale-target", "Aaron Somebody"); done("stale-target")
+  click(false)
+  sent("manual-after-stale"); done("manual-after-stale")
+  assert(db.castsTotal == initial + 2, "competing roleplay target was credited via short name")
+
+  click(true)
+  local entry = row.entry
+  row.entry = shownRows().party2.row.entry
+  click(false)
+  sent("rebound-row"); done("rebound-row")
+  row.entry = entry
+  assert(db.castsTotal == initial + 2, "changing targets during a press credited the original target")
+
+  local oldType, oldMacro = row:GetAttribute("type"), row:GetAttribute("macrotext")
+  row:SetAttribute("type", "macro")
+  row:SetAttribute("macrotext", "/targetexact Aaron Armed\n/cast " .. row.entry.missing[1] .. "\n/targetlasttarget")
+  click(true)
+  sent("not-armed"); done("not-armed")
+  click(false)
+  now = now + 0.100
+  click(true)
+  sent("exact-armed-target", "Aaron Armed"); done("exact-armed-target")
+  click(false)
+  assert(db.castsTotal == initial + 3, "cast matching the exact armed macro target was not recorded")
+  local secretMacro = {}
+  local oldSecret = env.issecretvalue
+  env.issecretvalue = function(value) return value == secretMacro end
+  row:SetAttribute("macrotext", secretMacro)
+  click(true); click(false)
+  sent("secret-macro"); done("secret-macro")
+  assert(db.castsTotal == initial + 3, "unreadable action fell back to a different target name")
+  env.issecretvalue = oldSecret
+  row:SetAttribute("type", oldType)
+  row:SetAttribute("macrotext", oldMacro)
+
+  click(true)
+  now = now + 0.090
+  sent("stale-error"); done("stale-error", "UNIT_SPELLCAST_FAILED")
+  now = now + 0.010
+  los()
+  assert(not X.failedTargets[targetGUID], "later frame UI error skipped the target")
+
+  click(true)
+  done("unbound-failure", "UNIT_SPELLCAST_FAILED")
+  los()
+  assert(not X.failedTargets[targetGUID], "unbound FAILED skipped the target")
+
+  click(true)
+  sent("interrupted-order"); done("interrupted-order", "UNIT_SPELLCAST_FAILED")
+  done("competing-failure", "UNIT_SPELLCAST_FAILED_QUIET")
+  los()
+  assert(not X.failedTargets[targetGUID], "intervening player event did not clear the failure")
+
+  click(true)
+  sent("cooldown"); done("cooldown", "UNIT_SPELLCAST_FAILED")
+  fire("UI_ERROR_MESSAGE", 61, "Spell is not ready yet.")
+  los()
+  assert(not X.failedTargets[targetGUID], "second UI error reused a consumed failure")
+
+  click(true)
+  now = now + 0.090
+  sent("live-los"); done("live-los", "UNIT_SPELLCAST_FAILED")
+  los()
+  assert(X.failedTargets[targetGUID] and db.castsTotal == initial + 3,
+    "same-frame line-of-sight failure was not linked to the target")
+  X.failedTargets[targetGUID] = nil
+  X.ResetCastTracking()
+  env.C_Spell, env.GetUnitName, env.NameUtil = original, getUnitName, nameUtil
   cleanup()
   runQueued()
 end)

@@ -2689,7 +2689,7 @@ end
 
 local pending = {}
 local seenCastGUIDs = {}
-local dispatch, awaitingSent
+local dispatch, awaitingSent, rowPress, recentFailure
 local traceSequence = 0
 
 local function Trace(label, ...)
@@ -2709,7 +2709,18 @@ local function SpellID(value)
       and value < math_huge and value == math_floor(value) then return value end
 end
 
-local function CastTargetNames(unit)
+local function CastTargetNames(unit, macro)
+  local exact = macro and macro:match("^/targetexact ([^\r\n]+)")
+  if exact then return exact, exact:lower() end
+  -- Forever's NameUtil combines the two character-name fields using the
+  -- client's surname separator. Treat the resulting name as an exact alias.
+  local nameUtil = _G.NameUtil
+  if CLASSIC_FEATURES and nameUtil and nameUtil.FormatUnitNameForDisplay then
+    local ok, value = pcall(nameUtil.FormatUnitNameForDisplay, unit, true)
+    local display = ok and StringField(value)
+    if display then return display, display:lower() end
+    return
+  end
   local name, realm
   if UnitFullName then
     local ok, short, unitRealm = pcall(UnitFullName, unit)
@@ -2724,21 +2735,32 @@ local function CastTargetNames(unit)
   if not name then return end
   local localRealm = GetNormalizedRealmName and StringField(GetNormalizedRealmName())
   local full = realm or localRealm
-  return name, full and (name .. "-" .. full):lower() or nil,
-    (not realm or realm == localRealm) and name:lower() or nil
+  local preferred
+  if GetUnitName then
+    local ok, value = pcall(GetUnitName, unit, true)
+    if ok then preferred = StringField(value) end
+  end
+  local localTarget = not realm or (localRealm and realm:lower() == localRealm:lower())
+  if preferred and not localTarget and preferred:sub(-#realm - 1):lower() ~= "-" .. realm:lower() then
+    preferred = nil
+  end
+  return preferred or name, full and (name .. "-" .. full):lower() or nil,
+    localTarget and name:lower() or nil, preferred and preferred:lower() or nil
 end
 
 function X.BeginCastClick(btn, button, down, label)
   local entry = btn.entry
   Trace(label .. " pre", button, down and "down" or "up", entry and entry.missing and entry.missing[1])
+  recentFailure = nil
   if dispatch then dispatch.ambiguous = true; return end
-  if button ~= "LeftButton" or not db or InCombatLockdown() or X.PlayerSuspended() then return end
-  -- Hardware row clicks on Forever dispatch on release, even when both
-  -- phases are registered. Keys/macros follow their secure registration.
-  local keyDown = label ~= "click" and GetCVarBool and GetCVarBool("ActionButtonUseKeyDown")
-  local deferred = (not not down) == (not not keyDown)
-  local overlaps = awaitingSent and awaitingSent.expires > GetTime()
-  if deferred then awaitingSent = nil end
+  if button ~= "LeftButton" or not db or InCombatLockdown() or X.PlayerSuspended() then
+    awaitingSent, rowPress = nil, nil
+    return
+  end
+  local now, isRow = GetTime(), label == "click"
+  local previous = isRow and not down and rowPress and rowPress.button == btn and rowPress
+  local waiting = awaitingSent and awaitingSent.expires > now and awaitingSent
+  rowPress, awaitingSent = nil, nil
   if not entry or not entry.unit or not entry.missing or not entry.missing[1] then return end
   local shift = _G.IsShiftKeyDown and _G.IsShiftKeyDown()
     and not (_G.IsControlKeyDown and _G.IsControlKeyDown())
@@ -2748,7 +2770,9 @@ function X.BeginCastClick(btn, button, down, label)
   local guid = entry.castGuid or entry.guid -- folded rows borrow a real recipient
   local ok, currentGUID = pcall(UnitGUID, entry.unit)
   if not guid or not ok or StringField(currentGUID) ~= guid then return end
-  local nameOfTarget, full, short = CastTargetNames(entry.unit)
+  local macro = action == "macro" and StringField(btn:GetAttribute(shift and "shift-macrotext1" or "macrotext"))
+  if action == "macro" and not macro then return end
+  local nameOfTarget, full, short, preferred = CastTargetNames(entry.unit, macro)
   if not nameOfTarget then return end
   local name = shift and X.GroupSpellFor(entry.missing[1]) or btn.bSpell or entry.missing[1]
   local id = SpellID(btn:GetAttribute(shift and "shift-spell1" or "spell"))
@@ -2761,10 +2785,22 @@ function X.BeginCastClick(btn, button, down, label)
     local resolved, value = pcall(C_Spell.GetSpellIDForSpellIdentifier, name)
     if resolved then id = SpellID(value) end
   end
+  local press = previous
+  if isRow and down then
+    press = { button = btn, guid = guid, id = id, spell = name }
+    rowPress = press
+  end
+  local samePress = previous and previous.guid == guid and previous.id == id and previous.spell == name
+  local ambiguous = (previous and not samePress) or (waiting and not (samePress and waiting.press == previous))
+  local keyDown = not isRow and GetCVarBool and GetCVarBool("ActionButtonUseKeyDown")
   dispatch = { button = btn, spell = name, expectedID = id, guid = guid, who = nameOfTarget,
-    full = full, short = short, terminals = {}, ambiguous = overlaps and true or nil,
-    deferred = deferred and not entry.pet }
+    full = full, short = short, preferred = preferred, terminals = {}, ambiguous = ambiguous,
+    press = press, deferred = (isRow or (not not down) == (not not keyDown)) and not entry.pet }
   Trace("expected", name, id, nameOfTarget, guid)
+end
+
+local function IsFailedCast(event)
+  return event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET"
 end
 
 local function ApplyCast(cast, terminal, targetError)
@@ -2782,8 +2818,10 @@ local function ApplyCast(cast, terminal, targetError)
     local key = X.KeyOfName(name)
     if key then X.SyncSend(key, cast.guid) end
     X.queueAt = GetTime()
-  elseif targetError and (terminal == "UNIT_SPELLCAST_FAILED" or terminal == "UNIT_SPELLCAST_FAILED_QUIET") then
+    Trace("attributed", terminal, cast.sentGUID)
+  elseif targetError and IsFailedCast(terminal) then
     X.failedTargets[cast.guid] = GetTime() + 30
+    Trace("target skipped", cast.sentGUID)
     if QueueRefresh then QueueRefresh() end
   end
 end
@@ -2803,13 +2841,16 @@ local function ConfirmCast(cast)
   local terminal
   for _, outcome in ipairs(cast.terminals) do
     if outcome.guid == cast.sentGUID and outcome.id == cast.sentID then
-      terminal = outcome.event
+      terminal = outcome
       break
     end
   end
   if terminal then
-    ApplyCast(cast, terminal, cast.targetError)
-    if terminal == "UNIT_SPELLCAST_SUCCEEDED" and QueueRefresh then QueueRefresh() end
+    ApplyCast(cast, terminal.event, cast.targetError)
+    if terminal.event == "UNIT_SPELLCAST_FAILED" and not cast.hadError and terminal == cast.latestEvent then
+      recentFailure = { cast = cast, event = terminal.event, time = terminal.time }
+    end
+    if terminal.event == "UNIT_SPELLCAST_SUCCEEDED" and QueueRefresh then QueueRefresh() end
     return
   end
   cast.button, cast.terminals = nil, nil
@@ -2823,9 +2864,11 @@ function X.EndCastClick(btn, button, down, label)
   Trace(label .. " post", button, down and "down" or "up", cast and cast.sentGUID)
   if not cast or cast.button ~= btn then return end
   dispatch = nil
-  if cast.sentGUID and not cast.ambiguous then
+  if cast.press and (cast.sawSent or cast.hadError or cast.ambiguous) then cast.press.settled = true end
+  if cast.sentGUID and not cast.ambiguous and not cast.repeated then
     ConfirmCast(cast)
-  elseif cast.deferred and cast.expectedID and not cast.sawSent and not cast.ambiguous and not cast.hadError then
+  elseif cast.deferred and cast.expectedID and not cast.sawSent and not cast.ambiguous and not cast.hadError
+      and not (cast.press and cast.press.settled) then
     -- The Forever field trace showed SENT arriving after PostClick. A short
     -- window plus exact spell ID and target bounds the fallback. The client
     -- exposes no origin token for an identical manual cast in this window.
@@ -2839,17 +2882,27 @@ function X.CastEvent(event, unit, ...)
   if event == "UI_ERROR_MESSAGE" then
     Trace(event, unit, ...)
     local message = StringField((...)) or StringField(unit)
+    local failure = recentFailure
+    recentFailure = nil
+    if failure and failure.time == GetTime() and message and IsTargetCastFailure(message) then
+      ApplyCast(failure.cast, failure.event, true)
+    elseif failure then
+      Trace("failure reason ignored", failure.cast.sentGUID)
+    end
     if dispatch then
       dispatch.hadError = true
-      if message and IsTargetCastFailure(message) then dispatch.targetError = true end
+      if not failure and message and IsTargetCastFailure(message) then dispatch.targetError = true end
     else
+      if awaitingSent and awaitingSent.press then awaitingSent.press.settled = true end
       awaitingSent = nil
     end
     return false
   end
   if StringField(unit) ~= "player" then return false end
+  recentFailure = nil
   Trace(event, unit, ...)
   local cast = dispatch
+  if cast then cast.latestEvent = nil end
   if event == "UNIT_SPELLCAST_SENT" then
     local deferred = not cast
     if deferred then
@@ -2860,13 +2913,18 @@ function X.CastEvent(event, unit, ...)
       cast.deferred = false
     end
     if not cast then return false end
+    cast.repeated = cast.press and cast.press.settled
+    if cast.press then cast.press.settled = true end
     if cast.sawSent then cast.ambiguous = true; return false end
     cast.sawSent = true
     local target, guid, id = ...
     target, guid, id = StringField(target), StringField(guid), SpellID(id)
     if not target or not guid or not id then return false end
     local key = target:lower()
-    if key ~= cast.full and key ~= cast.short then return false end
+    if key ~= cast.full and key ~= cast.short and key ~= cast.preferred then
+      Trace("target did not match", target, cast.who)
+      return false
+    end
     if cast.expectedID then
       if id ~= cast.expectedID then return false end
     else
@@ -2874,7 +2932,7 @@ function X.CastEvent(event, unit, ...)
       if not ok or StringField(name) ~= cast.spell then return false end
     end
     cast.sentGUID, cast.sentID = guid, id
-    if deferred then ConfirmCast(cast) end
+    if deferred and not cast.repeated then ConfirmCast(cast) end
     return false
   end
 
@@ -2888,13 +2946,19 @@ function X.CastEvent(event, unit, ...)
         table.remove(pending, i)
       elseif prior.sentGUID == guid and prior.sentID == id then
         table.remove(pending, i)
-        ApplyCast(prior, event)
+        if event == "UNIT_SPELLCAST_FAILED" then
+          recentFailure = { cast = prior, event = event, time = now }
+        else
+          ApplyCast(prior, event)
+        end
         if cast and event == "UNIT_SPELLCAST_SUCCEEDED" then cast.refresh = true; return false end
         return event == "UNIT_SPELLCAST_SUCCEEDED"
       end
     end
     if cast and #cast.terminals < 8 then
-      cast.terminals[#cast.terminals + 1] = { guid = guid, id = id, event = event }
+      local terminal = { guid = guid, id = id, event = event, time = now }
+      cast.latestEvent = terminal
+      cast.terminals[#cast.terminals + 1] = terminal
     elseif cast then
       cast.ambiguous = true
     end
@@ -2906,11 +2970,11 @@ function X.CastEvent(event, unit, ...)
 end
 
 function X.ResetCastTracking()
-  dispatch, awaitingSent, pending, seenCastGUIDs = nil, nil, {}, {}
+  dispatch, awaitingSent, rowPress, recentFailure, pending, seenCastGUIDs = nil, nil, nil, nil, {}, {}
 end
 
 function X.ClearCastIntent()
-  dispatch, awaitingSent = nil, nil
+  dispatch, awaitingSent, rowPress, recentFailure = nil, nil, nil, nil
 end
 end -- cast tracking
 
