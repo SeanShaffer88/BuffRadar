@@ -18,3 +18,4 @@ BuffRadar.lua
 Config.lua
 Slash.lua
 Extras.lua
+Recaps.lua

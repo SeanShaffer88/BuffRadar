@@ -8,7 +8,7 @@ Purpose in one line: a click-to-buff list addon for World of Warcraft — it sho
 every nearby player who is missing one of your buffs; click a name (or press one
 key) to buff them.
 
-Frozen foundation: one shared Lua source (`BuffRadar/Data.lua` + `BuffRadar/BuffRadar.lua` + `BuffRadar/Config.lua` + `BuffRadar/Slash.lua` + `BuffRadar/Extras.lua`) builds both
+Frozen foundation: one shared Lua source (`BuffRadar/Data.lua` + `BuffRadar/BuffRadar.lua` + `BuffRadar/Config.lua` + `BuffRadar/Slash.lua` + `BuffRadar/Extras.lua` + `BuffRadar/Recaps.lua`) builds both
 editions; editions differ only in their `.toc` and bundled docs
 (`BuffRadar/` = Retail docs, `editions/forever/` = Forever docs). Every feature
 is reachable as a `/br` slash command — the slash surface is the operation

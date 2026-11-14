@@ -5,6 +5,9 @@ All notable changes to BuffRadar are listed here. Newest first.
 
 ## Unreleased
 
+- Code only, no behaviour change: the death recap and post-wipe report moved from
+  `BuffRadar.lua` into a new `Recaps.lua` (file split Slice D). The shared
+  missing-buff snapshot is now one helper (`X.SnapshotMissing`).
 
 ## 1.15.6 — 2026-11-14 — Forever update
 
