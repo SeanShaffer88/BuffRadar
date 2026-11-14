@@ -285,20 +285,26 @@ local function Parse(text)
   return out
 end
 
-function X.SettingsDiff(text)
+function X.SettingsDiff(text, named)
   if type(text) ~= "string" then return nil, "Not a BuffRadar settings string." end
   local profile = text:match("^BR2;") ~= nil
-  if (profile and not X.ParseProfile(text)) or (not profile and not text:match("^BR1;")) then
-    return nil, "Not a BuffRadar settings string."
+  local patch, body
+  if profile or named then
+    patch, body = X.ParseProfile(text), text
+  else
+    patch, body = X.ParseSettingsImport(text)
   end
-  local current
+  if not patch then return nil, "Not a complete, valid BuffRadar settings string." end
+  local current, err
   if profile then
     current = X.ProfileSnapshot()
     if not current then return nil, "Current settings exceed the profile size limit." end
   else
-    current = X.Export()
+    current, err = X.Export()
+    if not current then return nil, err end
   end
-  local want, have = Parse(text), Parse(current)
+  local want, have = Parse(body), Parse(current)
+  if patch.assumeRange == false and want.assumeRange == nil then want.assumeRange = "0" end
   local lines = {}
   local keys = {}
   for k in pairs(want) do keys[k] = true end
@@ -307,9 +313,10 @@ function X.SettingsDiff(text)
   for k in pairs(keys) do names[#names + 1] = k end
   table.sort(names)
   for _, k in ipairs(names) do
-    if profile or k:find("^ignored%.") or k:find("^enabled%.") or k:find("^rebuffPer%.") or not k:find("%.") then
+    local map = k:match("^(%a+)%.")
+    if (map and patch[map] ~= nil) or patch[k] ~= nil then
       local a, b = have[k], want[k]
-      if a ~= b and (profile or b ~= nil) then
+      if a ~= b then
         lines[#lines + 1] = string.format("%s: %s -> %s", k, tostring(a), tostring(b))
       end
     end
@@ -317,8 +324,8 @@ function X.SettingsDiff(text)
   return lines
 end
 
-function X.PrintDiff(text, label)
-  local lines, err = X.SettingsDiff(text)
+function X.PrintDiff(text, label, named)
+  local lines, err = X.SettingsDiff(text, named)
   if not lines then Print(err); return end
   if #lines == 0 then Print((label or "That string") .. " changes nothing."); return end
   Print(string.format("%s would change %d setting%s:", label or "That string", #lines, #lines == 1 and "" or "s"))

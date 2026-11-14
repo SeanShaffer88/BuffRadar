@@ -81,25 +81,26 @@ function X.Context()
   return "solo"
 end
 
--- Load the profile mapped to the current context, if any. Only fires on
--- a context change, and only once per context+profile pair, so standing
--- in a dungeon never reloads over your manual changes.
+-- Apply the mapped profile once per context visit so manual changes stick.
 function X.AutoProfileCheck()
   db = X.GetDB()
-  if not db or not next(db.autoProfile) then return end
+  if not db then return end
   local ctx = X.Context()
   if X.autoCtx == ctx then return end
   X.autoCtx = ctx
   local name = db.autoProfile[ctx]
-  if name and db.profiles[name] and X.lastAutoProfile ~= ctx .. ":" .. name then
-    X.lastAutoProfile = ctx .. ":" .. name
-    if X.LoadProfile(name) then
+  if name then
+    local ok, err = X.LoadProfile(name)
+    if ok then
       Print("Auto profile for " .. ctx .. ": " .. name)
       ApplyGeometry()
       ApplyAppearance()
       X.ApplyRowLayout()
       if RefreshConfig then RefreshConfig() end
       Refresh()
+    else
+      Print("Auto profile for " .. ctx .. " could not load '" .. name .. "': "
+        .. (err or "profile not found."))
     end
   end
 end
@@ -499,7 +500,9 @@ local function HandleSlash(msg)
     end
     Print("Per-character window position " .. OnOff(db.charPoint))
   elseif cmd == "export" then
-    X.ShowExport(X.Export(), false)
+    local text, err = X.Export()
+    if not text then Print(err); return end
+    X.ShowExport(text, false)
     Print("Settings string shown -- copy it, then use /br import on the other character.")
   elseif cmd == "import" then
     X.ShowExport("", true)
@@ -537,7 +540,7 @@ local function HandleSlash(msg)
     elseif sub == "diff" then
       local str = db.profiles[pname]
       if type(str) ~= "string" then Print("No profile named '" .. pname .. "'. /br profile list shows them.")
-      elseif X.PrintDiff then X.PrintDiff(str, "Profile '" .. pname .. "'")
+      elseif X.PrintDiff then X.PrintDiff(str, "Profile '" .. pname .. "'", true)
       else Print("Diff needs Extras.lua.") end
     elseif sub == "list" or sub == "" then
       local names = X.ProfileNames()
@@ -549,7 +552,9 @@ local function HandleSlash(msg)
   elseif cmd == "plan" then
     local sub = (rest:match("^(%S*)") or ""):lower()
     if sub == "export" then
-      X.ShowExport(X.PlanExport(), false, "BuffRadar — your group buff plan (copy it)")
+      local text, err = X.PlanExport()
+      if not text then Print(err); return end
+      X.ShowExport(text, false, "BuffRadar — your group buff plan (copy it)")
       Print("Plan string shown — it carries assignments, the blessing plan and auto profiles, not your settings.")
     elseif sub == "import" then
       X.ShowExport("", true, "BuffRadar — paste a plan string, then Import", "plan")
@@ -1097,14 +1102,14 @@ local function HandleSlash(msg)
       Print("Usage: /br autoprofile " .. ctx .. " <profile name>, or 'clear'.")
     elseif pname:lower() == "clear" then
       db.autoProfile[ctx] = nil
-      X.autoCtx, X.lastAutoProfile = nil, nil
+      if X.autoCtx == ctx then X.autoCtx = nil end
       Print("Auto profile for " .. ctx .. " cleared.")
       if RefreshConfig then RefreshConfig() end
     elseif not db.profiles[pname] then
       Print("No profile named '" .. pname .. "'. /br profile list shows them.")
     else
       db.autoProfile[ctx] = pname
-      X.autoCtx, X.lastAutoProfile = nil, nil
+      if X.autoCtx == ctx then X.autoCtx = nil end
       Print("Auto profile: " .. ctx .. " loads '" .. pname .. "'.")
       if RefreshConfig then RefreshConfig() end
       X.AutoProfileCheck()

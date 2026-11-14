@@ -1125,6 +1125,42 @@ step("settings export/import round-trip (1.4.0)", function()
   d.enabled.CUSTOM_TEST, d.rebuffPer.CUSTOM_TEST, d.ignored.Zed = nil, nil, nil
   env.SlashCmdList.BUFFRADAR("unignore Zed")  -- the poke above bypasses the name index; clear it properly
 end)
+step("clipboard settings imports require complete input and apply atomically", function()
+  local X, d = NS.X, env.BuffRadarDB
+  local enabled, rebuff, ignored = d.enabled, d.rebuffPer, d.ignored
+  d.enabled, d.rebuffPer, d.ignored = {}, {}, {}
+  local empty = assert(X.Export())
+  d.enabled.TEST, d.rebuffPer.TEST, d.ignored.Zed = true, 33, true
+  local withData = assert(X.Export())
+  d.scale = 1
+  local bad = {
+    "BR1", "BR1;scale=1.5", "BR1;bgColor=0,0,0;enabled.TEST=1",
+    (withData:gsub(";endExport=1$", "")),
+    (withData:gsub("enabled.TEST=1", "enabled.TEST=maybe")),
+    (withData:gsub("enabled.TEST=1", "enabled.TEST=1;enabled.TEST=0")),
+    (withData:gsub("enabled.TEST=1", "enabled.TEST=1;unknown=1")),
+    (withData:gsub("enabled.TEST=1", "enabled.T%%ZZ=1")),
+    "BR1;" .. string.rep("A", 16384),
+  }
+  for i, input in ipairs(bad) do
+    assert(not X.Import(input) and not X.SettingsDiff(input), "invalid clipboard accepted: " .. i)
+    assert(d.enabled.TEST and d.rebuffPer.TEST == 33 and d.ignored.Zed and d.scale == 1,
+      "invalid clipboard changed settings: " .. i)
+  end
+  local old = empty:gsub("^BR1;complete=1;", "BR1;"):gsub(";endExport=1$", "")
+  assert(X.Import(old) and not next(d.enabled) and not next(d.rebuffPer) and not next(d.ignored),
+    "older complete clipboard did not clear intentionally empty tables")
+  assert(X.Import(withData) and d.enabled.TEST and d.ignored.Zed, "framed clipboard round-trip failed")
+  local current, currentRebuff, currentIgnore = d.enabled, d.rebuffPer, d.ignored
+  current[string.rep("A", 4100)] = true
+  local large = assert(X.Export(), "valid clipboard larger than named profile cap was refused")
+  assert(X.Import(large), "valid large clipboard did not round-trip")
+  current[string.rep("A", 16500)] = true
+  d.enabled, d.rebuffPer, d.ignored = current, currentRebuff, currentIgnore
+  assert(not X.Export(), "oversized settings produced an unreadable export")
+  d.enabled, d.rebuffPer, d.ignored = enabled, rebuff, ignored
+  X.Ignore.Rebuild()
+end)
 step("post-combat border flash when work waits (1.4.0)", function()
   if env.__forever then return end
   local cleanup = partyOfTwo()
@@ -2607,6 +2643,29 @@ step("plan strings carry the group plan to another user (1.8.0)", function()
   cleanup()
 end)
 
+step("plan import validates atomically and broadcasts only changes", function()
+  local cleanup = partyOfTwo("QP")
+  local X, db = NS.X, env.BuffRadarDB
+  local assign, bless, mapping, leader, sent = X.assign, X.blessPlan, db.autoProfile, env.UnitIsGroupLeader, X.Broadcast
+  X.assign, X.blessPlan, db.autoProfile = { FORTITUDE = "Aaron" }, {}, { dungeon = "Original" }
+  env.UnitIsGroupLeader = function(u) return u == "player" end
+  local messages = {}
+  X.Broadcast = function(msg) messages[#messages + 1] = msg end
+  assert(not X.PlanImport("BRPLAN1;A;FORTITUDE;Other;P;dungeon"), "incomplete plan was accepted")
+  assert(not X.PlanImport("BRPLAN1;A;FORTITUDE;Other;A;FORTITUDE;Aaron"), "duplicate plan was accepted")
+  assert(not X.PlanImport("BRPLAN1;P;unknown;Original"), "unknown plan context accepted")
+  assert(X.PlanImport("BRPLAN1"), "empty plan was not accepted as no-op")
+  assert(X.assign.FORTITUDE == "Aaron" and db.autoProfile.dungeon == "Original" and #messages == 0,
+    "invalid or empty plan changed state")
+  assert(X.PlanImport("BRPLAN1;A;FORTITUDE;Aaron;A;THORNS;Bela;P;raid;Future"))
+  assert(db.autoProfile.dungeon == "Original" and db.autoProfile.raid == "Future", "plan mapping did not merge")
+  assert(#messages == 1 and messages[1] == "ASSIGN;THORNS;Bela", "plan did not send only the changed record")
+  env.UnitIsGroupLeader = nil
+  assert(X.PlanImport("BRPLAN1;A;THORNS;Aaron"))
+  assert(#messages == 1, "plan published assignments without leadership")
+  X.assign, X.blessPlan, db.autoProfile, env.UnitIsGroupLeader, X.Broadcast = assign, bless, mapping, leader, sent
+  cleanup()
+end)
 step("a single profile can be shared and imported (1.8.0)", function()
   local db = env.BuffRadarDB
   env.SlashCmdList.BUFFRADAR("profile save shareme")
@@ -3198,6 +3257,25 @@ step("auto profile switches with the context (1.6.0)", function()
   env.IsInInstance = function() return false, "none" end
   fire("ZONE_CHANGED_NEW_AREA")  -- solo now: no mapping, scale stays
   assert(db.scale == 1.5, "solo context unexpectedly changed settings")
+  env.SlashCmdList.BUFFRADAR("scale 1")
+  env.IsInInstance = function() return true, "party" end
+  fire("ZONE_CHANGED_NEW_AREA")
+  assert(db.scale == 1.5, "mapped context was skipped after returning from unmapped solo")
+  env.SlashCmdList.BUFFRADAR("scale 1")
+  fire("ZONE_CHANGED_NEW_AREA")
+  assert(db.scale == 1, "same-context event discarded manual changes")
+  env.IsInInstance = function() return false, "none" end
+  fire("ZONE_CHANGED_NEW_AREA")
+  db.autoProfile.dungeon = "Missing"
+  env.IsInInstance = function() return true, "party" end
+  local failure = #chat
+  fire("ZONE_CHANGED_NEW_AREA")
+  assert(chatSince(failure, "could not load 'Missing'"), "failed auto profile did not explain the failure")
+  failure = #chat
+  fire("ZONE_CHANGED_NEW_AREA")
+  assert(not chatSince(failure, "could not load 'Missing'"), "failed auto profile repeated during same visit")
+  env.IsInInstance = function() return false, "none" end
+  fire("ZONE_CHANGED_NEW_AREA")
   env.SlashCmdList.BUFFRADAR("autoprofile dungeon clear")
   assert(db.autoProfile.dungeon == nil, "auto profile not cleared")
   env.SlashCmdList.BUFFRADAR("profile delete dset")
@@ -3310,6 +3388,24 @@ step("profiles restore window and buff settings and retain old saves", function(
   X.DeleteProfile("AuditLegacy")
   assert(loaded and restored, "profile omitted window settings, alert sounds, or ordered buff priorities")
   assert(legacy, "legacy profile did not preserve newer settings")
+end)
+step("historical named profiles load retired layer exports", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local scale, assumed, layer = db.scale, db.assumeRange, db.strata
+  db.scale, db.assumeRange = 1.25, true
+  local current = assert(X.ProfileSnapshot())
+  -- v1.15.5 emitted strata and predated assumeRange.
+  local previous = current:gsub(";assumeRange=1;", ";") .. ";strata=HIGH"
+  assert(X.ParseProfile(previous), "1.15.5 BR2 profile was rejected")
+  assert(not X.ParseProfile(previous .. ";strata=LOW"), "duplicate retired layer was accepted")
+  assert(not X.ParseProfile(previous:gsub("strata=HIGH", "strata=unknown")), "invalid retired layer was accepted")
+  assert(not X.ParseProfile(current:gsub(";assumeRange=1;", ";")), "truncated current BR2 profile was accepted")
+  assert(X.ProfileImport("BuffRadar profile: Historical\n" .. previous))
+  db.scale = 1
+  assert(X.LoadProfile("Historical") and db.scale == 1.25 and not db.assumeRange and db.strata == layer,
+    "historical profile failed to migrate")
+  X.DeleteProfile("Historical")
+  db.scale, db.assumeRange = scale, assumed
 end)
 step("profile limits and validation preserve an existing save", function()
   local X, db = NS.X, env.BuffRadarDB
