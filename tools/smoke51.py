@@ -2042,6 +2042,79 @@ step("Forever caster coordination panel sends reviewed actions and drops obsolet
   fire("PLAYER_REGEN_ENABLED")
   assert(ok, err)
 end)
+step("Forever subgroup panel previews drafts, preserves modes and rejects stale overrides", function()
+  if not env.__forever then return end
+  local X = NS.X
+  local originals = { X.InRaid, X.SubgroupDutyOptions, X.GetSubgroupDuty, X.SetSubgroupDuty, X.PreviewSubgroupDuty }
+  local raid, writes = true, 0
+  local saved = {}
+  local ok, err = pcall(function()
+    X.InRaid = function() return raid end
+    X.SubgroupDutyOptions = function()
+      return { { key = "FORTITUDE", name = "Power Word: Fortitude" }, { key = "THORNS", name = "Thorns" } }
+    end
+    local function copy(source)
+      if not source then return nil end
+      local result = {}
+      for group in pairs(source) do result[group] = true end
+      return result
+    end
+    X.GetSubgroupDuty = function(key) return copy(saved[key]) end
+    X.SetSubgroupDuty = function(key, groups)
+      saved[key], writes = copy(groups), writes + 1
+      X.QueueSubgroupDutyRefresh(key)
+      return true
+    end
+    X.PreviewSubgroupDuty = function(key, groups)
+      return { members = { { name = key == "FORTITUDE" and "Aaron" or "Zed", subgroup = 2,
+        status = not groups and "eligible" or groups[2] and "eligible" or "excluded",
+        spell = "Power Word: Fortitude", fallback = groups and "Single-target fallback" or nil,
+        group = not groups and "Prayer of Fortitude" or nil } } }
+    end
+    X.OpenRaidCoverage()
+    env.BuffRadarRaidCoverage.subgroupButton:Click()
+    local view = env.BuffRadarSubgroupResponsibilities
+    assert(view and view:IsVisible() and not env.BuffRadarRaidCoverage:IsVisible(), "coverage launcher did not open the panel")
+    assert(view.scope:GetText() == "All Groups" and view.rows[1].detail:GetText():find("Prayer of Fortitude", 1, true),
+      "unrestricted preview omitted the group option")
+    view.buff:Click()
+    assert(view.rows[1].title:GetText():find("Zed", 1, true), "buff selector did not change the preview")
+    view.buff:Click()
+    view.groups[2]:SetChecked(false)
+    view.groups[2]:Click()
+    assert(writes == 0 and view.scope:GetText() == "Selected Groups"
+      and view.rows[1].title:GetText():find("Outside Selected Groups", 1, true)
+      and view.rows[1].detail:GetText():find("fallback", 1, true), "draft changed the saved duty or omitted fallback status")
+    view.groups[2]:SetChecked(true)
+    view.groups[2]:Click()
+    assert(view.scope:GetText() == "Selected Groups" and view.apply:IsEnabled(), "explicit eight became unrestricted")
+    view.apply:Click()
+    assert(writes == 1 and saved.FORTITUDE[2], "apply did not save the explicit group list")
+    view.none:Click()
+    assert(writes == 1 and view.scope:GetText() == "No Groups", "No Groups did not stage an empty selection")
+    view.apply:Click()
+    assert(writes == 2 and saved.FORTITUDE and not next(saved.FORTITUDE), "empty restriction was not saved")
+    view.all:Click()
+    assert(view.scope:GetText() == "All Groups" and saved.FORTITUDE, "All Groups did not stage unrestricted mode")
+    saved.FORTITUDE = { [3] = true }
+    view.apply:Click()
+    assert(writes == 2 and saved.FORTITUDE[3] and view.notice:GetText():find("changed", 1, true),
+      "Apply overwrote a newer slash edit")
+    view.all:Click()
+    view.apply:Click()
+    assert(writes == 3 and saved.FORTITUDE == nil, "All Groups did not clear the restriction")
+    view.none:Click()
+    view.cancel:Click()
+    assert(writes == 3 and not view:IsVisible() and env.BuffRadarRaidCoverage:IsVisible(), "Cancel wrote a draft or failed to return")
+    X.OpenSubgroupResponsibilities()
+    raid = false
+    view.refresh:Click()
+    assert(not view:IsVisible(), "draft survived leaving the raid")
+  end)
+  X.InRaid, X.SubgroupDutyOptions, X.GetSubgroupDuty, X.SetSubgroupDuty, X.PreviewSubgroupDuty = unpack(originals)
+  if env.BuffRadarConfig then env.BuffRadarConfig:Hide() end
+  assert(ok, err)
+end)
 step("cast sync: your cast is broadcast to other users (1.5.0)", function()
   if env.__forever then return end
   local cleanup = partyOfTwo()
@@ -5833,6 +5906,35 @@ step("Forever subgroup duties constrain casts and preparation reports the whole 
     X.subgroupDuties = nil
     local slash = env.SlashCmdList.BUFFRADAR
     slash("subgroup FORTITUDE 1")
+    local draft = { [2] = true }
+    local options = X.SubgroupDutyOptions()
+    local option
+    for _, item in ipairs(options) do if item.key == "FORTITUDE" then option = item end end
+    assert(option and option.name == "Power Word: Fortitude", "known buff missing or mislabeled in selector")
+    local report = X.PreviewSubgroupDuty("FORTITUDE", draft)
+    assert(report and #report.members == 2 and not report.incomplete
+      and report.members[1].status == "excluded" and report.members[2].status == "eligible"
+      and report.members[2].name == "Zed-TestRealm", "draft preview does not follow subgroup selection")
+    assert(report.members[2].spell == option.name and report.members[2].fallback
+      and report.members[2].fallback:find("outside your responsibility", 1, true), "draft lacks live subgroup fallback reason")
+    assert(X.GetSubgroupDuty("FORTITUDE")[1] and not X.GetSubgroupDuty("FORTITUDE")[2],
+      "preview changed session duty")
+    local stored = X.GetSubgroupDuty("FORTITUDE")
+    stored[1] = nil
+    assert(X.GetSubgroupDuty("FORTITUDE")[1], "read exposed mutable session duty")
+    local none = X.PreviewSubgroupDuty("FORTITUDE", {})
+    assert(none.members[1].status == "excluded" and none.members[2].status == "excluded",
+      "empty selection acts as unrestricted")
+    local all = X.PreviewSubgroupDuty("FORTITUDE", nil)
+    assert(all.members[1].status == "eligible" and all.members[2].status == "eligible"
+      and all.members[2].fallback and all.members[2].fallback:find("Missing reagent", 1, true),
+      "unrestricted draft did not use normal reagent fallback")
+    assert(not X.SetSubgroupDuty("FORTITUDE", { [9] = true }) and not X.SetSubgroupDuty("NOT_A_BUFF", draft),
+      "invalid subgroup duty was accepted")
+    assert(X.SetSubgroupDuty("FORTITUDE", draft), "could not apply valid duty")
+    draft[2] = nil
+    assert(X.GetSubgroupDuty("FORTITUDE")[2], "setter retained caller's draft table")
+    slash("subgroup FORTITUDE 1")
     assert(X.SubgroupAllows("FORTITUDE", "raid1", true) and not X.SubgroupAllows("FORTITUDE", "raid2", true),
       "responsibility did not follow the subgroup")
     assert(not X.SubgroupAllows("FORTITUDE", "raid2", true) and X.SubgroupAllows("FORTITUDE", "target", false),
@@ -5843,6 +5945,15 @@ step("Forever subgroup duties constrain casts and preparation reports the whole 
     group = nil
     local _, _, _, unreadable = X.GroupOffer("Power Word: Fortitude", "raid1")
     assert(unreadable == "subgroup", "unreadable subgroup allowed broad cast")
+    local unknown = X.PreviewSubgroupDuty("FORTITUDE", { [1] = true })
+    assert(unknown.incomplete and unknown.members[2].status == "unknown" and unknown.members[2].subgroup == 0
+      and unknown.members[1].fallback:find("roster information is unavailable", 1, true),
+      "unknown subgroup did not explain its fallback")
+    env.IsSpellInRange = function() return 0 end
+    local out = X.PreviewSubgroupDuty("FORTITUDE", { [1] = true })
+    assert(not out.members[1].fallback and not out.members[1].spell and out.members[1].detail == "Out of cast range",
+      "preview showed a cast or fallback for an out-of-range member")
+    env.IsSpellInRange = function() return 1 end
     group = 2
     slash("subgroup FORTITUDE ALL")
     local _, _, _, unrestricted = X.GroupOffer("Power Word: Fortitude", "raid1")
@@ -5858,6 +5969,13 @@ step("Forever subgroup duties constrain casts and preparation reports the whole 
     env.__combat = true
     fire("PLAYER_REGEN_DISABLED")
     assert(not f:IsShown(), "preparation remained visible in combat")
+    assert(not X.PreviewSubgroupDuty("FORTITUDE", {}) and not X.SetSubgroupDuty("FORTITUDE", {}),
+      "subgroup duty was readable as a live preview or writable during combat")
+    env.__combat = false
+    env.IsInRaid = function() return false end
+    fire("GROUP_LEFT")
+    assert(not X.GetSubgroupDuty("FORTITUDE") and not X.SetSubgroupDuty("FORTITUDE", {}),
+      "subgroup duty survived leaving the raid")
   end)
   env.__combat = false
   env.IsInRaid, env.GetNumGroupMembers, env.GetRaidRosterInfo = oldRaid, oldSize, oldRoster

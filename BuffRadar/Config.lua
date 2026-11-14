@@ -64,7 +64,8 @@ function K.Modal()
   local preview = assignments and assignments.preview
   local blockers = preview and preview.blockers
   return assignments and assignments:IsShown()
-    and (assignments.coordination and assignments.coordination:IsVisible() and assignments.coordination
+    and (assignments.subgroup and assignments.subgroup:IsVisible() and assignments.subgroup
+      or assignments.coordination and assignments.coordination:IsVisible() and assignments.coordination
       or assignments.coverage and assignments.coverage:IsVisible() and assignments.coverage
       or assignments.practice and assignments.practice:IsVisible()
         and (assignments.practice.review and assignments.practice.review:IsVisible() and assignments.practice.review or assignments.practice)
@@ -1169,6 +1170,7 @@ function X.OpenPractice()
   X.OpenAssignments()
   local parent = cfg.assignmentPanel
   parent.picker:Hide()
+  if parent.subgroup then parent.subgroup:Hide() end
   if parent.coordination then parent.coordination:Hide() end
   if parent.preview then parent.preview:Hide() end
   if parent.coverage then parent.coverage:Hide() end
@@ -1433,13 +1435,16 @@ function X.QueueAssignmentPreviewRefresh()
   local panel = cfg and cfg.assignmentPanel
   local preview = panel and panel.preview
   local coverage = panel and panel.coverage
+  local subgroup = panel and panel.subgroup
   if coverage and not coverage:IsVisible() then coverage = nil end
   if preview and not preview:IsVisible() then preview = nil end
-  if not (preview or coverage) or InCombatLockdown() or X.PlayerSuspended() then return end
-  local visible = coverage or preview
+  if subgroup and not subgroup:IsVisible() then subgroup = nil end
+  if not (preview or coverage or subgroup) or InCombatLockdown() or X.PlayerSuspended() then return end
+  local visible = subgroup or coverage or preview
   if visible.pendingRefresh then return end
   local function refresh()
-    if coverage then AssignmentUI.RefreshCoverage(coverage)
+    if subgroup then AssignmentUI.RefreshSubgroup(subgroup)
+    elseif coverage then AssignmentUI.RefreshCoverage(coverage)
     else AssignmentUI.RefreshPreview(preview, nil, true) end
   end
   if not C_Timer or not C_Timer.After then
@@ -1590,6 +1595,7 @@ end
 function AssignmentUI.OpenPreview(panel)
   if InCombatLockdown() or X.PlayerSuspended() then return end
   panel.picker:Hide()
+  if panel.subgroup then panel.subgroup:Hide() end
   if panel.coordination then panel.coordination:Hide() end
   if panel.coverage then panel.coverage:Hide() end
   panel.preview = panel.preview or AssignmentUI.BuildPreview(panel)
@@ -1600,7 +1606,7 @@ end
 
 function AssignmentUI.CoverageGroupLabel(raid, subgroup)
   if not raid then return L["Party"] end
-  if subgroup == 0 then return L["Unknown Subgroup"] end
+  if not subgroup or subgroup == 0 then return L["Unknown Subgroup"] end
   return string.format(L["Raid Group %d"], subgroup)
 end
 
@@ -1644,6 +1650,7 @@ function AssignmentUI.UpdateCoverage(view)
   view.previous:SetShown(view.page > 1)
   view.next:SetShown(view.page < pages)
   view.back:SetShown(selected ~= nil)
+  view.subgroupButton:SetShown(selected == nil)
   for index, row in ipairs(view.rows) do
     local line = lines[(view.page - 1) * #view.rows + index]
     row.line = line
@@ -1720,6 +1727,10 @@ function AssignmentUI.BuildCoverage(panel)
     AssignmentUI.UpdateCoverage(view)
   end)
   view.back:SetPoint("BOTTOMRIGHT", -16, 12)
+  view.subgroupButton = MakeButton(view, L["Subgroup Responsibilities"], 250, function()
+    AssignmentUI.OpenSubgroup(panel, true)
+  end)
+  view.subgroupButton:SetPoint("BOTTOMRIGHT", -16, 12)
   view:HookScript("OnHide", function()
     view.pendingRefresh, view.report, view.selection = nil, nil, nil
     for _, row in ipairs(view.rows) do row.line = nil end
@@ -1731,6 +1742,7 @@ end
 function AssignmentUI.OpenCoverage(panel)
   if InCombatLockdown() or X.PlayerSuspended() then return end
   panel.picker:Hide()
+  if panel.subgroup then panel.subgroup:Hide() end
   if panel.coordination then panel.coordination:Hide() end
   if panel.preview then panel.preview:Hide() end
   if panel.practice then panel.practice:Hide() end
@@ -1739,6 +1751,235 @@ function AssignmentUI.OpenCoverage(panel)
   view.selection, view.page = nil, 1
   view:Show()
   AssignmentUI.RefreshCoverage(view)
+end
+
+function AssignmentUI.SameSubgroups(left, right)
+  if not left or not right then return left == right end
+  for group = 1, 8 do
+    if left[group] ~= right[group] then return false end
+  end
+  return true
+end
+
+function AssignmentUI.DrawSubgroup(view)
+  local option = view.options[view.index]
+  local editable = option and X.InRaid()
+  local changed = editable and not AssignmentUI.SameSubgroups(view.saved, view.draft)
+  local report = view.report
+  local rows = report and report.members or {}
+  local notice = view.warning
+  if not X.InRaid() then notice = L["Join a raid to set subgroup responsibilities."]
+  elseif not option then notice = L["No known targeted buffs."]
+  elseif not report or report.incomplete then notice = L["Some roster information could not be checked."]
+  elseif #rows == 0 then notice = L["No raid members to preview."] end
+  view.notice:SetText(notice or "")
+  view.buff:SetText(option and option.name or L["No known targeted buffs."])
+  local scope = not view.draft and L["All Groups"] or
+    (next(view.draft) and L["Selected Groups"] or L["No Groups"])
+  view.scope:SetText(editable and scope or "")
+  for _, button in ipairs(view.editButtons) do
+    if editable then button:Enable() else button:Disable() end
+  end
+  if editable and not changed and #view.options > 1 then view.buff:Enable() else view.buff:Disable() end
+  if changed then view.apply:Enable() else view.apply:Disable() end
+  for _, check in ipairs(view.groups) do check:Update() end
+  local pageCount = math.max(1, math.ceil(#rows / #view.rows))
+  view.page = math.max(1, math_min(view.page, pageCount))
+  view.previous:SetShown(view.page > 1)
+  view.next:SetShown(view.page < pageCount)
+  local status = { eligible = L["Included"], excluded = L["Outside Selected Groups"], unknown = L["Unknown"] }
+  for index, row in ipairs(view.rows) do
+    local member = rows[(view.page - 1) * #view.rows + index]
+    row.title:SetText(member and (AssignmentUI.CoverageGroupLabel(true, member.subgroup) .. " · " .. member.name
+      .. " · " .. (status[member.status] or L["Unknown"])) or "")
+    local detail = member and (member.fallback or member.detail)
+    if member and member.group then detail = string.format(L["Group option: %s"], member.group) end
+    local text = member and member.spell
+    if detail and text then text = text .. " · " .. detail
+    elseif detail then text = detail end
+    row.detail:SetText(text or "")
+    row:SetShown(member ~= nil)
+  end
+  if K.active and not K.edit and not K.InScope(K.current) then K.Move(1) end
+end
+
+function AssignmentUI.RefreshSubgroup(view)
+  if not view:IsVisible() or InCombatLockdown() or X.PlayerSuspended() then return end
+  local inRaid = X.InRaid()
+  if view.inRaid and not inRaid then view:Hide(); return end
+  view.inRaid = inRaid
+  local old = view.options[view.index]
+  view.options, view.index = X.SubgroupDutyOptions(), 1
+  if old then
+    for index, option in ipairs(view.options) do
+      if option.key == old.key then view.index = index; break end
+    end
+  end
+  local option = view.options[view.index]
+  local key = inRaid and option and option.key
+  local saved = key and X.GetSubgroupDuty(key)
+  if key ~= view.key or not AssignmentUI.SameSubgroups(view.saved, saved) then
+    view.warning = key and view.key == key and L["Subgroup responsibilities changed. Review the current selection and try again."] or nil
+    view.key, view.saved, view.draft, view.page = key, saved, key and X.GetSubgroupDuty(key), 1
+  end
+  if key then view.report = X.PreviewSubgroupDuty(key, view.draft) else view.report = nil end
+  AssignmentUI.DrawSubgroup(view)
+end
+
+function X.QueueSubgroupDutyRefresh(key)
+  local panel = cfg and cfg.assignmentPanel
+  local view = panel and panel.subgroup
+  if view and view:IsVisible() and view.key == key then AssignmentUI.RefreshSubgroup(view) end
+end
+
+function AssignmentUI.BuildSubgroup(panel)
+  local view = AssignmentUI.CreatePanel(panel, "BuffRadarSubgroupResponsibilities", 574, 405, panel:GetFrameLevel() + 5)
+  local title = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  title:SetPoint("TOPLEFT", 16, -14)
+  title:SetText(L["Subgroup Responsibilities"])
+  local function close()
+    local returnToCoverage = view.returnToCoverage
+    view:Hide()
+    if returnToCoverage then AssignmentUI.OpenCoverage(panel) end
+  end
+  AssignmentUI.CloseButton(view, close)
+  view.notice = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  view.notice:SetPoint("TOPLEFT", 16, -113)
+  view.notice:SetPoint("TOPRIGHT", -16, -113)
+  view.notice:SetJustifyH("LEFT")
+  view.notice:SetWordWrap(true)
+  local hint = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  hint:SetPoint("BOTTOMLEFT", 16, 40)
+  hint:SetText(L["Session only. Changes apply after you select Apply."])
+  view.scope = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  view.scope:SetPoint("BOTTOMRIGHT", -16, 40)
+  view.scope:SetJustifyH("RIGHT")
+  local function canEdit()
+    return view:IsVisible() and view.key and X.InRaid() and not InCombatLockdown() and not X.PlayerSuspended()
+  end
+  local function choose(delta)
+    if not canEdit() or not AssignmentUI.SameSubgroups(view.saved, view.draft) or #view.options < 2 then return end
+    view.index = ((view.index - 1 + delta) % #view.options) + 1
+    AssignmentUI.RefreshSubgroup(view)
+  end
+  view.buff = MakeButton(view, "", 300, function() choose(1) end)
+  view.buff:SetPoint("TOPLEFT", 16, -41)
+  K.Register(view.buff, view, L["Buff"], "choice", function() return view.buff:GetText() end, choose)
+  view.refresh = MakeButton(view, L["Refresh Preview"], 180, function() AssignmentUI.RefreshSubgroup(view) end)
+  view.refresh:SetPoint("TOPRIGHT", -16, -41)
+  local function setDraft(draft)
+    if not canEdit() then return end
+    view.draft, view.warning, view.page = draft, nil, 1
+    AssignmentUI.RefreshSubgroup(view)
+  end
+  view.all = MakeButton(view, L["All Groups"], 130, function() setDraft(nil) end)
+  view.all:SetPoint("TOPLEFT", 16, -76)
+  view.none = MakeButton(view, L["No Groups"], 130, function() setDraft({}) end)
+  view.none:SetPoint("LEFT", view.all, "RIGHT", 8, 0)
+  view.groups, view.editButtons = {}, { view.all, view.none }
+  for group = 1, 8 do
+    local check = MakeCheck(view, "", function() return not view.draft or view.draft[group] end, function(checked)
+      if not canEdit() then return end
+      if not view.draft then
+        view.draft = {}
+        for index = 1, 8 do view.draft[index] = true end
+      end
+      view.draft[group] = checked and true or nil
+      setDraft(view.draft)
+    end)
+    check:SetSize(20, 24)
+    check.label:SetText(tostring(group))
+    check:SetHitRectInsets(0, -10, 0, 0)
+    check.navigation.label = function() return string.format(L["Raid Group %d"], group) end
+    check:SetPoint("TOPLEFT", 301 + (group - 1) * 32, -74)
+    view.groups[group] = check
+    view.editButtons[#view.editButtons + 1] = check
+  end
+  view.rows = {}
+  local function move(delta)
+    if not view:IsVisible() then return end
+    view.page = view.page + delta
+    AssignmentUI.DrawSubgroup(view)
+  end
+  local function wheel(_, delta) move(delta > 0 and -1 or 1) end
+  view:EnableMouseWheel(true)
+  view:SetScript("OnMouseWheel", wheel)
+  for index = 1, 5 do
+    local row = CreateFrame("Button", nil, view)
+    row:SetSize(542, 41)
+    row:SetPoint("TOPLEFT", 16, -142 - (index - 1) * 42)
+    row.title = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    row.title:SetPoint("TOPLEFT", 3, 0)
+    row.title:SetPoint("TOPRIGHT", -3, 0)
+    row.title:SetJustifyH("LEFT")
+    row.title:SetWordWrap(false)
+    row.detail = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.detail:SetPoint("TOPLEFT", 3, -15)
+    row.detail:SetPoint("TOPRIGHT", -3, -15)
+    row.detail:SetJustifyH("LEFT")
+    row.detail:SetMaxLines(2)
+    local function heading() return row.title:GetText() end
+    local function detail()
+      local value = row.detail:GetText()
+      if value and value ~= "" then return value end
+    end
+    Tip(row, heading, detail)
+    K.Register(row, view, heading, "detail", detail)
+    row:EnableMouseWheel(true)
+    row:SetScript("OnMouseWheel", wheel)
+    view.rows[index] = row
+  end
+  view.previous = MakeButton(view, L["Previous"], 108, function() move(-1) end)
+  view.previous:SetPoint("BOTTOMLEFT", 16, 12)
+  view.next = MakeButton(view, L["Next"], 108, function() move(1) end)
+  view.next:SetPoint("LEFT", view.previous, "RIGHT", 8, 0)
+  view.cancel = MakeButton(view, L["Cancel"], 110, close)
+  view.cancel:SetPoint("BOTTOMRIGHT", -16, 12)
+  view.apply = MakeButton(view, L["Apply"], 110, function()
+    if not canEdit() then return end
+    local key, draft = view.key, view.draft
+    if not AssignmentUI.SameSubgroups(view.saved, X.GetSubgroupDuty(key)) then
+      AssignmentUI.RefreshSubgroup(view)
+      return
+    end
+    if X.SetSubgroupDuty(key, draft) then
+      view.saved, view.draft = X.GetSubgroupDuty(key), X.GetSubgroupDuty(key)
+      view.warning = nil
+    end
+    AssignmentUI.RefreshSubgroup(view)
+  end)
+  view.apply:SetPoint("RIGHT", view.cancel, "LEFT", -8, 0)
+  view:HookScript("OnHide", function()
+    view.pendingRefresh, view.options, view.index = nil, {}, 1
+    view.key, view.draft, view.saved, view.report, view.warning = nil, nil, nil, nil, nil
+    view.inRaid, view.returnToCoverage = nil, nil
+    GameTooltip:Hide()
+    if K.active and not K.edit and panel:IsVisible() then K.Move(1) end
+  end)
+  if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarSubgroupResponsibilities") end
+  return view
+end
+
+function AssignmentUI.OpenSubgroup(panel, fromCoverage)
+  panel.picker:Hide()
+  if panel.coordination then panel.coordination:Hide() end
+  if panel.preview then panel.preview:Hide() end
+  if panel.practice then panel.practice:Hide() end
+  if panel.coverage then panel.coverage:Hide() end
+  panel.subgroup = panel.subgroup or AssignmentUI.BuildSubgroup(panel)
+  local view = panel.subgroup
+  view:Hide()
+  view.options, view.index, view.page = {}, 1, 1
+  view.key, view.report, view.returnToCoverage = nil, nil, fromCoverage
+  view:Show()
+  AssignmentUI.RefreshSubgroup(view)
+  if K.active and not K.edit then K.Move(1) end
+end
+
+function X.OpenSubgroupResponsibilities()
+  if not CLASSIC_FEATURES or X.PlayerSuspended() or InCombatLockdown() then return end
+  X.OpenAssignments()
+  AssignmentUI.OpenSubgroup(cfg.assignmentPanel)
 end
 
 function AssignmentUI.UpdateCoordination(view)
@@ -1972,6 +2213,7 @@ function X.OpenCoordination()
   X.OpenAssignments()
   local panel = cfg.assignmentPanel
   panel.picker:Hide()
+  if panel.subgroup then panel.subgroup:Hide() end
   if panel.preview then panel.preview:Hide() end
   if panel.coverage then panel.coverage:Hide() end
   if panel.practice then panel.practice:Hide() end
@@ -2050,6 +2292,7 @@ function AssignmentUI.Build()
     if panel.preview then panel.preview:Hide() end
     if panel.coverage then panel.coverage:Hide() end
     if panel.coordination then panel.coordination:Hide() end
+    if panel.subgroup then panel.subgroup:Hide() end
     cfg.searchToggle:Show()
     GameTooltip:Hide()
   end)

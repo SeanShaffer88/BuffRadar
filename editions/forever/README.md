@@ -110,9 +110,12 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
 - **Practice Mode** (`/br practice`) walks through a sample blocker edit.
   **Undo Last Change** (`/br undo`) restores the last blocker edit in this
   session while the target rule, profile, and applicable roster still match.
-- **Subgroup Responsibilities** (`/br subgroup FORTITUDE 1,2`) limit a buff's
-  raid cast queue to selected subgroups. Use `/br subgroup` for buff keys and
-  current selections, or `ALL` to clear a filter.
+- **Subgroup Responsibilities** limits each buff's raid cast queue to selected
+  groups. Open it from **Raid Coverage** or run `/br subgroup panel`. Pick a
+  buff, select groups 1–8, and check the roster and any single-target fallback
+  reasons before applying. The existing `/br subgroup FORTITUDE 1,2` command
+  edits the same selection. Use `/br subgroup` to list keys and selections, or
+  `ALL` to clear a filter. These rules clear when you leave the raid or reload.
 - **Raid Preparation** (`/br prep`) lists missing and expiring buffs, food,
   flasks, and estimated group reagents. Use `/br prep personal` to include
   weapon and pet reminders.

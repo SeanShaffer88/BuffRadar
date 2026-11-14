@@ -740,7 +740,11 @@ local function HandleSlash(msg)
   elseif cmd == "prep" then
     X.RaidPreparationCommand(rest:match("^%s*(.-)%s*$"):lower())
   elseif cmd == "subgroup" then
-    X.SubgroupDutyCommand(rest)
+    if rest:match("^%s*(.-)%s*$"):lower() == "panel" and CLASSIC_FEATURES then
+      X.OpenSubgroupResponsibilities()
+    else
+      X.SubgroupDutyCommand(rest)
+    end
   elseif cmd == "fallsound" then
     local m = rest:lower()
     if m == "on" then db.fallSound = true
@@ -1437,7 +1441,7 @@ local function HandleSlash(msg)
     Print("  /br readypost  - also post the ready-check summary to group chat")
     Print("  /br ready show|hide|next|prev  - local ready-check details")
     Print("  /br prep [personal]  - raid preparation and optional personal reminders")
-    Print("  /br subgroup [BUFF 1,2|ALL|NONE]  - local raid subgroup responsibilities")
+    Print("  /br subgroup [panel|BUFF 1,2|ALL|NONE]  - local raid subgroup responsibilities")
     Print("  /br death [show]  - recap of who was missing buffs when you died")
     Print("  /br wipe [show]  - rebuff report after a wipe")
     Print("  /br pin <name>  - keep a player at the top   /br pin none  - clear the pin")

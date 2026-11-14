@@ -736,6 +736,18 @@ local L = {
   ["Raid Group %d"] = "Raid Group %d",
   ["Party"] = "Party",
   ["Unknown Subgroup"] = "Unknown Subgroup",
+  ["Blessings"] = "Blessings",
+  ["Subgroup Responsibilities"] = "Subgroup Responsibilities",
+  ["All Groups"] = "All Groups",
+  ["Selected Groups"] = "Selected Groups",
+  ["No Groups"] = "No Groups",
+  ["Included"] = "Included",
+  ["Outside Selected Groups"] = "Outside Selected Groups",
+  ["Join a raid to set subgroup responsibilities."] = "Join a raid to set subgroup responsibilities.",
+  ["Session only. Changes apply after you select Apply."] = "Session only. Changes apply after you select Apply.",
+  ["Subgroup responsibilities changed. Review the current selection and try again."] = "Subgroup responsibilities changed. Review the current selection and try again.",
+  ["No raid members to preview."] = "No raid members to preview.",
+  ["No available group version for this target."] = "No available group version for this target.",
   ["Some roster information could not be checked."] = "Some roster information could not be checked.",
   ["Join a party or raid to check buff coverage."] = "Join a party or raid to check buff coverage.",
   ["%d Confirmed · %d Missing · %d Unknown"] = "%d Confirmed · %d Missing · %d Unknown",
@@ -2055,6 +2067,7 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
   wipe(out)
   if not report then X.remainTmp, X.auraUnknown = nil, nil end
   local reviewing = report == "assignmentReview"
+  local subgroupKey = detail and detail.subgroupKey
   local class = reviewing and detail.member.class
   if not reviewing then
     local ok, _, file = pcall(UnitClass, unit)
@@ -2108,7 +2121,8 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
           and (not b.single or applies)
       end
     end
-    local eligible = applies and IsOn(b.key, b.default) and X.ContextOK(b.key)
+    local eligible = (not subgroupKey or subgroupKey == b.key and not b.self)
+      and applies and IsOn(b.key, b.default) and X.ContextOK(b.key)
     if report == "raidCoverage" then
       if eligible and not b.self then
         local has
@@ -2174,7 +2188,8 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
       elseif blessingSource == "plan" then detail.blessing = L["Blessing: group plan"]
       elseif blessingSource == "other" then detail.blessing = L["Blessing assigned to another Paladin"] end
     end
-    local blessingEligible = bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf)
+    local blessingEligible = (not subgroupKey or subgroupKey == "BLESSINGS")
+      and bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf)
       and X.ContextOK("BLESSINGS")
     if report == "raidCoverage" then
       if blessingEligible then
@@ -3331,6 +3346,68 @@ function X.FilterSubgroupDuties(unit, isGroup, spells, out)
   return out
 end
 
+function X.SubgroupDutyOptions()
+  local options = {}
+  if not CLASSIC_FEATURES then return options end
+  for _, buff in ipairs(myBuffs) do
+    if not buff.self then options[#options + 1] = { key = buff.key, name = buff.name } end
+  end
+  if X.HasKnownBlessings() then options[#options + 1] = { key = "BLESSINGS", name = L["Blessings"] } end
+  table_sort(options, function(a, b)
+    if a.name == b.name then return a.key < b.key end
+    return a.name < b.name
+  end)
+  return options
+end
+
+function X.GetSubgroupDuty(key)
+  local groups = type(key) == "string" and Readable(key) and X.subgroupDuties and X.subgroupDuties[key]
+  if not groups then return nil end
+  local copy = {}
+  for id in pairs(groups) do copy[id] = true end
+  return copy
+end
+
+do
+  local function KnownSubgroupKey(key)
+    if type(key) ~= "string" or not Readable(key) then return false end
+    if key == "BLESSINGS" then return X.HasKnownBlessings() end
+    for _, buff in ipairs(myBuffs) do
+      if buff.key == key and not buff.self then return true end
+    end
+    return false
+  end
+
+  function X.CanEditSubgroupDuty(key, groups)
+    if not CLASSIC_FEATURES or not db or not InRaid() or InCombatLockdown() or X.PlayerSuspended()
+      or not KnownSubgroupKey(key) then return false end
+    if type(groups) == "nil" then return true end
+    if type(groups) ~= "table" or not Readable(groups) then return false end
+    for id, selected in pairs(groups) do
+      if type(id) ~= "number" or not Readable(id) or id < 1 or id > 8 or id ~= math_floor(id)
+        or type(selected) ~= "boolean" or not Readable(selected) or not selected then return false end
+    end
+    return true
+  end
+
+  function X.SetSubgroupDuty(key, groups)
+    if not X.CanEditSubgroupDuty(key, groups) then return false end
+    local copy
+    if groups then
+      copy = {}
+      for id in pairs(groups) do copy[id] = true end
+    end
+    X.subgroupDuties = X.subgroupDuties or {}
+    X.subgroupDuties[key] = copy
+    X.assignmentGroupConflicts = nil
+    X.Refresh()
+    if X.QueueSubgroupDutyRefresh then X.QueueSubgroupDutyRefresh(key) end
+    return true
+  end
+
+  X.KnownSubgroupKey = KnownSubgroupKey
+end
+
 function X.SubgroupDutyCommand(input)
   if not CLASSIC_FEATURES then return end
   if InCombatLockdown() or X.PlayerSuspended() then return end
@@ -3352,11 +3429,7 @@ function X.SubgroupDutyCommand(input)
     if #keys > 0 then Print(string_format(L["Available Buff Keys: %s"], table.concat(keys, ", "))) end
     return
   end
-  local available = key == "BLESSINGS" and X.HasKnownBlessings()
-  for _, buff in ipairs(myBuffs) do
-    if buff.key == key and not buff.self then available = true; break end
-  end
-  if not available or not selection or not InRaid() or
+  if not X.KnownSubgroupKey(key) or not selection or not InRaid() or
     (selection ~= "ALL" and selection ~= "NONE" and not selection:match("^[1-8][,1-8]*$")) then
     Print(L["In a raid, use /br subgroup BUFF 1,2,3 or ALL or NONE."])
     return
@@ -3374,11 +3447,7 @@ function X.SubgroupDutyCommand(input)
       end
     end
   end
-  X.subgroupDuties = X.subgroupDuties or {}
-  X.subgroupDuties[key] = groups
-  X.assignmentGroupConflicts = nil
-  Print(string_format(L["Subgroup responsibility updated for %s."], key))
-  X.Refresh()
+  if X.SetSubgroupDuty(key, groups) then Print(string_format(L["Subgroup responsibility updated for %s."], key)) end
 end
 
 local function AddGroupBlocker(report, member, blocker)
@@ -3450,22 +3519,38 @@ local function GroupAssignmentConflict(spell, groupSpell, unit, greater, baseID,
 end
 
 function X.GroupBlockersFor(spell, name, unit, greater, baseID, preview)
-  if InRaid() and X.subgroupDuties and next(X.subgroupDuties) then
+  local draft = preview and preview.subgroupDuty
+  if InRaid() and (draft or X.subgroupDuties and next(X.subgroupDuties)) then
     local key = X.SubgroupBuffKey(spell)
-    if key and X.subgroupDuties[key] then
+    local groups = key and X.subgroupDuties and X.subgroupDuties[key]
+    if draft and draft.key == key then groups = draft.groups end
+    if groups then
       local targetClass = greater and UnitClassFile(unit)
-      local blocked = greater and not targetClass
-      local count = 0
-      X.ForReportRoster(function(member, exists)
-        if not exists then blocked = true; return end
-        count = count + 1
-        local class = greater and UnitClassFile(member)
-        if (not greater or not class or class == targetClass) and not X.SubgroupAllows(key, member, true) then
-          blocked = true
-        end
-      end)
-      if blocked or count ~= X.ReadUnitNumber(GetNumGroupMembers) then
-        return { first = { kind = "subgroup", spell = name, single = spell }, members = {} }, "subgroup"
+      local cache = draft and draft.key == key and draft.scopes
+      local scope = targetClass or (greater and "unknown" or "raid")
+      local cached = cache and cache[scope]
+      local blocked, unknown
+      if cached then
+        blocked, unknown = cached.blocked, cached.unknown
+      else
+        unknown = greater and not targetClass
+        local count = 0
+        X.ForReportRoster(function(member, exists)
+          if not exists then unknown = true; return end
+          count = count + 1
+          local class = greater and UnitClassFile(member)
+          if not greater or not class or class == targetClass then
+            local subgroup = X.RaidSubgroup(tonumber(member:match("^raid(%d+)$")))
+            if not subgroup then unknown = true
+            elseif not groups[subgroup] then blocked = true end
+          end
+        end)
+        if count ~= X.ReadUnitNumber(GetNumGroupMembers) then unknown = true end
+        if cache then cache[scope] = { blocked = blocked, unknown = unknown } end
+      end
+      if blocked or unknown then
+        local kind = blocked and "subgroup" or "roster"
+        return { first = { kind = kind, spell = name, single = spell }, members = {}, incomplete = unknown }, "subgroup"
       end
     end
   end
@@ -3576,6 +3661,68 @@ function X.GroupOfferReason(item, count, reason, blockers, compact)
     return string_format(count == false and L["Could not check reagent: %s."] or L["Missing reagent: %s."],
       ReagentName(item))
   end
+end
+
+-- Evaluate the draft with the same range, rank and group checks as the queue.
+-- The draft is passed by value for this query, never installed in session state.
+function X.PreviewSubgroupDuty(key, groups)
+  if not X.CanEditSubgroupDuty(key, groups) then return nil end
+  local report = { members = {}, incomplete = false }
+  local context = { conflicts = {}, reagents = {}, subgroupDuty = { key = key, groups = groups, scopes = {} } }
+  local size = X.ReadUnitNumber(GetNumGroupMembers)
+  local seenGUIDs, count, cooldowns = {}, 0, {}
+  X.ForReportRoster(function(unit, exists)
+    if not exists then report.incomplete = true; return end
+    local guid, full, short = X.ReadyIdentity(unit)
+    if not guid or guid == "" or seenGUIDs[guid] then report.incomplete = true; return end
+    seenGUIDs[guid], count = true, count + 1
+    local subgroup = X.RaidSubgroup(tonumber(unit:match("^raid(%d+)$"))) or 0
+    local row = { name = full or short or L["Player details unavailable"], subgroup = subgroup }
+    if not full or subgroup == 0 then report.incomplete = true end
+    if not full or subgroup == 0 and groups then
+      row.status = "unknown"
+    elseif groups and not groups[subgroup] then
+      row.status = "excluded"
+    else
+      row.status = "eligible"
+    end
+    report.members[#report.members + 1] = row
+    if row.status ~= "eligible" then return end
+    local valid, isSelf = Valid(unit)
+    if not valid then row.detail = L["Currently ineligible"]; return end
+    if Ignore.Has(full, short) or X.SessionHas(full, short) then row.detail = L["Ignored"]; return end
+    if X.failedTargets[guid] and X.failedTargets[guid] > GetTime() then
+      row.detail = L["Temporarily skipped after a failed cast"]
+      return
+    end
+    local missing, available = {}, {}
+    local detail = { subgroupKey = key, cooldown = {}, cooldowns = cooldowns }
+    local _, unknown, checked = Missing(unit, missing, true, isSelf, "why", detail)
+    local _, _, rangeUnknown, rankLimited = X.FilterInRange(unit, missing, available, isSelf, true)
+    if unknown then row.detail = L["Buff information unavailable"]
+    elseif rangeUnknown then row.detail = L["Range could not be confirmed"]
+    elseif rankLimited then row.detail = L["No eligible rank or range"]
+    elseif #missing > #available then row.detail = L["Out of cast range"]
+    elseif #detail.cooldown > 0 then row.detail = string_format(L["On cooldown: %s"], table.concat(detail.cooldown, ", "))
+    elseif #available == 0 then row.detail = checked and L["No buffs due"] or L["No applicable buffs"] end
+    local spell = available[1]
+    if spell then
+      row.spell = spell
+      local offer, item, quantity, reason, _, blockers = X.GroupOffer(spell, unit, context)
+      row.group = offer
+      row.fallback = X.GroupOfferReason(item, quantity, reason, blockers)
+      if not offer and not row.fallback then row.fallback = L["No available group version for this target."] end
+    end
+  end)
+  X.scanUnit = nil
+  if count ~= size then report.incomplete = true end
+  table_sort(report.members, function(a, b)
+    if a.subgroup == b.subgroup then return a.name < b.name end
+    if a.subgroup == 0 then return false end
+    if b.subgroup == 0 then return true end
+    return a.subgroup < b.subgroup
+  end)
+  return report
 end
 
 local function GroupBlockerDetails(blockers, lines, actions, origin)
