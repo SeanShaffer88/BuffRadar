@@ -91,5 +91,12 @@ BuffRadarLocales.ruRU = {
   ["Shift-click a row casts the group version of its buff"] = "Shift-клик по строке применяет групповую версию баффа",
   ["Shift-click to cast: %s"] = "Shift-клик для применения: %s",
   ["Flash when a pull timer starts"] = "Мигать при запуске таймера пула",
-
+  ["An active group blessing plan takes precedence."] = "Действующий групповой план благословений имеет приоритет.",
+  ["Blessings by class"] = "Благословения по классам",
+  ["Casts: |cffffffff%d|r / |cffffffff%d|r"] = "Применений: |cffffffff%d|r / |cffffffff%d|r",
+  ["Default (%s)"] = "По умолчанию (%s)",
+  ["Default blessing"] = "Благословение по умолчанию",
+  ["Estimated range"] = "Расчётная дальность",
+  ["Previously selected blessing unavailable"] = "Ранее выбранное благословение недоступно",
+  ["Some buff information is unavailable."] = "Часть информации о баффах недоступна.",
 }

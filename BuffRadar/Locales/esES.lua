@@ -91,5 +91,12 @@ BuffRadarLocales.esES = {
   ["Shift-click a row casts the group version of its buff"] = "Mayús-clic en una fila lanza la versión de grupo del beneficio",
   ["Shift-click to cast: %s"] = "Mayús-clic para lanzar: %s",
   ["Flash when a pull timer starts"] = "Parpadear cuando empieza un temporizador de pull",
-
+  ["An active group blessing plan takes precedence."] = "Un plan activo de bendiciones de grupo tiene prioridad.",
+  ["Blessings by class"] = "Bendiciones por clase",
+  ["Casts: |cffffffff%d|r / |cffffffff%d|r"] = "Lanzamientos: |cffffffff%d|r / |cffffffff%d|r",
+  ["Default (%s)"] = "Predeterminada (%s)",
+  ["Default blessing"] = "Bendición predeterminada",
+  ["Estimated range"] = "Alcance estimado",
+  ["Previously selected blessing unavailable"] = "La bendición elegida anteriormente no está disponible",
+  ["Some buff information is unavailable."] = "Parte de la información de beneficios no está disponible.",
 }

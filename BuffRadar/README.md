@@ -2,6 +2,10 @@
 
 # BuffRadar
 
+> **Frozen edition.** Retail support was dropped on 2026-10-25 (from 1.8.0 BuffRadar is
+> Forever-only). This guide and the Retail `.toc` are kept as-is for reference and are
+> not maintained or tested against current Retail patches.
+
 **A click-to-buff list for World of Warcraft — Retail edition.**
 
 BuffRadar shows a small window listing every nearby player who is missing one of *your*
