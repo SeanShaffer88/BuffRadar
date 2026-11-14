@@ -854,6 +854,20 @@ local function SafeString(v)
   return ok and s or nil
 end
 
+-- A unit flag the client may refuse to answer: true or false when it answers,
+-- nil when the value is restricted. Callers decide what an unknown means,
+-- because a refusal must never silently empty the whole list.
+function X.ReadUnitBool(api, ...)
+  if type(api) ~= "function" then return nil end
+  local ok, value = pcall(api, ...)
+  if not ok then return nil end
+  local t = type(value)                     -- type() is safe on a restricted value
+  if t == "nil" then return false end        -- the classic "1 or nil" false case
+  if not Readable(value) then return nil end
+  if t == "boolean" then return value end
+  if t == "number" then return value ~= 0 end
+end
+
 function X.ReadUnitNumber(api, ...)
   if type(api) ~= "function" then return nil end
   local ok, value = pcall(api, ...)
@@ -1073,7 +1087,8 @@ do
     if not Readable(unit) or type(unit) ~= "string" then return true end
     if unit ~= "player" and unit ~= "target" and unit ~= "mouseover"
       and not unit:find("^party%d+$") and not unit:find("^raid%d+$")
-      and not (unit:find("^nameplate%d+$") and UnitIsPlayer(unit)) then return false end
+      and not (unit:find("^nameplate%d+$")
+               and X.ReadUnitBool(UnitIsPlayer, unit) == true) then return false end
     local ok, refresh = pcall(InspectAuraEvent, unit, info)
     if not ok and X.auraIds then X.auraIds[unit] = nil end
     return not ok or refresh
@@ -1465,7 +1480,7 @@ function X.Track(unit)
   if not UnitExists(unit) then return end
   local guid = SafeString(UnitGUID(unit))
   if not guid then return end
-  if UnitIsDeadOrGhost(unit) then
+  if X.ReadUnitBool(UnitIsDeadOrGhost, unit) == true then
     X.dead[guid] = true
   elseif X.dead[guid] then
     X.dead[guid] = nil
@@ -1602,11 +1617,18 @@ for i = 1, 40 do RAID[i] = "raid" .. i; PLATES[i] = "nameplate" .. i end
 for i = 1, 4 do PARTY[i] = "party" .. i end
 
 local function Valid(unit)
-  if not UnitExists(unit) or not UnitIsPlayer(unit) then return false end
-  if UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit) then return false end
+  -- Existence and "is a player" stay strict: a refusal there would let NPCs
+  -- onto the list. The flags below are permissive instead, because excluding a
+  -- player on an unreadable answer costs the whole feature, while listing one
+  -- who cannot be buffed costs a single failed cast with a clear error.
+  if X.ReadUnitBool(UnitExists, unit) ~= true then return false end
+  if X.ReadUnitBool(UnitIsPlayer, unit) ~= true then return false end
+  if X.ReadUnitBool(UnitIsDeadOrGhost, unit) == true then return false end
+  if X.ReadUnitBool(UnitIsConnected, unit) == false then return false end
   -- Self is inherently assistable; some Classic clients reject this API check.
   local isSelf = X.IsSelf(unit)
-  if isSelf == nil or (not isSelf and not UnitCanAssist("player", unit)) then return false end
+  if isSelf == nil then return false end
+  if not isSelf and X.ReadUnitBool(UnitCanAssist, "player", unit) == false then return false end
   if not UnitAffectingCombat then return false end
   local okPlayer, playerCombat = pcall(UnitAffectingCombat, "player")
   if not okPlayer or not Readable(playerCombat) or playerCombat ~= false then return false end
@@ -1617,8 +1639,7 @@ local function Valid(unit)
     if not ok or not Readable(charmed) or charmed ~= false then return false end
   end
   if _G.UnitInPhase then  -- a player in another phase can't be reached or buffed
-    local ok, inPhase = pcall(_G.UnitInPhase, unit)
-    if ok and inPhase == false then return false end
+    if X.ReadUnitBool(_G.UnitInPhase, unit) == false then return false end
   end
   if db.avoidPvP then
     local ok, flagged = pcall(UnitIsPVP, unit)
@@ -1919,8 +1940,9 @@ end
 -- pet unit, shows the pet's name and portrait, and sorts just after the
 -- players. Pooled-entry hygiene mirrors Consider, plus pet=true.
 function X.ConsiderPet(petUnit, ownerUnit)
-  if not UnitExists(petUnit) or UnitIsDeadOrGhost(petUnit) then return end
-  if not UnitCanAssist("player", petUnit) then return end
+  if not UnitExists(petUnit) then return end
+  if X.ReadUnitBool(UnitIsDeadOrGhost, petUnit) == true then return end
+  if X.ReadUnitBool(UnitCanAssist, "player", petUnit) == false then return end
   local isSelf = X.IsSelf(petUnit)
   if isSelf == nil then return end
   local guid = SafeString(UnitGUID(petUnit))
@@ -1995,7 +2017,7 @@ local function CollectEntries()
     local u = PLATES[i]
     if UnitExists(u) then
       X.platesSeen = X.platesSeen + 1
-      if UnitIsPlayer(u) then X.playersSeen = X.playersSeen + 1 end
+      if X.ReadUnitBool(UnitIsPlayer, u) == true then X.playersSeen = X.playersSeen + 1 end
     end
     Consider(u, false)
   end
@@ -2254,7 +2276,7 @@ function X.WipeCheck()
   local function scan(unit)
     if UnitExists(unit) then
       total = total + 1
-      if UnitIsDeadOrGhost(unit) then dead = dead + 1 end
+      if X.ReadUnitBool(UnitIsDeadOrGhost, unit) == true then dead = dead + 1 end
     end
   end
   scan("player")
