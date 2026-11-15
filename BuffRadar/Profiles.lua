@@ -295,12 +295,14 @@ do
 
   function X.ApplyProfile(patch)
     local db = X.GetDB()
+    local syncWasEnabled = db.sync
     -- Normalize the complete proposed state before changing the live settings.
     local candidate = {}
     for key, value in pairs(db) do candidate[key] = value end
     for key, value in pairs(patch) do candidate[key] = value end
     SanitizeDB(candidate)
     for key in pairs(patch) do db[key] = candidate[key] end
+    if syncWasEnabled and not db.sync then X.StopCoordination() end
     X.blockerProfileRevision = (X.blockerProfileRevision or 0) + 1
     X.assignmentGroupConflicts = nil
     X.prioDirty = true

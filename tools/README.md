@@ -69,13 +69,15 @@ does not exercise the game’s channel delivery or protected casting.
 The regular gate replays old requests and plans together after re-opt-in. It
 also replays cast packets and session proofs with the original caster and
 target still in the group. It tests a roster change seen only by the receiving
-client, delayed and duplicate proofs, and a fresh cast arriving before its proof.
+client, delayed and duplicate proofs, a fresh cast arriving before its proof,
+and a timed retry with no new application traffic.
 
 Forever caster plans and cast sync require both clients to use scoped protocol
 version 3. When a roster and its leadership return to a previous state, the
 client broadcasts a challenge. Each sender's proof establishes the sequence
 cutoff. A first fresh cast or plan request sent after that proof can sync
-without another round trip. If the proof never arrives, the next packet after
-the three-second window triggers a targeted challenge and may itself be
-dropped. A failed broadcast skips the wait. BuffRadar sends caster plan
-requests only when initiated by the user.
+without another round trip. If peers remain unverified after three seconds,
+the client broadcasts one more challenge with a new nonce. Either proof can
+verify a pending peer during the second window. Further proofs leave that
+peer's cutoff intact. If both attempts expire, the next packet uses a targeted
+challenge and may itself be dropped. BuffRadar only retries the challenge.

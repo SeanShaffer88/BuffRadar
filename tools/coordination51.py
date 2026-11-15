@@ -7,9 +7,9 @@ from pathlib import Path
 from lupa import lua51
 
 
-CLIENT = r"""function(name, guid)
+CLIENT = r"""function(name, guid, withTimer)
   local chat = {}
-  local env = WOWSTUB(chat, true, false, true, false)
+  local env = WOWSTUB(chat, withTimer, false, true, false)
   local std = { string=string, table=table, math=math, pairs=pairs, ipairs=ipairs, next=next,
     type=type, select=select, pcall=pcall, tostring=tostring, tonumber=tonumber, error=error,
     setmetatable=setmetatable, getmetatable=getmetatable, rawget=rawget, rawset=rawset,
@@ -20,10 +20,16 @@ CLIENT = r"""function(name, guid)
   local units = { player = { name, guid } }
   local leader, now = name, 1000
   local function configure(other, otherGUID, third, newLeader, clock, fourth)
-    units.party1 = { other, otherGUID }
+    units.party1 = other and { other, otherGUID } or nil
     units.party2 = third and { "Tara", "Player-1-0003" } or nil
     units.party3 = fourth and { "Wren", "Player-1-0004" } or nil
     leader, now = newLeader, clock
+  end
+  local timers = {}
+  if env.C_Timer then
+    env.C_Timer.After = function(delay, callback)
+      timers[#timers + 1] = { deadline = now + delay, callback = callback }
+    end
   end
   local over = env.__over
   over.GetTime = function() return now end
@@ -70,13 +76,18 @@ CLIENT = r"""function(name, guid)
     db.sync = true
   end
   local function drainTimers()
-    for _ = 1, 8 do
-      if #env.__timers == 0 then return end
-      local timers = env.__timers
-      env.__timers = {}
-      for _, callback in ipairs(timers) do callback() end
+    for _ = 1, 32 do
+      local earliest
+      for index, timer in ipairs(timers) do
+        if timer.deadline <= now and (not earliest or timer.deadline < timers[earliest].deadline) then
+          earliest = index
+        end
+      end
+      if not earliest then return end
+      local timer = table.remove(timers, earliest)
+      timer.callback()
     end
-    assert(#env.__timers == 0, "timer drain did not settle")
+    error("due timers did not settle")
   end
   local function rowFor(unit)
     for _, row in ipairs(ns.X.slashAPI.rows) do
@@ -92,12 +103,23 @@ CLIENT = r"""function(name, guid)
     end,
     start = start,
     fire = fire,
+    advance = function(clock)
+      assert(clock >= now, "mock clock cannot move backward")
+      local elapsed = clock - now
+      now = clock
+      if withTimer then
+        drainTimers()
+      else
+        driver.scripts.OnUpdate(driver, elapsed)
+      end
+    end,
     buffers = function(fortitude, spirit)
       local db = env.BuffRadarDB
       db.enabled.FORTITUDE, db.enabled.DIVINE_SPIRIT = fortitude, spirit
       ns.X.slashAPI.BuildBuffList()
     end,
     slash = function(command) env.SlashCmdList.BUFFRADAR("coordinate " .. command) end,
+    toggleSync = function() env.SlashCmdList.BUFFRADAR("sync") end,
     snapshot = function() return ns.X.CoordinationSnapshot() end,
     holder = function(key) return ns.X.CoordinatedHolder(key) end,
     manualHolder = function(key) return ns.X.assign[key] end,
@@ -149,12 +171,12 @@ def forever_sources(addon):
 
 
 class Client:
-    def __init__(self, stub, sources, name, guid):
+    def __init__(self, stub, sources, name, guid, with_timer=True):
         self.name, self.guid = name, guid
         self.outbox = []
         self.lua = lua51.LuaRuntime(unpack_returned_tuples=True)
         self.lua.execute(stub)
-        self.api = self.lua.eval(CLIENT)(name, guid)
+        self.api = self.lua.eval(CLIENT)(name, guid, with_timer)
         for path, source in sources:
             self.api.load(source, path)
 
@@ -185,19 +207,19 @@ class Packet:
 
 
 class Party:
-    def __init__(self, stub, sources, third=False):
+    def __init__(self, stub, sources, third=False, with_timer=True):
         self.a = Client(stub, sources, "Alia", "Player-1-0001")
-        self.b = Client(stub, sources, "Bren", "Player-1-0002")
+        self.b = Client(stub, sources, "Bren", "Player-1-0002", with_timer)
         self.update(self.a, third, 1000)
         for client in (self.a, self.b):
             client.api.start()
             client.api.drain()
 
-    def update(self, leader, third, clock, event=None, fourth=False, clients=None):
+    def update(self, leader, third, clock, event=None, fourth=False, clients=None, solo=False):
         clients = (self.a, self.b) if clients is None else clients
         for local, remote in ((self.a, self.b), (self.b, self.a)):
             if local in clients:
-                local.api.configure(remote.name, remote.guid, third, leader.name, clock, fourth)
+                local.api.configure(None if solo else remote.name, remote.guid, third, leader.name, clock, fourth)
         if event:
             for client in clients:
                 client.api.fire(event)
@@ -592,6 +614,106 @@ def first_request_overtakes_roster_proof(stub, sources):
     print("PASS: the first fresh REQ overtakes roster proof and completes the plan exchange without retry")
 
 
+def return_receiver_to_roster(party, third=True):
+    sender, receiver = party.a, party.b
+    party.update(sender, third, 1000, "GROUP_ROSTER_UPDATE", clients=(receiver,))
+    party.update(sender, True, 1001, "GROUP_ROSTER_UPDATE", fourth=third, clients=(receiver,))
+    party.update(sender, third, 1002, "GROUP_ROSTER_UPDATE", clients=(receiver,))
+    return party.roster_challenge(receiver)
+
+
+def retry_roster_challenge(stub, sources, first_proof_wins):
+    party = Party(stub, sources, third=True)
+    sender, receiver = party.a, party.b
+    sender.api.buffers(True, False)
+    sender.action("on")
+    sender.action("request")
+    old_request = party.packet(sender, "COORD;1;REQ;")
+
+    def cast(label):
+        sender.api.refresh()
+        sender.api.cast("party2", "Cast-1-" + label)
+        return party.packet(sender, "CAST;")
+
+    old_cast = cast("before-retry")
+    first = return_receiver_to_roster(party)
+    receiver.api.buffers(True, False)
+    receiver.action("on")
+    proof1 = party.roster_proof(first, sender, receiver)
+    check(proof1.message.endswith(f";{old_cast.sequence}"), "first proof did not set the old floor")
+    receiver.api.advance(1004.99)
+    check(not party.capture(receiver), "warm-up retried before three seconds")
+    receiver.api.advance(1005)
+    second = party.roster_challenge(receiver)
+    check(first.message.rsplit(";", 1)[0] == second.message.rsplit(";", 1)[0] and first != second,
+          "retry must use the same roster and a fresh nonce")
+    check(not party.capture(receiver), "retry sent application traffic before a proof")
+
+    party.update(sender, True, 1005)
+    between_cast = cast("between-proofs")
+    proof2 = party.roster_proof(second, sender, receiver)
+    check(proof2.message.endswith(f";{between_cast.sequence}") and between_cast.sequence > old_cast.sequence,
+          "retry proof did not advance the sender's sequence floor")
+    party.update(sender, True, 1006)
+    for packet in (old_request, old_cast):
+        check(not party.exchange(packet, receiver), "stale traffic during second grace started a targeted proof")
+    first_delivered, late = (proof1, proof2) if first_proof_wins else (proof2, proof1)
+    party.deliver(first_delivered, receiver)
+    party.deliver(late, receiver)
+    check(not party.capture(receiver) and receiver.api.handledAt("Player-1-0003", "FORTITUDE") is None,
+          "retry proof replayed buffered CAST or REQ")
+
+    for packet in (old_request, old_cast, between_cast):
+        check(not party.exchange(packet, receiver), "already-proved sender triggered another challenge")
+    expected = 1006 if first_proof_wins else None
+    check(receiver.api.handledAt("Player-1-0003", "FORTITUDE") == expected and not party.capture(receiver),
+          "alternate proof replaced the established floor or replayed old request")
+    party.update(sender, True, 1007)
+    check(not party.exchange(cast("after-both-proofs"), receiver)
+          and receiver.api.handledAt("Player-1-0003", "FORTITUDE") == 1007,
+          "first genuinely new cast after both proofs failed")
+    receiver.api.advance(1009)
+    check(not party.capture(receiver), "warm-up sent a third challenge")
+    sender.api.buffers(False, True)
+    party.update(sender, True, 1011)
+    _, plan = publish_plan(party, sender, receiver, scope_proved=True)
+    accept_plan(party, sender, receiver, plan)
+    winner = "late first proof" if first_proof_wins else "retry proof"
+    print(f"PASS: one idle retry establishes {winner} and ignores the alternate proof")
+
+
+def cancelled_roster_retry(stub, sources, reason):
+    party = Party(stub, sources, third=False)
+    sender, receiver = party.a, party.b
+    first = return_receiver_to_roster(party, third=False)
+    if reason == "group left":
+        party.update(sender, False, 1003, "GROUP_LEFT", clients=(receiver,), solo=True)
+    elif reason == "roster changed":
+        party.update(receiver, False, 1003, "PARTY_LEADER_CHANGED", clients=(receiver,))
+    elif reason == "sync disabled":
+        receiver.api.toggleSync()
+        receiver.api.toggleSync()  # A canceled attempt stays canceled after re-enable.
+    else:
+        party.deliver(party.roster_proof(first, sender, receiver), receiver)
+    receiver.api.advance(1006)
+    check(not party.capture(receiver), f"warm-up retried after {reason}")
+    print(f"PASS: no roster retry after {reason}")
+
+
+def retry_without_native_timer(stub, sources):
+    party = Party(stub, sources, third=False, with_timer=False)
+    first = return_receiver_to_roster(party, third=False)
+    receiver = party.b
+    receiver.api.advance(1004)
+    check(not party.capture(receiver), "fallback frame retried too early")
+    receiver.api.advance(1005)
+    second = party.roster_challenge(receiver)
+    check(first != second, "fallback frame retry reused original challenge")
+    receiver.api.advance(1009)
+    check(not party.capture(receiver), "fallback frame sent more than one retry")
+    print("PASS: existing frame update retries once without a native timer")
+
+
 def expired_roster_challenge(stub, sources):
     party = Party(stub, sources, third=True)
     sender, receiver = party.a, party.b
@@ -599,24 +721,28 @@ def expired_roster_challenge(stub, sources):
     sender.api.refresh()
     sender.api.cast("party2", "Cast-1-before-challenge")
     delayed = party.packet(sender, "CAST;")
-    party.update(sender, True, 1000, "GROUP_ROSTER_UPDATE", clients=(receiver,))
-    party.update(sender, True, 1001, "GROUP_ROSTER_UPDATE", fourth=True, clients=(receiver,))
-    party.update(sender, True, 1002, "GROUP_ROSTER_UPDATE", clients=(receiver,))
-    challenge = party.roster_challenge(receiver)
+    challenge = return_receiver_to_roster(party)
     late_proof = party.roster_proof(challenge, sender, receiver)
+    receiver.api.advance(1005)
+    retry = party.roster_challenge(receiver)
+    party.update(sender, True, 1005)
+    late_retry_proof = party.roster_proof(retry, sender, receiver)
 
-    party.update(sender, True, 1006)
+    receiver.api.advance(1009)
+    check(not party.capture(receiver), "an unanswered retry scheduled a third roster challenge")
+    party.update(sender, True, 1009)
     party.deliver(late_proof, receiver)
+    party.deliver(late_retry_proof, receiver)
     controls = party.exchange(delayed, receiver)
     check([packet.message.split(";", 3)[2] for packet in controls] == ["Q", "P"],
           "expired roster proof prevented a targeted fallback challenge")
     check(receiver.api.handledAt("Player-1-0003", "FORTITUDE") is None,
           "targeted proof after an expired roster challenge accepted stale data")
-    party.update(sender, True, 1007)
+    party.update(sender, True, 1010)
     sender.api.refresh()
     sender.api.cast("party2", "Cast-1-after-targeted-proof")
     check(not party.exchange(party.packet(sender, "CAST;"), receiver)
-          and receiver.api.handledAt("Player-1-0003", "FORTITUDE") == 1007,
+          and receiver.api.handledAt("Player-1-0003", "FORTITUDE") == 1010,
           "fresh cast after targeted fallback failed to apply")
     print("PASS: expired roster proof falls back to targeted proof and keeps the replay floor")
 
@@ -689,6 +815,11 @@ def main():
     unseen_epoch_after_round_trip(stub, sources)
     receiver_only_round_trip(stub, sources)
     first_request_overtakes_roster_proof(stub, sources)
+    for first_proof_wins in (True, False):
+        retry_roster_challenge(stub, sources, first_proof_wins)
+    for reason in ("group left", "roster changed", "sync disabled", "every peer proved"):
+        cancelled_roster_retry(stub, sources, reason)
+    retry_without_native_timer(stub, sources)
     expired_roster_challenge(stub, sources)
     legacy_packets(stub, sources)
     return 0

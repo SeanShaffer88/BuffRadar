@@ -4882,13 +4882,54 @@ do
       departedCount = departedCount + 1
     end
 
+    local function BroadcastSyncWarmup(current, now)
+      local nonce = NewSyncNonce()
+      if not X.Broadcast("SYNC;3;B;" .. current.digest .. ";" .. nonce) then return false end
+      current.priorWarmNonce, current.warmNonce, current.warmExpires = current.warmNonce, nonce, now + 3
+      return true
+    end
+
+    local function RetrySyncWarmup(current)
+      if not current or scope ~= current or not current.warmRetryAt then return end
+      local now = GetTime()
+      if now < current.warmRetryAt then return end
+      current.warmRetryAt = nil
+      if not db or not db.sync then return end
+      local members, identity = CoordinationRoster()
+      local me = CoordinationGUID("player")
+      if identity ~= current.identity or not me or not members[me] then return end
+      for guid in pairs(members) do
+        local peer = current.peers[guid]
+        if guid ~= me and not (peer and peer.epoch) then
+          if BroadcastSyncWarmup(current, now) then
+            -- Reordered data can still be proved by either broadcast. Keep
+            -- only the existing bounded queues for this one extra window.
+            for _, unresolved in pairs(current.peers) do
+              if not unresolved.epoch and unresolved.pending then
+                for _, pending in ipairs(unresolved.pending) do
+                  if not pending.challenge then pending.expires = current.warmExpires end
+                end
+              end
+            end
+          end
+          return
+        end
+      end
+    end
+
     local function StartSyncWarmup(current)
       if not current or not current.requireProofFloor or current.warmAttempted or not db or not db.sync then return end
       current.warmAttempted = true
-      local nonce = NewSyncNonce()
-      if X.Broadcast("SYNC;3;B;" .. current.digest .. ";" .. nonce) then
-        current.warmNonce, current.warmExpires = nonce, GetTime() + 3
+      local now = GetTime()
+      BroadcastSyncWarmup(current, now)
+      current.warmRetryAt = now + 3
+      if C_Timer and C_Timer.After then
+        C_Timer.After(3, function() RetrySyncWarmup(current) end)
       end
+    end
+
+    function X.RunDueSyncWarmupRetry()
+      RetrySyncWarmup(scope)
     end
 
     local function UpdateSyncScope(force)
@@ -5175,6 +5216,11 @@ do
 
     function X.StopCoordination()
       SetSession(nil)
+      if scope and (not db or not db.sync) then
+        scope.warmRetryAt = nil
+        scope.warmNonce, scope.priorWarmNonce, scope.warmExpires = nil, nil, nil
+        for _, peer in pairs(scope.peers) do peer.pending = nil end
+      end
       if X.QueueCoordinationRefresh then X.QueueCoordinationRefresh() end
     end
 
@@ -5418,10 +5464,9 @@ do
         end
       elseif kind == "P" then
         local pending = FindSyncPending(peer, epoch, now)
-        local isWarm = field == current.warmNonce
+        local isWarm = field == current.warmNonce or field == current.priorWarmNonce
         if isWarm then
-          if not warmActive or peer.warmVerified then return end
-          peer.warmVerified = true
+          if not warmActive or peer.epoch then return end
         else
           if not pending or pending.challenge ~= field then return end
           if current.requireProofFloor and proofFloor < pending.challengeSeq then return end
@@ -5452,7 +5497,7 @@ do
           local pending = FindSyncPending(peer, epoch, now)
           if not pending then
             local challenge, expires
-            if warmActive and not peer.warmVerified then
+            if warmActive and not peer.epoch then
               -- Let the broadcast proof arrive before issuing a targeted
               -- challenge that would count these held packets in its floor.
               expires = current.warmExpires
@@ -8918,6 +8963,7 @@ else
         if elapsed < interval then return end
       end
       elapsed, soonElapsed, interval = 0, nil, nil
+      X.RunDueSyncWarmupRetry()
       if X.lifeCheckPending then
         if X.ReadUnitBool(_G.UnitIsDeadOrGhost, "player") == false then X.UpdatePlayerLife() end
       end
