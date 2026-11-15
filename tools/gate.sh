@@ -13,4 +13,5 @@ echo "== luacheck51";   "$PY" -I tools/luacheck51.py $LUA $LOC
 echo "== lualimits";    for f in $LUA; do "$PY" -I tools/lualimits.py "$f"; done
 echo "== localecheck";  "$PY" -I tools/localecheck.py BuffRadar/BuffRadar.lua BuffRadar/Locales
 echo "== smoke";        "$PY" -I tools/smoke51.py tools/wowstub.lua BuffRadar/BuffRadar.lua
+echo "== coordination"; "$PY" -I tools/coordination51.py tools/wowstub.lua BuffRadar/BuffRadar.lua
 echo "Gate passed. Real luacheck 1.2.0: run tools/check.ps1 on Windows."
