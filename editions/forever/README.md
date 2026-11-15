@@ -136,6 +136,11 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
   `review` and `publish` a plan.
   Recipients review it with `inbox` and choose `accept` or `decline`.
   The coordinator's `status` shows acknowledgements separately from coverage.
+- **Window themes** include built-in palettes, custom colors, and opt-in
+  automatic matching. Select **Auto** using the Theme button or
+  `/br theme ui.auto`. Open **Auto Theme Priority** on the Window tab or run
+  `/br theme priority panel` to reorder eligible matches and see the selected
+  addon.
 - **Role ordering** option: you, tanks and leaders first.
 - **Rezzed players first** (after you): someone who just came back from the dead
   has lost every buff, so their row jumps up with a *recently rezzed* marker.

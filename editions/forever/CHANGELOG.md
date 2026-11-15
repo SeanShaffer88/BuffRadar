@@ -2,7 +2,17 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
-## 1.15.31 — Forever test build
+## 1.15.31 — WoW: Forever
+
+- Select **Auto** under **Settings → Window → Theme** to match a supported
+  UI addon. Open **Auto Theme Priority** to reorder matches and see the addon
+  selected. Midnight is the fallback. Manual and saved palettes are available.
+- Add ten UI-inspired window palettes for backgrounds and borders.
+- Expire stale caster coordination requests, plans, acknowledgements, and
+  cast sync messages after roster or leadership changes. When a previous
+  roster returns, BuffRadar verifies peers up front and retries once after
+  three seconds if verification is incomplete. Caster coordination and cast
+  sync require updated BuffRadar clients on both ends.
 
 - Clear a stale cast-next binding if a roster slot changes occupants before
   the list refreshes. This applies to both cast-next bindings.

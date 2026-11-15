@@ -167,8 +167,10 @@ aura and Hunter aspect reminders with `/br aura`.
   frees the header space.
 - **Rows and styling.** Choose compact rows, two columns, upward growth,
   text size, row spacing, and icon size. Customize background color,
-  opacity, border, and themes. Use Midnight, Crimson, Forest, Parchment,
-  or up to four saved custom themes. Show class colors, realm names,
+  opacity, border, and themes. Choose a built-in palette or save up to four
+  custom themes. Select **Auto** to match a loaded UI addon, then open
+  **Auto Theme Priority** on the Window tab to reorder matches and see the
+  selected addon. Show class colors, realm names,
   raid markers, duration bars, or colored marks for tanks, assignments,
   expiry, and the buddy split. Trim long names and select minimal,
   standard, or full tooltips with buff durations where available.

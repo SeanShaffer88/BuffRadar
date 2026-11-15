@@ -90,8 +90,10 @@ each needs in-game evidence or a sharper definition, recorded in
   bottom anchor instead of down.
 - **Combat safety:** the window and pill hide during combat, buff buttons
   are disabled, and targets in combat never appear.
-- **Color themes** (`/br theme`): Midnight, Crimson, Forest and
-  Parchment window schemes; a custom color makes the theme Custom.
+- **Color themes** (`/br theme`): choose a built-in window palette, save your
+  own, or select Auto to match a loaded UI addon. **Auto Theme Priority**
+  (`/br theme priority panel`) sets the order and shows the selected addon. A
+  hand-picked background color selects Custom.
 - **Raid target markers** (`/br markers`): rows show the raid
   marker currently on that player.
 - **Group pets** (`/br pets`): party/raid pets get rows when
