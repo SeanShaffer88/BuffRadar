@@ -2918,6 +2918,95 @@ step("color themes set the window colors (1.8.0)", function()
   assert(db.theme == "midnight", "theme not restored")
 end)
 
+step("window palette presets use their approved colors and labels", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local slash = env.SlashCmdList.BUFFRADAR
+  local palettes = {
+    { "ui.elvui", "ElvUI", { 20, 20, 20 }, { 96, 96, 96 } },
+    { "ui.ellesmereui", "EllesmereUI", { 21, 25, 37 }, { 220, 167, 127 } },
+    { "ui.anoui", "AnoUI+", { 24, 21, 31 }, { 163, 147, 219 } },
+    { "ui.wicks", "Wick's UI", { 16, 28, 35 }, { 118, 174, 194 } },
+    { "ui.ultimateforever", "Ultimate Forever UI", { 35, 27, 19 }, { 177, 138, 83 } },
+    { "ui.foreverforge", "ForeverForge UI", { 24, 29, 39 }, { 189, 140, 85 } },
+  }
+  local frame, alpha = env.BuffRadarFrame, db.bgAlpha
+  local appliedBackground = nil
+  local setBackdropColor = frame.SetBackdropColor
+  frame.SetBackdropColor = function(self, r, g, b, a)
+    appliedBackground = { r, g, b, a }
+    return setBackdropColor(self, r, g, b, a)
+  end
+  local wasOpen = env.BuffRadarConfig and env.BuffRadarConfig:IsShown()
+  X.OpenConfig(true)
+  local button = assert(env.BuffRadarConfig.themeBtn)
+  for _, palette in ipairs(palettes) do
+    local n = #chat
+    slash("theme " .. palette[1]:upper())
+    assert(db.theme == palette[1] and chatSince(n, "Theme: " .. palette[2]), "wrong palette selection")
+    for component = 1, 3 do
+      assert(db.bgColor[component] == palette[3][component] / 255
+          and appliedBackground[component] == db.bgColor[component]
+          and frame.borderColor[component] == palette[4][component] / 255,
+        "incorrect swatch for " .. palette[1])
+    end
+    assert(appliedBackground[4] == alpha, "theme changed background opacity")
+    local restored = X.SanitizeDB({ theme = palette[1], bgColor = db.bgColor })
+    assert(restored.theme == palette[1], "sanitizer discarded " .. palette[1])
+  end
+  slash("theme parchment")
+  for _, palette in ipairs(palettes) do
+    button.scripts.OnClick(button)
+    assert(db.theme == palette[1] and button:GetText() == "Theme: " .. palette[2],
+      "settings skipped or mislabeled " .. palette[1])
+  end
+  button.scripts.OnClick(button)
+  assert(db.theme == "midnight", "settings omitted the original first theme on wrap")
+  frame.SetBackdropColor = setBackdropColor
+  if not wasOpen then env.BuffRadarConfig:Hide() end
+end)
+
+step("window palettes survive reload and profile round trips without masking saved themes", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local slash = env.SlashCmdList.BUFFRADAR
+  local savedThemes = db.customThemes
+  db.customThemes = {
+    { name = "UI.ELVUI", bg = { 0.1, 0.2, 0.3 }, border = { 1, 1, 1 } },
+    { name = "ElvUI", bg = { 0.3, 0.2, 0.1 }, border = { 0.1, 0.2, 0.3 } },
+  }
+  slash("theme ui.elvui")
+  fire("ADDON_LOADED", "BuffRadar")
+  assert(env.BuffRadarDB.theme == "ui.elvui" and X.ThemeBorder()[1] == 96 / 255,
+    "reload gave a reserved name to a saved theme")
+  local order = X.ThemeOrder()
+  assert(#order == 11 and order[5] == "ui.elvui" and order[11] == "ElvUI",
+    "cycle duplicated a reserved ID or hid the undisputed saved name")
+  local caption = env.BuffRadarConfig.themeBtn.navigation.value()
+  assert(caption == "ElvUI", "settings narration treated the built-in as a saved color")
+  slash("theme save ui.elvui")
+  assert(#db.customThemes == 2, "saved theme command used a reserved ID")
+  slash("theme delete UI.ELVUI")
+  assert(db.theme == "ui.elvui" and #db.customThemes == 1, "deleting a colliding save deselected the preset")
+  slash("theme elvui")
+  assert(db.theme == "ElvUI" and db.bgColor[1] == 0.3, "ordinary saved theme lost its ID or color")
+
+  slash("theme ui.foreverforge")
+  local exported = assert(X.Export())
+  assert(exported:match("^BR1;") and X.SaveProfile("PaletteRegression"), "could not export the palette")
+  local shared = assert(X.ProfileShareText("PaletteRegression"))
+  assert(shared:find("\nBR2;", 1, true), "the named palette profile did not use BR2")
+  slash("theme midnight")
+  assert(X.Import(exported) and db.theme == "ui.foreverforge"
+      and math.abs(db.bgColor[1] - 24 / 255) < 1e-12, "BR1 lost the palette or its color")
+  slash("theme midnight")
+  X.DeleteProfile("PaletteRegression")
+  assert(X.ProfileImport(shared) and X.LoadProfile("PaletteRegression")
+      and db.theme == "ui.foreverforge" and math.abs(db.bgColor[1] - 24 / 255) < 1e-12,
+    "BR2 lost the palette or its color")
+  X.DeleteProfile("PaletteRegression")
+  db.customThemes = savedThemes
+  slash("theme midnight")
+end)
+
 step("combat always hides the list and restores it afterward", function()
   local frame = env.BuffRadarFrame
   frame:Show()
@@ -5010,6 +5099,7 @@ end)
 step("setup wizard walks a new user through (1.9.0)", function()
   local db = env.BuffRadarDB
   assert(db.wizardSeen == false, "wizard should start unseen on a fresh save")
+  env.SlashCmdList.BUFFRADAR("theme parchment")
   env.SlashCmdList.BUFFRADAR("wizard")
   local w = env.BuffRadarWizard
   assert(w and w.shown, "wizard did not open")
@@ -5020,9 +5110,11 @@ step("setup wizard walks a new user through (1.9.0)", function()
   assert(db.groupOnly == true, "party preset did not set groupOnly")
   assert(w.page == 2, "wizard did not advance to page 2")
   -- Page 2: the theme button cycles the theme.
-  local before = db.theme
-  w.choice[1].scripts.OnClick(w.choice[1])
-  assert(db.theme ~= before, "theme not cycled on page 2")
+  for _, label in ipairs({ "ElvUI", "EllesmereUI", "AnoUI+", "Wick's UI", "Ultimate Forever UI", "ForeverForge UI" }) do
+    w.choice[1].scripts.OnClick(w.choice[1])
+    assert(w.choice[1]:GetText() == "Theme: " .. label, "wizard skipped or mislabeled " .. label)
+  end
+  env.SlashCmdList.BUFFRADAR("theme midnight")
   w.next.scripts.OnClick(w.next)
   assert(w.page == 3, "wizard did not advance to page 3")
   -- Page 3: Finish closes it and marks it seen.

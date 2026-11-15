@@ -327,5 +327,18 @@ X.THEMES = {
   crimson   = { label = "Crimson",   bg = { 0.08, 0.02, 0.02 }, border = { 0.75, 0.2, 0.2 } },
   forest    = { label = "Forest",    bg = { 0.02, 0.07, 0.03 }, border = { 0.3, 0.7, 0.35 } },
   parchment = { label = "Parchment", bg = { 0.13, 0.11, 0.07 }, border = { 0.8, 0.7, 0.45 } },
+  ["ui.elvui"] = { label = "ElvUI",
+    bg = { 0x14 / 255, 0x14 / 255, 0x14 / 255 }, border = { 0x60 / 255, 0x60 / 255, 0x60 / 255 } },
+  ["ui.ellesmereui"] = { label = "EllesmereUI",
+    bg = { 0x15 / 255, 0x19 / 255, 0x25 / 255 }, border = { 0xDC / 255, 0xA7 / 255, 0x7F / 255 } },
+  ["ui.anoui"] = { label = "AnoUI+",
+    bg = { 0x18 / 255, 0x15 / 255, 0x1F / 255 }, border = { 0xA3 / 255, 0x93 / 255, 0xDB / 255 } },
+  ["ui.wicks"] = { label = "Wick's UI",
+    bg = { 0x10 / 255, 0x1C / 255, 0x23 / 255 }, border = { 0x76 / 255, 0xAE / 255, 0xC2 / 255 } },
+  ["ui.ultimateforever"] = { label = "Ultimate Forever UI",
+    bg = { 0x23 / 255, 0x1B / 255, 0x13 / 255 }, border = { 0xB1 / 255, 0x8A / 255, 0x53 / 255 } },
+  ["ui.foreverforge"] = { label = "ForeverForge UI",
+    bg = { 0x18 / 255, 0x1D / 255, 0x27 / 255 }, border = { 0xBD / 255, 0x8C / 255, 0x55 / 255 } },
 }
-X.THEME_ORDER = { "midnight", "crimson", "forest", "parchment" }
+X.THEME_ORDER = { "midnight", "crimson", "forest", "parchment",
+  "ui.elvui", "ui.ellesmereui", "ui.anoui", "ui.wicks", "ui.ultimateforever", "ui.foreverforge" }

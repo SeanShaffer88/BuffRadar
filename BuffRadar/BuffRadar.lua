@@ -195,7 +195,7 @@ local DEFAULTS = {
   growUp = false,      -- the list grows upward from a fixed bottom edge (1.8.0)
   hideInCombat = true,  -- no buff targets are available while you are in combat
   twoCol = false,      -- two columns when the list is long (1.9.0)
-  theme = "midnight",  -- window color theme: midnight/crimson/forest/parchment/custom (1.8.0)
+  theme = "midnight",  -- window color theme (1.8.0)
   findBox = false,     -- name finder box on the window (1.8.0)
   durationBars = false, -- thin bar per row: time left on the expiring buff (1.8.0)
   raidMarkers = false, -- show raid target markers on rows (1.8.0)
@@ -233,7 +233,6 @@ local ENUMS = {
   sortMode = { name = true, role = true, distance = true, need = true },
   roleFilter = { ALL = true, TANK = true, HEALER = true, DAMAGER = true },
   alertSound = { droplet = true, system = true, none = true },
-  theme = { midnight = true, crimson = true, forest = true, parchment = true, custom = true },
   strata = { LOW = true, MEDIUM = true, HIGH = true, DIALOG = true },
   tooltipLevel = { minimal = true, standard = true, full = true },
   viewMode = { people = true, buffs = true },
@@ -470,14 +469,15 @@ function SanitizeDB(saved)
     elseif dt == "boolean" then
       if type(v) ~= "boolean" then v = def end
     elseif dt == "string" then
-      -- theme is exempt from its enum: a saved theme's name is valid too
-      -- (checked properly after the loop, once customThemes is clean).
-      if type(v) ~= "string" or (ENUMS[k] and k ~= "theme" and not ENUMS[k][v]) then v = def end
+      if type(v) ~= "string" or (ENUMS[k] and not ENUMS[k][v]) then v = def end
       if k == "theme" and type(v) == "string" and #v > 24 then v = def end
     end
     saved[k] = v
   end
-  if type(saved.theme) == "string" and not ENUMS.theme[saved.theme] then
+  local themeID = saved.theme:lower()
+  if X.THEMES[themeID] or themeID == "custom" then
+    saved.theme = themeID
+  else
     local found = false
     for _, t in ipairs(saved.customThemes or {}) do
       if t.name == saved.theme then found = true; break end
@@ -6169,8 +6169,10 @@ local grip  -- width resize grip, bottom-right corner (built in BuildUI)
 -- db.customThemes, usable anywhere a built-in theme is.
 function X.SavedTheme(name)
   if not db or not name then return nil end
+  local id = name:lower()
+  if X.THEMES[id] or id == "custom" then return nil end
   for _, t in ipairs(db.customThemes or {}) do
-    if t.name:lower() == name:lower() then
+    if t.name:lower() == id then
       return { label = t.name, bg = t.bg, border = t.border }
     end
   end
@@ -6179,15 +6181,18 @@ end
 
 function X.ThemeDef(name)
   if not name then return nil end
-  return X.THEMES[name] or X.SavedTheme(name)
+  return X.THEMES[name:lower()] or X.SavedTheme(name)
 end
 
--- The cycle order: the four built-ins, then your saved themes.
+-- The cycle order: built-in themes followed by your saved themes.
 function X.ThemeOrder()
   local order = {}
   for _, k in ipairs(X.THEME_ORDER) do order[#order + 1] = k end
   if db then
-    for _, t in ipairs(db.customThemes or {}) do order[#order + 1] = t.name end
+    for _, t in ipairs(db.customThemes or {}) do
+      local id = t.name:lower()
+      if not X.THEMES[id] and id ~= "custom" then order[#order + 1] = t.name end
+    end
   end
   return order
 end
@@ -6332,8 +6337,8 @@ function X.WizardPage(n)
     w.body:SetText("The window's look. Click the theme button to cycle the color schemes; scale, width and more live in Settings > Window.")
     local b = w.choice[1]
     local function themeLabel()
-      local t = db.theme or "custom"
-      return "Theme: " .. t:sub(1, 1):upper() .. t:sub(2)
+      local t = X.ThemeDef(db.theme)
+      return "Theme: " .. (t and t.label or "Custom")
     end
     b:SetText(themeLabel())
     b:SetScript("OnClick", function()
@@ -6437,8 +6442,8 @@ end
 function X.ApplyTheme(name)
   local t = X.ThemeDef(name)
   if not t then return false end
-  if X.SavedTheme(name) then name = t.label end  -- keep the saved spelling
-  db.theme = name
+  local id = name:lower()
+  db.theme = X.THEMES[id] and id or t.label
   db.bgColor = { t.bg[1], t.bg[2], t.bg[3] }
   ApplyAppearance()
   if RefreshConfig then RefreshConfig() end
@@ -6449,8 +6454,8 @@ end
 -- of your themes (1.10.0). Returns the name, or nil plus a reason.
 function X.SaveTheme(name)
   name = (name or ""):match("^%s*(.-)%s*$")
-  if not name:match("^[%w%-]+$") or #name > 24 then return nil, "name" end
   if X.THEMES[name:lower()] or name:lower() == "custom" then return nil, "taken" end
+  if not name:match("^[%w%-]+$") or #name > 24 then return nil, "name" end
   local b = X.ThemeBorder()
   local entry = { name = name,
     bg = { db.bgColor[1], db.bgColor[2], db.bgColor[3] },
@@ -6472,7 +6477,7 @@ function X.DeleteTheme(name)
   for i, t in ipairs(db.customThemes or {}) do
     if t.name:lower() == name:lower() then
       table.remove(db.customThemes, i)
-      if (db.theme or ""):lower() == t.name:lower() then
+      if not X.THEMES[name:lower()] and (db.theme or ""):lower() == name:lower() then
         db.theme = "custom"
         ApplyAppearance()
         if RefreshConfig then RefreshConfig() end
