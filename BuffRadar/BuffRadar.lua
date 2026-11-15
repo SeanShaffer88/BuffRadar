@@ -4882,10 +4882,22 @@ do
       departedCount = departedCount + 1
     end
 
+    local function StartSyncWarmup(current)
+      if not current or not current.requireProofFloor or current.warmAttempted or not db or not db.sync then return end
+      current.warmAttempted = true
+      local nonce = NewSyncNonce()
+      if X.Broadcast("SYNC;3;B;" .. current.digest .. ";" .. nonce) then
+        current.warmNonce, current.warmExpires = nonce, GetTime() + 3
+      end
+    end
+
     local function UpdateSyncScope(force)
       if not CLASSIC_FEATURES then return end
       local members, identity = CoordinationRoster()
-      if scope and scope.identity == identity and not force then return scope, members end
+      if scope and scope.identity == identity and not force then
+        StartSyncWarmup(scope)
+        return scope, members
+      end
       if scope then
         RememberDepartedScope(scope.identity)
         -- Remember epochs seen in the last scope in case this roster returns.
@@ -4900,6 +4912,7 @@ do
       if active and (force or active.identity ~= identity) then SetSession(nil, true) end
       scope = identity and { identity = identity, digest = SyncDigest(identity), epoch = NewSyncNonce(),
         requireProofFloor = not departedScopes or departedScopes[identity], seq = 0, peers = {} } or nil
+      StartSyncWarmup(scope)
       return scope, members
     end
 
@@ -5362,11 +5375,16 @@ do
     function X.HandleScopedSync(version, rest, channel, source, now)
       if not CLASSIC_FEATURES or version ~= "3" then return end
       local kind, digest, epoch, field, payload = rest:match("^;([DQP]);([%da-f]+);([%da-f]+);([^;]+);(.+)$")
-      if not kind or #digest ~= 16 or #epoch ~= 24 then return end
+      if not kind then
+        digest, field = rest:match("^;B;([%da-f]+);([%da-f]+)$")
+        if not digest or #field ~= 24 then return end
+        kind = "B"
+      end
+      if #digest ~= 16 or (epoch and #epoch ~= 24) then return end
       local me = CoordinationGUID("player")
       if not me then return end
       local proofFloor
-      if kind ~= "D" then
+      if kind == "P" or kind == "Q" then
         local target = payload
         if kind == "P" then
           local floor
@@ -5381,47 +5399,68 @@ do
       if not sender then return end
       local current, members = UpdateSyncScope()
       if not current or current.digest ~= digest or not members[sender] or not members[me] then return end
-      local peer = current.peers[sender]
-      if kind ~= "D" then
-        if kind == "Q" then
-          if epoch == current.epoch and (not peer or peer.answered ~= field)
-            and SyncControl("P", current, epoch, field, sender) then
-            peer = peer or {}
-            peer.answered = field
-            current.peers[sender] = peer
-          end
-          return
+      local peer = current.peers[sender] or {}
+      local warmActive = current.warmExpires and now <= current.warmExpires
+      if kind == "B" then
+        if peer.warmReplyAt and now - peer.warmReplyAt < 1 then return end
+        local answered = peer.warmReplies or {}
+        for _, nonce in ipairs(answered) do if nonce == field then return end end
+        if SyncControl("P", current, current.epoch, field, sender) then
+          if #answered >= 4 then table.remove(answered, 1) end
+          answered[#answered + 1] = field
+          peer.warmReplies, peer.warmReplyAt = answered, now
+          current.peers[sender] = peer
         end
+      elseif kind == "Q" then
+        if epoch == current.epoch and peer.answered ~= field and SyncControl("P", current, epoch, field, sender) then
+          peer.answered = field
+          current.peers[sender] = peer
+        end
+      elseif kind == "P" then
         local pending = FindSyncPending(peer, epoch, now)
-        if not pending or pending.challenge ~= field then return end
-        if current.requireProofFloor and proofFloor < pending.challengeSeq then return end
-        if retired[sender .. ":" .. epoch] then return end
-        RetireSyncEpoch(sender, peer.epoch)
+        local isWarm = field == current.warmNonce
+        if isWarm then
+          if not warmActive or peer.warmVerified then return end
+          peer.warmVerified = true
+        else
+          if not pending or pending.challenge ~= field then return end
+          if current.requireProofFloor and proofFloor < pending.challengeSeq then return end
+          if not current.requireProofFloor and retired[sender .. ":" .. epoch] then return end
+        end
+        if peer.epoch ~= epoch then RetireSyncEpoch(sender, peer.epoch) end
         -- A sender may have missed the transition back to this exact roster.
         -- Accept only traffic it produced after answering the new challenge.
-        if current.requireProofFloor then pending.window.floor = proofFloor end
-        peer.epoch, peer.window, peer.pending = epoch, pending.window, nil
-        table_sort(pending.packets, function(a, b) return a.seq < b.seq end)
-        for _, packet in ipairs(pending.packets) do
-          if packet.seq > peer.window.floor then ApplyScopedPacket(packet, unit, name, senderKey, now) end
+        local window = pending and pending.window or { high = 0, floor = 0 }
+        if current.requireProofFloor then window.floor = proofFloor end
+        peer.epoch, peer.window, peer.pending = epoch, window, nil
+        current.peers[sender] = peer
+        if pending then
+          table_sort(pending.packets, function(a, b) return a.seq < b.seq end)
+          for _, packet in ipairs(pending.packets) do
+            if packet.seq > window.floor then ApplyScopedPacket(packet, unit, name, senderKey, now) end
+          end
         end
       else
-        if #field > 10 or not field:match("^[1-9]%d*$") or not ScopedPayload(payload)
-          or retired[sender .. ":" .. epoch] then return end
+        if #field > 10 or not field:match("^[1-9]%d*$") or not ScopedPayload(payload) then return end
         local seq = tonumber(field)
         local packet = { payload = payload, generation = generation, seq = seq }
-        if peer and peer.epoch == epoch then
+        if peer.epoch == epoch then
           if not NewSyncSequence(peer.window, seq) then return end
           ApplyScopedPacket(packet, unit, name, senderKey, now)
         else
-          peer = peer or {}
+          if not current.requireProofFloor and retired[sender .. ":" .. epoch] then return end
           local pending = FindSyncPending(peer, epoch, now)
           if not pending then
-            -- An unknown epoch has to answer a fresh challenge before its
-            -- queued packets can affect the current scope.
-            local challenge = NewSyncNonce()
-            if not SyncControl("Q", current, epoch, challenge, sender) then return end
-            pending = { epoch = epoch, challenge = challenge, challengeSeq = seq, expires = now + 5,
+            local challenge, expires
+            if warmActive and not peer.warmVerified then
+              -- Let the broadcast proof arrive before issuing a targeted
+              -- challenge that would count these held packets in its floor.
+              expires = current.warmExpires
+            else
+              challenge, expires = NewSyncNonce(), now + 5
+              if not SyncControl("Q", current, epoch, challenge, sender) then return end
+            end
+            pending = { epoch = epoch, challenge = challenge, challengeSeq = seq, expires = expires,
               window = { high = 0, floor = 0 }, packets = {} }
             peer.pending = peer.pending or {}
             if #peer.pending >= 2 then table.remove(peer.pending, 1) end
@@ -5429,8 +5468,19 @@ do
             current.peers[sender] = peer
             ObserveSyncEpoch(peer, epoch)
           end
-          if #pending.packets >= 8 or not NewSyncSequence(pending.window, seq) then return end
-          pending.packets[#pending.packets + 1] = packet
+          local replace
+          if #pending.packets >= 8 then
+            if pending.challenge then return end
+            -- A burst of stale packets must not crowd newer cast or plan data
+            -- out of the queue before the broadcast proof supplies its floor.
+            local lowest = seq
+            for index, held in ipairs(pending.packets) do
+              if held.seq < lowest then replace, lowest = index, held.seq end
+            end
+            if not replace then return end
+          end
+          if not NewSyncSequence(pending.window, seq) then return end
+          pending.packets[replace or #pending.packets + 1] = packet
           return
         end
       end

@@ -198,9 +198,11 @@ class Party:
         for local, remote in ((self.a, self.b), (self.b, self.a)):
             if local in clients:
                 local.api.configure(remote.name, remote.guid, third, leader.name, clock, fourth)
-                if event:
-                    local.api.fire(event)
-                    local.api.drain()  # Ignore independent presence notifications.
+        if event:
+            for client in clients:
+                client.api.fire(event)
+                client.outbox.extend(packet for packet in self.drain(client)
+                                     if not packet.message.startswith(("HELLO;", "COVER;", "BACK;")))
 
     @staticmethod
     def drain(client):
@@ -228,6 +230,35 @@ class Party:
     def deliver(packet, client):
         client.api.fire("CHAT_MSG_ADDON", packet.prefix, packet.message, packet.channel, packet.sender)
 
+    def roster_challenge(self, client):
+        packets = self.capture(client)
+        check(len(packets) == 1 and packets[0].message.startswith("SYNC;3;B;"),
+              f"{client.name} did not send exactly one roster challenge: {packets}")
+        packet = packets[0]
+        fields = packet.message.split(";")
+        check(len(fields) == 5 and len(fields[3]) == 16 and len(fields[4]) == 24
+              and (packet.prefix, packet.channel) == ("BuffRadar", "PARTY"),
+              f"bad roster challenge envelope: {packet}")
+        return packet
+
+    def answer(self, question, sender):
+        self.deliver(question, sender)
+        outgoing = self.drain(sender)
+        proofs = [reply for reply in outgoing if reply.message.startswith("SYNC;3;P;")]
+        sender.outbox.extend(reply for reply in outgoing if reply not in proofs)
+        check(len(proofs) <= 1, "one challenge produced more than one proof")
+        return proofs
+
+    def roster_proof(self, challenge, sender, receiver):
+        proofs = self.answer(challenge, sender)
+        check(len(proofs) == 1, "current sender ignored roster challenge")
+        proof = proofs[0]
+        fields = proof.message.split(";")
+        _, _, _, digest, nonce = challenge.message.split(";")
+        check(len(fields) == 8 and fields[3] == digest and fields[5:7] == [nonce, receiver.guid],
+              f"roster proof did not echo scope, challenge and receiver: {proof}")
+        return proof
+
     def exchange(self, packet, receiver):
         """Deliver a data packet and carry its challenge and proof if required."""
         sender = next(client for client in (self.a, self.b) if packet.sender == client.name + "-TestRealm")
@@ -239,11 +270,7 @@ class Party:
             return []
         check(len(questions) == 1, "one data packet produced more than one challenge")
         question = questions[0]
-        self.deliver(question, sender)
-        outgoing = self.drain(sender)
-        proofs = [reply for reply in outgoing if reply.message.startswith("SYNC;3;P;")]
-        sender.outbox.extend(reply for reply in outgoing if reply not in proofs)
-        check(len(proofs) <= 1, "one challenge produced more than one proof")
+        proofs = self.answer(question, sender)
         for proof in proofs:
             self.deliver(proof, receiver)
         return questions + proofs
@@ -263,10 +290,16 @@ def member_status(leader, caster):
             return sent[i].status
 
 
-def publish_plan(party, leader, caster):
+def publish_plan(party, leader, caster, scope_proved=False):
     leader.action("request")
     request = party.packet(leader, "COORD;1;REQ;")
-    party.exchange(request, caster)
+    controls = party.exchange(request, caster)
+    if scope_proved:
+        check(not controls, "first request after roster proof required another challenge")
+    return request, review_and_publish(party, leader, caster, request)
+
+
+def review_and_publish(party, leader, caster, request):
     report = party.packet(caster, "COORD;1;REPORT;")
     request_id = request.body.split(";")[-1]
     check(report.body == f"COORD;1;REPORT;{request_id};{leader.guid};FORTITUDE",
@@ -284,7 +317,7 @@ def publish_plan(party, leader, caster):
     check(member_status(leader, caster) == "sent", "leader did not await peer acknowledgement")
     check(not caster.snapshot().pending and not caster.api.holder("FORTITUDE"),
           "peer state changed before receiving PLAN")
-    return request, plan
+    return plan
 
 
 def accept_plan(party, leader, caster, plan):
@@ -415,6 +448,11 @@ def stale_cast(stub, sources, boundary):
         leader, fourth = sender, False
         party.update(leader, True, 1001, "GROUP_ROSTER_UPDATE", fourth=True, clients=(receiver,))
         party.update(leader, True, 1002, "GROUP_ROSTER_UPDATE", clients=(receiver,))
+        challenge = party.roster_challenge(receiver)
+        proof = party.roster_proof(challenge, sender, receiver)
+        check(proof.message.endswith(f";{delayed.sequence}"),
+              "known sender did not prove the current sequence in its unchanged epoch")
+        party.deliver(proof, receiver)
     check(mark() is None, f"{boundary}: previously delivered cast survived a boundary")
 
     party.deliver(old_query, sender)
@@ -423,20 +461,12 @@ def stale_cast(stub, sources, boundary):
     party.exchange(delayed, receiver)
     check(mark() is None and not party.capture(receiver),
           f"{boundary}: delayed CAST or scope proof revived a handled mark")
-    if boundary == "asymmetric roster round trip":
-        party.update(leader, True, 1001, "GROUP_ROSTER_UPDATE", fourth=True, clients=(sender,))
-        party.update(leader, True, 1002, "GROUP_ROSTER_UPDATE", clients=(sender,))
-
     party.update(leader, True, 1003, fourth=fourth)
     fresh = cast("fresh")
-    party.exchange(fresh, receiver)
+    controls = party.exchange(fresh, receiver)
     if boundary == "asymmetric roster round trip":
-        check(mark() is None, f"{boundary}: discovery CAST applied before its sequence was proved")
-        party.update(leader, True, 1004)
-        party.exchange(cast("after-proof"), receiver)
-        check(mark() == 1004, f"{boundary}: cast emitted after proof was lost")
-    else:
-        check(mark() == 1003, f"{boundary}: fresh cast for the same player was lost")
+        check(not controls, "known sender's first new cast required a second challenge")
+    check(mark() == 1003, f"{boundary}: fresh cast for the same player was lost")
     print(f"PASS: {boundary} clears cast marks and rejects delayed CAST and proof before fresh cast")
 
 
@@ -450,24 +480,20 @@ def unseen_epoch_after_round_trip(stub, sources):
     party.update(sender, True, 1000, "GROUP_ROSTER_UPDATE", clients=(receiver,))
     party.update(sender, True, 1001, "GROUP_ROSTER_UPDATE", fourth=True)
     party.update(sender, True, 1002, "GROUP_ROSTER_UPDATE")
-
-    controls = party.exchange(delayed, receiver)
-    check(len(controls) == 1 and controls[0].message.startswith("SYNC;3;Q;"),
-          "the sender vouched for a superseded epoch after the original roster returned")
+    sender_challenge = party.roster_challenge(sender)
+    receiver_challenge = party.roster_challenge(receiver)
+    check(not party.exchange(delayed, receiver), "roster challenge did not hold the unproved cast")
+    party.deliver(party.roster_proof(sender_challenge, receiver, sender), sender)
+    party.deliver(party.roster_proof(receiver_challenge, sender, receiver), receiver)
     check(receiver.api.handledAt("Player-1-0003", "FORTITUDE") is None,
-          "an unseen old cast was applied while its scope was unproved")
+          "proof of a new epoch applied a cast from a superseded epoch")
     sender.api.refresh()
     sender.api.cast("party2", "Cast-1-restored")
-    party.exchange(party.packet(sender, "CAST;"), receiver)
-    check(receiver.api.handledAt("Player-1-0003", "FORTITUDE") is None,
-          "the first cast in a restored roster bypassed the sequence floor")
-    party.update(sender, True, 1003)
-    sender.api.refresh()
-    sender.api.cast("party2", "Cast-1-after-proof")
-    party.exchange(party.packet(sender, "CAST;"), receiver)
-    check(receiver.api.handledAt("Player-1-0003", "FORTITUDE") == 1003,
-          "an unproved old cast blocked a fresh cast in the restored roster")
-    print("PASS: restored roster rejects an unseen old cast and accepts fresh traffic")
+    check(not party.exchange(party.packet(sender, "CAST;"), receiver),
+          "first cast in a restored roster required another challenge")
+    check(receiver.api.handledAt("Player-1-0003", "FORTITUDE") == 1002,
+          "an unproved old cast blocked the first fresh cast in the restored roster")
+    print("PASS: roster proof rejects an unseen old epoch and preserves the first fresh cast")
 
 
 def receiver_only_round_trip(stub, sources):
@@ -476,9 +502,13 @@ def receiver_only_round_trip(stub, sources):
     party.opt_in(sender, caster)
     request, plan = publish_plan(party, sender, caster)
     sender.api.buffers(True, False)
-    sender.api.refresh()
-    sender.api.cast("party2", "Cast-1-before-round-trip")
-    old_cast = party.packet(sender, "CAST;")
+    stale_packets = [request, plan]
+    # Fill the eight-packet hold queue with real older traffic from this epoch.
+    for i in range(6):
+        sender.api.refresh()
+        sender.api.cast("party2", f"Cast-1-before-round-trip-{i}")
+        stale_packets.append(party.packet(sender, "CAST;"))
+    old_cast = stale_packets[-1]
     check(0 < old_cast.sequence - plan.sequence < 32 and 0 < old_cast.sequence - request.sequence < 32,
           "the older packets must fall within the receive window")
 
@@ -491,39 +521,104 @@ def receiver_only_round_trip(stub, sources):
     party.update(sender, True, 1000, "GROUP_ROSTER_UPDATE", clients=(caster,))
     party.update(sender, True, 1001, "GROUP_ROSTER_UPDATE", fourth=True, clients=(caster,))
     party.update(sender, True, 1002, "GROUP_ROSTER_UPDATE", clients=(caster,))
+    challenge = party.roster_challenge(caster)
+    party.update(sender, True, 1002, "GROUP_ROSTER_UPDATE", clients=(caster,))
+    check(not party.capture(caster), "identical roster event started another challenge")
     caster.api.buffers(True, False)
     caster.action("on")
 
-    controls = party.exchange(old_cast, caster)
-    check(len(controls) == 2 and controls[-1].message.endswith(f";{old_cast.sequence}"),
-          "sender that missed the boundary did not prove its unchanged epoch and sequence")
-    check(caster.api.handledAt("Player-1-0003", "FORTITUDE") is None,
-          "fresh proof revived a cast issued before a receiver-only roster change")
-    for packet in (request, plan, old_cast):
-        check(not party.exchange(packet, caster), "packet at or below the floor started another proof")
+    for packet in stale_packets:
+        check(not party.exchange(packet, caster), "early data started a second challenge")
     check(not party.capture(caster) and not caster.snapshot().pending
           and caster.api.handledAt("Player-1-0003", "FORTITUDE") is None,
-          "old REQ, PLAN or retransmitted CAST passed the replay floor")
-
-    party.update(sender, True, 1011)
+          "early data was applied before roster proof arrived")
+    proof = party.roster_proof(challenge, sender, caster)
+    check(proof.message.endswith(f";{old_cast.sequence}"),
+          "sender that missed the boundary did not prove its unchanged epoch and sequence")
+    # The sender has already answered B, but let the first new CAST overtake P.
+    party.update(sender, True, 1003)
     sender.api.refresh()
-    sender.api.cast("party2", "Cast-1-after-round-trip")
+    sender.api.cast("party1", "Cast-1-after-round-trip")
     fresh_cast = party.packet(sender, "CAST;")
     check(fresh_cast.message.split(";", 6)[4] == old_cast.message.split(";", 6)[4]
           and fresh_cast.sequence == old_cast.sequence + 1,
           "sender unexpectedly changed epoch or skipped the first sequence after proof")
-    party.exchange(fresh_cast, caster)
-    check(caster.api.handledAt("Player-1-0003", "FORTITUDE") == 1011,
-          "first new cast from the unchanged sender epoch was lost")
-    for packet in (request, plan):
-        party.exchange(packet, caster)
-    check(not party.capture(caster) and not caster.snapshot().pending,
-          "higher valid sequence opened the replay window below the proof floor")
+    check(not party.exchange(fresh_cast, caster) and caster.api.handledAt(caster.guid, "FORTITUDE") is None,
+          "reordered new cast started another proof or applied before proof")
+    party.deliver(proof, caster)
+    check(caster.api.handledAt(caster.guid, "FORTITUDE") == 1003,
+          "reordered cast above the floor was lost")
+    check(not party.capture(caster) and not caster.snapshot().pending
+          and caster.api.handledAt("Player-1-0003", "FORTITUDE") is None,
+          "proof restored the buffered REQ, PLAN or CAST at or below its floor")
 
+    party.update(sender, True, 1004)
+    check(not party.answer(challenge, sender), "duplicate roster challenge elicited another proof")
+    party.deliver(proof, caster)
+    for packet in (*stale_packets, fresh_cast):
+        check(not party.exchange(packet, caster), "replayed data after proof started a new challenge")
+    check(not party.capture(caster) and not caster.snapshot().pending
+          and caster.api.handledAt("Player-1-0003", "FORTITUDE") is None
+          and caster.api.handledAt(caster.guid, "FORTITUDE") == 1003,
+          "duplicate proof reopened the receive window for stale or delivered data")
+
+    party.update(sender, True, 1011)
     sender.api.buffers(False, True)
-    _, fresh_plan = publish_plan(party, sender, caster)
+    _, fresh_plan = publish_plan(party, sender, caster, scope_proved=True)
     accept_plan(party, sender, caster, fresh_plan)
-    print("PASS: receiver-only roster round trip rejects old CAST, REQ and PLAN and accepts post-proof traffic")
+    print("PASS: roster proof preserves a reordered fresh CAST in a full queue and rejects stale replay")
+
+
+def first_request_overtakes_roster_proof(stub, sources):
+    party = Party(stub, sources)
+    leader, caster = party.a, party.b
+    party.opt_in(leader, caster)
+    _, old_plan = publish_plan(party, leader, caster)
+    accept_plan(party, leader, caster, old_plan)
+    party.update(leader, True, 1010, "GROUP_ROSTER_UPDATE", clients=(caster,))
+    party.update(leader, False, 1011, "GROUP_ROSTER_UPDATE", clients=(caster,))
+    caster.action("on")
+    challenge = party.roster_challenge(caster)
+    proof = party.roster_proof(challenge, leader, caster)
+
+    party.update(leader, False, 1012)
+    leader.action("request")
+    request = party.packet(leader, "COORD;1;REQ;")
+    check(not party.exchange(request, caster) and not party.capture(caster),
+          "first REQ after the sender replied to B started another challenge or reported before proof")
+    party.deliver(proof, caster)
+    fresh_plan = review_and_publish(party, leader, caster, request)
+    accept_plan(party, leader, caster, fresh_plan)
+    print("PASS: the first fresh REQ overtakes roster proof and completes the plan exchange without retry")
+
+
+def expired_roster_challenge(stub, sources):
+    party = Party(stub, sources, third=True)
+    sender, receiver = party.a, party.b
+    sender.api.buffers(True, False)
+    sender.api.refresh()
+    sender.api.cast("party2", "Cast-1-before-challenge")
+    delayed = party.packet(sender, "CAST;")
+    party.update(sender, True, 1000, "GROUP_ROSTER_UPDATE", clients=(receiver,))
+    party.update(sender, True, 1001, "GROUP_ROSTER_UPDATE", fourth=True, clients=(receiver,))
+    party.update(sender, True, 1002, "GROUP_ROSTER_UPDATE", clients=(receiver,))
+    challenge = party.roster_challenge(receiver)
+    late_proof = party.roster_proof(challenge, sender, receiver)
+
+    party.update(sender, True, 1006)
+    party.deliver(late_proof, receiver)
+    controls = party.exchange(delayed, receiver)
+    check([packet.message.split(";", 3)[2] for packet in controls] == ["Q", "P"],
+          "expired roster proof prevented a targeted fallback challenge")
+    check(receiver.api.handledAt("Player-1-0003", "FORTITUDE") is None,
+          "targeted proof after an expired roster challenge accepted stale data")
+    party.update(sender, True, 1007)
+    sender.api.refresh()
+    sender.api.cast("party2", "Cast-1-after-targeted-proof")
+    check(not party.exchange(party.packet(sender, "CAST;"), receiver)
+          and receiver.api.handledAt("Player-1-0003", "FORTITUDE") == 1007,
+          "fresh cast after targeted fallback failed to apply")
+    print("PASS: expired roster proof falls back to targeted proof and keeps the replay floor")
 
 
 def stale_messages(stub, sources, leader_changes=False):
@@ -593,6 +688,8 @@ def main():
         stale_cast(stub, sources, boundary)
     unseen_epoch_after_round_trip(stub, sources)
     receiver_only_round_trip(stub, sources)
+    first_request_overtakes_roster_proof(stub, sources)
+    expired_roster_challenge(stub, sources)
     legacy_packets(stub, sources)
     return 0
 
