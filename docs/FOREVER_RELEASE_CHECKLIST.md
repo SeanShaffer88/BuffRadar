@@ -2,6 +2,18 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.31 Cast Queue and Wipe Reports
+
+- With both cast-next keybinds configured, test each while replacing a party
+  member. Verify the next press after the list refreshes targets the
+  displayed player. Try the same with cast-on-key-down and cast-on-key-up.
+- Use the name finder to hide a player who needs a buff, then clear it.
+  Verify the empty state leaves the buff status undetermined and the
+  all-buffed pill stays hidden while known needs remain.
+- Enable wipe reports and test a qualifying fight, then `/br wipe show`.
+  Verify one automatic recap and a successful manual reprint. A fight
+  shorter than eight seconds should generate no automatic recap.
+
 ## 1.15.30 Nearby Player Diagnostics
 
 - Turn off friendly nameplates and target a friendly player. Open the panel

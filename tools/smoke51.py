@@ -855,6 +855,57 @@ local function partyOfTwo(suffix)
     env.IsSpellInRange = nil
   end
 end
+step("cast keybinds disarm when a roster token changes after the scan", function()
+  local cleanup = partyOfTwo("KEY")
+  local O, X, db = env.__over, NS.X, env.BuffRadarDB
+  local oldInclude, oldMethod, oldSort = db.includeSelf, db.castMethod, db.sortMode
+  local ok, err = pcall(function()
+    db.includeSelf, db.castMethod, db.sortMode = false, "target", "name"
+    env.IsSpellInRange = function() return 1 end
+    O.UnitIsPlayer = function(unit) return unit ~= "player" and O.UnitExists(unit) end
+    local originalGUID = O.UnitGUID
+    local replacement
+    O.UnitGUID = function(unit)
+      if unit == "party1" and replacement then
+        if replacement == "unreadable" then return nil end
+        return replacement
+      end
+      return originalGUID(unit)
+    end
+    local buttons = { env.BuffRadarNextButton, env.BuffRadarGroupButton }
+    local stale = {}
+    for _, button in ipairs(buttons) do
+      local clickStart = assert(button:GetScript("PreClick"))
+      local clickEnd = assert(button:GetScript("PostClick"))
+      for _, down in ipairs({ true, false }) do
+        replacement = nil
+        X.Refresh()
+        assert(button.entry.unit == "party1" and button:GetAttribute("type"), "fixture did not arm party1")
+        clickStart(button, "LeftButton", down)
+        assert(button:GetAttribute("type"), "stable recipient was disarmed")
+        clickEnd(button, "LeftButton", down)
+        X.ClearCastIntent()
+
+        X.Refresh()
+        replacement = down and "Player-1-Replacement" or "unreadable"
+        clickStart(button, "LeftButton", down)
+        local disarmed = not button:GetAttribute("type") and not button:GetAttribute("shift-type1")
+          and not button:GetAttribute("macrotext") and not button.entry
+        clickEnd(button, "LeftButton", down)
+        if not disarmed then stale[#stale + 1] = button:GetName() .. (down and " down" or " up") end
+        replacement = "Player-1-Replacement"
+        X.Refresh()
+        assert(button:GetAttribute("unit") == "party1" and button.entry.guid == replacement,
+          "fresh scan did not bind the new recipient")
+      end
+    end
+    assert(#stale == 0, "remained armed for a stale party1 token: " .. table.concat(stale, ", "))
+  end)
+  X.ClearCastIntent()
+  db.includeSelf, db.castMethod, db.sortMode = oldInclude, oldMethod, oldSort
+  cleanup()
+  assert(ok, err)
+end)
 step("combat targets and caster are never eligible", function()
   local cleanup = partyOfTwo("C")
   local O = env.__over
@@ -1336,7 +1387,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 19, "dbVersion not migrated to 19: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 20, "dbVersion not migrated to 20: " .. tostring(d.dbVersion))
   assert(d.assignmentEnabled == false and next(d.buffAssignments) == nil, "migration activated assignments")
   assert(next(d.blessingPreferences) == nil, "existing character got a blessing override")
   assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
@@ -1360,7 +1411,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 19 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 20 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
   -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
@@ -1368,13 +1419,19 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = { dbVersion = 9 }
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 19 and d.wizardSeen == true,
+  assert(d.dbVersion == 20 and d.wizardSeen == true,
     "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
   d.dbVersion, d.assignmentEnabled, d.thornsAnyClassOutdoors = 18, true, nil
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 19 and d.thornsAnyClassOutdoors == false and d.assignmentEnabled,
+  assert(d.dbVersion == 20 and d.thornsAnyClassOutdoors == false and d.assignmentEnabled,
     "v18 settings did not gain an opt-in Thorns default while preserving assignments")
+  d.dbVersion, d.autoThemePriority, d.theme = 19, nil, "ui.auto"
+  fire("ADDON_LOADED", "BuffRadar")
+  d = env.BuffRadarDB
+  assert(d.dbVersion == 20 and d.theme == "ui.auto" and d.autoThemePriority == "",
+    "v19 migration changed Auto opt-in or failed to default the priority order")
+  NS.X.ApplyTheme("midnight")
   d.assignmentEnabled = false
   d.wizardSeen = false  -- leave the save as the rest of the suite expects
 end)
@@ -1850,8 +1907,37 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
     env.GetNumGroupMembers = function() return 3 end
     env.UnitIsGroupAssistant = function() return false end
     env.UnitIsGroupLeader = function(unit) return unit == "party1" end
+    local peers, nextEpoch = {}, 0
+    local function scopedPayload(packet)
+      return packet:match("^SYNC;3;D;[^;]+;[^;]+;%d+;(.+)$")
+    end
     local function inbound(message, source, channel)
-      fire("CHAT_MSG_ADDON", "BuffRadar", "COORD;1;" .. message, channel or "PARTY", source or "Aaron-TestRealm")
+      source, channel = source or "Aaron-TestRealm", channel or "PARTY"
+      -- Derive the current scope from real outbound data and act as a single mock peer.
+      -- The two-client suite captures actual proof packets and tests both runtimes.
+      local me = O.UnitGUID("player")
+      local before = #env.__addonSent
+      X.SyncSend("FORTITUDE", me)
+      assert(#env.__addonSent == before + 1, "could not obtain current scope from a cast")
+      local digest = table.remove(env.__addonSent).msg:match("^SYNC;3;D;([^;]+);")
+      assert(digest, "outbound scope was missing")
+      local peer = peers[source]
+      if not peer or peer.digest ~= digest then
+        nextEpoch = nextEpoch + 1
+        peer = { digest = digest, epoch = string.format("%024x", nextEpoch), seq = 0 }
+        peers[source] = peer
+      end
+      peer.seq = peer.seq + 1
+      fire("CHAT_MSG_ADDON", "BuffRadar",
+        string.format("SYNC;3;D;%s;%s;%d;COORD;1;%s", digest, peer.epoch, peer.seq, message), channel, source)
+      local reply = env.__addonSent[before + 1]
+      local challenge = reply and reply.msg:match("^SYNC;3;Q;[^;]+;[^;]+;([^;]+);")
+      if challenge then
+        assert(channel == "PARTY", "wrong-channel request received a scope challenge")
+        table.remove(env.__addonSent, before + 1)
+        fire("CHAT_MSG_ADDON", "BuffRadar",
+          string.format("SYNC;3;P;%s;%s;%s;%s;%d", digest, peer.epoch, challenge, me, peer.seq), channel, source)
+      end
     end
     local sent = #env.__addonSent
     inbound("REQ;1.1")
@@ -1877,7 +1963,7 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
     assert(#env.__addonSent == sent + 1, "unreviewed plan was acknowledged")
     slash("coordinate inbox")
     slash("coordinate accept")
-    assert(#env.__addonSent == sent + 2 and env.__addonSent[sent + 2].msg == "COORD;1;ACK;10.2",
+    assert(#env.__addonSent == sent + 2 and scopedPayload(env.__addonSent[sent + 2].msg) == "COORD;1;ACK;10.2",
       "accepted plan did not acknowledge the exact revision")
     assert(X.CoordinatedHolder("FORTITUDE") and not X.assign.FORTITUDE,
       "accepted duty did not remain isolated from manual assignments: " .. tostring(X.CoordinatedHolder("FORTITUDE") or nil)
@@ -1913,7 +1999,7 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
     env.UnitIsGroupAssistant = function() return false end
     slash("coordinate on")
     slash("coordinate request")
-    local request = env.__addonSent[#env.__addonSent].msg:match("^COORD;1;REQ;(.+)$")
+    local request = scopedPayload(env.__addonSent[#env.__addonSent].msg):match("^COORD;1;REQ;(.+)$")
     assert(request, "leader could not request reports")
     inbound("REPORT;" .. request .. ";" .. guid .. ";ARCANE_INTELLECT")
     X.assign.FORTITUDE = "Zed-TestRealm"
@@ -1929,7 +2015,7 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
       "reviewed plan did not route learned buff to its reporting caster")
     assert(not X.CoordinatedHolder("FORTITUDE") and X.assign.FORTITUDE == "Zed-TestRealm",
       "published plan overwrote a manual duty")
-    local revision = plan.msg:match("^COORD;1;PLAN;[%d.]+;([%d.]+);")
+    local revision = scopedPayload(plan.msg):match("^COORD;1;PLAN;[%d.]+;([%d.]+);")
     inbound("ACK;" .. revision, "Zed-TestRealm")
     slash("coordinate status")
     assert(chat[#chat]:find("Awaiting acknowledgement", 1, true), "unassigned member forged an acknowledgement")
@@ -2273,9 +2359,37 @@ step("idle fade lowers the window alpha (1.5.0)", function()
 end)
 step("all-buffed pill replaces the window (1.6.0)", function()
   local cleanup = partyOfTwo("P")
+  local X = NS.X
+  local oldSize, oldRange, oldCooldown = env.GetNumGroupMembers, env.IsSpellInRange, env.GetSpellCooldown
+  local oldPlates = X.FriendlyPlatesOn
+  env.GetNumGroupMembers = function() return 3 end
+  X.FriendlyPlatesOn = function() return true end
   env.SlashCmdList.BUFFRADAR("pill")
   assert(env.BuffRadarDB.pill == true, "pill setting not stored")
-  env.__over.Aura = function(u, name) return { expirationTime = env.GetTime() + 600 } end
+  local function buffed() return { expirationTime = env.GetTime() + 600 } end
+  env.__over.Aura = function(u) if u ~= "party1" then return buffed() end return nil end
+  env.IsSpellInRange = function() return 0 end
+  refresh()
+  local hidNeed = env.BuffRadarPill.shown
+  env.IsSpellInRange = function() return 1 end
+  env.GetSpellCooldown = function() return env.GetTime(), 180 end
+  refresh()
+  local hidCooldown = env.BuffRadarPill.shown
+  env.GetSpellCooldown = oldCooldown
+  env.SlashCmdList.BUFFRADAR("find Nobody")
+  refresh()
+  local hidByFinder = env.BuffRadarPill.shown
+  local explainedFinder = X.EmptyStatus() == X.L["The name finder hides all buff targets."]
+  env.SlashCmdList.BUFFRADAR("find")
+  env.__over.Aura = function(u) if u == "party1" then error("by-name restricted") end return buffed() end
+  env.__over.AuraList = function(u) if u == "party1" then error("index restricted") end end
+  refresh()
+  local hidUnknown = env.BuffRadarPill.shown
+  env.__over.Aura, env.__over.AuraList = buffed, nil
+  env.GetNumGroupMembers = function() return 4 end
+  refresh()
+  local hidIncomplete = env.BuffRadarPill.shown
+  env.GetNumGroupMembers = function() return 3 end
   refresh()
   assert(env.BuffRadarPill and env.BuffRadarPill.shown, "pill not shown while all buffed")
   assert(not env.BuffRadarFrame.shown, "window still shown in pill mode")
@@ -2289,6 +2403,11 @@ step("all-buffed pill replaces the window (1.6.0)", function()
   assert(env.BuffRadarFrame.shown, "window did not return when buffs went missing")
   env.SlashCmdList.BUFFRADAR("pill")
   cleanup()
+  X.FriendlyPlatesOn = oldPlates
+  env.GetNumGroupMembers, env.IsSpellInRange = oldSize, oldRange
+  assert(not hidNeed and not hidCooldown and not hidByFinder and not hidUnknown and not hidIncomplete,
+    "all-buffed pill hid known buff needs or an incomplete reading")
+  assert(explainedFinder, "an empty filtered list did not explain the name finder")
 end)
 step("cast queue: next row tagged after a cast lands (1.6.0)", function()
   local cleanup = partyOfTwo("U")
@@ -2803,6 +2922,454 @@ step("color themes set the window colors (1.8.0)", function()
   assert(db.theme == "crimson", "a bogus theme changed the setting")
   env.SlashCmdList.BUFFRADAR("theme midnight")
   assert(db.theme == "midnight", "theme not restored")
+end)
+
+step("window palette presets use their approved colors and labels", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local slash = env.SlashCmdList.BUFFRADAR
+  local palettes = {
+    { "ui.elvui", "ElvUI", { 20, 20, 20 }, { 96, 96, 96 } },
+    { "ui.ellesmereui", "EllesmereUI", { 21, 25, 37 }, { 220, 167, 127 } },
+    { "ui.anoui", "AnoUI+", { 24, 21, 31 }, { 163, 147, 219 } },
+    { "ui.wicks", "Wick's UI", { 16, 28, 35 }, { 118, 174, 194 } },
+    { "ui.ultimateforever", "Ultimate Forever UI", { 35, 27, 19 }, { 177, 138, 83 } },
+    { "ui.foreverforge", "ForeverForge UI", { 24, 29, 39 }, { 189, 140, 85 } },
+    { "ui.daylightui", "DaylightUI", { 20, 20, 23 }, { 55, 55, 62 } },
+    { "ui.meredanui", "MeredanUI", { 22, 19, 15 }, { 97, 77, 46 } },
+    { "ui.nazgrelui", "NazgrelUI", { 23, 26, 33 }, { 56, 61, 74 } },
+    { "ui.reforgedui", "Reforged UI", { 33, 27, 21 }, { 136, 117, 74 } },
+  }
+  local frame, alpha = env.BuffRadarFrame, db.bgAlpha
+  local appliedBackground = nil
+  local setBackdropColor = frame.SetBackdropColor
+  frame.SetBackdropColor = function(self, r, g, b, a)
+    appliedBackground = { r, g, b, a }
+    return setBackdropColor(self, r, g, b, a)
+  end
+  local wasOpen = env.BuffRadarConfig and env.BuffRadarConfig:IsShown()
+  X.OpenConfig(true)
+  local button = assert(env.BuffRadarConfig.themeBtn)
+  for _, palette in ipairs(palettes) do
+    local n = #chat
+    slash("theme " .. palette[1]:upper())
+    assert(db.theme == palette[1] and chatSince(n, "Theme: " .. palette[2]), "wrong palette selection")
+    for component = 1, 3 do
+      assert(db.bgColor[component] == palette[3][component] / 255
+          and appliedBackground[component] == db.bgColor[component]
+          and frame.borderColor[component] == palette[4][component] / 255,
+        "incorrect swatch for " .. palette[1])
+    end
+    assert(appliedBackground[4] == alpha, "theme changed background opacity")
+    local restored = X.SanitizeDB({ theme = palette[1], bgColor = db.bgColor })
+    assert(restored.theme == palette[1], "sanitizer discarded " .. palette[1])
+  end
+  slash("theme parchment")
+  for _, palette in ipairs(palettes) do
+    button.scripts.OnClick(button)
+    assert(db.theme == palette[1] and button:GetText() == "Theme: " .. palette[2],
+      "settings skipped or mislabeled " .. palette[1])
+  end
+  button.scripts.OnClick(button)
+  assert(db.theme == "ui.auto" and button:GetText() == "Theme: Auto",
+    "settings omitted Auto or changed its compact label")
+  button.scripts.OnClick(button)
+  assert(db.theme == "midnight", "settings omitted the original first theme on wrap")
+  frame.SetBackdropColor = setBackdropColor
+  if not wasOpen then env.BuffRadarConfig:Hide() end
+end)
+
+step("window palettes survive reload and profile round trips without masking saved themes", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local slash = env.SlashCmdList.BUFFRADAR
+  local savedThemes = db.customThemes
+  db.customThemes = {
+    { name = "UI.ELVUI", bg = { 0.1, 0.2, 0.3 }, border = { 1, 1, 1 } },
+    { name = "ElvUI", bg = { 0.3, 0.2, 0.1 }, border = { 0.1, 0.2, 0.3 } },
+  }
+  slash("theme ui.elvui")
+  fire("ADDON_LOADED", "BuffRadar")
+  assert(env.BuffRadarDB.theme == "ui.elvui" and X.ThemeBorder()[1] == 96 / 255,
+    "reload gave a reserved name to a saved theme")
+  local order = X.ThemeOrder()
+  assert(#order == 16 and order[5] == "ui.elvui" and order[15] == "ui.auto" and order[16] == "ElvUI",
+    "cycle duplicated a reserved ID or hid the undisputed saved name")
+  local caption = env.BuffRadarConfig.themeBtn.navigation.value()
+  assert(caption == "ElvUI", "settings narration treated the built-in as a saved color")
+  slash("theme save ui.elvui")
+  assert(#db.customThemes == 2, "saved theme command used a reserved ID")
+  slash("theme delete UI.ELVUI")
+  assert(db.theme == "ui.elvui" and #db.customThemes == 1, "deleting a colliding save deselected the preset")
+  slash("theme elvui")
+  assert(db.theme == "ElvUI" and db.bgColor[1] == 0.3, "ordinary saved theme lost its ID or color")
+
+  slash("theme ui.foreverforge")
+  local exported = assert(X.Export())
+  assert(exported:match("^BR1;") and X.SaveProfile("PaletteRegression"), "could not export the palette")
+  local shared = assert(X.ProfileShareText("PaletteRegression"))
+  assert(shared:find("\nBR2;", 1, true), "the named palette profile did not use BR2")
+  slash("theme midnight")
+  assert(X.Import(exported) and db.theme == "ui.foreverforge"
+      and math.abs(db.bgColor[1] - 24 / 255) < 1e-12, "BR1 lost the palette or its color")
+  slash("theme midnight")
+  X.DeleteProfile("PaletteRegression")
+  assert(X.ProfileImport(shared) and X.LoadProfile("PaletteRegression")
+      and db.theme == "ui.foreverforge" and math.abs(db.bgColor[1] - 24 / 255) < 1e-12,
+    "BR2 lost the palette or its color")
+  X.DeleteProfile("PaletteRegression")
+  db.customThemes = savedThemes
+  slash("theme midnight")
+end)
+
+step("Auto theme opts in and uses exact loaded addon folders with stable priority", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local slash = env.SlashCmdList.BUFFRADAR
+  local prevModern, prevLegacy = env.C_AddOns, env.IsAddOnLoaded
+  local expected = {
+    { "ElvUI", "ui.elvui" }, { "EllesmereUI", "ui.ellesmereui" }, { "AnoUI", "ui.anoui" },
+    { "WicksUI", "ui.wicks" }, { "UltimateForeverUI", "ui.ultimateforever" }, { "ForeverForge_UI", "ui.foreverforge" },
+    { "DaylightUI", "ui.daylightui" }, { "MeredanUI", "ui.meredanui" }, { "NazgrelUI", "ui.nazgrelui" },
+    { "ReforgedUI", "ui.reforgedui" },
+  }
+  local ok, err = pcall(function()
+    local loaded = { ElvUI = true }
+    local queries = 0
+    env.IsAddOnLoaded = nil
+    env.C_AddOns = { IsAddOnLoaded = function(name) queries = queries + 1; return loaded[name] == true, loaded[name] == true end }
+    assert(X.SanitizeDB({}).theme == "midnight", "Auto replaced the default")
+    slash("theme midnight")
+    fire("ADDON_LOADED", "ElvUI")
+    assert(db.theme == "midnight" and queries == 0, "manual/default theme opted in or probed addons")
+    local n = #chat
+    slash("theme auto")
+    assert(db.theme == "ui.auto" and chatSince(n, "Theme: Auto (ElvUI)"), "slash alias did not select and describe Auto")
+    assert(#X.AUTO_THEME_ADDONS == #expected, "automatic addon catalog has unexpected entries")
+    for i, palette in ipairs(expected) do
+      local name, id = palette[1], palette[2]
+      assert(X.AUTO_THEME_ADDONS[i][1] == name and X.AUTO_THEME_ADDONS[i][2] == id,
+        "addon registry order or spelling is wrong at " .. i)
+      loaded = { [name] = true }
+      slash("theme ui.auto")
+      assert(X.autoThemeResolved == id and db.theme == "ui.auto", "exact folder was not recognized: " .. name)
+      local bg, border = X.ThemeBackground(), X.ThemeBorder()
+      for color = 1, 3 do
+        assert(bg[color] == X.THEMES[id].bg[color] and border[color] == X.THEMES[id].border[color],
+          "effective colors did not match " .. name)
+      end
+    end
+    loaded = { ReforgedUI = true, WicksUI = true, EllesmereUI = true }
+    slash("theme ui.auto")
+    assert(X.autoThemeResolved == "ui.ellesmereui", "loaded palette precedence depends on load order")
+    loaded = { ["elvui"] = true, ["ElvUI_Options"] = true, ["Wick's UI"] = true, ["ForeverForgeUI"] = true }
+    slash("theme ui.auto")
+    assert(X.autoThemeResolved == "midnight", "unregistered addon aliases matched")
+    for _, probe in ipairs({
+      function() return true, false end,
+      function() return true, nil end,
+      function() return false, true end,
+      function() error("fake query failure") end,
+    }) do
+      env.C_AddOns = { IsAddOnLoaded = probe }
+      slash("theme ui.auto")
+      assert(X.autoThemeResolved == "midnight", "unfinished or unreadable modern API result matched")
+    end
+    env.C_AddOns, env.IsAddOnLoaded = nil, nil
+    slash("theme ui.auto")
+    assert(X.autoThemeResolved == "midnight", "missing query APIs did not fall back")
+    env.IsAddOnLoaded = function(name) return name == "MeredanUI" and 1 or nil end
+    slash("theme ui.auto")
+    assert(X.autoThemeResolved == "ui.meredanui", "legacy success did not select the theme")
+    env.IsAddOnLoaded = function() error("fake legacy failure") end
+    slash("theme ui.auto")
+    assert(X.autoThemeResolved == "midnight", "legacy failure selected a palette")
+  end)
+  env.C_AddOns, env.IsAddOnLoaded = prevModern, prevLegacy
+  slash("theme midnight")
+  assert(ok, err)
+end)
+
+step("Auto theme follows startup and late addon loads while deferring window writes in combat", function()
+  local X = NS.X
+  local slash = env.SlashCmdList.BUFFRADAR
+  local prevModern, prevLegacy = env.C_AddOns, env.IsAddOnLoaded
+  local frame, prevBackdrop = env.BuffRadarFrame, env.BuffRadarFrame.SetBackdropColor
+  local wasOpen = env.BuffRadarConfig:IsShown()
+  local ok, err = pcall(function()
+    local writes, applied = 0, nil
+    frame.SetBackdropColor = function(self, r, g, b, a)
+      assert(not env.__combat, "Auto attempted an appearance write during combat")
+      writes = writes + 1
+      applied = { r, g, b, a }
+      return prevBackdrop(self, r, g, b, a)
+    end
+    local loaded = { WicksUI = true }
+    local checked = 0
+    env.C_AddOns = { IsAddOnLoaded = function(name)
+      checked = checked + 1
+      return loaded[name] == true, loaded[name] == true
+    end }
+    env.IsAddOnLoaded = nil
+    assert(driver.events.ADDON_LOADED, "addon driver unsubscribed from late addon loads")
+    env.BuffRadarDB.theme, env.BuffRadarDB.bgColor = "ui.auto", { 0.24, 0.25, 0.26 }
+    fire("ADDON_LOADED", "BuffRadar")
+    local db = env.BuffRadarDB
+    assert(db.theme == "ui.auto" and X.autoThemeResolved == "ui.wicks" and db.bgColor[1] == 0.24,
+      "startup did not restore Auto separately from manual colors")
+    X.OpenConfig(true)
+    assert(env.BuffRadarConfig.themeBtn.navigation.value() == "Auto (Wick's UI)",
+      "settings narration omitted the automatic palette")
+    local before = checked
+    fire("ADDON_LOADED", "ElvUI_Options")
+    assert(checked == before, "unrelated addon load recomputed Auto")
+    loaded.ElvUI = true
+    env.__combat = true
+    fire("PLAYER_REGEN_DISABLED")
+    before = writes
+    fire("ADDON_LOADED", "ElvUI")
+    assert(writes == before, "late addon load applied the theme during combat")
+    env.__combat = false
+    fire("PLAYER_REGEN_ENABLED")
+    assert(writes > before and applied[1] == 20 / 255 and frame.borderColor[1] == 96 / 255
+      and db.theme == "ui.auto" and X.autoThemeResolved == "ui.elvui",
+      "leaving combat did not apply the late loaded Auto palette")
+    slash("theme forest")
+    loaded.EllesmereUI = true
+    fire("ADDON_LOADED", "EllesmereUI")
+    assert(db.theme == "forest" and X.ThemeBackground()[1] == X.THEMES.forest.bg[1],
+      "late addon load overrode manual theme")
+  end)
+  frame.SetBackdropColor, env.__combat = prevBackdrop, false
+  env.C_AddOns, env.IsAddOnLoaded = prevModern, prevLegacy
+  slash("theme midnight")
+  if not wasOpen then env.BuffRadarConfig:Hide() end
+  assert(ok, err)
+end)
+
+step("Auto theme profile imports choose a local palette and keep historical saved Auto separate", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local slash = env.SlashCmdList.BUFFRADAR
+  local prevModern, prevLegacy, prevThemes = env.C_AddOns, env.IsAddOnLoaded, db.customThemes
+  local ok, err = pcall(function()
+    local loaded = "ElvUI"
+    env.C_AddOns = { IsAddOnLoaded = function(name) return name == loaded, name == loaded end }
+    env.IsAddOnLoaded = nil
+    db.customThemes = { { name = "Auto", bg = { 0.3, 0.2, 0.1 }, border = { 0.1, 0.2, 0.3 } } }
+    slash("theme auto")
+    assert(db.theme == "Auto" and X.ThemeBackground()[1] == 0.3 and X.ThemeBorder()[1] == 0.1,
+      "plain Auto stopped selecting a preexisting saved theme")
+    slash("theme ui.auto")
+    assert(db.theme == "ui.auto" and db.bgColor[1] == 0.3 and X.autoThemeResolved == "ui.elvui",
+      "explicit Auto did not preserve underlying manual color")
+    local br1 = assert(X.Export())
+    assert(br1:match("^BR1;") and X.SaveProfile("AutoPaletteRegression"), "could not save Auto profile")
+    local br2 = assert(X.ProfileShareText("AutoPaletteRegression"))
+    assert(br2:find("\nBR2;", 1, true), "Auto named profile did not use BR2")
+
+    loaded = "ReforgedUI"
+    slash("theme forest")
+    assert(X.Import(br1) and db.theme == "ui.auto" and db.bgColor[1] == 0.3
+      and X.autoThemeResolved == "ui.reforgedui" and X.ThemeBackground()[1] == 33 / 255,
+      "BR1 restored the sender's displayed palette instead of local Auto")
+    loaded = "DaylightUI"
+    slash("theme midnight")
+    X.DeleteProfile("AutoPaletteRegression")
+    assert(X.ProfileImport(br2) and X.LoadProfile("AutoPaletteRegression") and db.theme == "ui.auto"
+      and db.bgColor[1] == 0.3 and X.autoThemeResolved == "ui.daylightui" and X.ThemeBorder()[1] == 55 / 255,
+      "BR2 restored the sender's displayed palette instead of local Auto")
+  end)
+  env.C_AddOns, env.IsAddOnLoaded, db.customThemes = prevModern, prevLegacy, prevThemes
+  X.DeleteProfile("AutoPaletteRegression")
+  slash("theme midnight")
+  assert(ok, err)
+end)
+
+step("Auto Theme Priority uses the Settings keyboard, refreshes late picks, and resets", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local cfg, slash = env.BuffRadarConfig, env.SlashCmdList.BUFFRADAR
+  local prevModern, prevLegacy, prevOrder = env.C_AddOns, env.IsAddOnLoaded, db.autoThemePriority
+  local prevThemes = db.customThemes
+  local input = cfg.navInput
+  local function focused(widget)
+    return cfg.navOutline.shown and cfg.navOutline.points[1][2] == widget
+  end
+  local function advanceTo(widget)
+    for _ = 1, 80 do
+      if focused(widget) then return end
+      input.scripts.OnTabPressed(input)
+    end
+    error("could not focus theme priority control")
+  end
+  local ok, err = pcall(function()
+    local loaded = { ElvUI = true }
+    env.C_AddOns = { IsAddOnLoaded = function(name) return loaded[name] == true, loaded[name] == true end }
+    env.IsAddOnLoaded = nil
+    X.ResetAutoThemePriority()
+    slash("theme crimson")
+    X.OpenConfig(true)
+    cfg.tabBtns.look:Click()
+    slash("config find")
+    local search = cfg.searchBox
+    search:SetText(env.__german and "priorität" or "auto theme priority")
+    search.scripts.OnTextChanged(search)
+    assert(cfg.themePriorityBtn:GetAlpha() == 1 and cfg.themeBtn:GetAlpha() < 1,
+      "settings search did not find the priority launcher")
+    search.scripts.OnEscapePressed(search)
+    slash("config navigate")
+    advanceTo(cfg.themePriorityBtn)
+    input.scripts.OnEnterPressed(input)
+    local panel = env.BuffRadarAutoThemePriority
+    assert(panel and panel:IsVisible() and #panel.rows == 10 and not cfg.searchToggle:IsShown(),
+      "Window keyboard activation did not open all ten priority rows")
+    assert(panel.rows[1].label:GetText() == "1. ElvUI" and not panel.rows[1].up:IsEnabled()
+      and not panel.rows[10].down:IsEnabled(), "wrong default order or enabled boundary actions")
+    advanceTo(panel.statusRow)
+    assert(cfg.navStatus:GetText():find("Crimson", 1, true), "manual theme status was unavailable to navigation")
+    advanceTo(panel.rows[2].up)
+    input.scripts.OnEnterPressed(input)
+    assert(panel.rows[1].label:GetText() == "1. EllesmereUI" and db.theme == "crimson"
+      and db.bgColor[1] == X.THEMES.crimson.bg[1] and focused(panel.rows[1].down),
+      "keyboard move did not follow the row or changed the selected manual theme")
+    slash("theme ui.auto")
+    assert(panel.status:GetText():find("ElvUI (ElvUI)", 1, true), "status omitted the exact detected addon")
+    advanceTo(panel.statusRow)
+    loaded.EllesmereUI = true
+    fire("ADDON_LOADED", "EllesmereUI")
+    assert(X.autoThemeAddon == "EllesmereUI" and panel.status:GetText():find("EllesmereUI (EllesmereUI)", 1, true),
+      "late load did not respect saved priority or refresh open panel status")
+    assert(cfg.navStatus:GetText():find("EllesmereUI (EllesmereUI)", 1, true), "resolved theme was not available to narration")
+    local n = #chat
+    slash("theme priority list")
+    assert(chatSince(n, "ui.ellesmereui"), "slash priority list omitted the canonical palette ID")
+    slash("theme priority down ui.ellesmereui")
+    assert(X.autoThemeAddon == "ElvUI" and panel.rows[1].label:GetText() == "1. ElvUI",
+      "slash priority move did not refresh both current theme and open panel")
+    slash("theme priority up ui.ellesmereui")
+    assert(X.autoThemeAddon == "EllesmereUI", "slash up did not change priority")
+    panel.resetButton:Click()
+    assert(db.autoThemePriority == "" and X.autoThemeAddon == "ElvUI", "Settings Reset did not restore defaults")
+    loaded = {}
+    slash("theme ui.auto")
+    assert(panel.status:GetText():find("Midnight", 1, true), "Auto fallback was not named in the panel")
+    input.scripts.OnEscapePressed(input)
+    assert(not panel:IsVisible() and cfg.searchToggle:IsShown() and input:HasFocus() and focused(cfg.themePriorityBtn),
+      "closing the modal by keyboard did not restore its launcher focus")
+    input.scripts.OnEscapePressed(input)
+    slash("theme priority")
+    assert(panel:IsVisible(), "slash did not invoke the Settings overlay")
+    cfg:Hide()
+    X.OpenConfig(true)
+    assert(not panel:IsVisible(), "theme panel remained open after Settings closed")
+    slash("theme priority")
+    env.__combat = true
+    cfg.scripts.OnEvent(cfg, "PLAYER_REGEN_DISABLED")
+    assert(not panel:IsVisible(), "theme priority remained open in combat")
+    slash("theme priority")
+    assert(not panel:IsVisible(), "slash opened the priority panel during combat")
+    env.__combat = false
+    db.customThemes = {}
+    assert(X.SaveTheme("priority"), "could not create historical custom priority theme")
+    slash("theme priority")
+    assert(db.theme == "priority" and not panel:IsVisible(), "command masked a historical saved priority theme")
+    slash("theme priority panel")
+    assert(panel:IsVisible() and db.theme == "priority", "explicit panel command could not disambiguate a custom theme")
+  end)
+  env.C_AddOns, env.IsAddOnLoaded, db.autoThemePriority, env.__combat = prevModern, prevLegacy, prevOrder, false
+  db.customThemes = prevThemes
+  if input:HasFocus() then input.scripts.OnEscapePressed(input) end
+  cfg.tabBtns.look:Click()
+  slash("theme midnight")
+  assert(ok, err)
+end)
+
+step("Auto Theme Priority repairs saved orders and round trips through old and new profiles", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local slash = env.SlashCmdList.BUFFRADAR
+  local prevModern, prevLegacy, prevOrder = env.C_AddOns, env.IsAddOnLoaded, db.autoThemePriority
+  local ok, err = pcall(function()
+    local repaired = X.SanitizeDB({
+      autoThemePriority = "  UI.WICKS ,unknown,ui.elvui,ui.wicks,ui.auto",
+    })
+    assert(repaired.autoThemePriority:match("^ui%.wicks,ui%.elvui,ui%.ellesmereui,ui%.anoui,"),
+      "partial order did not allowlist, dedupe, and append default candidates")
+    for _, malformed in ipairs({ {}, 42, "unknown", string.rep("x", 513) }) do
+      assert(X.SanitizeDB({ autoThemePriority = malformed }).autoThemePriority == "",
+        "corrupt priority order did not use defaults")
+    end
+    env.C_AddOns = { IsAddOnLoaded = function(name)
+      local loaded = name == "ElvUI" or name == "EllesmereUI"
+      return loaded, loaded
+    end }
+    env.IsAddOnLoaded = nil
+    slash("theme priority reset")
+    slash("theme ui.auto")
+    local defaultExport = assert(X.Export())
+    slash("theme priority up ui.ellesmereui")
+    local order = db.autoThemePriority
+    assert(order:match("^ui%.ellesmereui,ui%.elvui,") and X.autoThemeAddon == "EllesmereUI", "could not set test priority")
+    local export = assert(X.Export())
+    assert(export:find(";autoThemePriority=", 1, true) and X.SaveProfile("ThemeOrderRegression"), "priority was not exportable")
+    local shared = assert(X.ProfileShareText("ThemeOrderRegression"))
+    assert(shared:find("\nBR2;", 1, true) and shared:find(";autoThemePriority=", 1, true), "BR2 did not serialize order")
+    local oldExport = export:gsub(";autoThemePriority=[^;]*", "", 1)
+    local oldShared = (shared:gsub(";autoThemePriority=[^;]*", "", 1)):gsub("ThemeOrderRegression", "ThemeOrderLegacy", 1)
+    assert(X.Import(oldExport) and db.autoThemePriority == order, "old BR1 changed current priority")
+    assert(X.ProfileImport(oldShared) and X.LoadProfile("ThemeOrderLegacy") and db.autoThemePriority == order,
+      "old BR2 changed current priority")
+    local overlong = export:gsub(";autoThemePriority=[^;]*", ";autoThemePriority=" .. string.rep("a", 513), 1)
+    assert(not X.Import(overlong) and db.autoThemePriority == order, "oversize import changed priority or appeared to succeed")
+    assert(X.Import(defaultExport) and db.autoThemePriority == "" and X.autoThemeAddon == "ElvUI",
+      "explicit empty export did not reset priority")
+    assert(X.Import(export) and db.autoThemePriority == order and X.autoThemeAddon == "EllesmereUI",
+      "new BR1 did not restore the order and recalculate Auto")
+    slash("theme priority reset")
+    assert(X.ProfileImport(shared) and X.LoadProfile("ThemeOrderRegression")
+      and db.autoThemePriority == order and X.autoThemeAddon == "EllesmereUI",
+      "new BR2 did not restore the order and recalculate Auto")
+  end)
+  env.C_AddOns, env.IsAddOnLoaded, db.autoThemePriority = prevModern, prevLegacy, prevOrder
+  X.DeleteProfile("ThemeOrderRegression")
+  X.DeleteProfile("ThemeOrderLegacy")
+  slash("theme midnight")
+  assert(ok, err)
+end)
+
+step("Auto theme save snapshots effective colors and cancel restores the prior selection", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local slash = env.SlashCmdList.BUFFRADAR
+  local prevModern, prevPicker, prevThemes = env.C_AddOns, env.ColorPickerFrame, db.customThemes
+  local wasOpen = env.BuffRadarConfig:IsShown()
+  local ok, err = pcall(function()
+    local loaded, picker = "AnoUI", nil
+    env.C_AddOns = { IsAddOnLoaded = function(name) return name == loaded, name == loaded end }
+    env.ColorPickerFrame = {
+      SetupColorPickerAndShow = function(_, args) picker = args end,
+      GetColorRGB = function() return 0.7, 0.6, 0.5 end,
+    }
+    db.customThemes = {}
+    slash("theme forest")
+    slash("theme ui.auto")
+    X.OpenConfig(true)
+    local swatch = env.BuffRadarConfig.swatch
+    swatch.scripts.OnClick(swatch)
+    assert(picker and picker.r == 24 / 255 and picker.g == 21 / 255 and picker.b == 31 / 255,
+      "color picker opened at the manual fallback instead of the displayed Auto colors")
+    picker.swatchFunc()
+    assert(db.theme == "custom" and db.bgColor[1] == 0.7, "manual color preview failed")
+    loaded = "MeredanUI"
+    fire("ADDON_LOADED", loaded)
+    picker.cancelFunc()
+    assert(db.theme == "ui.auto" and db.bgColor[1] == X.THEMES.forest.bg[1]
+      and X.ThemeBackground()[1] == 22 / 255, "picker cancel lost Auto or stale-copied the selected palette")
+    slash("theme save AutoCopy")
+    assert(db.theme == "AutoCopy" and db.bgColor[1] == 22 / 255 and X.ThemeBorder()[1] == 97 / 255,
+      "saving Auto used underlying settings instead of effective background and border")
+    loaded = "ElvUI"
+    fire("ADDON_LOADED", loaded)
+    assert(db.theme == "AutoCopy" and X.ThemeBackground()[1] == 22 / 255, "saved Auto snapshot still follows addons")
+  end)
+  env.C_AddOns, env.ColorPickerFrame, db.customThemes = prevModern, prevPicker, prevThemes
+  slash("theme midnight")
+  if not wasOpen then env.BuffRadarConfig:Hide() end
+  assert(ok, err)
 end)
 
 step("combat always hides the list and restores it afterward", function()
@@ -3321,7 +3888,7 @@ step("empty list explains range, nameplate, and buff states", function()
     X.tallyUnknownUnits = 0
     X.FriendlyPlatesOn = function() return true end
     X.rangeSilent = false
-    assert(X.EmptyStatus() == T("Everyone nearby is buffed."), "known empty state is misleading")
+    assert(X.EmptyStatus() == T("No targets in the buff queue."), "an empty queue was reported as confirmed buff coverage")
     X.rangeSilent = true
     assert(X.EmptyStatus() == T("Range could not be confirmed; the list may be incomplete."), "silent range state was hidden")
     X.FriendlyPlatesOn = function() return false end
@@ -3331,6 +3898,42 @@ step("empty list explains range, nameplate, and buff states", function()
     assert(X.EmptyStatus() == T("Some buff information is unavailable."), "unreadable buff state lost priority")
   end)
   X.rangeSilent, X.tallyUnknownUnits, X.FriendlyPlatesOn = oldRange, oldUnknown, oldPlates
+  assert(ok, err)
+end)
+
+step("unreadable outdoor target buffs are not reported as complete", function()
+  local cleanup = partyOfTwo("OutsideUnknown")
+  local X, O = NS.X, env.__over
+  local oldPlates = X.FriendlyPlatesOn
+  local ok, err = pcall(function()
+    for _, key in ipairs({ "UnitExists", "UnitIsPlayer", "UnitGUID", "UnitName", "UnitFullName", "UnitClass" }) do
+      local original = O[key]
+      O[key] = function(unit)
+        if unit == "target" then return original("party1") end
+        if unit == "player" then return original(unit) end
+        if key == "UnitExists" or key == "UnitIsPlayer" then return false end
+      end
+    end
+    env.IsInGroup = function() return false end
+    env.IsSpellInRange = function() return 1 end
+    X.FriendlyPlatesOn = function() return true end
+    O.Aura = function(unit)
+      if unit == "target" then error("by-name restricted") end
+      return { expirationTime = env.GetTime() + 600 }
+    end
+    O.AuraList = function(unit) if unit == "target" then error("index restricted") end end
+    X.Refresh()
+    assert(not shownRows().target and X.tallyUnknownUnits == 0,
+      "unreadable solo target was listed or changed group coverage")
+    assert(X.EmptyStatus() == X.L["Some buff information is unavailable."],
+      "unreadable outdoor target was reported as fully buffed")
+    O.Aura = function() return { expirationTime = env.GetTime() + 600 } end
+    X.Refresh()
+    assert(X.EmptyStatus() == X.L["No targets in the buff queue."],
+      "a later readable scan did not clear aura uncertainty")
+  end)
+  X.FriendlyPlatesOn = oldPlates
+  cleanup()
   assert(ok, err)
 end)
 
@@ -4528,7 +5131,8 @@ end)
 step("post-wipe report fires after a real wipe (1.9.0)", function()
   local cleanup = partyOfTwo("WW")
   local db = env.BuffRadarDB
-  local O = env.__over
+  local O, X = env.__over, NS.X
+  local oldStart = X.combatStart
   env.SlashCmdList.BUFFRADAR("wipe")
   assert(db.wipeReport == true, "wipe report not enabled")
   -- A controllable clock: the wipe gate needs an 8+ second fight.
@@ -4544,23 +5148,40 @@ step("post-wipe report fires after a real wipe (1.9.0)", function()
   local n = #chat
   fire("PLAYER_REGEN_ENABLED")
   assert(not chatSince(n, "Wipe report"), "report fired for a single death")
-  -- Both party members dead after a long fight: a wipe.
+  -- Deaths alone are insufficient without a recorded fight.
   dead.party2 = true
+  X.combatStart = nil
+  local missingStart = #chat
+  fire("PLAYER_REGEN_ENABLED")
+  local reportedWithoutStart = chatSince(missingStart, "Wipe report:")
   fire("PLAYER_REGEN_DISABLED")
-  t = t + 20
+  t = t + 7
+  local shortFight = #chat
+  fire("PLAYER_REGEN_ENABLED")
+  local reportedForShortFight = chatSince(shortFight, "Wipe report:")
+  -- Both party members dead after a fight at the minimum duration: a wipe.
+  fire("PLAYER_REGEN_DISABLED")
+  t = t + 8
   local n2 = #chat
   fire("PLAYER_REGEN_ENABLED")
   assert(chatSince(n2, "Wipe report: 2 of 3 died."), "no wipe report after the wipe")
   assert(chatSince(n2, "1 person is missing buffs"),
     "wipe report should list the survivor's missing buffs")
+  local duplicateEnd = #chat
+  fire("PLAYER_REGEN_ENABLED")
+  local reportedTwice = chatSince(duplicateEnd, "Wipe report:")
   local n3 = #chat
   env.SlashCmdList.BUFFRADAR("wipe show")
   assert(chatSince(n3, "Wipe report from the last wipe:"), "last wipe report not reprinted")
   O.GetTime = nil
   O.UnitIsDeadOrGhost = nil
+  X.combatStart = oldStart
   env.SlashCmdList.BUFFRADAR("wipe")
   assert(db.wipeReport == false, "wipe report not toggled off")
   cleanup()
+  assert(not reportedWithoutStart and not reportedForShortFight and not reportedTwice,
+    "wipe timing was incorrect: without start=" .. tostring(reportedWithoutStart)
+      .. ", short fight=" .. tostring(reportedForShortFight) .. ", duplicate end=" .. tostring(reportedTwice))
 end)
 step("raid wipe counts the player raid token once", function()
   local cleanup = partyOfTwo("WIPE")
@@ -4568,16 +5189,18 @@ step("raid wipe counts the player raid token once", function()
   local oldRaid, oldNum, oldWipe, oldStart = env.IsInRaid, env.GetNumGroupMembers, db.wipeReport, X.combatStart
   local ok, err = pcall(function()
     env.IsInRaid, env.GetNumGroupMembers = function() return true end, function() return 6 end
-    db.wipeReport, X.combatStart = true, nil
+    db.wipeReport = true
     O.UnitExists = function(u) return u == "player" or u:match("^raid[1-6]$") ~= nil end
     O.UnitGUID = function(u) return (u == "player" or u == "raid1") and "Player-1-0001" or "Player-1-" .. u end
     O.UnitClass = function() return "Mage", "MAGE" end
     local dead = { player = true, raid1 = true, raid2 = true }
     O.UnitIsDeadOrGhost = function(u) return dead[u] or false end
     local last = #chat
+    X.combatStart = env.GetTime() - 8
     X.WipeCheck()
     assert(not chatSince(last, "Wipe report:"), "two unique raid deaths triggered a wipe")
     dead.raid3 = true
+    X.combatStart = env.GetTime() - 8
     X.WipeCheck()
     assert(chatSince(last, "Wipe report: 3 of 6 died."), "raid wipe roster double-counted the local player")
   end)
@@ -4841,6 +5464,7 @@ end)
 step("setup wizard walks a new user through (1.9.0)", function()
   local db = env.BuffRadarDB
   assert(db.wizardSeen == false, "wizard should start unseen on a fresh save")
+  env.SlashCmdList.BUFFRADAR("theme parchment")
   env.SlashCmdList.BUFFRADAR("wizard")
   local w = env.BuffRadarWizard
   assert(w and w.shown, "wizard did not open")
@@ -4851,9 +5475,12 @@ step("setup wizard walks a new user through (1.9.0)", function()
   assert(db.groupOnly == true, "party preset did not set groupOnly")
   assert(w.page == 2, "wizard did not advance to page 2")
   -- Page 2: the theme button cycles the theme.
-  local before = db.theme
-  w.choice[1].scripts.OnClick(w.choice[1])
-  assert(db.theme ~= before, "theme not cycled on page 2")
+  for _, label in ipairs({ "ElvUI", "EllesmereUI", "AnoUI+", "Wick's UI", "Ultimate Forever UI", "ForeverForge UI",
+      "DaylightUI", "MeredanUI", "NazgrelUI", "Reforged UI", "Auto (Midnight)" }) do
+    w.choice[1].scripts.OnClick(w.choice[1])
+    assert(w.choice[1]:GetText() == "Theme: " .. label, "wizard skipped or mislabeled " .. label)
+  end
+  env.SlashCmdList.BUFFRADAR("theme midnight")
   w.next.scripts.OnClick(w.next)
   assert(w.page == 3, "wizard did not advance to page 3")
   -- Page 3: Finish closes it and marks it seen.
@@ -6787,7 +7414,7 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 19"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 20"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
   assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
   assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")

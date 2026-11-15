@@ -60,6 +60,7 @@ function K.Available(entry)
 end
 
 function K.Modal()
+  if cfg.themePriorityPanel and cfg.themePriorityPanel:IsVisible() then return cfg.themePriorityPanel end
   local assignments = cfg.assignmentPanel
   local preview = assignments and assignments.preview
   local blockers = preview and preview.blockers
@@ -323,7 +324,9 @@ function K.Build()
   input:SetScript("OnSpacePressed", function() K.Act() end)
   input:SetScript("OnEscapePressed", function()
     local picker = cfg.assignmentPanel and cfg.assignmentPanel.picker
-    if picker and K.Modal() == picker then picker.closeButton:Click()
+    local modal = K.Modal()
+    if cfg.themePriorityPanel and modal == cfg.themePriorityPanel then modal.closeButton:Click()
+    elseif picker and modal == picker then picker.closeButton:Click()
     else K.Stop() end
   end)
   input:SetScript("OnArrowPressed", function(_, key)
@@ -530,19 +533,25 @@ end
 
 local function OpenColorPicker()
   K.Stop()
-  local c = db.bgColor
-  local prev = { c[1], c[2], c[3] }
+  local c, stored = X.ThemeBackground(), db.bgColor
+  local previousTheme, previousColor = db.theme, { stored[1], stored[2], stored[3] }
+  local opening = true
+  local function refreshAppearance()
+    if not X.ResolveAutoTheme() then
+      ApplyAppearance()
+      RefreshConfig()
+    end
+  end
   local function apply()
+    if opening then return end
     local r, g, b = ColorPickerFrame:GetColorRGB()
     db.bgColor = { r, g, b }
     db.theme = "custom"  -- a hand-picked color leaves the theme presets (1.8.0)
-    ApplyAppearance()
-    RefreshConfig()
+    refreshAppearance()
   end
   local function cancel()
-    db.bgColor = { prev[1], prev[2], prev[3] }
-    ApplyAppearance()
-    RefreshConfig()
+    db.theme, db.bgColor = previousTheme, previousColor
+    refreshAppearance()
   end
   if ColorPickerFrame.SetupColorPickerAndShow then
     ColorPickerFrame:SetupColorPickerAndShow({
@@ -558,6 +567,7 @@ local function OpenColorPicker()
     ColorPickerFrame:Hide()
     ColorPickerFrame:Show()
   end
+  opening = false
 end
 
 local function PercentText(v) return math_floor(v * 100 + 0.5) .. "%" end
@@ -616,6 +626,7 @@ end
 local function SelectTab(key)
   CloseSearch()
   cfg.curTab = key
+  if cfg.themePriorityPanel then cfg.themePriorityPanel:Hide() end
   if cfg.displayPanel then cfg.displayPanel:Hide() end
   if cfg.blessingPanel then cfg.blessingPanel:Hide() end
   if cfg.assignmentPanel then cfg.assignmentPanel:Hide() end
@@ -2575,6 +2586,99 @@ function X.OpenRaidCoverage()
   AssignmentUI.OpenCoverage(cfg.assignmentPanel)
 end
 
+do
+  function X.RefreshAutoThemePriority()
+    local panel = cfg and cfg.themePriorityPanel
+    if not panel or not panel:IsVisible() then return end
+    local order = X.AutoThemePriority()
+    for index, entry in ipairs(order) do
+      local row = panel.rows[index]
+      row.palette, row.name = entry[2], X.THEMES[entry[2]].label
+      row.label:SetText(string.format("%d. %s", index, row.name))
+      if index > 1 then row.up:Enable() else row.up:Disable() end
+      if index < #order then row.down:Enable() else row.down:Disable() end
+    end
+    local status = X.AutoThemeStatus()
+    if status ~= panel.status:GetText() then
+      panel.status:SetText(status)
+      if K.active and K.current == panel.statusRow.navigation then K.Focus(K.current) end
+    end
+  end
+
+  local function BuildAutoThemePriority()
+    local panel = AssignmentUI.CreatePanel(cfg, "BuffRadarAutoThemePriority", 540, 405, cfg:GetFrameLevel() + 8)
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 18, -14)
+    title:SetText(L["Auto Theme Priority"])
+    local help = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    help:SetPoint("TOPLEFT", 18, -42)
+    help:SetText(L["Auto uses the first loaded addon in this list."])
+    panel.statusRow = CreateFrame("Button", nil, panel)
+    panel.statusRow:SetPoint("TOPLEFT", 18, -62)
+    panel.statusRow:SetPoint("TOPRIGHT", -18, -62)
+    panel.statusRow:SetHeight(22)
+    panel.statusRow:EnableMouse(false)
+    panel.status = panel.statusRow:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    panel.status:SetAllPoints(panel.statusRow)
+    panel.status:SetJustifyH("LEFT")
+    K.Register(panel.statusRow, panel, L["Auto Theme Priority"], "detail",
+      function() return panel.status:GetText() end)
+    panel.rows = {}
+    local function canEdit()
+      return panel:IsVisible() and not InCombatLockdown() and not X.PlayerSuspended()
+    end
+    for index = 1, #X.AUTO_THEME_ADDONS do
+      local row = {}
+      row.label = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+      row.label:SetPoint("TOPLEFT", 18, -100 - (index - 1) * 25)
+      local function move(offset)
+        if not canEdit() or not X.MoveAutoThemePriority(row.palette, offset) then return end
+        X.RefreshAutoThemePriority()
+        if K.active then
+          local destination = panel.rows[index + offset]
+          local button = offset < 0 and destination.up or destination.down
+          if not button:IsEnabled() then button = offset < 0 and destination.down or destination.up end
+          K.Focus(button.navigation)
+        end
+      end
+      row.up = MakeButton(panel, L["Move Up"], 108, function() move(-1) end)
+      row.up:SetPoint("TOPRIGHT", -134, -97 - (index - 1) * 25)
+      row.up.navigation.label = function() return string.format(L["Move %s Up"], row.name) end
+      row.down = MakeButton(panel, L["Move Down"], 108, function() move(1) end)
+      row.down:SetPoint("TOPRIGHT", -18, -97 - (index - 1) * 25)
+      row.down.navigation.label = function() return string.format(L["Move %s Down"], row.name) end
+      panel.rows[index] = row
+    end
+    panel.resetButton = MakeButton(panel, L["Reset Order"], 155, function()
+      if canEdit() then
+        X.ResetAutoThemePriority()
+        X.RefreshAutoThemePriority()
+      end
+    end)
+    panel.resetButton:SetPoint("BOTTOMLEFT", 18, 14)
+    panel.closeButton = MakeButton(panel, L["Close"], 108, function() panel:Hide() end)
+    panel.closeButton:SetPoint("BOTTOMRIGHT", -18, 14)
+    panel:HookScript("OnHide", function()
+      if not cfg:IsVisible() or cfg.curTab ~= "look" then return end
+      cfg.searchToggle:Show()
+      if K.active and K.InScope(cfg.themePriorityBtn.navigation) then K.Focus(cfg.themePriorityBtn.navigation) end
+    end)
+    if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarAutoThemePriority") end
+    return panel
+  end
+
+  function X.OpenAutoThemePriority()
+    if X.PlayerSuspended() or InCombatLockdown() then return end
+    OpenConfig(true)
+    SelectTab("look")
+    cfg.themePriorityPanel = cfg.themePriorityPanel or BuildAutoThemePriority()
+    cfg.searchToggle:Hide()
+    cfg.themePriorityPanel:Show()
+    X.RefreshAutoThemePriority()
+    if K.active then K.Move(1) end
+  end
+end
+
 local function BuildConfig()
   db = X.GetDB()
   -- Blizzard's standard window (title bar, BuffRadar icon in the portrait
@@ -2813,13 +2917,16 @@ local function BuildConfig()
   widthHint:SetText("Drag either bottom corner to scale the window. Width: /br width <180-400>.")
 
   local resetLook = MakeButton(look, "Reset look", 110, function()
+    if db.theme == X.AUTO_THEME_ID then db.theme = DEFAULTS.theme end
     db.bgColor = { DEFAULTS.bgColor[1], DEFAULTS.bgColor[2], DEFAULTS.bgColor[3] }
     db.bgAlpha = DEFAULTS.bgAlpha
     db.showTitle, db.showBorder, db.scale = true, true, 1
     db.width = DEFAULTS.width
     ApplyGeometry()  -- in combat this lands when combat ends
-    ApplyAppearance()
-    RefreshConfig()
+    if not X.ResolveAutoTheme() then
+      ApplyAppearance()
+      RefreshConfig()
+    end
   end)
   resetLook:SetPoint("TOPLEFT", 14, -232)
 
@@ -2855,9 +2962,12 @@ local function BuildConfig()
   cfg.themeBtn:SetPoint("TOPLEFT", 250, -336)
   cfg.themeBtn.navigation.label = L["Theme"]
   cfg.themeBtn.navigation.value = function()
+    if db.theme == X.AUTO_THEME_ID then return X.ThemeLabel(true) end
     local theme = X.ThemeDef(db.theme)
     return theme and not X.SavedTheme(db.theme) and theme.label or L["Custom theme"]
   end
+  cfg.themePriorityBtn = MakeButton(look, L["Auto Theme Priority…"], 196, X.OpenAutoThemePriority)
+  cfg.themePriorityBtn:SetPoint("TOPLEFT", 14, -336)
 
   cfg.saveThemeBtn = MakeButton(look, "Save as theme", 150, function()
     local n = 1
@@ -3494,7 +3604,9 @@ local function BuildConfig()
   Tip(cfg.minimapCheck, "Minimap button", "Left-click it to show or hide the window, right-click for settings, drag it around the minimap. The addon compartment (minimap menu) works either way.")
   Tip(cfg.growCheck, "Grow the list upward", "The window stands on its bottom edge and the list grows upward instead of down — handy when the window sits low on the screen. The saved position remembers the form. Same as /br growup.")
   Tip(cfg.twoColCheck, "Two columns when the list is long", "With more than 8 people on the list, the rows split into two side-by-side columns and the window widens, instead of growing one tall column. Same as /br twocol.")
-  Tip(cfg.themeBtn, "Color theme", "Click to cycle the window's color themes: Midnight, Crimson, Forest, Parchment — plus any themes you saved yourself. Picking a custom background color afterwards switches back to a custom theme. Same as /br theme <name>.")
+  Tip(cfg.themeBtn, function()
+    return db.theme == X.AUTO_THEME_ID and X.ThemeLabel(true) or "Color theme"
+  end, "Click to cycle the built-in and saved window color themes. Picking a custom background color afterwards switches back to a custom theme. Use /br theme to list theme names.")
   Tip(cfg.saveThemeBtn, "Save as theme", "Saves the window's current background and border colors as your own theme, so it joins the theme cycle. It is named automatically; /br theme save <name> saves under your own name, /br theme delete <name> removes one. Up to 4 saved themes.")
   Tip(cfg.gapSlider, "Row spacing", "Extra empty space between the rows, 0 to 8. The window grows to fit. Same as /br rowgap <0-8>.")
   Tip(cfg.iconSlider, "Buff icon size", "How big the missing-buff icons on each row are, 10 to 24. At 0 the size is automatic (16, or 12 in compact rows). Same as /br iconsize <0|10-24>.")
@@ -3718,6 +3830,7 @@ local function BuildConfig()
   cfg:HookScript("OnHide", function()
     K.Stop(true)
     CloseSearch()
+    if cfg.themePriorityPanel then cfg.themePriorityPanel:Hide() end
     if cfg.assignmentPanel then cfg.assignmentPanel:Hide() end
   end)
   cfg:RegisterEvent("DISPLAY_SIZE_CHANGED")
@@ -3726,6 +3839,7 @@ local function BuildConfig()
   cfg:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_REGEN_DISABLED" then
       K.Stop(true)
+      if cfg.themePriorityPanel then cfg.themePriorityPanel:Hide() end
       if cfg.assignmentPanel then cfg.assignmentPanel:Hide() end
     elseif cfg:IsShown() then ApplyConfigScale() end
   end)
@@ -3737,7 +3851,7 @@ RefreshConfig = function()
   db = X.GetDB()
   if not cfg or not cfg:IsShown() then return end
   ApplyConfigScale()
-  local c = db.bgColor
+  local c = X.ThemeBackground()
   if cfg.swatch.SetBackdropColor then cfg.swatch:SetBackdropColor(c[1], c[2], c[3], 1) end
   cfg.slider:SetValue(math.floor((db.bgAlpha or 0.92) * 100 + 0.5))
   cfg.alphaValue:SetText(math.floor((db.bgAlpha or 0.92) * 100 + 0.5) .. "%")
@@ -3805,9 +3919,9 @@ RefreshConfig = function()
   if cfg.growCheck then cfg.growCheck:Update() end
   if cfg.twoColCheck then cfg.twoColCheck:Update() end
   if cfg.themeBtn then
-    local th = X.ThemeDef(db.theme)
-    cfg.themeBtn:SetText("Theme: " .. (th and th.label or "Custom"))
+    cfg.themeBtn:SetText("Theme: " .. X.ThemeLabel())
   end
+  X.RefreshAutoThemePriority()
   if cfg.petsCheck then cfg.petsCheck:Update() end
   if cfg.auraCheck then cfg.auraCheck:Update() end
   if cfg.worldCheck then cfg.worldCheck:Update() end

@@ -195,7 +195,8 @@ local DEFAULTS = {
   growUp = false,      -- the list grows upward from a fixed bottom edge (1.8.0)
   hideInCombat = true,  -- no buff targets are available while you are in combat
   twoCol = false,      -- two columns when the list is long (1.9.0)
-  theme = "midnight",  -- window color theme: midnight/crimson/forest/parchment/custom (1.8.0)
+  theme = "midnight",  -- window color theme (1.8.0)
+  autoThemePriority = "", -- an empty setting uses the built-in addon priority
   findBox = false,     -- name finder box on the window (1.8.0)
   durationBars = false, -- thin bar per row: time left on the expiring buff (1.8.0)
   raidMarkers = false, -- show raid target markers on rows (1.8.0)
@@ -233,7 +234,6 @@ local ENUMS = {
   sortMode = { name = true, role = true, distance = true, need = true },
   roleFilter = { ALL = true, TANK = true, HEALER = true, DAMAGER = true },
   alertSound = { droplet = true, system = true, none = true },
-  theme = { midnight = true, crimson = true, forest = true, parchment = true, custom = true },
   strata = { LOW = true, MEDIUM = true, HIGH = true, DIALOG = true },
   tooltipLevel = { minimal = true, standard = true, full = true },
   viewMode = { people = true, buffs = true },
@@ -249,8 +249,66 @@ local function IsNumber(v)
 end
 local function Clamp(v, lo, hi) return math_max(lo, math_min(hi, v)) end
 
+local MAX_AUTO_PRIORITY_BYTES = 512
+
+local function OrderedAutoThemeAddons(value)
+  local order, seen = {}, {}
+  if type(value) == "string" and value ~= "" and #value <= MAX_AUTO_PRIORITY_BYTES then
+    local byID = {}
+    for _, entry in ipairs(X.AUTO_THEME_ADDONS) do byID[entry[2]] = entry end
+    for token in value:gmatch("[^,]+") do
+      local id = token:match("^%s*(.-)%s*$"):lower()
+      if byID[id] and not seen[id] then
+        order[#order + 1], seen[id] = byID[id], true
+      end
+    end
+  end
+  for _, entry in ipairs(X.AUTO_THEME_ADDONS) do
+    if not seen[entry[2]] then order[#order + 1] = entry end
+  end
+  return order
+end
+
+local function EncodeAutoThemePriority(order)
+  local ids, isDefault = {}, true
+  for i, entry in ipairs(order) do
+    ids[i] = entry[2]
+    if entry ~= X.AUTO_THEME_ADDONS[i] then isDefault = false end
+  end
+  return isDefault and "" or table.concat(ids, ",")
+end
+
+function X.AutoThemePriority()
+  return OrderedAutoThemeAddons(db and db.autoThemePriority)
+end
+
+function X.MoveAutoThemePriority(palette, offset)
+  if not db or (offset ~= -1 and offset ~= 1) then return false end
+  local order = X.AutoThemePriority()
+  for i, entry in ipairs(order) do
+    if entry[2] == palette then
+      local nextIndex = i + offset
+      if not order[nextIndex] then return false end
+      order[i], order[nextIndex] = order[nextIndex], entry
+      db.autoThemePriority = EncodeAutoThemePriority(order)
+      X.ResolveAutoTheme()
+      return true
+    end
+  end
+  return false
+end
+
+function X.ResetAutoThemePriority()
+  if not db then return false end
+  local changed = db.autoThemePriority ~= ""
+  db.autoThemePriority = ""
+  X.ResolveAutoTheme()
+  return changed
+end
+
 function X.ProfileScalarValid(key, value)
   if key == "theme" then return #value >= 1 and #value <= 24 end
+  if key == "autoThemePriority" then return #value <= MAX_AUTO_PRIORITY_BYTES end
   local choices = ENUMS[key]
   return not choices or choices[value] == true
 end
@@ -470,14 +528,18 @@ function SanitizeDB(saved)
     elseif dt == "boolean" then
       if type(v) ~= "boolean" then v = def end
     elseif dt == "string" then
-      -- theme is exempt from its enum: a saved theme's name is valid too
-      -- (checked properly after the loop, once customThemes is clean).
-      if type(v) ~= "string" or (ENUMS[k] and k ~= "theme" and not ENUMS[k][v]) then v = def end
+      if type(v) ~= "string" or (ENUMS[k] and not ENUMS[k][v]) then v = def end
       if k == "theme" and type(v) == "string" and #v > 24 then v = def end
+      if k == "autoThemePriority" and v ~= "" then
+        v = EncodeAutoThemePriority(OrderedAutoThemeAddons(v))
+      end
     end
     saved[k] = v
   end
-  if type(saved.theme) == "string" and not ENUMS.theme[saved.theme] then
+  local themeID = saved.theme:lower()
+  if X.THEMES[themeID] or themeID == "custom" then
+    saved.theme = themeID
+  else
     local found = false
     for _, t in ipairs(saved.customThemes or {}) do
       if t.name == saved.theme then found = true; break end
@@ -538,6 +600,24 @@ local L = {
   ["Buff icon size"] = "Buff icon size",
   ["Custom (%s)"] = "Custom (%s)",
   ["Custom theme"] = "Custom theme",
+  ["Auto"] = "Auto",
+  ["Auto (%s)"] = "Auto (%s)",
+  ["Auto Theme Priority…"] = "Auto Theme Priority…",
+  ["Auto Theme Priority"] = "Auto Theme Priority",
+  ["Auto uses the first loaded addon in this list."] = "Auto uses the first loaded addon in this list.",
+  ["Selected: %s (%s)"] = "Selected: %s (%s)",
+  ["No supported UI addon is loaded. Using Midnight."] = "No supported UI addon is loaded. Using Midnight.",
+  ["Auto is off. Current theme: %s."] = "Auto is off. Current theme: %s.",
+  ["Move Up"] = "Move Up",
+  ["Move Down"] = "Move Down",
+  ["Move %s Up"] = "Move %s Up",
+  ["Move %s Down"] = "Move %s Down",
+  ["Reset Order"] = "Reset Order",
+  ["Auto Theme Priority reset."] = "Auto Theme Priority reset.",
+  ["Auto Theme Priority updated."] = "Auto Theme Priority updated.",
+  ["Could not move that Auto theme."] = "Could not move that Auto theme.",
+  ["Usage: /br theme priority [panel|list|up <id>|down <id>|reset]"] =
+    "Usage: /br theme priority [panel|list|up <id>|down <id>|reset]",
   ["Theme"] = "Theme",
   ["Close"] = "Close",
   ["Close settings"] = "Close settings",
@@ -556,6 +636,8 @@ local L = {
   ["Paused in a major city."] = "Paused in a major city.",
   ["Paused in a battleground."] = "Paused in a battleground.",
   ["Everyone nearby is buffed."] = "Everyone nearby is buffed.",
+  ["No targets in the buff queue."] = "No targets in the buff queue.",
+  ["The name finder hides all buff targets."] = "The name finder hides all buff targets.",
   ["Some buff information is unavailable."] = "Some buff information is unavailable.",
   ["Estimated range"] = "Estimated range",
   ["Friendly nameplates are off."] = "Friendly nameplates are off.",
@@ -2116,7 +2198,7 @@ end
 
 local function Missing(unit, out, isGroup, isSelf, report, detail)
   wipe(out)
-  if not report then X.remainTmp, X.auraUnknown = nil, nil end
+  if not report then X.remainTmp, X.auraUnknown, X.auraNeedsBuff = nil, nil, nil end
   local reviewing = report == "assignmentReview"
   local subgroupKey = detail and detail.subgroupKey
   local class = reviewing and detail.member.class
@@ -2201,7 +2283,8 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
         end
         if report == "ready" then X.RecordReadyAura(detail, unit, b.name, b.names, has, b.key) end
       else
-          if has == nil then X.auraUnknown = true end
+          if has == nil then X.auraUnknown = true
+          elseif has == false then X.auraNeedsBuff = true end
           local t
           if isGroup and has ~= nil then
             t = X.tally[b.key]
@@ -2555,6 +2638,8 @@ local function Consider(unit, isGroup)
   if not e.allMissing then e.allMissing = {} end
   local allN = Missing(unit, e.allMissing, isGroup, isSelf)
   local auraUnknown = X.auraUnknown
+  if auraUnknown then X.scanHasUnknownBuffs = true end
+  if allN > 0 or X.auraNeedsBuff then X.scanHasMissingBuffs = true end
   e.remain1 = X.remainTmp
   if isGroup and not auraUnknown and allN == 0 then X.missNow[guid] = {} end
   local queue = e.allMissing
@@ -2701,6 +2786,7 @@ local function CollectEntries()
   wipe(X.drinkSet)
   X.drinkHealers = 0
   X.tallyUnits, X.tallyMissingUnits, X.tallyUnknownUnits = 0, 0, 0
+  X.scanHasUnknownBuffs, X.scanHasMissingBuffs, X.scanNameFiltered = false, false, false
   X.rangeSilent = false
   X.missPrev, X.missNow = X.missNow, {}
   wipe(X.missNow)
@@ -2747,6 +2833,7 @@ local function CollectEntries()
     end
     for i = 1, #keep do entries[i] = keep[i] end
     for i = 1, #drop do entries[#keep + i] = drop[i] end
+    X.scanNameFiltered = #drop > 0
     nEntries = #keep
   end
   -- Single-target buffs whose holder was found: only the holder's row may
@@ -3242,7 +3329,7 @@ X.EXPORT_KEYS = { "locked", "includeSelf", "avoidPvP", "autoHide", "rebuff", "sc
   "sortMode", "alertSound", "alertSounds", "buffPrio", "clickThrough", "muteInInstance", "showMinimap", "lowMana",
   "sync", "requests", "joinDigest", "roleFilter", "showStrip", "idleFade",
   "pill", "queueTag", "consumables", "buddySplit", "readyPost", "weaponWatch", "enterFlash",
-  "scanThrottle", "growUp", "theme", "findBox", "durationBars", "raidMarkers",
+  "scanThrottle", "growUp", "theme", "autoThemePriority", "findBox", "durationBars", "raidMarkers",
   "focusWatch", "pets", "auraWatch", "worldWatch", "drinkWatch", "twoCol",
   "deathRecap", "wipeReport", "rowGap", "iconSize",
   "tooltipLevel", "viewMode", "classColors", "showRealm", "nameTrim",
@@ -4614,7 +4701,8 @@ end
 -- Tell the other BuffRadar users in the group "I just cast KEY on GUID",
 -- so their lists sink that player instead of double-casting the same buff.
 function X.SyncSend(key, guid)
-  X.Broadcast("CAST;" .. key .. ";" .. guid)
+  local message = "CAST;" .. key .. ";" .. guid
+  if CLASSIC_FEATURES then X.SendScopedSync(message) else X.Broadcast(message) end
 end
 
 -- Cover-me handoff (1.7.0): while you're dead or AFK, tell the other
@@ -4778,9 +4866,24 @@ do
     X.handled[guid] = { key = key, t = now }
   end
 
+  local function OtherSyncSender(sender, channel)
+    local unit, name = X.SenderUnit(sender)
+    if not unit or unit == "player" then return end
+    local me, senderKey = RosterNames("player"), Ignore.Key(name)
+    if me and senderKey == Ignore.Key(me) then return end
+    if channel == "RAID" then
+      local isSelf = X.IsSelf(unit)
+      if isSelf == true or (isSelf == nil and not me) then return end
+    end
+    return unit, name, senderKey, me
+  end
+
   do
     local active, sequence, generation, token = nil, 0, 0, 0
     local resetReason
+    local scope, nonceSerial
+    local departedScopes, departedCount = {}, 0
+    local retired, retirementOrder, retirementSlot = {}, {}, 1
     local statusLabels = { sent = "Awaiting acknowledgement", acknowledged = "Acknowledged",
       failed = "Send failed", localOnly = "Assigned locally" }
 
@@ -4802,8 +4905,9 @@ do
     end
 
     local function CoordinationRoster()
-      if not SyncChannel() then return end
-      local members, ids = {}, {}
+      local channel = SyncChannel()
+      if not channel then return end
+      local members, ids, leaders = {}, {}, 0
       local size = X.ReadUnitNumber(GetNumGroupMembers)
       X.ForReportRoster(function(unit, exists)
         local guid = exists and CoordinationGUID(unit)
@@ -4812,18 +4916,142 @@ do
         if rank ~= nil and not members[guid] then
           members[guid] = { name = name, unit = unit }
           ids[#ids + 1] = guid .. "=" .. rank
+          if rank == 2 then leaders = leaders + 1 end
         end
       end)
-      if size ~= #ids or #ids == 0 then return end
+      if size ~= #ids or leaders ~= 1 then return end
       table_sort(ids)
-      return members, SyncChannel() .. ":" .. table.concat(ids, ",")
+      return members, channel .. ":" .. table.concat(ids, ",")
+    end
+
+    local function SyncDigest(identity)
+      local first, second = 0, 0
+      for i = 1, #identity do
+        local byte = identity:byte(i)
+        first = (first * 131 + byte) % 2147483647
+        second = (second * 137 + byte) % 2147483629
+      end
+      return string_format("%08x%08x", first, second)
+    end
+
+    local function NewSyncNonce()
+      nonceSerial = (nonceSerial or 0) + 1
+      return string_format("%06x%06x%06x%06x", math.random(0, 0xffffff), math.random(0, 0xffffff),
+        math_floor(GetTime() * 1000) % 0x1000000, nonceSerial % 0x1000000)
+    end
+
+    local function RetireSyncEpoch(guid, epoch)
+      if not epoch then return end
+      local key = guid .. ":" .. epoch
+      if retired[key] then return end
+      local oldest = retirementOrder[retirementSlot]
+      if oldest then retired[oldest] = nil end
+      retired[key] = true
+      retirementOrder[retirementSlot] = key
+      retirementSlot = retirementSlot % 160 + 1
+    end
+
+    local function RememberDepartedScope(identity)
+      if not departedScopes or departedScopes[identity] then return end
+      if departedCount >= 64 then
+        -- Once the history is full, require a fresh proof floor on every entry.
+        departedScopes = nil
+        return
+      end
+      departedScopes[identity] = true
+      departedCount = departedCount + 1
+    end
+
+    local function BroadcastSyncWarmup(current, now)
+      local nonce = NewSyncNonce()
+      if not X.Broadcast("SYNC;3;B;" .. current.digest .. ";" .. nonce) then return false end
+      current.priorWarmNonce, current.warmNonce, current.warmExpires = current.warmNonce, nonce, now + 3
+      return true
+    end
+
+    local function RetrySyncWarmup(current)
+      if not current or scope ~= current or not current.warmRetryAt then return end
+      local now = GetTime()
+      if now < current.warmRetryAt then return end
+      current.warmRetryAt = nil
+      if not db or not db.sync then return end
+      local members, identity = CoordinationRoster()
+      local me = CoordinationGUID("player")
+      if identity ~= current.identity or not me or not members[me] then return end
+      for guid in pairs(members) do
+        local peer = current.peers[guid]
+        if guid ~= me and not (peer and peer.epoch) then
+          if BroadcastSyncWarmup(current, now) then
+            -- Reordered data can still be proved by either broadcast. Keep
+            -- only the existing bounded queues for this one extra window.
+            for _, unresolved in pairs(current.peers) do
+              if not unresolved.epoch and unresolved.pending then
+                for _, pending in ipairs(unresolved.pending) do
+                  if not pending.challenge then pending.expires = current.warmExpires end
+                end
+              end
+            end
+          end
+          return
+        end
+      end
+    end
+
+    local function StartSyncWarmup(current)
+      if not current or not current.requireProofFloor or current.warmAttempted or not db or not db.sync then return end
+      current.warmAttempted = true
+      local now = GetTime()
+      BroadcastSyncWarmup(current, now)
+      current.warmRetryAt = now + 3
+      if C_Timer and C_Timer.After then
+        C_Timer.After(3, function() RetrySyncWarmup(current) end)
+      end
+    end
+
+    function X.RunDueSyncWarmupRetry()
+      RetrySyncWarmup(scope)
+    end
+
+    local function UpdateSyncScope(force)
+      if not CLASSIC_FEATURES then return end
+      local members, identity = CoordinationRoster()
+      if scope and scope.identity == identity and not force then
+        StartSyncWarmup(scope)
+        return scope, members
+      end
+      if scope then
+        RememberDepartedScope(scope.identity)
+        -- Remember epochs seen in the last scope in case this roster returns.
+        for guid, peer in pairs(scope.peers) do
+          RetireSyncEpoch(guid, peer.epoch)
+          if peer.observed then
+            for _, epoch in ipairs(peer.observed) do RetireSyncEpoch(guid, epoch) end
+          end
+        end
+        wipe(X.handled)
+      end
+      if active and (force or active.identity ~= identity) then SetSession(nil, true) end
+      scope = identity and { identity = identity, digest = SyncDigest(identity), epoch = NewSyncNonce(),
+        requireProofFloor = not departedScopes or departedScopes[identity], seq = 0, peers = {} } or nil
+      StartSyncWarmup(scope)
+      return scope, members
+    end
+
+    function X.SendScopedSync(payload)
+      if not db or not db.sync then return false end
+      local current = UpdateSyncScope()
+      if not current then return false end
+      local seq = current.seq + 1
+      local message = "SYNC;3;D;" .. current.digest .. ";" .. current.epoch .. ";" .. seq .. ";" .. payload
+      if #message > 255 or not X.Broadcast(message) then return false end
+      current.seq = seq
+      return true
     end
 
     local function Session()
       if not active then return end
       if not db or not db.sync then SetSession(nil); return end
-      local members, identity = CoordinationRoster()
-      if not identity or active.identity ~= identity then SetSession(nil, true); return end
+      local _, members = UpdateSyncScope()
       return active, members
     end
 
@@ -4865,7 +5093,7 @@ do
       local message = "COORD;1;" .. kind .. ";" .. id
       if recipient then message = message .. ";" .. recipient end
       if list then message = message .. ";" .. (list ~= "" and list or "-") end
-      return #message <= 255 and X.Broadcast(message)
+      return X.SendScopedSync(message)
     end
 
     local function NextCoordID()
@@ -5060,13 +5288,19 @@ do
       end
     end
 
-    function X.OnCoordinationRoster(leaderChanged)
-      if leaderChanged and active then SetSession(nil, true) else Session() end
+    function X.OnCoordinationRoster(force)
+      UpdateSyncScope(force)
+      if active and (not db or not db.sync) then SetSession(nil) end
       if X.QueueCoordinationRefresh then X.QueueCoordinationRefresh() end
     end
 
     function X.StopCoordination()
       SetSession(nil)
+      if scope and (not db or not db.sync) then
+        scope.warmRetryAt = nil
+        scope.warmNonce, scope.priorWarmNonce, scope.warmExpires = nil, nil, nil
+        for _, peer in pairs(scope.peers) do peer.pending = nil end
+      end
       if X.QueueCoordinationRefresh then X.QueueCoordinationRefresh() end
     end
 
@@ -5091,9 +5325,9 @@ do
         Print(L["Caster Coordination needs cast sync and a group outside combat."]); return
       end
       if command == "on" then
-        local _, identity = CoordinationRoster()
-        if not identity then Print(L["Roster information is unavailable."]); return end
-        SetSession({ identity = identity, reports = {}, replies = {}, requested = {} })
+        local current = UpdateSyncScope()
+        if not current then Print(L["Roster information is unavailable."]); return end
+        SetSession({ identity = current.identity, reports = {}, replies = {}, requested = {} })
         Print(L["Caster Coordination is on for this group."]); return
       end
       local session, members = Session()
@@ -5205,9 +5439,175 @@ do
       NotifyCoordination()
     end
 
-    function X.HandleCoordinationMessage(version, body, unit, name, now)
-      if CLASSIC_FEATURES and version == "1" and not InCombatLockdown() and not X.PlayerSuspended() then
-        OnCoordMessage(body, unit, name, now)
+    local function ScopedPayload(payload)
+      local first, guid = payload:match("^CAST;([%w_]+);([%a]+%-%w[%w%-]*)$")
+      if guid and #guid <= 85 and ValidBuffKey(first) then return first, guid end
+      local body = payload:match("^COORD;1(;.+)$")
+      if body and active and not InCombatLockdown() and not X.PlayerSuspended() then
+        return body
+      end
+    end
+
+    local function ApplyScopedPacket(packet, unit, name, senderKey, now)
+      local first, guid = ScopedPayload(packet.payload)
+      if not first then return end
+      if guid then
+        RememberCast(guid, first, now)
+        local presence = X.peers[senderKey] or {}
+        presence.t, presence.name = now, name
+        X.peers[senderKey] = presence
+        if QueueRefresh then QueueRefresh() end
+      elseif packet.generation == generation then
+        OnCoordMessage(first, unit, name, now)
+      end
+    end
+
+    local function SyncControl(kind, current, epoch, challenge, target)
+      local message = "SYNC;3;" .. kind .. ";" .. current.digest .. ";" .. epoch .. ";" .. challenge .. ";" .. target
+      if kind == "P" then message = message .. ";" .. current.seq end
+      return X.Broadcast(message)
+    end
+
+    local function NewSyncSequence(window, seq)
+      -- Broadcast plan rows can arrive out of order. A fixed receive window
+      -- accepts that reordering without replaying a previously seen packet.
+      local slot = seq % 32
+      if seq <= window.floor or seq <= window.high - 32 or window[slot] == seq then return false end
+      window.high = math_max(window.high, seq)
+      window[slot] = seq
+      return true
+    end
+
+    local function FindSyncPending(peer, epoch, now)
+      if not peer or not peer.pending then return end
+      for i = #peer.pending, 1, -1 do
+        local pending = peer.pending[i]
+        if now > pending.expires then
+          table.remove(peer.pending, i)
+        elseif pending.epoch == epoch then
+          return pending
+        end
+      end
+    end
+
+    local function ObserveSyncEpoch(peer, epoch)
+      local observed = peer.observed or {}
+      for _, previous in ipairs(observed) do if previous == epoch then return end end
+      if #observed >= 4 then table.remove(observed, 1) end
+      observed[#observed + 1] = epoch
+      peer.observed = observed
+    end
+
+    function X.HandleScopedSync(version, rest, channel, source, now)
+      if not CLASSIC_FEATURES or version ~= "3" then return end
+      local kind, digest, epoch, field, payload = rest:match("^;([DQP]);([%da-f]+);([%da-f]+);([^;]+);(.+)$")
+      if not kind then
+        digest, field = rest:match("^;B;([%da-f]+);([%da-f]+)$")
+        if not digest or #field ~= 24 then return end
+        kind = "B"
+      end
+      if #digest ~= 16 or (epoch and #epoch ~= 24) then return end
+      local me = CoordinationGUID("player")
+      if not me then return end
+      local proofFloor
+      if kind == "P" or kind == "Q" then
+        local target = payload
+        if kind == "P" then
+          local floor
+          target, floor = payload:match("^([^;]+);([^;]+)$")
+          if not floor or #floor > 10 or (floor ~= "0" and not floor:match("^[1-9]%d*$")) then return end
+          proofFloor = tonumber(floor)
+        end
+        if target ~= me or #field ~= 24 or not field:match("^[%da-f]+$") then return end
+      end
+      local unit, name, senderKey = OtherSyncSender(source, channel)
+      local sender = unit and CoordinationGUID(unit)
+      if not sender then return end
+      local current, members = UpdateSyncScope()
+      if not current or current.digest ~= digest or not members[sender] or not members[me] then return end
+      local peer = current.peers[sender] or {}
+      local warmActive = current.warmExpires and now <= current.warmExpires
+      if kind == "B" then
+        if peer.warmReplyAt and now - peer.warmReplyAt < 1 then return end
+        local answered = peer.warmReplies or {}
+        for _, nonce in ipairs(answered) do if nonce == field then return end end
+        if SyncControl("P", current, current.epoch, field, sender) then
+          if #answered >= 4 then table.remove(answered, 1) end
+          answered[#answered + 1] = field
+          peer.warmReplies, peer.warmReplyAt = answered, now
+          current.peers[sender] = peer
+        end
+      elseif kind == "Q" then
+        if epoch == current.epoch and peer.answered ~= field and SyncControl("P", current, epoch, field, sender) then
+          peer.answered = field
+          current.peers[sender] = peer
+        end
+      elseif kind == "P" then
+        local pending = FindSyncPending(peer, epoch, now)
+        local isWarm = field == current.warmNonce or field == current.priorWarmNonce
+        if isWarm then
+          if not warmActive or peer.epoch then return end
+        else
+          if not pending or pending.challenge ~= field then return end
+          if current.requireProofFloor and proofFloor < pending.challengeSeq then return end
+          if not current.requireProofFloor and retired[sender .. ":" .. epoch] then return end
+        end
+        if peer.epoch ~= epoch then RetireSyncEpoch(sender, peer.epoch) end
+        -- A sender may have missed the transition back to this exact roster.
+        -- Accept only traffic it produced after answering the new challenge.
+        local window = pending and pending.window or { high = 0, floor = 0 }
+        if current.requireProofFloor then window.floor = proofFloor end
+        peer.epoch, peer.window, peer.pending = epoch, window, nil
+        current.peers[sender] = peer
+        if pending then
+          table_sort(pending.packets, function(a, b) return a.seq < b.seq end)
+          for _, packet in ipairs(pending.packets) do
+            if packet.seq > window.floor then ApplyScopedPacket(packet, unit, name, senderKey, now) end
+          end
+        end
+      else
+        if #field > 10 or not field:match("^[1-9]%d*$") or not ScopedPayload(payload) then return end
+        local seq = tonumber(field)
+        local packet = { payload = payload, generation = generation, seq = seq }
+        if peer.epoch == epoch then
+          if not NewSyncSequence(peer.window, seq) then return end
+          ApplyScopedPacket(packet, unit, name, senderKey, now)
+        else
+          if not current.requireProofFloor and retired[sender .. ":" .. epoch] then return end
+          local pending = FindSyncPending(peer, epoch, now)
+          if not pending then
+            local challenge, expires
+            if warmActive and not peer.epoch then
+              -- Let the broadcast proof arrive before issuing a targeted
+              -- challenge that would count these held packets in its floor.
+              expires = current.warmExpires
+            else
+              challenge, expires = NewSyncNonce(), now + 5
+              if not SyncControl("Q", current, epoch, challenge, sender) then return end
+            end
+            pending = { epoch = epoch, challenge = challenge, challengeSeq = seq, expires = expires,
+              window = { high = 0, floor = 0 }, packets = {} }
+            peer.pending = peer.pending or {}
+            if #peer.pending >= 2 then table.remove(peer.pending, 1) end
+            peer.pending[#peer.pending + 1] = pending
+            current.peers[sender] = peer
+            ObserveSyncEpoch(peer, epoch)
+          end
+          local replace
+          if #pending.packets >= 8 then
+            if pending.challenge then return end
+            -- A burst of stale packets must not crowd newer cast or plan data
+            -- out of the queue before the broadcast proof supplies its floor.
+            local lowest = seq
+            for index, held in ipairs(pending.packets) do
+              if held.seq < lowest then replace, lowest = index, held.seq end
+            end
+            if not replace then return end
+          end
+          if not NewSyncSequence(pending.window, seq) then return end
+          pending.packets[replace or #pending.packets + 1] = packet
+          return
+        end
       end
     end
   end
@@ -5218,21 +5618,16 @@ do
     if not ReadText(msg) or #msg > 255 then return end
     local kind, first, rest = msg:match("^([A-Z]+);([^;]+)(.*)$")
     if not kind then return end
-    local unit, name = X.SenderUnit(sender)
-    if not unit then return end
-    local me = RosterNames("player")
-    local senderKey = Ignore.Key(name)
-    if unit == "player" or (me and senderKey == Ignore.Key(me)) then return end
-    if channel == "RAID" then
-      local isSelf = X.IsSelf(unit)
-      if isSelf == true or (isSelf == nil and not me) then return end
+    local now = GetTime()
+    if kind == "SYNC" then
+      X.HandleScopedSync(first, rest, channel, sender, now)
+      return
     end
 
-    local now = GetTime()
-    if kind == "COORD" then
-      X.HandleCoordinationMessage(first, rest, unit, name, now)
-      return
-    elseif kind == "CAST" then
+    local unit, name, senderKey, me = OtherSyncSender(sender, channel)
+    if not unit then return end
+    if kind == "CAST" then
+      if CLASSIC_FEATURES then return end
       local guid = rest:match("^;([%a]+%-%w[%w%-]*)$")
       if not guid or #guid > 85 or not ValidBuffKey(first) then return end
       RememberCast(guid, first, now)
@@ -5854,8 +6249,10 @@ local grip  -- width resize grip, bottom-right corner (built in BuildUI)
 -- db.customThemes, usable anywhere a built-in theme is.
 function X.SavedTheme(name)
   if not db or not name then return nil end
+  local id = name:lower()
+  if X.THEMES[id] or id == "custom" then return nil end
   for _, t in ipairs(db.customThemes or {}) do
-    if t.name:lower() == name:lower() then
+    if t.name:lower() == id then
       return { label = t.name, bg = t.bg, border = t.border }
     end
   end
@@ -5864,23 +6261,59 @@ end
 
 function X.ThemeDef(name)
   if not name then return nil end
-  return X.THEMES[name] or X.SavedTheme(name)
+  return X.THEMES[name:lower()] or X.SavedTheme(name)
 end
 
--- The cycle order: the four built-ins, then your saved themes.
+-- The cycle order: built-in themes followed by your saved themes.
 function X.ThemeOrder()
   local order = {}
   for _, k in ipairs(X.THEME_ORDER) do order[#order + 1] = k end
   if db then
-    for _, t in ipairs(db.customThemes or {}) do order[#order + 1] = t.name end
+    for _, t in ipairs(db.customThemes or {}) do
+      local id = t.name:lower()
+      if not X.THEMES[id] and id ~= "custom" then order[#order + 1] = t.name end
+    end
   end
   return order
 end
 
+function X.EffectiveTheme()
+  if db and db.theme == X.AUTO_THEME_ID then
+    return X.THEMES[X.autoThemeResolved or "midnight"]
+  end
+  return db and X.ThemeDef(db.theme)
+end
+
 function X.ThemeBorder()
-  local t = db and X.ThemeDef(db.theme)
+  local t = X.EffectiveTheme()
   if t then return t.border end
   return { 0.35, 0.55, 0.8 }
+end
+
+function X.ThemeBackground()
+  if db and db.theme == X.AUTO_THEME_ID then
+    return X.EffectiveTheme().bg
+  end
+  return db and db.bgColor or DEFAULTS.bgColor
+end
+
+function X.ThemeLabel(detail)
+  if db and db.theme == X.AUTO_THEME_ID then
+    if detail then
+      return string_format(L["Auto (%s)"], X.EffectiveTheme().label)
+    end
+    return L["Auto"]
+  end
+  local t = db and X.ThemeDef(db.theme)
+  return t and t.label or "Custom"
+end
+
+function X.AutoThemeStatus()
+  if not db or db.theme ~= X.AUTO_THEME_ID then
+    return string_format(L["Auto is off. Current theme: %s."], X.ThemeLabel())
+  end
+  if not X.autoThemeAddon then return L["No supported UI addon is loaded. Using Midnight."] end
+  return string_format(L["Selected: %s (%s)"], X.EffectiveTheme().label, X.autoThemeAddon)
 end
 
 -- Grow-up (1.8.0): normally the window hangs from its top-left corner and
@@ -5953,7 +6386,7 @@ local function ApplyAppearance()
   end
   X.appearancePending = nil
   X.flashPending = nil
-  local c = db.bgColor or DEFAULTS.bgColor
+  local c = X.ThemeBackground()
   local bc = X.ThemeBorder()
   if frame.SetBackdropColor then
     frame:SetBackdropColor(c[1], c[2], c[3], db.bgAlpha or 0.92)
@@ -5973,6 +6406,46 @@ local function ApplyAppearance()
     combatText:SetPoint("LEFT", title, "RIGHT", 6, 0)
   else
     combatText:SetPoint("TOPLEFT", frame, "TOPLEFT", 9, -8)
+  end
+end
+
+do
+  local function LoadFinished(ok, loaded, ...)
+    if not ok or not Readable(loaded) then return false end
+    -- The two-result API can report loaded while the addon's load is
+    -- still in progress. A legacy one-result API has no separate flag.
+    if select("#", ...) == 0 then return loaded == true or loaded == 1 end
+    local finished = ...
+    return loaded == true and Readable(finished) and finished == true
+  end
+
+  function X.ResolveAutoTheme()
+    local resolved, selectedAddon
+    if db and db.theme == X.AUTO_THEME_ID then
+      resolved = "midnight"
+      local isLoaded = _G.C_AddOns and _G.C_AddOns.IsAddOnLoaded
+      if type(isLoaded) ~= "function" then isLoaded = _G.IsAddOnLoaded end
+      if type(isLoaded) == "function" then
+        for _, entry in ipairs(X.AutoThemePriority()) do
+          if LoadFinished(pcall(isLoaded, entry[1])) then
+            resolved, selectedAddon = entry[2], entry[1]
+            break
+          end
+        end
+      end
+    end
+    if X.autoThemeResolved == resolved and X.autoThemeAddon == selectedAddon then
+      if X.RefreshAutoThemePriority then X.RefreshAutoThemePriority() end
+      return false
+    end
+    X.autoThemeResolved, X.autoThemeAddon = resolved, selectedAddon
+    ApplyAppearance()
+    if RefreshConfig then RefreshConfig() end
+    local wizard = X.wizardFrame
+    if wizard and wizard:IsShown() and wizard.page == 2 then
+      wizard.choice[1]:SetText("Theme: " .. X.ThemeLabel(true))
+    end
+    return true
   end
 end
 
@@ -6017,8 +6490,7 @@ function X.WizardPage(n)
     w.body:SetText("The window's look. Click the theme button to cycle the color schemes; scale, width and more live in Settings > Window.")
     local b = w.choice[1]
     local function themeLabel()
-      local t = db.theme or "custom"
-      return "Theme: " .. t:sub(1, 1):upper() .. t:sub(2)
+      return "Theme: " .. X.ThemeLabel(true)
     end
     b:SetText(themeLabel())
     b:SetScript("OnClick", function()
@@ -6120,13 +6592,16 @@ end
 -- Apply a color theme (1.8.0). Defined here because it needs
 -- ApplyAppearance, which only exists from this point on.
 function X.ApplyTheme(name)
+  if name and name:lower() == "auto" and not X.SavedTheme(name) then name = X.AUTO_THEME_ID end
   local t = X.ThemeDef(name)
   if not t then return false end
-  if X.SavedTheme(name) then name = t.label end  -- keep the saved spelling
-  db.theme = name
-  db.bgColor = { t.bg[1], t.bg[2], t.bg[3] }
-  ApplyAppearance()
-  if RefreshConfig then RefreshConfig() end
+  local id = name:lower()
+  db.theme = X.THEMES[id] and id or t.label
+  if id ~= X.AUTO_THEME_ID then db.bgColor = { t.bg[1], t.bg[2], t.bg[3] } end
+  if not X.ResolveAutoTheme() then
+    ApplyAppearance()
+    if RefreshConfig then RefreshConfig() end
+  end
   return true
 end
 
@@ -6134,11 +6609,11 @@ end
 -- of your themes (1.10.0). Returns the name, or nil plus a reason.
 function X.SaveTheme(name)
   name = (name or ""):match("^%s*(.-)%s*$")
-  if not name:match("^[%w%-]+$") or #name > 24 then return nil, "name" end
   if X.THEMES[name:lower()] or name:lower() == "custom" then return nil, "taken" end
-  local b = X.ThemeBorder()
+  if not name:match("^[%w%-]+$") or #name > 24 then return nil, "name" end
+  local c, b = X.ThemeBackground(), X.ThemeBorder()
   local entry = { name = name,
-    bg = { db.bgColor[1], db.bgColor[2], db.bgColor[3] },
+    bg = { c[1], c[2], c[3] },
     border = { b[1], b[2], b[3] } }
   db.customThemes = db.customThemes or {}
   for i, t in ipairs(db.customThemes) do
@@ -6157,7 +6632,7 @@ function X.DeleteTheme(name)
   for i, t in ipairs(db.customThemes or {}) do
     if t.name:lower() == name:lower() then
       table.remove(db.customThemes, i)
-      if (db.theme or ""):lower() == t.name:lower() then
+      if not X.THEMES[name:lower()] and (db.theme or ""):lower() == name:lower() then
         db.theme = "custom"
         ApplyAppearance()
         if RefreshConfig then RefreshConfig() end
@@ -6833,6 +7308,14 @@ local function ClearGroup()
 end
 X.ClearGroup = ClearGroup
 
+function X.DisarmStaleKeybind(button, mouseButton, clear)
+  if mouseButton == "LeftButton" and not InCombatLockdown() and button:GetAttribute("type")
+      and not X.RowTargetMatches(button.entry) then
+    clear()
+    if QueueRefresh then QueueRefresh() end
+  end
+end
+
 
 -- Group-cast keybind (1.15.0): the group button's plain attribute family
 -- carries the GROUP version of the head row's buff, so one key press
@@ -7027,6 +7510,7 @@ local function BuildNextButton()
     ]])
   end
   nextBtn:HookScript("PreClick", function(self, button, down)
+    X.DisarmStaleKeybind(self, button, ClearNext)
     X.BeginCastClick(self, button, down, "next-buff key")
   end)
   nextBtn:HookScript("PostClick", function(self, button, down)
@@ -7068,6 +7552,7 @@ local function BuildGroupButton()
     ]])
   end
   btn:HookScript("PreClick", function(self, button, down)
+    X.DisarmStaleKeybind(self, button, ClearGroup)
     X.BeginCastClick(self, button, down, "group-buff key")
   end)
   btn:HookScript("PostClick", function(self, button, down)
@@ -7284,7 +7769,7 @@ local function BuildUI()
 
   emptyText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   emptyText:SetPoint("TOPLEFT", 10, -HEADER_H - 3)
-  emptyText:SetText(L["Everyone nearby is buffed."])
+  emptyText:SetText(L["No targets in the buff queue."])
 
   overflowText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   overflowText:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -HEADER_H)
@@ -7974,7 +8459,7 @@ end
 
 -- Pick an honest explanation for an empty list when the client cannot verify range.
 function X.EmptyStatus()
-  if (X.tallyUnknownUnits or 0) > 0 then
+  if X.scanHasUnknownBuffs or (X.tallyUnknownUnits or 0) > 0 then
     return L["Some buff information is unavailable."]
   end
   if X.FriendlyPlatesOn() == false then
@@ -7983,9 +8468,10 @@ function X.EmptyStatus()
   if X.rangeSilent then
     return L["Range could not be confirmed; the list may be incomplete."]
   end
+  if X.scanNameFiltered then return L["The name finder hides all buff targets."] end
   if (X.lastTargetCastProblem and GetTime() < X.lastTargetCastProblem.expires)
      or (X.NoCastReason and X.NoCastReason()) then return L["No cast target is available."] end
-  return L["Everyone nearby is buffed."]
+  return L["No targets in the buff queue."]
 end
 
 function X.EmptyStatusHint()
@@ -7995,6 +8481,12 @@ function X.EmptyStatusHint()
     return X.lastTargetCastProblem.message
   end
   if X.NoCastReason then return X.NoCastReason() end
+end
+
+function X.ScanConfirmsGroupBuffed()
+  if X.scanHasUnknownBuffs or X.scanHasMissingBuffs or X.scanNameFiltered then return false end
+  local size = X.ReadUnitNumber(_G.GetNumGroupMembers)
+  return size ~= nil and size > 1 and X.tallyUnits == size
 end
 
 -- True while the last refresh found nothing that time alone can change: no
@@ -8521,7 +9013,7 @@ local function Refresh()
   -- window can collapse to the pill until someone needs a buff again (or
   -- the pill is clicked for a peek).
   local pillMode = db.pill and n == 0 and InGroup() and not db.hidden
-    and not groupHidden and GetTime() > (X.pillPeek or 0)
+    and not groupHidden and X.ScanConfirmsGroupBuffed() and GetTime() > (X.pillPeek or 0)
   if pillMode and X.pill then
     SetTextIfChanged(X.pill.text, "|cff33ccffBuff|rRadar · "
       .. (X.coverFrac and (X.coverFrac .. " ") or "") .. L["All buffed"])
@@ -8631,6 +9123,7 @@ else
         if elapsed < interval then return end
       end
       elapsed, soonElapsed, interval = 0, nil, nil
+      X.RunDueSyncWarmupRetry()
       if X.lifeCheckPending then
         if X.ReadUnitBool(_G.UnitIsDeadOrGhost, "player") == false then X.UpdatePlayerLife() end
       end
@@ -8785,7 +9278,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if X.QueueAssignmentPreviewRefresh then X.QueueAssignmentPreviewRefresh() end
     return
   elseif event == "GROUP_LEFT" then
-    X.OnCoordinationRoster()
+    X.OnCoordinationRoster(true)
     if not InGroup() and X.CloseRaidPreparation then X.CloseRaidPreparation() end
     if not InRaid() then X.subgroupDuties = nil end
     local size = X.ReadUnitNumber(GetNumGroupMembers)
@@ -8850,6 +9343,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     return
   end
   if event == "PLAYER_ENTERING_WORLD" then
+    X.OnCoordinationRoster()
     X.ResetCastTracking()
     X.ClearReadyCheck()
     X.UpdatePlayerLife(event)
@@ -8875,8 +9369,14 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     return
   end
   if event == "ADDON_LOADED" then
-    if arg1 ~= ADDON then return end
-    driver:UnregisterEvent("ADDON_LOADED")  -- one-off
+    if arg1 ~= ADDON then
+      if db and db.theme == X.AUTO_THEME_ID then
+        for _, entry in ipairs(X.AUTO_THEME_ADDONS) do
+          if arg1 == entry[1] then X.ResolveAutoTheme(); break end
+        end
+      end
+      return
+    end
     BuffRadarDB = SanitizeDB(BuffRadarDB)
     db = BuffRadarDB
     db.showOutOfRange, db.hideInCombat = false, true
@@ -8947,7 +9447,11 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if db.dbVersion < 19 then
       db.dbVersion = 19       -- Outdoor Thorns takes its default (off).
     end
+    if db.dbVersion < 20 then
+      db.dbVersion = 20       -- Auto theme priority takes the built-in order by default.
+    end
     X.SpecSwap()
+    X.ResolveAutoTheme()
   elseif event == "PLAYER_LOGIN" then
     driver:UnregisterEvent("PLAYER_LOGIN")  -- one-off
     if not db then
@@ -8955,6 +9459,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       db = BuffRadarDB
       Ignore.Rebuild()
     end
+    X.ResolveAutoTheme()
     X.UpdatePlayerLife(event)
     X.InitSync()
     X.SendCover()

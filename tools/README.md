@@ -19,8 +19,15 @@ If you already have a BuffRadar tools folder, pass it with
 `-ToolsDir 'C:\path\to\brlua'`. From a Unix shell with Python 3 and Lupa
 available, use `sh tools/gate.sh` to run the same gate used by GitHub CI.
 
-It prints each check's result and ends with **All checks passed.** or
+The checker prints each result and ends with **All checks passed.** or
 **FAILED:** followed by what failed (exit code 1). Then build with `.\build.ps1`.
+
+To run only the two-client Caster Coordination harness with the checker’s
+Python environment, use:
+
+```powershell
+& 'C:\path\to\brlua\Scripts\python.exe' -I tools/coordination51.py tools/wowstub.lua BuffRadar/BuffRadar.lua
+```
 
 ## First time (or if the tools went missing)
 
@@ -46,6 +53,7 @@ then — just run `-Setup` again.
 | **Trial run** (`smoke51.py` + `wowstub.lua`) | Errors while running: loads the addon into a fake game client, logs in, fires game events, runs every `/br` command, clicks every settings control, and checks the behavior added in 1.3.2, 1.4.0, 1.5.0, 1.6.0 and 1.7.0 (coverage, rezzed priority, session ignore, announce, ready check, expiry flag, low-mana pause, distance sort, spec profiles, export/import, compact rows, per-character position, post-combat flash, SavedVariables migration, cast sync, chat requests, join digest, role filter, toggle strip, need sort, phase skip, idle fade, named profiles, drop alert, coverage cooldown note, flight-path pause, resetpos, all-buffed pill, cast queue tag, shipped presets, consumables watch, custom watched spells, buff assignments, buddy split, blessing planner, coverage uptime, auto profiles, cover-me handoff, ready-check auto-post, coverage roster line, pin a player, tooltip remaining times, weapon enchant watch, instance-entry reminder, group expiry warning, cast history, scan throttle). Runs six setups: retail (modern client, older timer, no UI templates, German client) and Forever (two). |
 | **Translations** (`localecheck.py`) | Each `Locales\*.lua` against BuffRadar's English text: keys BuffRadar doesn't use (typos, outdated text) and `%d` / `%s` / color codes that differ — both fail the check. Untranslated lines are only listed. |
 | **Forever package** | If a ZIP for the current version exists in `dist\`, checks its bytes against the current source, TOC metadata, declared Lua load order, and XML bindings in a Forever mock. CI builds and checks the archive on every PR. |
+| **Two-client coordination** (`coordination51.py`) | Loads two independent Forever mock clients. Relays their real plan, cast, and session-proof packets. Checks plan acceptance, bidirectional cast sync, and replay rejection across roster and leadership changes. |
 
 ## Limits of the fake game client
 
@@ -53,3 +61,23 @@ then — just run `-Setup` again.
 enough to run every code path. It doesn't model layout, secure-button rules,
 real casting, group play or combat restrictions, so a clean run still needs a
 test in the game. When you add a feature, add a step for it in `smoke51.py`.
+
+The two-client harness controls message order and duplicates in memory.
+Its assertions cover the addon’s handling of those messages. The harness
+does not exercise the game’s channel delivery or protected casting.
+
+The regular gate replays old requests and plans together after re-opt-in. It
+also replays cast packets and session proofs with the original caster and
+target still in the group. It tests a roster change seen only by the receiving
+client, delayed and duplicate proofs, a fresh cast arriving before its proof,
+and a timed retry with no new application traffic.
+
+Forever caster plans and cast sync require both clients to use scoped protocol
+version 3. When a roster and its leadership return to a previous state, the
+client broadcasts a challenge. Each sender's proof establishes the sequence
+cutoff. A first fresh cast or plan request sent after that proof can sync
+without another round trip. If peers remain unverified after three seconds,
+the client broadcasts one more challenge with a new nonce. Either proof can
+verify a pending peer during the second window. Further proofs leave that
+peer's cutoff intact. If both attempts expire, the next packet uses a targeted
+challenge and may itself be dropped. BuffRadar only retries the challenge.

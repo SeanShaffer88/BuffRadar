@@ -2,6 +2,25 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.31 — WoW: Forever
+
+- Select **Auto** under **Settings → Window → Theme** to match a supported
+  UI addon. Open **Auto Theme Priority** to reorder matches and see the addon
+  selected. Midnight is the fallback. Manual and saved palettes are available.
+- Add ten UI-inspired window palettes for backgrounds and borders.
+- Expire stale caster coordination requests, plans, acknowledgements, and
+  cast sync messages after roster or leadership changes. When a previous
+  roster returns, BuffRadar verifies peers up front and retries once after
+  three seconds if verification is incomplete. Caster coordination and cast
+  sync require updated BuffRadar clients on both ends.
+
+- Clear a stale cast-next binding if a roster slot changes occupants before
+  the list refreshes. This applies to both cast-next bindings.
+- Distinguish an empty cast queue from unavailable buff information. Show
+  the all-buffed pill only when the scan has enough evidence.
+- Require a recorded fight of at least eight seconds before generating a
+  wipe report. Generate at most one report per recorded fight.
+
 ## 1.15.30 — Forever test build
 
 - Open **Nearby Player Diagnostics** from the question mark on the buff
@@ -10,6 +29,8 @@ All notable changes to BuffRadar are listed here. Newest first.
   or missing.
 - Enable friendly nameplates directly from the panel when the game reports
   they are off. Unreadable settings, range, and buff data are shown as unknown.
+
+Live verification passed on WoW: Forever for candidate `0d9a013ce320`.
 
 ## 1.15.29 — Forever test build
 

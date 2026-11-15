@@ -103,6 +103,10 @@ Section 'Trial run (fake game client)'
 & $py -I (Join-Path $here 'smoke51.py') (Join-Path $here 'wowstub.lua') $lua
 if ($LASTEXITCODE -ne 0) { $failed += 'trial run' }
 
+Section 'Caster Coordination (two fake game clients)'
+& $py -I (Join-Path $here 'coordination51.py') (Join-Path $here 'wowstub.lua') $lua
+if ($LASTEXITCODE -ne 0) { $failed += 'two-client coordination' }
+
 # 5. Validate the current Forever ZIP if it has been built.
 $dist = Join-Path $project 'dist'
 $version = (Select-String -LiteralPath $toc -Pattern '^## Version:\s*(\d+\.\d+\.\d+)\s*$').Matches.Groups[1].Value

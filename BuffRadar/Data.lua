@@ -321,11 +321,47 @@ X.PRESETS = {
            groupOnly = false, pauseInCities = false },
 }
 
--- Color themes (1.8.0): a theme is a background color + border color pair.
+-- Color themes (1.8.0): fixed palettes plus the opt-in automatic selection.
+X.AUTO_THEME_ID = "ui.auto"
 X.THEMES = {
   midnight  = { label = "Midnight",  bg = { 0.04, 0.05, 0.09 }, border = { 0.35, 0.55, 0.8 } },
   crimson   = { label = "Crimson",   bg = { 0.08, 0.02, 0.02 }, border = { 0.75, 0.2, 0.2 } },
   forest    = { label = "Forest",    bg = { 0.02, 0.07, 0.03 }, border = { 0.3, 0.7, 0.35 } },
   parchment = { label = "Parchment", bg = { 0.13, 0.11, 0.07 }, border = { 0.8, 0.7, 0.45 } },
+  ["ui.elvui"] = { label = "ElvUI",
+    bg = { 0x14 / 255, 0x14 / 255, 0x14 / 255 }, border = { 0x60 / 255, 0x60 / 255, 0x60 / 255 } },
+  ["ui.ellesmereui"] = { label = "EllesmereUI",
+    bg = { 0x15 / 255, 0x19 / 255, 0x25 / 255 }, border = { 0xDC / 255, 0xA7 / 255, 0x7F / 255 } },
+  ["ui.anoui"] = { label = "AnoUI+",
+    bg = { 0x18 / 255, 0x15 / 255, 0x1F / 255 }, border = { 0xA3 / 255, 0x93 / 255, 0xDB / 255 } },
+  ["ui.wicks"] = { label = "Wick's UI",
+    bg = { 0x10 / 255, 0x1C / 255, 0x23 / 255 }, border = { 0x76 / 255, 0xAE / 255, 0xC2 / 255 } },
+  ["ui.ultimateforever"] = { label = "Ultimate Forever UI",
+    bg = { 0x23 / 255, 0x1B / 255, 0x13 / 255 }, border = { 0xB1 / 255, 0x8A / 255, 0x53 / 255 } },
+  ["ui.foreverforge"] = { label = "ForeverForge UI",
+    bg = { 0x18 / 255, 0x1D / 255, 0x27 / 255 }, border = { 0xBD / 255, 0x8C / 255, 0x55 / 255 } },
+  ["ui.daylightui"] = { label = "DaylightUI",
+    bg = { 0x14 / 255, 0x14 / 255, 0x17 / 255 }, border = { 0x37 / 255, 0x37 / 255, 0x3E / 255 } },
+  ["ui.meredanui"] = { label = "MeredanUI",
+    bg = { 0x16 / 255, 0x13 / 255, 0x0F / 255 }, border = { 0x61 / 255, 0x4D / 255, 0x2E / 255 } },
+  ["ui.nazgrelui"] = { label = "NazgrelUI",
+    bg = { 0x17 / 255, 0x1A / 255, 0x21 / 255 }, border = { 0x38 / 255, 0x3D / 255, 0x4A / 255 } },
+  ["ui.reforgedui"] = { label = "Reforged UI",
+    bg = { 0x21 / 255, 0x1B / 255, 0x15 / 255 }, border = { 0x88 / 255, 0x75 / 255, 0x4A / 255 } },
+  [X.AUTO_THEME_ID] = { label = "Auto" },
 }
-X.THEME_ORDER = { "midnight", "crimson", "forest", "parchment" }
+X.THEME_ORDER = { "midnight", "crimson", "forest", "parchment",
+  "ui.elvui", "ui.ellesmereui", "ui.anoui", "ui.wicks", "ui.ultimateforever", "ui.foreverforge",
+  "ui.daylightui", "ui.meredanui", "ui.nazgrelui", "ui.reforgedui", X.AUTO_THEME_ID }
+X.AUTO_THEME_ADDONS = {
+  { "ElvUI", "ui.elvui" },
+  { "EllesmereUI", "ui.ellesmereui" },
+  { "AnoUI", "ui.anoui" },
+  { "WicksUI", "ui.wicks" },
+  { "UltimateForeverUI", "ui.ultimateforever" },
+  { "ForeverForge_UI", "ui.foreverforge" },
+  { "DaylightUI", "ui.daylightui" },
+  { "MeredanUI", "ui.meredanui" },
+  { "NazgrelUI", "ui.nazgrelui" },
+  { "ReforgedUI", "ui.reforgedui" },
+}
