@@ -1387,7 +1387,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 19, "dbVersion not migrated to 19: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 20, "dbVersion not migrated to 20: " .. tostring(d.dbVersion))
   assert(d.assignmentEnabled == false and next(d.buffAssignments) == nil, "migration activated assignments")
   assert(next(d.blessingPreferences) == nil, "existing character got a blessing override")
   assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
@@ -1411,7 +1411,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 19 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 20 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
   -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
@@ -1419,13 +1419,19 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = { dbVersion = 9 }
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 19 and d.wizardSeen == true,
+  assert(d.dbVersion == 20 and d.wizardSeen == true,
     "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
   d.dbVersion, d.assignmentEnabled, d.thornsAnyClassOutdoors = 18, true, nil
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 19 and d.thornsAnyClassOutdoors == false and d.assignmentEnabled,
+  assert(d.dbVersion == 20 and d.thornsAnyClassOutdoors == false and d.assignmentEnabled,
     "v18 settings did not gain an opt-in Thorns default while preserving assignments")
+  d.dbVersion, d.autoThemePriority, d.theme = 19, nil, "ui.auto"
+  fire("ADDON_LOADED", "BuffRadar")
+  d = env.BuffRadarDB
+  assert(d.dbVersion == 20 and d.theme == "ui.auto" and d.autoThemePriority == "",
+    "v19 migration changed Auto opt-in or failed to default the priority order")
+  NS.X.ApplyTheme("midnight")
   d.assignmentEnabled = false
   d.wizardSeen = false  -- leave the save as the rest of the suite expects
 end)
@@ -3172,6 +3178,156 @@ step("Auto theme profile imports choose a local palette and keep historical save
   end)
   env.C_AddOns, env.IsAddOnLoaded, db.customThemes = prevModern, prevLegacy, prevThemes
   X.DeleteProfile("AutoPaletteRegression")
+  slash("theme midnight")
+  assert(ok, err)
+end)
+
+step("Auto Theme Priority uses the Settings keyboard, refreshes late picks, and resets", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local cfg, slash = env.BuffRadarConfig, env.SlashCmdList.BUFFRADAR
+  local prevModern, prevLegacy, prevOrder = env.C_AddOns, env.IsAddOnLoaded, db.autoThemePriority
+  local prevThemes = db.customThemes
+  local input = cfg.navInput
+  local function focused(widget)
+    return cfg.navOutline.shown and cfg.navOutline.points[1][2] == widget
+  end
+  local function advanceTo(widget)
+    for _ = 1, 80 do
+      if focused(widget) then return end
+      input.scripts.OnTabPressed(input)
+    end
+    error("could not focus theme priority control")
+  end
+  local ok, err = pcall(function()
+    local loaded = { ElvUI = true }
+    env.C_AddOns = { IsAddOnLoaded = function(name) return loaded[name] == true, loaded[name] == true end }
+    env.IsAddOnLoaded = nil
+    X.ResetAutoThemePriority()
+    slash("theme crimson")
+    X.OpenConfig(true)
+    cfg.tabBtns.look:Click()
+    slash("config find")
+    local search = cfg.searchBox
+    search:SetText(env.__german and "priorität" or "auto theme priority")
+    search.scripts.OnTextChanged(search)
+    assert(cfg.themePriorityBtn:GetAlpha() == 1 and cfg.themeBtn:GetAlpha() < 1,
+      "settings search did not find the priority launcher")
+    search.scripts.OnEscapePressed(search)
+    slash("config navigate")
+    advanceTo(cfg.themePriorityBtn)
+    input.scripts.OnEnterPressed(input)
+    local panel = env.BuffRadarAutoThemePriority
+    assert(panel and panel:IsVisible() and #panel.rows == 10 and not cfg.searchToggle:IsShown(),
+      "Window keyboard activation did not open all ten priority rows")
+    assert(panel.rows[1].label:GetText() == "1. ElvUI" and not panel.rows[1].up:IsEnabled()
+      and not panel.rows[10].down:IsEnabled(), "wrong default order or enabled boundary actions")
+    advanceTo(panel.statusRow)
+    assert(cfg.navStatus:GetText():find("Crimson", 1, true), "manual theme status was unavailable to navigation")
+    advanceTo(panel.rows[2].up)
+    input.scripts.OnEnterPressed(input)
+    assert(panel.rows[1].label:GetText() == "1. EllesmereUI" and db.theme == "crimson"
+      and db.bgColor[1] == X.THEMES.crimson.bg[1] and focused(panel.rows[1].down),
+      "keyboard move did not follow the row or changed the selected manual theme")
+    slash("theme ui.auto")
+    assert(panel.status:GetText():find("ElvUI (ElvUI)", 1, true), "status omitted the exact detected addon")
+    advanceTo(panel.statusRow)
+    loaded.EllesmereUI = true
+    fire("ADDON_LOADED", "EllesmereUI")
+    assert(X.autoThemeAddon == "EllesmereUI" and panel.status:GetText():find("EllesmereUI (EllesmereUI)", 1, true),
+      "late load did not respect saved priority or refresh open panel status")
+    assert(cfg.navStatus:GetText():find("EllesmereUI (EllesmereUI)", 1, true), "resolved theme was not available to narration")
+    local n = #chat
+    slash("theme priority list")
+    assert(chatSince(n, "ui.ellesmereui"), "slash priority list omitted the canonical palette ID")
+    slash("theme priority down ui.ellesmereui")
+    assert(X.autoThemeAddon == "ElvUI" and panel.rows[1].label:GetText() == "1. ElvUI",
+      "slash priority move did not refresh both current theme and open panel")
+    slash("theme priority up ui.ellesmereui")
+    assert(X.autoThemeAddon == "EllesmereUI", "slash up did not change priority")
+    panel.resetButton:Click()
+    assert(db.autoThemePriority == "" and X.autoThemeAddon == "ElvUI", "Settings Reset did not restore defaults")
+    loaded = {}
+    slash("theme ui.auto")
+    assert(panel.status:GetText():find("Midnight", 1, true), "Auto fallback was not named in the panel")
+    input.scripts.OnEscapePressed(input)
+    assert(not panel:IsVisible() and cfg.searchToggle:IsShown() and input:HasFocus() and focused(cfg.themePriorityBtn),
+      "closing the modal by keyboard did not restore its launcher focus")
+    input.scripts.OnEscapePressed(input)
+    slash("theme priority")
+    assert(panel:IsVisible(), "slash did not invoke the Settings overlay")
+    cfg:Hide()
+    X.OpenConfig(true)
+    assert(not panel:IsVisible(), "theme panel remained open after Settings closed")
+    slash("theme priority")
+    env.__combat = true
+    cfg.scripts.OnEvent(cfg, "PLAYER_REGEN_DISABLED")
+    assert(not panel:IsVisible(), "theme priority remained open in combat")
+    slash("theme priority")
+    assert(not panel:IsVisible(), "slash opened the priority panel during combat")
+    env.__combat = false
+    db.customThemes = {}
+    assert(X.SaveTheme("priority"), "could not create historical custom priority theme")
+    slash("theme priority")
+    assert(db.theme == "priority" and not panel:IsVisible(), "command masked a historical saved priority theme")
+    slash("theme priority panel")
+    assert(panel:IsVisible() and db.theme == "priority", "explicit panel command could not disambiguate a custom theme")
+  end)
+  env.C_AddOns, env.IsAddOnLoaded, db.autoThemePriority, env.__combat = prevModern, prevLegacy, prevOrder, false
+  db.customThemes = prevThemes
+  if input:HasFocus() then input.scripts.OnEscapePressed(input) end
+  cfg.tabBtns.look:Click()
+  slash("theme midnight")
+  assert(ok, err)
+end)
+
+step("Auto Theme Priority repairs saved orders and round trips through old and new profiles", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local slash = env.SlashCmdList.BUFFRADAR
+  local prevModern, prevLegacy, prevOrder = env.C_AddOns, env.IsAddOnLoaded, db.autoThemePriority
+  local ok, err = pcall(function()
+    local repaired = X.SanitizeDB({
+      autoThemePriority = "  UI.WICKS ,unknown,ui.elvui,ui.wicks,ui.auto",
+    })
+    assert(repaired.autoThemePriority:match("^ui%.wicks,ui%.elvui,ui%.ellesmereui,ui%.anoui,"),
+      "partial order did not allowlist, dedupe, and append default candidates")
+    for _, malformed in ipairs({ {}, 42, "unknown", string.rep("x", 513) }) do
+      assert(X.SanitizeDB({ autoThemePriority = malformed }).autoThemePriority == "",
+        "corrupt priority order did not use defaults")
+    end
+    env.C_AddOns = { IsAddOnLoaded = function(name)
+      local loaded = name == "ElvUI" or name == "EllesmereUI"
+      return loaded, loaded
+    end }
+    env.IsAddOnLoaded = nil
+    slash("theme priority reset")
+    slash("theme ui.auto")
+    local defaultExport = assert(X.Export())
+    slash("theme priority up ui.ellesmereui")
+    local order = db.autoThemePriority
+    assert(order:match("^ui%.ellesmereui,ui%.elvui,") and X.autoThemeAddon == "EllesmereUI", "could not set test priority")
+    local export = assert(X.Export())
+    assert(export:find(";autoThemePriority=", 1, true) and X.SaveProfile("ThemeOrderRegression"), "priority was not exportable")
+    local shared = assert(X.ProfileShareText("ThemeOrderRegression"))
+    assert(shared:find("\nBR2;", 1, true) and shared:find(";autoThemePriority=", 1, true), "BR2 did not serialize order")
+    local oldExport = export:gsub(";autoThemePriority=[^;]*", "", 1)
+    local oldShared = (shared:gsub(";autoThemePriority=[^;]*", "", 1)):gsub("ThemeOrderRegression", "ThemeOrderLegacy", 1)
+    assert(X.Import(oldExport) and db.autoThemePriority == order, "old BR1 changed current priority")
+    assert(X.ProfileImport(oldShared) and X.LoadProfile("ThemeOrderLegacy") and db.autoThemePriority == order,
+      "old BR2 changed current priority")
+    local overlong = export:gsub(";autoThemePriority=[^;]*", ";autoThemePriority=" .. string.rep("a", 513), 1)
+    assert(not X.Import(overlong) and db.autoThemePriority == order, "oversize import changed priority or appeared to succeed")
+    assert(X.Import(defaultExport) and db.autoThemePriority == "" and X.autoThemeAddon == "ElvUI",
+      "explicit empty export did not reset priority")
+    assert(X.Import(export) and db.autoThemePriority == order and X.autoThemeAddon == "EllesmereUI",
+      "new BR1 did not restore the order and recalculate Auto")
+    slash("theme priority reset")
+    assert(X.ProfileImport(shared) and X.LoadProfile("ThemeOrderRegression")
+      and db.autoThemePriority == order and X.autoThemeAddon == "EllesmereUI",
+      "new BR2 did not restore the order and recalculate Auto")
+  end)
+  env.C_AddOns, env.IsAddOnLoaded, db.autoThemePriority = prevModern, prevLegacy, prevOrder
+  X.DeleteProfile("ThemeOrderRegression")
+  X.DeleteProfile("ThemeOrderLegacy")
   slash("theme midnight")
   assert(ok, err)
 end)
@@ -7258,7 +7414,7 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 19"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 20"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
   assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
   assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")

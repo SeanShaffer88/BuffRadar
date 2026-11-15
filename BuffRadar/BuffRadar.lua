@@ -196,6 +196,7 @@ local DEFAULTS = {
   hideInCombat = true,  -- no buff targets are available while you are in combat
   twoCol = false,      -- two columns when the list is long (1.9.0)
   theme = "midnight",  -- window color theme (1.8.0)
+  autoThemePriority = "", -- an empty setting uses the built-in addon priority
   findBox = false,     -- name finder box on the window (1.8.0)
   durationBars = false, -- thin bar per row: time left on the expiring buff (1.8.0)
   raidMarkers = false, -- show raid target markers on rows (1.8.0)
@@ -248,8 +249,66 @@ local function IsNumber(v)
 end
 local function Clamp(v, lo, hi) return math_max(lo, math_min(hi, v)) end
 
+local MAX_AUTO_PRIORITY_BYTES = 512
+
+local function OrderedAutoThemeAddons(value)
+  local order, seen = {}, {}
+  if type(value) == "string" and value ~= "" and #value <= MAX_AUTO_PRIORITY_BYTES then
+    local byID = {}
+    for _, entry in ipairs(X.AUTO_THEME_ADDONS) do byID[entry[2]] = entry end
+    for token in value:gmatch("[^,]+") do
+      local id = token:match("^%s*(.-)%s*$"):lower()
+      if byID[id] and not seen[id] then
+        order[#order + 1], seen[id] = byID[id], true
+      end
+    end
+  end
+  for _, entry in ipairs(X.AUTO_THEME_ADDONS) do
+    if not seen[entry[2]] then order[#order + 1] = entry end
+  end
+  return order
+end
+
+local function EncodeAutoThemePriority(order)
+  local ids, isDefault = {}, true
+  for i, entry in ipairs(order) do
+    ids[i] = entry[2]
+    if entry ~= X.AUTO_THEME_ADDONS[i] then isDefault = false end
+  end
+  return isDefault and "" or table.concat(ids, ",")
+end
+
+function X.AutoThemePriority()
+  return OrderedAutoThemeAddons(db and db.autoThemePriority)
+end
+
+function X.MoveAutoThemePriority(palette, offset)
+  if not db or (offset ~= -1 and offset ~= 1) then return false end
+  local order = X.AutoThemePriority()
+  for i, entry in ipairs(order) do
+    if entry[2] == palette then
+      local nextIndex = i + offset
+      if not order[nextIndex] then return false end
+      order[i], order[nextIndex] = order[nextIndex], entry
+      db.autoThemePriority = EncodeAutoThemePriority(order)
+      X.ResolveAutoTheme()
+      return true
+    end
+  end
+  return false
+end
+
+function X.ResetAutoThemePriority()
+  if not db then return false end
+  local changed = db.autoThemePriority ~= ""
+  db.autoThemePriority = ""
+  X.ResolveAutoTheme()
+  return changed
+end
+
 function X.ProfileScalarValid(key, value)
   if key == "theme" then return #value >= 1 and #value <= 24 end
+  if key == "autoThemePriority" then return #value <= MAX_AUTO_PRIORITY_BYTES end
   local choices = ENUMS[key]
   return not choices or choices[value] == true
 end
@@ -471,6 +530,9 @@ function SanitizeDB(saved)
     elseif dt == "string" then
       if type(v) ~= "string" or (ENUMS[k] and not ENUMS[k][v]) then v = def end
       if k == "theme" and type(v) == "string" and #v > 24 then v = def end
+      if k == "autoThemePriority" and v ~= "" then
+        v = EncodeAutoThemePriority(OrderedAutoThemeAddons(v))
+      end
     end
     saved[k] = v
   end
@@ -540,6 +602,22 @@ local L = {
   ["Custom theme"] = "Custom theme",
   ["Auto"] = "Auto",
   ["Auto (%s)"] = "Auto (%s)",
+  ["Auto Theme Priority…"] = "Auto Theme Priority…",
+  ["Auto Theme Priority"] = "Auto Theme Priority",
+  ["Auto uses the first loaded addon in this list."] = "Auto uses the first loaded addon in this list.",
+  ["Selected: %s (%s)"] = "Selected: %s (%s)",
+  ["No supported UI addon is loaded. Using Midnight."] = "No supported UI addon is loaded. Using Midnight.",
+  ["Auto is off. Current theme: %s."] = "Auto is off. Current theme: %s.",
+  ["Move Up"] = "Move Up",
+  ["Move Down"] = "Move Down",
+  ["Move %s Up"] = "Move %s Up",
+  ["Move %s Down"] = "Move %s Down",
+  ["Reset Order"] = "Reset Order",
+  ["Auto Theme Priority reset."] = "Auto Theme Priority reset.",
+  ["Auto Theme Priority updated."] = "Auto Theme Priority updated.",
+  ["Could not move that Auto theme."] = "Could not move that Auto theme.",
+  ["Usage: /br theme priority [panel|list|up <id>|down <id>|reset]"] =
+    "Usage: /br theme priority [panel|list|up <id>|down <id>|reset]",
   ["Theme"] = "Theme",
   ["Close"] = "Close",
   ["Close settings"] = "Close settings",
@@ -3251,7 +3329,7 @@ X.EXPORT_KEYS = { "locked", "includeSelf", "avoidPvP", "autoHide", "rebuff", "sc
   "sortMode", "alertSound", "alertSounds", "buffPrio", "clickThrough", "muteInInstance", "showMinimap", "lowMana",
   "sync", "requests", "joinDigest", "roleFilter", "showStrip", "idleFade",
   "pill", "queueTag", "consumables", "buddySplit", "readyPost", "weaponWatch", "enterFlash",
-  "scanThrottle", "growUp", "theme", "findBox", "durationBars", "raidMarkers",
+  "scanThrottle", "growUp", "theme", "autoThemePriority", "findBox", "durationBars", "raidMarkers",
   "focusWatch", "pets", "auraWatch", "worldWatch", "drinkWatch", "twoCol",
   "deathRecap", "wipeReport", "rowGap", "iconSize",
   "tooltipLevel", "viewMode", "classColors", "showRealm", "nameTrim",
@@ -6230,6 +6308,14 @@ function X.ThemeLabel(detail)
   return t and t.label or "Custom"
 end
 
+function X.AutoThemeStatus()
+  if not db or db.theme ~= X.AUTO_THEME_ID then
+    return string_format(L["Auto is off. Current theme: %s."], X.ThemeLabel())
+  end
+  if not X.autoThemeAddon then return L["No supported UI addon is loaded. Using Midnight."] end
+  return string_format(L["Selected: %s (%s)"], X.EffectiveTheme().label, X.autoThemeAddon)
+end
+
 -- Grow-up (1.8.0): normally the window hangs from its top-left corner and
 -- the list grows downward. With grow-up on, the window stands on its
 -- bottom-left corner instead, so the list grows upward and the bottom
@@ -6334,19 +6420,25 @@ do
   end
 
   function X.ResolveAutoTheme()
-    local resolved
+    local resolved, selectedAddon
     if db and db.theme == X.AUTO_THEME_ID then
       resolved = "midnight"
       local isLoaded = _G.C_AddOns and _G.C_AddOns.IsAddOnLoaded
       if type(isLoaded) ~= "function" then isLoaded = _G.IsAddOnLoaded end
       if type(isLoaded) == "function" then
-        for _, entry in ipairs(X.AUTO_THEME_ADDONS) do
-          if LoadFinished(pcall(isLoaded, entry[1])) then resolved = entry[2]; break end
+        for _, entry in ipairs(X.AutoThemePriority()) do
+          if LoadFinished(pcall(isLoaded, entry[1])) then
+            resolved, selectedAddon = entry[2], entry[1]
+            break
+          end
         end
       end
     end
-    if X.autoThemeResolved == resolved then return false end
-    X.autoThemeResolved = resolved
+    if X.autoThemeResolved == resolved and X.autoThemeAddon == selectedAddon then
+      if X.RefreshAutoThemePriority then X.RefreshAutoThemePriority() end
+      return false
+    end
+    X.autoThemeResolved, X.autoThemeAddon = resolved, selectedAddon
     ApplyAppearance()
     if RefreshConfig then RefreshConfig() end
     local wizard = X.wizardFrame
@@ -9354,6 +9446,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     end
     if db.dbVersion < 19 then
       db.dbVersion = 19       -- Outdoor Thorns takes its default (off).
+    end
+    if db.dbVersion < 20 then
+      db.dbVersion = 20       -- Auto theme priority takes the built-in order by default.
     end
     X.SpecSwap()
     X.ResolveAutoTheme()

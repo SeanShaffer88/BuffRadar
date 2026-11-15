@@ -251,7 +251,7 @@ do
       end
       if not patch.bgColor then return nil end
       for _, key in ipairs(scalarList) do
-        if not scalarFields[key] then
+        if not scalarFields[key] and key ~= "autoThemePriority" then
           if key == "thornsAnyClassOutdoors" or (key == "assumeRange" and scalarFields.strata) then
             patch[key] = false
           else
@@ -273,7 +273,7 @@ do
       if (directImport or scalarFields.complete) and not complete then return nil end
       if scalarFields.complete then
         for key in pairs(legacyScalars) do
-          if not scalarFields[key] then return nil end
+          if not scalarFields[key] and key ~= "autoThemePriority" then return nil end
         end
       end
       if complete then

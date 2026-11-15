@@ -161,6 +161,31 @@ function X.SelfTest()
     tostring(built), tostring(X.spec or "none"), tostring(lastError or "none")))
 end
 
+local function ThemePriority(command)
+  if command == "" or command == "panel" then
+    X.OpenAutoThemePriority()
+  elseif command == "list" then
+    local parts = {}
+    for i, entry in ipairs(X.AutoThemePriority()) do
+      local palette = entry[2]
+      parts[i] = string.format("%d. %s (%s)", i, X.ThemeDef(palette).label, palette)
+    end
+    Print(L["Auto Theme Priority"] .. ": " .. table.concat(parts, ", "))
+    Print(X.AutoThemeStatus())
+  elseif command == "reset" then
+    X.ResetAutoThemePriority()
+    Print(L["Auto Theme Priority reset."])
+  else
+    local action, palette = command:match("^(%a+)%s+([%w%.%-]+)$")
+    if action == "up" or action == "down" then
+      local moved = X.MoveAutoThemePriority(palette, action == "up" and -1 or 1)
+      Print(moved and L["Auto Theme Priority updated."] or L["Could not move that Auto theme."])
+    else
+      Print(L["Usage: /br theme priority [panel|list|up <id>|down <id>|reset]"])
+    end
+  end
+end
+
 local function HandleSlash(msg)
   syncState()
   local cmd, rest = (msg or ""):match("^%s*(%S*)%s*(.-)%s*$")
@@ -1055,6 +1080,8 @@ local function HandleSlash(msg)
       end
       Print("Themes: " .. table.concat(parts, ", ")
         .. ". /br theme <name> applies one; /br theme save <name> saves your current look (up to 4).")
+    elseif (m == "priority" and not X.SavedTheme(m)) or m:match("^priority%s") then
+      ThemePriority(m:match("^priority%s+(.*)$") or "")
     elseif m:sub(1, 5) == "save " then
       local saved, why = X.SaveTheme(rest:sub(6))
       if saved then
@@ -1458,6 +1485,7 @@ local function HandleSlash(msg)
     Print("  /br uptime  - coverage uptime %   /br preset raid|dungeon|solo")
     Print("  /br wizard  - run the one-minute setup wizard")
     Print("  /br theme save <name>  - save your current colors as a theme")
+    Print(L["Usage: /br theme priority [panel|list|up <id>|down <id>|reset]"])
     Print("  /br rowgap <0-8> | iconsize <0|10-24>")
     Print("  /br cover <part> on|off  - pick what the coverage line shows")
     Print("  /br rowcolor <rule> <color|off>  - colored marks on rows")
