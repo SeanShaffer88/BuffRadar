@@ -4802,6 +4802,7 @@ do
     local active, sequence, generation, token = nil, 0, 0, 0
     local resetReason
     local scope, nonceSerial
+    local departedScopes, departedCount = {}, 0
     local retired, retirementOrder, retirementSlot = {}, {}, 1
     local statusLabels = { sent = "Awaiting acknowledgement", acknowledged = "Acknowledged",
       failed = "Send failed", localOnly = "Assigned locally" }
@@ -4870,11 +4871,23 @@ do
       retirementSlot = retirementSlot % 160 + 1
     end
 
+    local function RememberDepartedScope(identity)
+      if not departedScopes or departedScopes[identity] then return end
+      if departedCount >= 64 then
+        -- Once the history is full, require a fresh proof floor on every entry.
+        departedScopes = nil
+        return
+      end
+      departedScopes[identity] = true
+      departedCount = departedCount + 1
+    end
+
     local function UpdateSyncScope(force)
       if not CLASSIC_FEATURES then return end
       local members, identity = CoordinationRoster()
       if scope and scope.identity == identity and not force then return scope, members end
       if scope then
+        RememberDepartedScope(scope.identity)
         -- Remember epochs seen in the last scope in case this roster returns.
         for guid, peer in pairs(scope.peers) do
           RetireSyncEpoch(guid, peer.epoch)
@@ -4886,7 +4899,7 @@ do
       end
       if active and (force or active.identity ~= identity) then SetSession(nil, true) end
       scope = identity and { identity = identity, digest = SyncDigest(identity), epoch = NewSyncNonce(),
-        seq = 0, peers = {} } or nil
+        requireProofFloor = not departedScopes or departedScopes[identity], seq = 0, peers = {} } or nil
       return scope, members
     end
 
@@ -4895,7 +4908,7 @@ do
       local current = UpdateSyncScope()
       if not current then return false end
       local seq = current.seq + 1
-      local message = "SYNC;2;D;" .. current.digest .. ";" .. current.epoch .. ";" .. seq .. ";" .. payload
+      local message = "SYNC;3;D;" .. current.digest .. ";" .. current.epoch .. ";" .. seq .. ";" .. payload
       if #message > 255 or not X.Broadcast(message) then return false end
       current.seq = seq
       return true
@@ -5311,14 +5324,16 @@ do
     end
 
     local function SyncControl(kind, current, epoch, challenge, target)
-      return X.Broadcast("SYNC;2;" .. kind .. ";" .. current.digest .. ";" .. epoch .. ";" .. challenge .. ";" .. target)
+      local message = "SYNC;3;" .. kind .. ";" .. current.digest .. ";" .. epoch .. ";" .. challenge .. ";" .. target
+      if kind == "P" then message = message .. ";" .. current.seq end
+      return X.Broadcast(message)
     end
 
     local function NewSyncSequence(window, seq)
       -- Broadcast plan rows can arrive out of order. A fixed receive window
       -- accepts that reordering without replaying a previously seen packet.
       local slot = seq % 32
-      if seq <= window.high - 32 or window[slot] == seq then return false end
+      if seq <= window.floor or seq <= window.high - 32 or window[slot] == seq then return false end
       window.high = math_max(window.high, seq)
       window[slot] = seq
       return true
@@ -5345,12 +5360,22 @@ do
     end
 
     function X.HandleScopedSync(version, rest, channel, source, now)
-      if not CLASSIC_FEATURES or version ~= "2" then return end
+      if not CLASSIC_FEATURES or version ~= "3" then return end
       local kind, digest, epoch, field, payload = rest:match("^;([DQP]);([%da-f]+);([%da-f]+);([^;]+);(.+)$")
       if not kind or #digest ~= 16 or #epoch ~= 24 then return end
       local me = CoordinationGUID("player")
       if not me then return end
-      if kind ~= "D" and (payload ~= me or #field ~= 24 or not field:match("^[%da-f]+$")) then return end
+      local proofFloor
+      if kind ~= "D" then
+        local target = payload
+        if kind == "P" then
+          local floor
+          target, floor = payload:match("^([^;]+);([^;]+)$")
+          if not floor or #floor > 10 or (floor ~= "0" and not floor:match("^[1-9]%d*$")) then return end
+          proofFloor = tonumber(floor)
+        end
+        if target ~= me or #field ~= 24 or not field:match("^[%da-f]+$") then return end
+      end
       local unit, name, senderKey = OtherSyncSender(source, channel)
       local sender = unit and CoordinationGUID(unit)
       if not sender then return end
@@ -5369,12 +5394,16 @@ do
         end
         local pending = FindSyncPending(peer, epoch, now)
         if not pending or pending.challenge ~= field then return end
+        if current.requireProofFloor and proofFloor < pending.challengeSeq then return end
         if retired[sender .. ":" .. epoch] then return end
         RetireSyncEpoch(sender, peer.epoch)
+        -- A sender may have missed the transition back to this exact roster.
+        -- Accept only traffic it produced after answering the new challenge.
+        if current.requireProofFloor then pending.window.floor = proofFloor end
         peer.epoch, peer.window, peer.pending = epoch, pending.window, nil
         table_sort(pending.packets, function(a, b) return a.seq < b.seq end)
         for _, packet in ipairs(pending.packets) do
-          ApplyScopedPacket(packet, unit, name, senderKey, now)
+          if packet.seq > peer.window.floor then ApplyScopedPacket(packet, unit, name, senderKey, now) end
         end
       else
         if #field > 10 or not field:match("^[1-9]%d*$") or not ScopedPayload(payload)
@@ -5392,7 +5421,8 @@ do
             -- queued packets can affect the current scope.
             local challenge = NewSyncNonce()
             if not SyncControl("Q", current, epoch, challenge, sender) then return end
-            pending = { epoch = epoch, challenge = challenge, expires = now + 5, window = { high = 0 }, packets = {} }
+            pending = { epoch = epoch, challenge = challenge, challengeSeq = seq, expires = now + 5,
+              window = { high = 0, floor = 0 }, packets = {} }
             peer.pending = peer.pending or {}
             if #peer.pending >= 2 then table.remove(peer.pending, 1) end
             peer.pending[#peer.pending + 1] = pending

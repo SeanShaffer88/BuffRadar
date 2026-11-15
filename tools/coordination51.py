@@ -175,9 +175,13 @@ class Packet:
     @property
     def body(self):
         parts = self.message.split(";", 6)
-        check(parts[:3] == ["SYNC", "2", "D"] and len(parts) == 7,
+        check(parts[:3] == ["SYNC", "3", "D"] and len(parts) == 7,
               f"expected scoped data packet, got {self}")
         return parts[6]
+
+    @property
+    def sequence(self):
+        return int(self.message.split(";", 6)[5])
 
 
 class Party:
@@ -229,7 +233,7 @@ class Party:
         sender = next(client for client in (self.a, self.b) if packet.sender == client.name + "-TestRealm")
         self.deliver(packet, receiver)
         outgoing = self.drain(receiver)
-        questions = [reply for reply in outgoing if reply.message.startswith("SYNC;2;Q;")]
+        questions = [reply for reply in outgoing if reply.message.startswith("SYNC;3;Q;")]
         receiver.outbox.extend(reply for reply in outgoing if reply not in questions)
         if not questions:
             return []
@@ -237,7 +241,7 @@ class Party:
         question = questions[0]
         self.deliver(question, sender)
         outgoing = self.drain(sender)
-        proofs = [reply for reply in outgoing if reply.message.startswith("SYNC;2;P;")]
+        proofs = [reply for reply in outgoing if reply.message.startswith("SYNC;3;P;")]
         sender.outbox.extend(reply for reply in outgoing if reply not in proofs)
         check(len(proofs) <= 1, "one challenge produced more than one proof")
         for proof in proofs:
@@ -380,17 +384,22 @@ def stale_cast(stub, sources, boundary):
     old = cast("first")
     party.deliver(old, receiver)
     questions = party.capture(receiver)
-    check(len(questions) == 1 and questions[0].message.startswith("SYNC;2;Q;") and mark() is None,
+    check(len(questions) == 1 and questions[0].message.startswith("SYNC;3;Q;") and mark() is None,
           "first CAST reached application state before proof")
     old_query = questions[0]
     party.deliver(old_query, sender)
     proofs = party.capture(sender)
-    check(len(proofs) == 1 and proofs[0].message.startswith("SYNC;2;P;"), "scope proof was missing")
+    check(len(proofs) == 1 and proofs[0].message.startswith("SYNC;3;P;"), "scope proof was missing")
     old_proof = proofs[0]
     fields = old_proof.message.split(";")
     fields[5] = ("1" if fields[5][0] == "0" else "0") + fields[5][1:]
     party.deliver(replace(old_proof, message=";".join(fields)), receiver)
     check(mark() is None, "proof for a different challenge applied the cast")
+    proof_base, floor = old_proof.message.rsplit(";", 1)
+    check(floor == str(old.sequence), "proof did not carry the sender's current sequence")
+    for bad in (proof_base, *(proof_base + ";" + value for value in ("", "01", "-1", "1.1", "10000000000"))):
+        party.deliver(replace(old_proof, message=bad), receiver)
+        check(mark() is None, f"missing or malformed proof floor applied the cast: {bad}")
     party.deliver(old_proof, receiver)
     check(mark() == 1000, "first CAST did not apply after scope proof")
     party.update(sender, True, 1000, "GROUP_ROSTER_UPDATE")
@@ -421,7 +430,13 @@ def stale_cast(stub, sources, boundary):
     party.update(leader, True, 1003, fourth=fourth)
     fresh = cast("fresh")
     party.exchange(fresh, receiver)
-    check(mark() == 1003, f"{boundary}: fresh cast for the same player was lost")
+    if boundary == "asymmetric roster round trip":
+        check(mark() is None, f"{boundary}: discovery CAST applied before its sequence was proved")
+        party.update(leader, True, 1004)
+        party.exchange(cast("after-proof"), receiver)
+        check(mark() == 1004, f"{boundary}: cast emitted after proof was lost")
+    else:
+        check(mark() == 1003, f"{boundary}: fresh cast for the same player was lost")
     print(f"PASS: {boundary} clears cast marks and rejects delayed CAST and proof before fresh cast")
 
 
@@ -432,20 +447,83 @@ def unseen_epoch_after_round_trip(stub, sources):
     sender.api.refresh()
     sender.api.cast("party2", "Cast-1-unseen")
     delayed = party.packet(sender, "CAST;")
+    party.update(sender, True, 1000, "GROUP_ROSTER_UPDATE", clients=(receiver,))
     party.update(sender, True, 1001, "GROUP_ROSTER_UPDATE", fourth=True)
     party.update(sender, True, 1002, "GROUP_ROSTER_UPDATE")
 
     controls = party.exchange(delayed, receiver)
-    check(len(controls) == 1 and controls[0].message.startswith("SYNC;2;Q;"),
+    check(len(controls) == 1 and controls[0].message.startswith("SYNC;3;Q;"),
           "the sender vouched for a superseded epoch after the original roster returned")
     check(receiver.api.handledAt("Player-1-0003", "FORTITUDE") is None,
           "an unseen old cast was applied while its scope was unproved")
     sender.api.refresh()
     sender.api.cast("party2", "Cast-1-restored")
     party.exchange(party.packet(sender, "CAST;"), receiver)
-    check(receiver.api.handledAt("Player-1-0003", "FORTITUDE") == 1002,
+    check(receiver.api.handledAt("Player-1-0003", "FORTITUDE") is None,
+          "the first cast in a restored roster bypassed the sequence floor")
+    party.update(sender, True, 1003)
+    sender.api.refresh()
+    sender.api.cast("party2", "Cast-1-after-proof")
+    party.exchange(party.packet(sender, "CAST;"), receiver)
+    check(receiver.api.handledAt("Player-1-0003", "FORTITUDE") == 1003,
           "an unproved old cast blocked a fresh cast in the restored roster")
     print("PASS: restored roster rejects an unseen old cast and accepts fresh traffic")
+
+
+def receiver_only_round_trip(stub, sources):
+    party = Party(stub, sources, third=True)
+    sender, caster = party.a, party.b
+    party.opt_in(sender, caster)
+    request, plan = publish_plan(party, sender, caster)
+    sender.api.buffers(True, False)
+    sender.api.refresh()
+    sender.api.cast("party2", "Cast-1-before-round-trip")
+    old_cast = party.packet(sender, "CAST;")
+    check(0 < old_cast.sequence - plan.sequence < 32 and 0 < old_cast.sequence - request.sequence < 32,
+          "the older packets must fall within the receive window")
+
+    # Give the receiver a clean addon session. Its new runtime has never seen
+    # this sender's epoch, and the sender does not observe the round trip.
+    caster = party.b = Client(stub, sources, caster.name, caster.guid)
+    party.update(sender, True, 1000, clients=(caster,))
+    caster.api.start()
+    party.capture(caster)
+    party.update(sender, True, 1000, "GROUP_ROSTER_UPDATE", clients=(caster,))
+    party.update(sender, True, 1001, "GROUP_ROSTER_UPDATE", fourth=True, clients=(caster,))
+    party.update(sender, True, 1002, "GROUP_ROSTER_UPDATE", clients=(caster,))
+    caster.api.buffers(True, False)
+    caster.action("on")
+
+    controls = party.exchange(old_cast, caster)
+    check(len(controls) == 2 and controls[-1].message.endswith(f";{old_cast.sequence}"),
+          "sender that missed the boundary did not prove its unchanged epoch and sequence")
+    check(caster.api.handledAt("Player-1-0003", "FORTITUDE") is None,
+          "fresh proof revived a cast issued before a receiver-only roster change")
+    for packet in (request, plan, old_cast):
+        check(not party.exchange(packet, caster), "packet at or below the floor started another proof")
+    check(not party.capture(caster) and not caster.snapshot().pending
+          and caster.api.handledAt("Player-1-0003", "FORTITUDE") is None,
+          "old REQ, PLAN or retransmitted CAST passed the replay floor")
+
+    party.update(sender, True, 1011)
+    sender.api.refresh()
+    sender.api.cast("party2", "Cast-1-after-round-trip")
+    fresh_cast = party.packet(sender, "CAST;")
+    check(fresh_cast.message.split(";", 6)[4] == old_cast.message.split(";", 6)[4]
+          and fresh_cast.sequence == old_cast.sequence + 1,
+          "sender unexpectedly changed epoch or skipped the first sequence after proof")
+    party.exchange(fresh_cast, caster)
+    check(caster.api.handledAt("Player-1-0003", "FORTITUDE") == 1011,
+          "first new cast from the unchanged sender epoch was lost")
+    for packet in (request, plan):
+        party.exchange(packet, caster)
+    check(not party.capture(caster) and not caster.snapshot().pending,
+          "higher valid sequence opened the replay window below the proof floor")
+
+    sender.api.buffers(False, True)
+    _, fresh_plan = publish_plan(party, sender, caster)
+    accept_plan(party, sender, caster, fresh_plan)
+    print("PASS: receiver-only roster round trip rejects old CAST, REQ and PLAN and accepts post-proof traffic")
 
 
 def stale_messages(stub, sources, leader_changes=False):
@@ -489,13 +567,15 @@ def legacy_packets(stub, sources):
     party = Party(stub, sources, third=True)
     party.opt_in(party.a, party.b)
     guid = party.b.guid
+    party.a.action("request")
+    scoped = party.packet(party.a, "COORD;1;REQ;")
     for message in ("COORD;1;REQ;1000.1", f"COORD;1;PLAN;1000.1;1000.2;{guid};FORTITUDE",
-                    "CAST;FORTITUDE;Player-1-0003"):
+                    "CAST;FORTITUDE;Player-1-0003", scoped.message.replace("SYNC;3;", "SYNC;2;", 1)):
         party.deliver(Packet("Alia-TestRealm", "BuffRadar", message, "PARTY"), party.b)
     check(not party.capture(party.b) and not party.b.snapshot().pending
           and party.b.api.handledAt("Player-1-0003", "FORTITUDE") is None,
           "legacy unscoped coordination or cast was accepted in Forever")
-    print("PASS: Forever ignores legacy unscoped coordination and casts")
+    print("PASS: Forever ignores legacy unscoped and v2 coordination traffic")
 
 
 def main():
@@ -512,6 +592,7 @@ def main():
     for boundary in ("roster", "leader", "asymmetric roster round trip"):
         stale_cast(stub, sources, boundary)
     unseen_epoch_after_round_trip(stub, sources)
+    receiver_only_round_trip(stub, sources)
     legacy_packets(stub, sources)
     return 0
 

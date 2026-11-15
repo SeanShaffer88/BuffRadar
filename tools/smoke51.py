@@ -1903,7 +1903,7 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
     env.UnitIsGroupLeader = function(unit) return unit == "party1" end
     local peers, nextEpoch = {}, 0
     local function scopedPayload(packet)
-      return packet:match("^SYNC;2;D;[^;]+;[^;]+;%d+;(.+)$")
+      return packet:match("^SYNC;3;D;[^;]+;[^;]+;%d+;(.+)$")
     end
     local function inbound(message, source, channel)
       source, channel = source or "Aaron-TestRealm", channel or "PARTY"
@@ -1913,7 +1913,7 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
       local before = #env.__addonSent
       X.SyncSend("FORTITUDE", me)
       assert(#env.__addonSent == before + 1, "could not obtain current scope from a cast")
-      local digest = table.remove(env.__addonSent).msg:match("^SYNC;2;D;([^;]+);")
+      local digest = table.remove(env.__addonSent).msg:match("^SYNC;3;D;([^;]+);")
       assert(digest, "outbound scope was missing")
       local peer = peers[source]
       if not peer or peer.digest ~= digest then
@@ -1923,14 +1923,14 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
       end
       peer.seq = peer.seq + 1
       fire("CHAT_MSG_ADDON", "BuffRadar",
-        string.format("SYNC;2;D;%s;%s;%d;COORD;1;%s", digest, peer.epoch, peer.seq, message), channel, source)
+        string.format("SYNC;3;D;%s;%s;%d;COORD;1;%s", digest, peer.epoch, peer.seq, message), channel, source)
       local reply = env.__addonSent[before + 1]
-      local challenge = reply and reply.msg:match("^SYNC;2;Q;[^;]+;[^;]+;([^;]+);")
+      local challenge = reply and reply.msg:match("^SYNC;3;Q;[^;]+;[^;]+;([^;]+);")
       if challenge then
         assert(channel == "PARTY", "wrong-channel request received a scope challenge")
         table.remove(env.__addonSent, before + 1)
         fire("CHAT_MSG_ADDON", "BuffRadar",
-          string.format("SYNC;2;P;%s;%s;%s;%s", digest, peer.epoch, challenge, me), channel, source)
+          string.format("SYNC;3;P;%s;%s;%s;%s;%d", digest, peer.epoch, challenge, me, peer.seq), channel, source)
       end
     end
     local sent = #env.__addonSent

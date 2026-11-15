@@ -68,8 +68,11 @@ does not exercise the game’s channel delivery or protected casting.
 
 The regular gate replays old requests and plans together after re-opt-in. It
 also replays cast packets and session proofs with the original caster and
-target still in the group, then verifies that fresh messages work.
+target still in the group. It tests a roster change seen only by the receiving
+client, including packets replayed within the normal receive window after proof.
 
-Forever caster plans and cast sync require both clients to use the scoped
-protocol. Upgraded clients ignore unscoped requests, plans, and casts sent by
-older versions. Other group messages still use their existing formats.
+Forever caster plans and cast sync require both clients to use scoped protocol
+version 3. After a roster or leader returns to a previous state, the receiver
+uses the sender's current sequence as a cutoff. The first packet can establish
+that cutoff and be dropped. A subsequent cast or new request can sync once
+proof arrives. Old packets are never retried automatically.
