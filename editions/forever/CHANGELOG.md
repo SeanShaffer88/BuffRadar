@@ -2,6 +2,15 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.31 — Forever test build
+
+- Clear a stale cast-next binding if a roster slot changes occupants before
+  the list refreshes. This applies to both cast-next bindings.
+- Distinguish an empty cast queue from unavailable buff information. Show
+  the all-buffed pill only when the scan has enough evidence.
+- Require a recorded fight of at least eight seconds before generating a
+  wipe report. Generate at most one report per recorded fight.
+
 ## 1.15.30 — Forever test build
 
 - Open **Nearby Player Diagnostics** from the question mark on the buff
@@ -10,6 +19,8 @@ All notable changes to BuffRadar are listed here. Newest first.
   or missing.
 - Enable friendly nameplates directly from the panel when the game reports
   they are off. Unreadable settings, range, and buff data are shown as unknown.
+
+Live verification passed on WoW: Forever for candidate `0d9a013ce320`.
 
 ## 1.15.29 — Forever test build
 

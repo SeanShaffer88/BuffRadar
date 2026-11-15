@@ -556,6 +556,8 @@ local L = {
   ["Paused in a major city."] = "Paused in a major city.",
   ["Paused in a battleground."] = "Paused in a battleground.",
   ["Everyone nearby is buffed."] = "Everyone nearby is buffed.",
+  ["No targets in the buff queue."] = "No targets in the buff queue.",
+  ["The name finder hides all buff targets."] = "The name finder hides all buff targets.",
   ["Some buff information is unavailable."] = "Some buff information is unavailable.",
   ["Estimated range"] = "Estimated range",
   ["Friendly nameplates are off."] = "Friendly nameplates are off.",
@@ -2116,7 +2118,7 @@ end
 
 local function Missing(unit, out, isGroup, isSelf, report, detail)
   wipe(out)
-  if not report then X.remainTmp, X.auraUnknown = nil, nil end
+  if not report then X.remainTmp, X.auraUnknown, X.auraNeedsBuff = nil, nil, nil end
   local reviewing = report == "assignmentReview"
   local subgroupKey = detail and detail.subgroupKey
   local class = reviewing and detail.member.class
@@ -2201,7 +2203,8 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
         end
         if report == "ready" then X.RecordReadyAura(detail, unit, b.name, b.names, has, b.key) end
       else
-          if has == nil then X.auraUnknown = true end
+          if has == nil then X.auraUnknown = true
+          elseif has == false then X.auraNeedsBuff = true end
           local t
           if isGroup and has ~= nil then
             t = X.tally[b.key]
@@ -2555,6 +2558,8 @@ local function Consider(unit, isGroup)
   if not e.allMissing then e.allMissing = {} end
   local allN = Missing(unit, e.allMissing, isGroup, isSelf)
   local auraUnknown = X.auraUnknown
+  if auraUnknown then X.scanHasUnknownBuffs = true end
+  if allN > 0 or X.auraNeedsBuff then X.scanHasMissingBuffs = true end
   e.remain1 = X.remainTmp
   if isGroup and not auraUnknown and allN == 0 then X.missNow[guid] = {} end
   local queue = e.allMissing
@@ -2701,6 +2706,7 @@ local function CollectEntries()
   wipe(X.drinkSet)
   X.drinkHealers = 0
   X.tallyUnits, X.tallyMissingUnits, X.tallyUnknownUnits = 0, 0, 0
+  X.scanHasUnknownBuffs, X.scanHasMissingBuffs, X.scanNameFiltered = false, false, false
   X.rangeSilent = false
   X.missPrev, X.missNow = X.missNow, {}
   wipe(X.missNow)
@@ -2747,6 +2753,7 @@ local function CollectEntries()
     end
     for i = 1, #keep do entries[i] = keep[i] end
     for i = 1, #drop do entries[#keep + i] = drop[i] end
+    X.scanNameFiltered = #drop > 0
     nEntries = #keep
   end
   -- Single-target buffs whose holder was found: only the holder's row may
@@ -6833,6 +6840,14 @@ local function ClearGroup()
 end
 X.ClearGroup = ClearGroup
 
+function X.DisarmStaleKeybind(button, mouseButton, clear)
+  if mouseButton == "LeftButton" and not InCombatLockdown() and button:GetAttribute("type")
+      and not X.RowTargetMatches(button.entry) then
+    clear()
+    if QueueRefresh then QueueRefresh() end
+  end
+end
+
 
 -- Group-cast keybind (1.15.0): the group button's plain attribute family
 -- carries the GROUP version of the head row's buff, so one key press
@@ -7027,6 +7042,7 @@ local function BuildNextButton()
     ]])
   end
   nextBtn:HookScript("PreClick", function(self, button, down)
+    X.DisarmStaleKeybind(self, button, ClearNext)
     X.BeginCastClick(self, button, down, "next-buff key")
   end)
   nextBtn:HookScript("PostClick", function(self, button, down)
@@ -7068,6 +7084,7 @@ local function BuildGroupButton()
     ]])
   end
   btn:HookScript("PreClick", function(self, button, down)
+    X.DisarmStaleKeybind(self, button, ClearGroup)
     X.BeginCastClick(self, button, down, "group-buff key")
   end)
   btn:HookScript("PostClick", function(self, button, down)
@@ -7284,7 +7301,7 @@ local function BuildUI()
 
   emptyText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   emptyText:SetPoint("TOPLEFT", 10, -HEADER_H - 3)
-  emptyText:SetText(L["Everyone nearby is buffed."])
+  emptyText:SetText(L["No targets in the buff queue."])
 
   overflowText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   overflowText:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -HEADER_H)
@@ -7974,7 +7991,7 @@ end
 
 -- Pick an honest explanation for an empty list when the client cannot verify range.
 function X.EmptyStatus()
-  if (X.tallyUnknownUnits or 0) > 0 then
+  if X.scanHasUnknownBuffs or (X.tallyUnknownUnits or 0) > 0 then
     return L["Some buff information is unavailable."]
   end
   if X.FriendlyPlatesOn() == false then
@@ -7983,9 +8000,10 @@ function X.EmptyStatus()
   if X.rangeSilent then
     return L["Range could not be confirmed; the list may be incomplete."]
   end
+  if X.scanNameFiltered then return L["The name finder hides all buff targets."] end
   if (X.lastTargetCastProblem and GetTime() < X.lastTargetCastProblem.expires)
      or (X.NoCastReason and X.NoCastReason()) then return L["No cast target is available."] end
-  return L["Everyone nearby is buffed."]
+  return L["No targets in the buff queue."]
 end
 
 function X.EmptyStatusHint()
@@ -7995,6 +8013,12 @@ function X.EmptyStatusHint()
     return X.lastTargetCastProblem.message
   end
   if X.NoCastReason then return X.NoCastReason() end
+end
+
+function X.ScanConfirmsGroupBuffed()
+  if X.scanHasUnknownBuffs or X.scanHasMissingBuffs or X.scanNameFiltered then return false end
+  local size = X.ReadUnitNumber(_G.GetNumGroupMembers)
+  return size ~= nil and size > 1 and X.tallyUnits == size
 end
 
 -- True while the last refresh found nothing that time alone can change: no
@@ -8521,7 +8545,7 @@ local function Refresh()
   -- window can collapse to the pill until someone needs a buff again (or
   -- the pill is clicked for a peek).
   local pillMode = db.pill and n == 0 and InGroup() and not db.hidden
-    and not groupHidden and GetTime() > (X.pillPeek or 0)
+    and not groupHidden and X.ScanConfirmsGroupBuffed() and GetTime() > (X.pillPeek or 0)
   if pillMode and X.pill then
     SetTextIfChanged(X.pill.text, "|cff33ccffBuff|rRadar · "
       .. (X.coverFrac and (X.coverFrac .. " ") or "") .. L["All buffed"])

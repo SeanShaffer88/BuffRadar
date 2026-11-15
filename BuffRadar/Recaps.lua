@@ -327,9 +327,11 @@ end
 -- rebuff list) and, as leader or assistant, post a one-line summary to
 -- group chat, like the ready-check auto-post.
 function X.WipeCheck()
+  local combatStart = X.combatStart
+  X.combatStart = nil
+  if not combatStart or GetTime() - combatStart < 8 then return end
   local db = X.GetDB()
   if not db or not db.wipeReport or not X.InGroup() then return end
-  if X.combatStart and GetTime() - X.combatStart < 8 then return end
   local total, dead = 0, 0
   local unavailable = 0
   X.ForReportRoster(function(unit, exists)

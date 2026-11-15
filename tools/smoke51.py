@@ -855,6 +855,57 @@ local function partyOfTwo(suffix)
     env.IsSpellInRange = nil
   end
 end
+step("cast keybinds disarm when a roster token changes after the scan", function()
+  local cleanup = partyOfTwo("KEY")
+  local O, X, db = env.__over, NS.X, env.BuffRadarDB
+  local oldInclude, oldMethod, oldSort = db.includeSelf, db.castMethod, db.sortMode
+  local ok, err = pcall(function()
+    db.includeSelf, db.castMethod, db.sortMode = false, "target", "name"
+    env.IsSpellInRange = function() return 1 end
+    O.UnitIsPlayer = function(unit) return unit ~= "player" and O.UnitExists(unit) end
+    local originalGUID = O.UnitGUID
+    local replacement
+    O.UnitGUID = function(unit)
+      if unit == "party1" and replacement then
+        if replacement == "unreadable" then return nil end
+        return replacement
+      end
+      return originalGUID(unit)
+    end
+    local buttons = { env.BuffRadarNextButton, env.BuffRadarGroupButton }
+    local stale = {}
+    for _, button in ipairs(buttons) do
+      local clickStart = assert(button:GetScript("PreClick"))
+      local clickEnd = assert(button:GetScript("PostClick"))
+      for _, down in ipairs({ true, false }) do
+        replacement = nil
+        X.Refresh()
+        assert(button.entry.unit == "party1" and button:GetAttribute("type"), "fixture did not arm party1")
+        clickStart(button, "LeftButton", down)
+        assert(button:GetAttribute("type"), "stable recipient was disarmed")
+        clickEnd(button, "LeftButton", down)
+        X.ClearCastIntent()
+
+        X.Refresh()
+        replacement = down and "Player-1-Replacement" or "unreadable"
+        clickStart(button, "LeftButton", down)
+        local disarmed = not button:GetAttribute("type") and not button:GetAttribute("shift-type1")
+          and not button:GetAttribute("macrotext") and not button.entry
+        clickEnd(button, "LeftButton", down)
+        if not disarmed then stale[#stale + 1] = button:GetName() .. (down and " down" or " up") end
+        replacement = "Player-1-Replacement"
+        X.Refresh()
+        assert(button:GetAttribute("unit") == "party1" and button.entry.guid == replacement,
+          "fresh scan did not bind the new recipient")
+      end
+    end
+    assert(#stale == 0, "remained armed for a stale party1 token: " .. table.concat(stale, ", "))
+  end)
+  X.ClearCastIntent()
+  db.includeSelf, db.castMethod, db.sortMode = oldInclude, oldMethod, oldSort
+  cleanup()
+  assert(ok, err)
+end)
 step("combat targets and caster are never eligible", function()
   local cleanup = partyOfTwo("C")
   local O = env.__over
@@ -2273,9 +2324,37 @@ step("idle fade lowers the window alpha (1.5.0)", function()
 end)
 step("all-buffed pill replaces the window (1.6.0)", function()
   local cleanup = partyOfTwo("P")
+  local X = NS.X
+  local oldSize, oldRange, oldCooldown = env.GetNumGroupMembers, env.IsSpellInRange, env.GetSpellCooldown
+  local oldPlates = X.FriendlyPlatesOn
+  env.GetNumGroupMembers = function() return 3 end
+  X.FriendlyPlatesOn = function() return true end
   env.SlashCmdList.BUFFRADAR("pill")
   assert(env.BuffRadarDB.pill == true, "pill setting not stored")
-  env.__over.Aura = function(u, name) return { expirationTime = env.GetTime() + 600 } end
+  local function buffed() return { expirationTime = env.GetTime() + 600 } end
+  env.__over.Aura = function(u) if u ~= "party1" then return buffed() end return nil end
+  env.IsSpellInRange = function() return 0 end
+  refresh()
+  local hidNeed = env.BuffRadarPill.shown
+  env.IsSpellInRange = function() return 1 end
+  env.GetSpellCooldown = function() return env.GetTime(), 180 end
+  refresh()
+  local hidCooldown = env.BuffRadarPill.shown
+  env.GetSpellCooldown = oldCooldown
+  env.SlashCmdList.BUFFRADAR("find Nobody")
+  refresh()
+  local hidByFinder = env.BuffRadarPill.shown
+  local explainedFinder = X.EmptyStatus() == X.L["The name finder hides all buff targets."]
+  env.SlashCmdList.BUFFRADAR("find")
+  env.__over.Aura = function(u) if u == "party1" then error("by-name restricted") end return buffed() end
+  env.__over.AuraList = function(u) if u == "party1" then error("index restricted") end end
+  refresh()
+  local hidUnknown = env.BuffRadarPill.shown
+  env.__over.Aura, env.__over.AuraList = buffed, nil
+  env.GetNumGroupMembers = function() return 4 end
+  refresh()
+  local hidIncomplete = env.BuffRadarPill.shown
+  env.GetNumGroupMembers = function() return 3 end
   refresh()
   assert(env.BuffRadarPill and env.BuffRadarPill.shown, "pill not shown while all buffed")
   assert(not env.BuffRadarFrame.shown, "window still shown in pill mode")
@@ -2289,6 +2368,11 @@ step("all-buffed pill replaces the window (1.6.0)", function()
   assert(env.BuffRadarFrame.shown, "window did not return when buffs went missing")
   env.SlashCmdList.BUFFRADAR("pill")
   cleanup()
+  X.FriendlyPlatesOn = oldPlates
+  env.GetNumGroupMembers, env.IsSpellInRange = oldSize, oldRange
+  assert(not hidNeed and not hidCooldown and not hidByFinder and not hidUnknown and not hidIncomplete,
+    "all-buffed pill hid known buff needs or an incomplete reading")
+  assert(explainedFinder, "an empty filtered list did not explain the name finder")
 end)
 step("cast queue: next row tagged after a cast lands (1.6.0)", function()
   local cleanup = partyOfTwo("U")
@@ -3321,7 +3405,7 @@ step("empty list explains range, nameplate, and buff states", function()
     X.tallyUnknownUnits = 0
     X.FriendlyPlatesOn = function() return true end
     X.rangeSilent = false
-    assert(X.EmptyStatus() == T("Everyone nearby is buffed."), "known empty state is misleading")
+    assert(X.EmptyStatus() == T("No targets in the buff queue."), "an empty queue was reported as confirmed buff coverage")
     X.rangeSilent = true
     assert(X.EmptyStatus() == T("Range could not be confirmed; the list may be incomplete."), "silent range state was hidden")
     X.FriendlyPlatesOn = function() return false end
@@ -3331,6 +3415,42 @@ step("empty list explains range, nameplate, and buff states", function()
     assert(X.EmptyStatus() == T("Some buff information is unavailable."), "unreadable buff state lost priority")
   end)
   X.rangeSilent, X.tallyUnknownUnits, X.FriendlyPlatesOn = oldRange, oldUnknown, oldPlates
+  assert(ok, err)
+end)
+
+step("unreadable outdoor target buffs are not reported as complete", function()
+  local cleanup = partyOfTwo("OutsideUnknown")
+  local X, O = NS.X, env.__over
+  local oldPlates = X.FriendlyPlatesOn
+  local ok, err = pcall(function()
+    for _, key in ipairs({ "UnitExists", "UnitIsPlayer", "UnitGUID", "UnitName", "UnitFullName", "UnitClass" }) do
+      local original = O[key]
+      O[key] = function(unit)
+        if unit == "target" then return original("party1") end
+        if unit == "player" then return original(unit) end
+        if key == "UnitExists" or key == "UnitIsPlayer" then return false end
+      end
+    end
+    env.IsInGroup = function() return false end
+    env.IsSpellInRange = function() return 1 end
+    X.FriendlyPlatesOn = function() return true end
+    O.Aura = function(unit)
+      if unit == "target" then error("by-name restricted") end
+      return { expirationTime = env.GetTime() + 600 }
+    end
+    O.AuraList = function(unit) if unit == "target" then error("index restricted") end end
+    X.Refresh()
+    assert(not shownRows().target and X.tallyUnknownUnits == 0,
+      "unreadable solo target was listed or changed group coverage")
+    assert(X.EmptyStatus() == X.L["Some buff information is unavailable."],
+      "unreadable outdoor target was reported as fully buffed")
+    O.Aura = function() return { expirationTime = env.GetTime() + 600 } end
+    X.Refresh()
+    assert(X.EmptyStatus() == X.L["No targets in the buff queue."],
+      "a later readable scan did not clear aura uncertainty")
+  end)
+  X.FriendlyPlatesOn = oldPlates
+  cleanup()
   assert(ok, err)
 end)
 
@@ -4528,7 +4648,8 @@ end)
 step("post-wipe report fires after a real wipe (1.9.0)", function()
   local cleanup = partyOfTwo("WW")
   local db = env.BuffRadarDB
-  local O = env.__over
+  local O, X = env.__over, NS.X
+  local oldStart = X.combatStart
   env.SlashCmdList.BUFFRADAR("wipe")
   assert(db.wipeReport == true, "wipe report not enabled")
   -- A controllable clock: the wipe gate needs an 8+ second fight.
@@ -4544,23 +4665,40 @@ step("post-wipe report fires after a real wipe (1.9.0)", function()
   local n = #chat
   fire("PLAYER_REGEN_ENABLED")
   assert(not chatSince(n, "Wipe report"), "report fired for a single death")
-  -- Both party members dead after a long fight: a wipe.
+  -- Deaths alone are insufficient without a recorded fight.
   dead.party2 = true
+  X.combatStart = nil
+  local missingStart = #chat
+  fire("PLAYER_REGEN_ENABLED")
+  local reportedWithoutStart = chatSince(missingStart, "Wipe report:")
   fire("PLAYER_REGEN_DISABLED")
-  t = t + 20
+  t = t + 7
+  local shortFight = #chat
+  fire("PLAYER_REGEN_ENABLED")
+  local reportedForShortFight = chatSince(shortFight, "Wipe report:")
+  -- Both party members dead after a fight at the minimum duration: a wipe.
+  fire("PLAYER_REGEN_DISABLED")
+  t = t + 8
   local n2 = #chat
   fire("PLAYER_REGEN_ENABLED")
   assert(chatSince(n2, "Wipe report: 2 of 3 died."), "no wipe report after the wipe")
   assert(chatSince(n2, "1 person is missing buffs"),
     "wipe report should list the survivor's missing buffs")
+  local duplicateEnd = #chat
+  fire("PLAYER_REGEN_ENABLED")
+  local reportedTwice = chatSince(duplicateEnd, "Wipe report:")
   local n3 = #chat
   env.SlashCmdList.BUFFRADAR("wipe show")
   assert(chatSince(n3, "Wipe report from the last wipe:"), "last wipe report not reprinted")
   O.GetTime = nil
   O.UnitIsDeadOrGhost = nil
+  X.combatStart = oldStart
   env.SlashCmdList.BUFFRADAR("wipe")
   assert(db.wipeReport == false, "wipe report not toggled off")
   cleanup()
+  assert(not reportedWithoutStart and not reportedForShortFight and not reportedTwice,
+    "wipe timing was incorrect: without start=" .. tostring(reportedWithoutStart)
+      .. ", short fight=" .. tostring(reportedForShortFight) .. ", duplicate end=" .. tostring(reportedTwice))
 end)
 step("raid wipe counts the player raid token once", function()
   local cleanup = partyOfTwo("WIPE")
@@ -4568,16 +4706,18 @@ step("raid wipe counts the player raid token once", function()
   local oldRaid, oldNum, oldWipe, oldStart = env.IsInRaid, env.GetNumGroupMembers, db.wipeReport, X.combatStart
   local ok, err = pcall(function()
     env.IsInRaid, env.GetNumGroupMembers = function() return true end, function() return 6 end
-    db.wipeReport, X.combatStart = true, nil
+    db.wipeReport = true
     O.UnitExists = function(u) return u == "player" or u:match("^raid[1-6]$") ~= nil end
     O.UnitGUID = function(u) return (u == "player" or u == "raid1") and "Player-1-0001" or "Player-1-" .. u end
     O.UnitClass = function() return "Mage", "MAGE" end
     local dead = { player = true, raid1 = true, raid2 = true }
     O.UnitIsDeadOrGhost = function(u) return dead[u] or false end
     local last = #chat
+    X.combatStart = env.GetTime() - 8
     X.WipeCheck()
     assert(not chatSince(last, "Wipe report:"), "two unique raid deaths triggered a wipe")
     dead.raid3 = true
+    X.combatStart = env.GetTime() - 8
     X.WipeCheck()
     assert(chatSince(last, "Wipe report: 3 of 6 died."), "raid wipe roster double-counted the local player")
   end)
