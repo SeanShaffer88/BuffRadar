@@ -1049,8 +1049,9 @@ local function HandleSlash(msg)
     if m == "" or m == "list" then
       local parts = {}
       for _, k in ipairs(X.ThemeOrder()) do
-        parts[#parts + 1] = k
-          .. ((db.theme or ""):lower() == k:lower() and " (current)" or "")
+        local current = (db.theme or ""):lower() == k:lower()
+        local label = k == X.AUTO_THEME_ID and X.ThemeLabel(true) or nil
+        parts[#parts + 1] = k .. (current and (label and " (" .. label .. ")" or " (current)") or "")
       end
       Print("Themes: " .. table.concat(parts, ", ")
         .. ". /br theme <name> applies one; /br theme save <name> saves your current look (up to 4).")
@@ -1074,7 +1075,7 @@ local function HandleSlash(msg)
         Print("No saved theme named '" .. name .. "'.")
       end
     elseif X.ApplyTheme(m) then
-      Print("Theme: " .. X.ThemeDef(m).label)
+      Print("Theme: " .. X.ThemeLabel(true))
     else
       Print("Unknown theme '" .. m .. "'. /br theme lists them.")
     end

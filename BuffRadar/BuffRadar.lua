@@ -538,6 +538,8 @@ local L = {
   ["Buff icon size"] = "Buff icon size",
   ["Custom (%s)"] = "Custom (%s)",
   ["Custom theme"] = "Custom theme",
+  ["Auto"] = "Auto",
+  ["Auto (%s)"] = "Auto (%s)",
   ["Theme"] = "Theme",
   ["Close"] = "Close",
   ["Close settings"] = "Close settings",
@@ -6197,10 +6199,35 @@ function X.ThemeOrder()
   return order
 end
 
+function X.EffectiveTheme()
+  if db and db.theme == X.AUTO_THEME_ID then
+    return X.THEMES[X.autoThemeResolved or "midnight"]
+  end
+  return db and X.ThemeDef(db.theme)
+end
+
 function X.ThemeBorder()
-  local t = db and X.ThemeDef(db.theme)
+  local t = X.EffectiveTheme()
   if t then return t.border end
   return { 0.35, 0.55, 0.8 }
+end
+
+function X.ThemeBackground()
+  if db and db.theme == X.AUTO_THEME_ID then
+    return X.EffectiveTheme().bg
+  end
+  return db and db.bgColor or DEFAULTS.bgColor
+end
+
+function X.ThemeLabel(detail)
+  if db and db.theme == X.AUTO_THEME_ID then
+    if detail then
+      return string_format(L["Auto (%s)"], X.EffectiveTheme().label)
+    end
+    return L["Auto"]
+  end
+  local t = db and X.ThemeDef(db.theme)
+  return t and t.label or "Custom"
 end
 
 -- Grow-up (1.8.0): normally the window hangs from its top-left corner and
@@ -6273,7 +6300,7 @@ local function ApplyAppearance()
   end
   X.appearancePending = nil
   X.flashPending = nil
-  local c = db.bgColor or DEFAULTS.bgColor
+  local c = X.ThemeBackground()
   local bc = X.ThemeBorder()
   if frame.SetBackdropColor then
     frame:SetBackdropColor(c[1], c[2], c[3], db.bgAlpha or 0.92)
@@ -6293,6 +6320,40 @@ local function ApplyAppearance()
     combatText:SetPoint("LEFT", title, "RIGHT", 6, 0)
   else
     combatText:SetPoint("TOPLEFT", frame, "TOPLEFT", 9, -8)
+  end
+end
+
+do
+  local function LoadFinished(ok, loaded, ...)
+    if not ok or not Readable(loaded) then return false end
+    -- The two-result API can report loaded while the addon's load is
+    -- still in progress. A legacy one-result API has no separate flag.
+    if select("#", ...) == 0 then return loaded == true or loaded == 1 end
+    local finished = ...
+    return loaded == true and Readable(finished) and finished == true
+  end
+
+  function X.ResolveAutoTheme()
+    local resolved
+    if db and db.theme == X.AUTO_THEME_ID then
+      resolved = "midnight"
+      local isLoaded = _G.C_AddOns and _G.C_AddOns.IsAddOnLoaded
+      if type(isLoaded) ~= "function" then isLoaded = _G.IsAddOnLoaded end
+      if type(isLoaded) == "function" then
+        for _, entry in ipairs(X.AUTO_THEME_ADDONS) do
+          if LoadFinished(pcall(isLoaded, entry[1])) then resolved = entry[2]; break end
+        end
+      end
+    end
+    if X.autoThemeResolved == resolved then return false end
+    X.autoThemeResolved = resolved
+    ApplyAppearance()
+    if RefreshConfig then RefreshConfig() end
+    local wizard = X.wizardFrame
+    if wizard and wizard:IsShown() and wizard.page == 2 then
+      wizard.choice[1]:SetText("Theme: " .. X.ThemeLabel(true))
+    end
+    return true
   end
 end
 
@@ -6337,8 +6398,7 @@ function X.WizardPage(n)
     w.body:SetText("The window's look. Click the theme button to cycle the color schemes; scale, width and more live in Settings > Window.")
     local b = w.choice[1]
     local function themeLabel()
-      local t = X.ThemeDef(db.theme)
-      return "Theme: " .. (t and t.label or "Custom")
+      return "Theme: " .. X.ThemeLabel(true)
     end
     b:SetText(themeLabel())
     b:SetScript("OnClick", function()
@@ -6440,13 +6500,16 @@ end
 -- Apply a color theme (1.8.0). Defined here because it needs
 -- ApplyAppearance, which only exists from this point on.
 function X.ApplyTheme(name)
+  if name and name:lower() == "auto" and not X.SavedTheme(name) then name = X.AUTO_THEME_ID end
   local t = X.ThemeDef(name)
   if not t then return false end
   local id = name:lower()
   db.theme = X.THEMES[id] and id or t.label
-  db.bgColor = { t.bg[1], t.bg[2], t.bg[3] }
-  ApplyAppearance()
-  if RefreshConfig then RefreshConfig() end
+  if id ~= X.AUTO_THEME_ID then db.bgColor = { t.bg[1], t.bg[2], t.bg[3] } end
+  if not X.ResolveAutoTheme() then
+    ApplyAppearance()
+    if RefreshConfig then RefreshConfig() end
+  end
   return true
 end
 
@@ -6456,9 +6519,9 @@ function X.SaveTheme(name)
   name = (name or ""):match("^%s*(.-)%s*$")
   if X.THEMES[name:lower()] or name:lower() == "custom" then return nil, "taken" end
   if not name:match("^[%w%-]+$") or #name > 24 then return nil, "name" end
-  local b = X.ThemeBorder()
+  local c, b = X.ThemeBackground(), X.ThemeBorder()
   local entry = { name = name,
-    bg = { db.bgColor[1], db.bgColor[2], db.bgColor[3] },
+    bg = { c[1], c[2], c[3] },
     border = { b[1], b[2], b[3] } }
   db.customThemes = db.customThemes or {}
   for i, t in ipairs(db.customThemes) do
@@ -9214,8 +9277,14 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     return
   end
   if event == "ADDON_LOADED" then
-    if arg1 ~= ADDON then return end
-    driver:UnregisterEvent("ADDON_LOADED")  -- one-off
+    if arg1 ~= ADDON then
+      if db and db.theme == X.AUTO_THEME_ID then
+        for _, entry in ipairs(X.AUTO_THEME_ADDONS) do
+          if arg1 == entry[1] then X.ResolveAutoTheme(); break end
+        end
+      end
+      return
+    end
     BuffRadarDB = SanitizeDB(BuffRadarDB)
     db = BuffRadarDB
     db.showOutOfRange, db.hideInCombat = false, true
@@ -9287,6 +9356,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       db.dbVersion = 19       -- Outdoor Thorns takes its default (off).
     end
     X.SpecSwap()
+    X.ResolveAutoTheme()
   elseif event == "PLAYER_LOGIN" then
     driver:UnregisterEvent("PLAYER_LOGIN")  -- one-off
     if not db then
@@ -9294,6 +9364,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       db = BuffRadarDB
       Ignore.Rebuild()
     end
+    X.ResolveAutoTheme()
     X.UpdatePlayerLife(event)
     X.InitSync()
     X.SendCover()

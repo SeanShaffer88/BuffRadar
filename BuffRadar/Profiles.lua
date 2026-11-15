@@ -307,6 +307,7 @@ do
     X.assignmentGroupConflicts = nil
     X.prioDirty = true
     Ignore.Rebuild()
+    X.ResolveAutoTheme()
   end
 end
 

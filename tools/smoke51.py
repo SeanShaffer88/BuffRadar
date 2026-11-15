@@ -2928,6 +2928,10 @@ step("window palette presets use their approved colors and labels", function()
     { "ui.wicks", "Wick's UI", { 16, 28, 35 }, { 118, 174, 194 } },
     { "ui.ultimateforever", "Ultimate Forever UI", { 35, 27, 19 }, { 177, 138, 83 } },
     { "ui.foreverforge", "ForeverForge UI", { 24, 29, 39 }, { 189, 140, 85 } },
+    { "ui.daylightui", "DaylightUI", { 20, 20, 23 }, { 55, 55, 62 } },
+    { "ui.meredanui", "MeredanUI", { 22, 19, 15 }, { 97, 77, 46 } },
+    { "ui.nazgrelui", "NazgrelUI", { 23, 26, 33 }, { 56, 61, 74 } },
+    { "ui.reforgedui", "Reforged UI", { 33, 27, 21 }, { 136, 117, 74 } },
   }
   local frame, alpha = env.BuffRadarFrame, db.bgAlpha
   local appliedBackground = nil
@@ -2960,6 +2964,9 @@ step("window palette presets use their approved colors and labels", function()
       "settings skipped or mislabeled " .. palette[1])
   end
   button.scripts.OnClick(button)
+  assert(db.theme == "ui.auto" and button:GetText() == "Theme: Auto",
+    "settings omitted Auto or changed its compact label")
+  button.scripts.OnClick(button)
   assert(db.theme == "midnight", "settings omitted the original first theme on wrap")
   frame.SetBackdropColor = setBackdropColor
   if not wasOpen then env.BuffRadarConfig:Hide() end
@@ -2978,7 +2985,7 @@ step("window palettes survive reload and profile round trips without masking sav
   assert(env.BuffRadarDB.theme == "ui.elvui" and X.ThemeBorder()[1] == 96 / 255,
     "reload gave a reserved name to a saved theme")
   local order = X.ThemeOrder()
-  assert(#order == 11 and order[5] == "ui.elvui" and order[11] == "ElvUI",
+  assert(#order == 16 and order[5] == "ui.elvui" and order[15] == "ui.auto" and order[16] == "ElvUI",
     "cycle duplicated a reserved ID or hid the undisputed saved name")
   local caption = env.BuffRadarConfig.themeBtn.navigation.value()
   assert(caption == "ElvUI", "settings narration treated the built-in as a saved color")
@@ -3005,6 +3012,208 @@ step("window palettes survive reload and profile round trips without masking sav
   X.DeleteProfile("PaletteRegression")
   db.customThemes = savedThemes
   slash("theme midnight")
+end)
+
+step("Auto theme opts in and uses exact loaded addon folders with stable priority", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local slash = env.SlashCmdList.BUFFRADAR
+  local prevModern, prevLegacy = env.C_AddOns, env.IsAddOnLoaded
+  local expected = {
+    { "ElvUI", "ui.elvui" }, { "EllesmereUI", "ui.ellesmereui" }, { "AnoUI", "ui.anoui" },
+    { "WicksUI", "ui.wicks" }, { "UltimateForeverUI", "ui.ultimateforever" }, { "ForeverForge_UI", "ui.foreverforge" },
+    { "DaylightUI", "ui.daylightui" }, { "MeredanUI", "ui.meredanui" }, { "NazgrelUI", "ui.nazgrelui" },
+    { "ReforgedUI", "ui.reforgedui" },
+  }
+  local ok, err = pcall(function()
+    local loaded = { ElvUI = true }
+    local queries = 0
+    env.IsAddOnLoaded = nil
+    env.C_AddOns = { IsAddOnLoaded = function(name) queries = queries + 1; return loaded[name] == true, loaded[name] == true end }
+    assert(X.SanitizeDB({}).theme == "midnight", "Auto replaced the default")
+    slash("theme midnight")
+    fire("ADDON_LOADED", "ElvUI")
+    assert(db.theme == "midnight" and queries == 0, "manual/default theme opted in or probed addons")
+    local n = #chat
+    slash("theme auto")
+    assert(db.theme == "ui.auto" and chatSince(n, "Theme: Auto (ElvUI)"), "slash alias did not select and describe Auto")
+    assert(#X.AUTO_THEME_ADDONS == #expected, "automatic addon catalog has unexpected entries")
+    for i, palette in ipairs(expected) do
+      local name, id = palette[1], palette[2]
+      assert(X.AUTO_THEME_ADDONS[i][1] == name and X.AUTO_THEME_ADDONS[i][2] == id,
+        "addon registry order or spelling is wrong at " .. i)
+      loaded = { [name] = true }
+      slash("theme ui.auto")
+      assert(X.autoThemeResolved == id and db.theme == "ui.auto", "exact folder was not recognized: " .. name)
+      local bg, border = X.ThemeBackground(), X.ThemeBorder()
+      for color = 1, 3 do
+        assert(bg[color] == X.THEMES[id].bg[color] and border[color] == X.THEMES[id].border[color],
+          "effective colors did not match " .. name)
+      end
+    end
+    loaded = { ReforgedUI = true, WicksUI = true, EllesmereUI = true }
+    slash("theme ui.auto")
+    assert(X.autoThemeResolved == "ui.ellesmereui", "loaded palette precedence depends on load order")
+    loaded = { ["elvui"] = true, ["ElvUI_Options"] = true, ["Wick's UI"] = true, ["ForeverForgeUI"] = true }
+    slash("theme ui.auto")
+    assert(X.autoThemeResolved == "midnight", "unregistered addon aliases matched")
+    for _, probe in ipairs({
+      function() return true, false end,
+      function() return true, nil end,
+      function() return false, true end,
+      function() error("fake query failure") end,
+    }) do
+      env.C_AddOns = { IsAddOnLoaded = probe }
+      slash("theme ui.auto")
+      assert(X.autoThemeResolved == "midnight", "unfinished or unreadable modern API result matched")
+    end
+    env.C_AddOns, env.IsAddOnLoaded = nil, nil
+    slash("theme ui.auto")
+    assert(X.autoThemeResolved == "midnight", "missing query APIs did not fall back")
+    env.IsAddOnLoaded = function(name) return name == "MeredanUI" and 1 or nil end
+    slash("theme ui.auto")
+    assert(X.autoThemeResolved == "ui.meredanui", "legacy success did not select the theme")
+    env.IsAddOnLoaded = function() error("fake legacy failure") end
+    slash("theme ui.auto")
+    assert(X.autoThemeResolved == "midnight", "legacy failure selected a palette")
+  end)
+  env.C_AddOns, env.IsAddOnLoaded = prevModern, prevLegacy
+  slash("theme midnight")
+  assert(ok, err)
+end)
+
+step("Auto theme follows startup and late addon loads while deferring window writes in combat", function()
+  local X = NS.X
+  local slash = env.SlashCmdList.BUFFRADAR
+  local prevModern, prevLegacy = env.C_AddOns, env.IsAddOnLoaded
+  local frame, prevBackdrop = env.BuffRadarFrame, env.BuffRadarFrame.SetBackdropColor
+  local wasOpen = env.BuffRadarConfig:IsShown()
+  local ok, err = pcall(function()
+    local writes, applied = 0, nil
+    frame.SetBackdropColor = function(self, r, g, b, a)
+      assert(not env.__combat, "Auto attempted an appearance write during combat")
+      writes = writes + 1
+      applied = { r, g, b, a }
+      return prevBackdrop(self, r, g, b, a)
+    end
+    local loaded = { WicksUI = true }
+    local checked = 0
+    env.C_AddOns = { IsAddOnLoaded = function(name)
+      checked = checked + 1
+      return loaded[name] == true, loaded[name] == true
+    end }
+    env.IsAddOnLoaded = nil
+    assert(driver.events.ADDON_LOADED, "addon driver unsubscribed from late addon loads")
+    env.BuffRadarDB.theme, env.BuffRadarDB.bgColor = "ui.auto", { 0.24, 0.25, 0.26 }
+    fire("ADDON_LOADED", "BuffRadar")
+    local db = env.BuffRadarDB
+    assert(db.theme == "ui.auto" and X.autoThemeResolved == "ui.wicks" and db.bgColor[1] == 0.24,
+      "startup did not restore Auto separately from manual colors")
+    X.OpenConfig(true)
+    assert(env.BuffRadarConfig.themeBtn.navigation.value() == "Auto (Wick's UI)",
+      "settings narration omitted the automatic palette")
+    local before = checked
+    fire("ADDON_LOADED", "ElvUI_Options")
+    assert(checked == before, "unrelated addon load recomputed Auto")
+    loaded.ElvUI = true
+    env.__combat = true
+    fire("PLAYER_REGEN_DISABLED")
+    before = writes
+    fire("ADDON_LOADED", "ElvUI")
+    assert(writes == before, "late addon load applied the theme during combat")
+    env.__combat = false
+    fire("PLAYER_REGEN_ENABLED")
+    assert(writes > before and applied[1] == 20 / 255 and frame.borderColor[1] == 96 / 255
+      and db.theme == "ui.auto" and X.autoThemeResolved == "ui.elvui",
+      "leaving combat did not apply the late loaded Auto palette")
+    slash("theme forest")
+    loaded.EllesmereUI = true
+    fire("ADDON_LOADED", "EllesmereUI")
+    assert(db.theme == "forest" and X.ThemeBackground()[1] == X.THEMES.forest.bg[1],
+      "late addon load overrode manual theme")
+  end)
+  frame.SetBackdropColor, env.__combat = prevBackdrop, false
+  env.C_AddOns, env.IsAddOnLoaded = prevModern, prevLegacy
+  slash("theme midnight")
+  if not wasOpen then env.BuffRadarConfig:Hide() end
+  assert(ok, err)
+end)
+
+step("Auto theme profile imports choose a local palette and keep historical saved Auto separate", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local slash = env.SlashCmdList.BUFFRADAR
+  local prevModern, prevLegacy, prevThemes = env.C_AddOns, env.IsAddOnLoaded, db.customThemes
+  local ok, err = pcall(function()
+    local loaded = "ElvUI"
+    env.C_AddOns = { IsAddOnLoaded = function(name) return name == loaded, name == loaded end }
+    env.IsAddOnLoaded = nil
+    db.customThemes = { { name = "Auto", bg = { 0.3, 0.2, 0.1 }, border = { 0.1, 0.2, 0.3 } } }
+    slash("theme auto")
+    assert(db.theme == "Auto" and X.ThemeBackground()[1] == 0.3 and X.ThemeBorder()[1] == 0.1,
+      "plain Auto stopped selecting a preexisting saved theme")
+    slash("theme ui.auto")
+    assert(db.theme == "ui.auto" and db.bgColor[1] == 0.3 and X.autoThemeResolved == "ui.elvui",
+      "explicit Auto did not preserve underlying manual color")
+    local br1 = assert(X.Export())
+    assert(br1:match("^BR1;") and X.SaveProfile("AutoPaletteRegression"), "could not save Auto profile")
+    local br2 = assert(X.ProfileShareText("AutoPaletteRegression"))
+    assert(br2:find("\nBR2;", 1, true), "Auto named profile did not use BR2")
+
+    loaded = "ReforgedUI"
+    slash("theme forest")
+    assert(X.Import(br1) and db.theme == "ui.auto" and db.bgColor[1] == 0.3
+      and X.autoThemeResolved == "ui.reforgedui" and X.ThemeBackground()[1] == 33 / 255,
+      "BR1 restored the sender's displayed palette instead of local Auto")
+    loaded = "DaylightUI"
+    slash("theme midnight")
+    X.DeleteProfile("AutoPaletteRegression")
+    assert(X.ProfileImport(br2) and X.LoadProfile("AutoPaletteRegression") and db.theme == "ui.auto"
+      and db.bgColor[1] == 0.3 and X.autoThemeResolved == "ui.daylightui" and X.ThemeBorder()[1] == 55 / 255,
+      "BR2 restored the sender's displayed palette instead of local Auto")
+  end)
+  env.C_AddOns, env.IsAddOnLoaded, db.customThemes = prevModern, prevLegacy, prevThemes
+  X.DeleteProfile("AutoPaletteRegression")
+  slash("theme midnight")
+  assert(ok, err)
+end)
+
+step("Auto theme save snapshots effective colors and cancel restores the prior selection", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local slash = env.SlashCmdList.BUFFRADAR
+  local prevModern, prevPicker, prevThemes = env.C_AddOns, env.ColorPickerFrame, db.customThemes
+  local wasOpen = env.BuffRadarConfig:IsShown()
+  local ok, err = pcall(function()
+    local loaded, picker = "AnoUI", nil
+    env.C_AddOns = { IsAddOnLoaded = function(name) return name == loaded, name == loaded end }
+    env.ColorPickerFrame = {
+      SetupColorPickerAndShow = function(_, args) picker = args end,
+      GetColorRGB = function() return 0.7, 0.6, 0.5 end,
+    }
+    db.customThemes = {}
+    slash("theme forest")
+    slash("theme ui.auto")
+    X.OpenConfig(true)
+    local swatch = env.BuffRadarConfig.swatch
+    swatch.scripts.OnClick(swatch)
+    assert(picker and picker.r == 24 / 255 and picker.g == 21 / 255 and picker.b == 31 / 255,
+      "color picker opened at the manual fallback instead of the displayed Auto colors")
+    picker.swatchFunc()
+    assert(db.theme == "custom" and db.bgColor[1] == 0.7, "manual color preview failed")
+    loaded = "MeredanUI"
+    fire("ADDON_LOADED", loaded)
+    picker.cancelFunc()
+    assert(db.theme == "ui.auto" and db.bgColor[1] == X.THEMES.forest.bg[1]
+      and X.ThemeBackground()[1] == 22 / 255, "picker cancel lost Auto or stale-copied the selected palette")
+    slash("theme save AutoCopy")
+    assert(db.theme == "AutoCopy" and db.bgColor[1] == 22 / 255 and X.ThemeBorder()[1] == 97 / 255,
+      "saving Auto used underlying settings instead of effective background and border")
+    loaded = "ElvUI"
+    fire("ADDON_LOADED", loaded)
+    assert(db.theme == "AutoCopy" and X.ThemeBackground()[1] == 22 / 255, "saved Auto snapshot still follows addons")
+  end)
+  env.C_AddOns, env.ColorPickerFrame, db.customThemes = prevModern, prevPicker, prevThemes
+  slash("theme midnight")
+  if not wasOpen then env.BuffRadarConfig:Hide() end
+  assert(ok, err)
 end)
 
 step("combat always hides the list and restores it afterward", function()
@@ -5110,7 +5319,8 @@ step("setup wizard walks a new user through (1.9.0)", function()
   assert(db.groupOnly == true, "party preset did not set groupOnly")
   assert(w.page == 2, "wizard did not advance to page 2")
   -- Page 2: the theme button cycles the theme.
-  for _, label in ipairs({ "ElvUI", "EllesmereUI", "AnoUI+", "Wick's UI", "Ultimate Forever UI", "ForeverForge UI" }) do
+  for _, label in ipairs({ "ElvUI", "EllesmereUI", "AnoUI+", "Wick's UI", "Ultimate Forever UI", "ForeverForge UI",
+      "DaylightUI", "MeredanUI", "NazgrelUI", "Reforged UI", "Auto (Midnight)" }) do
     w.choice[1].scripts.OnClick(w.choice[1])
     assert(w.choice[1]:GetText() == "Theme: " .. label, "wizard skipped or mislabeled " .. label)
   end
