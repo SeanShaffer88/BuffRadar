@@ -53,7 +53,7 @@ then — just run `-Setup` again.
 | **Trial run** (`smoke51.py` + `wowstub.lua`) | Errors while running: loads the addon into a fake game client, logs in, fires game events, runs every `/br` command, clicks every settings control, and checks the behavior added in 1.3.2, 1.4.0, 1.5.0, 1.6.0 and 1.7.0 (coverage, rezzed priority, session ignore, announce, ready check, expiry flag, low-mana pause, distance sort, spec profiles, export/import, compact rows, per-character position, post-combat flash, SavedVariables migration, cast sync, chat requests, join digest, role filter, toggle strip, need sort, phase skip, idle fade, named profiles, drop alert, coverage cooldown note, flight-path pause, resetpos, all-buffed pill, cast queue tag, shipped presets, consumables watch, custom watched spells, buff assignments, buddy split, blessing planner, coverage uptime, auto profiles, cover-me handoff, ready-check auto-post, coverage roster line, pin a player, tooltip remaining times, weapon enchant watch, instance-entry reminder, group expiry warning, cast history, scan throttle). Runs six setups: retail (modern client, older timer, no UI templates, German client) and Forever (two). |
 | **Translations** (`localecheck.py`) | Each `Locales\*.lua` against BuffRadar's English text: keys BuffRadar doesn't use (typos, outdated text) and `%d` / `%s` / color codes that differ — both fail the check. Untranslated lines are only listed. |
 | **Forever package** | If a ZIP for the current version exists in `dist\`, checks its bytes against the current source, TOC metadata, declared Lua load order, and XML bindings in a Forever mock. CI builds and checks the archive on every PR. |
-| **Two-client coordination** (`coordination51.py`) | Loads two independent Forever mock clients. Relays the addon messages they actually send and checks plan review and acceptance, cast sync, and stale plan or acknowledgement delivery across roster and leadership changes. |
+| **Two-client coordination** (`coordination51.py`) | Loads two independent Forever mock clients. Relays their real plan, cast, and session-proof packets. Checks plan acceptance, bidirectional cast sync, and replay rejection across roster and leadership changes. |
 
 ## Limits of the fake game client
 
@@ -66,8 +66,10 @@ The two-client harness controls message order and duplicates in memory.
 Its assertions cover the addon’s handling of those messages. The harness
 does not exercise the game’s channel delivery or protected casting.
 
-Run the two-client command with `--probe-full-replay` after the two file
-arguments to check a known protocol limitation. After a same-leader roster
-change and a fresh opt-in, replaying the old request and plan together can
-restore the pending plan. The probe exits 1 when it reproduces that behavior.
-The regular gate tests duplicate packets and delayed plans and acknowledgements.
+The regular gate replays old requests and plans together after re-opt-in. It
+also replays cast packets and session proofs with the original caster and
+target still in the group, then verifies that fresh messages work.
+
+Forever caster plans and cast sync require both clients to use the scoped
+protocol. Upgraded clients ignore unscoped requests, plans, and casts sent by
+older versions. Other group messages still use their existing formats.

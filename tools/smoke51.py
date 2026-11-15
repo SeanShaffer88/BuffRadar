@@ -1901,8 +1901,37 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
     env.GetNumGroupMembers = function() return 3 end
     env.UnitIsGroupAssistant = function() return false end
     env.UnitIsGroupLeader = function(unit) return unit == "party1" end
+    local peers, nextEpoch = {}, 0
+    local function scopedPayload(packet)
+      return packet:match("^SYNC;2;D;[^;]+;[^;]+;%d+;(.+)$")
+    end
     local function inbound(message, source, channel)
-      fire("CHAT_MSG_ADDON", "BuffRadar", "COORD;1;" .. message, channel or "PARTY", source or "Aaron-TestRealm")
+      source, channel = source or "Aaron-TestRealm", channel or "PARTY"
+      -- Derive the current scope from real outbound data and act as a single mock peer.
+      -- The two-client suite captures actual proof packets and tests both runtimes.
+      local me = O.UnitGUID("player")
+      local before = #env.__addonSent
+      X.SyncSend("FORTITUDE", me)
+      assert(#env.__addonSent == before + 1, "could not obtain current scope from a cast")
+      local digest = table.remove(env.__addonSent).msg:match("^SYNC;2;D;([^;]+);")
+      assert(digest, "outbound scope was missing")
+      local peer = peers[source]
+      if not peer or peer.digest ~= digest then
+        nextEpoch = nextEpoch + 1
+        peer = { digest = digest, epoch = string.format("%024x", nextEpoch), seq = 0 }
+        peers[source] = peer
+      end
+      peer.seq = peer.seq + 1
+      fire("CHAT_MSG_ADDON", "BuffRadar",
+        string.format("SYNC;2;D;%s;%s;%d;COORD;1;%s", digest, peer.epoch, peer.seq, message), channel, source)
+      local reply = env.__addonSent[before + 1]
+      local challenge = reply and reply.msg:match("^SYNC;2;Q;[^;]+;[^;]+;([^;]+);")
+      if challenge then
+        assert(channel == "PARTY", "wrong-channel request received a scope challenge")
+        table.remove(env.__addonSent, before + 1)
+        fire("CHAT_MSG_ADDON", "BuffRadar",
+          string.format("SYNC;2;P;%s;%s;%s;%s", digest, peer.epoch, challenge, me), channel, source)
+      end
     end
     local sent = #env.__addonSent
     inbound("REQ;1.1")
@@ -1928,7 +1957,7 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
     assert(#env.__addonSent == sent + 1, "unreviewed plan was acknowledged")
     slash("coordinate inbox")
     slash("coordinate accept")
-    assert(#env.__addonSent == sent + 2 and env.__addonSent[sent + 2].msg == "COORD;1;ACK;10.2",
+    assert(#env.__addonSent == sent + 2 and scopedPayload(env.__addonSent[sent + 2].msg) == "COORD;1;ACK;10.2",
       "accepted plan did not acknowledge the exact revision")
     assert(X.CoordinatedHolder("FORTITUDE") and not X.assign.FORTITUDE,
       "accepted duty did not remain isolated from manual assignments: " .. tostring(X.CoordinatedHolder("FORTITUDE") or nil)
@@ -1964,7 +1993,7 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
     env.UnitIsGroupAssistant = function() return false end
     slash("coordinate on")
     slash("coordinate request")
-    local request = env.__addonSent[#env.__addonSent].msg:match("^COORD;1;REQ;(.+)$")
+    local request = scopedPayload(env.__addonSent[#env.__addonSent].msg):match("^COORD;1;REQ;(.+)$")
     assert(request, "leader could not request reports")
     inbound("REPORT;" .. request .. ";" .. guid .. ";ARCANE_INTELLECT")
     X.assign.FORTITUDE = "Zed-TestRealm"
@@ -1980,7 +2009,7 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
       "reviewed plan did not route learned buff to its reporting caster")
     assert(not X.CoordinatedHolder("FORTITUDE") and X.assign.FORTITUDE == "Zed-TestRealm",
       "published plan overwrote a manual duty")
-    local revision = plan.msg:match("^COORD;1;PLAN;[%d.]+;([%d.]+);")
+    local revision = scopedPayload(plan.msg):match("^COORD;1;PLAN;[%d.]+;([%d.]+);")
     inbound("ACK;" .. revision, "Zed-TestRealm")
     slash("coordinate status")
     assert(chat[#chat]:find("Awaiting acknowledgement", 1, true), "unassigned member forged an acknowledgement")

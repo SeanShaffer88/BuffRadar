@@ -4621,7 +4621,8 @@ end
 -- Tell the other BuffRadar users in the group "I just cast KEY on GUID",
 -- so their lists sink that player instead of double-casting the same buff.
 function X.SyncSend(key, guid)
-  X.Broadcast("CAST;" .. key .. ";" .. guid)
+  local message = "CAST;" .. key .. ";" .. guid
+  if CLASSIC_FEATURES then X.SendScopedSync(message) else X.Broadcast(message) end
 end
 
 -- Cover-me handoff (1.7.0): while you're dead or AFK, tell the other
@@ -4785,9 +4786,23 @@ do
     X.handled[guid] = { key = key, t = now }
   end
 
+  local function OtherSyncSender(sender, channel)
+    local unit, name = X.SenderUnit(sender)
+    if not unit or unit == "player" then return end
+    local me, senderKey = RosterNames("player"), Ignore.Key(name)
+    if me and senderKey == Ignore.Key(me) then return end
+    if channel == "RAID" then
+      local isSelf = X.IsSelf(unit)
+      if isSelf == true or (isSelf == nil and not me) then return end
+    end
+    return unit, name, senderKey, me
+  end
+
   do
     local active, sequence, generation, token = nil, 0, 0, 0
     local resetReason
+    local scope, nonceSerial
+    local retired, retirementOrder, retirementSlot = {}, {}, 1
     local statusLabels = { sent = "Awaiting acknowledgement", acknowledged = "Acknowledged",
       failed = "Send failed", localOnly = "Assigned locally" }
 
@@ -4809,8 +4824,9 @@ do
     end
 
     local function CoordinationRoster()
-      if not SyncChannel() then return end
-      local members, ids = {}, {}
+      local channel = SyncChannel()
+      if not channel then return end
+      local members, ids, leaders = {}, {}, 0
       local size = X.ReadUnitNumber(GetNumGroupMembers)
       X.ForReportRoster(function(unit, exists)
         local guid = exists and CoordinationGUID(unit)
@@ -4819,18 +4835,76 @@ do
         if rank ~= nil and not members[guid] then
           members[guid] = { name = name, unit = unit }
           ids[#ids + 1] = guid .. "=" .. rank
+          if rank == 2 then leaders = leaders + 1 end
         end
       end)
-      if size ~= #ids or #ids == 0 then return end
+      if size ~= #ids or leaders ~= 1 then return end
       table_sort(ids)
-      return members, SyncChannel() .. ":" .. table.concat(ids, ",")
+      return members, channel .. ":" .. table.concat(ids, ",")
+    end
+
+    local function SyncDigest(identity)
+      local first, second = 0, 0
+      for i = 1, #identity do
+        local byte = identity:byte(i)
+        first = (first * 131 + byte) % 2147483647
+        second = (second * 137 + byte) % 2147483629
+      end
+      return string_format("%08x%08x", first, second)
+    end
+
+    local function NewSyncNonce()
+      nonceSerial = (nonceSerial or 0) + 1
+      return string_format("%06x%06x%06x%06x", math.random(0, 0xffffff), math.random(0, 0xffffff),
+        math_floor(GetTime() * 1000) % 0x1000000, nonceSerial % 0x1000000)
+    end
+
+    local function RetireSyncEpoch(guid, epoch)
+      if not epoch then return end
+      local key = guid .. ":" .. epoch
+      if retired[key] then return end
+      local oldest = retirementOrder[retirementSlot]
+      if oldest then retired[oldest] = nil end
+      retired[key] = true
+      retirementOrder[retirementSlot] = key
+      retirementSlot = retirementSlot % 160 + 1
+    end
+
+    local function UpdateSyncScope(force)
+      if not CLASSIC_FEATURES then return end
+      local members, identity = CoordinationRoster()
+      if scope and scope.identity == identity and not force then return scope, members end
+      if scope then
+        -- Remember epochs seen in the last scope in case this roster returns.
+        for guid, peer in pairs(scope.peers) do
+          RetireSyncEpoch(guid, peer.epoch)
+          if peer.observed then
+            for _, epoch in ipairs(peer.observed) do RetireSyncEpoch(guid, epoch) end
+          end
+        end
+        wipe(X.handled)
+      end
+      if active and (force or active.identity ~= identity) then SetSession(nil, true) end
+      scope = identity and { identity = identity, digest = SyncDigest(identity), epoch = NewSyncNonce(),
+        seq = 0, peers = {} } or nil
+      return scope, members
+    end
+
+    function X.SendScopedSync(payload)
+      if not db or not db.sync then return false end
+      local current = UpdateSyncScope()
+      if not current then return false end
+      local seq = current.seq + 1
+      local message = "SYNC;2;D;" .. current.digest .. ";" .. current.epoch .. ";" .. seq .. ";" .. payload
+      if #message > 255 or not X.Broadcast(message) then return false end
+      current.seq = seq
+      return true
     end
 
     local function Session()
       if not active then return end
       if not db or not db.sync then SetSession(nil); return end
-      local members, identity = CoordinationRoster()
-      if not identity or active.identity ~= identity then SetSession(nil, true); return end
+      local _, members = UpdateSyncScope()
       return active, members
     end
 
@@ -4872,7 +4946,7 @@ do
       local message = "COORD;1;" .. kind .. ";" .. id
       if recipient then message = message .. ";" .. recipient end
       if list then message = message .. ";" .. (list ~= "" and list or "-") end
-      return #message <= 255 and X.Broadcast(message)
+      return X.SendScopedSync(message)
     end
 
     local function NextCoordID()
@@ -5067,8 +5141,9 @@ do
       end
     end
 
-    function X.OnCoordinationRoster(leaderChanged)
-      if leaderChanged and active then SetSession(nil, true) else Session() end
+    function X.OnCoordinationRoster(force)
+      UpdateSyncScope(force)
+      if active and (not db or not db.sync) then SetSession(nil) end
       if X.QueueCoordinationRefresh then X.QueueCoordinationRefresh() end
     end
 
@@ -5098,9 +5173,9 @@ do
         Print(L["Caster Coordination needs cast sync and a group outside combat."]); return
       end
       if command == "on" then
-        local _, identity = CoordinationRoster()
-        if not identity then Print(L["Roster information is unavailable."]); return end
-        SetSession({ identity = identity, reports = {}, replies = {}, requested = {} })
+        local current = UpdateSyncScope()
+        if not current then Print(L["Roster information is unavailable."]); return end
+        SetSession({ identity = current.identity, reports = {}, replies = {}, requested = {} })
         Print(L["Caster Coordination is on for this group."]); return
       end
       local session, members = Session()
@@ -5212,9 +5287,122 @@ do
       NotifyCoordination()
     end
 
-    function X.HandleCoordinationMessage(version, body, unit, name, now)
-      if CLASSIC_FEATURES and version == "1" and not InCombatLockdown() and not X.PlayerSuspended() then
-        OnCoordMessage(body, unit, name, now)
+    local function ScopedPayload(payload)
+      local first, guid = payload:match("^CAST;([%w_]+);([%a]+%-%w[%w%-]*)$")
+      if guid and #guid <= 85 and ValidBuffKey(first) then return first, guid end
+      local body = payload:match("^COORD;1(;.+)$")
+      if body and active and not InCombatLockdown() and not X.PlayerSuspended() then
+        return body
+      end
+    end
+
+    local function ApplyScopedPacket(packet, unit, name, senderKey, now)
+      local first, guid = ScopedPayload(packet.payload)
+      if not first then return end
+      if guid then
+        RememberCast(guid, first, now)
+        local presence = X.peers[senderKey] or {}
+        presence.t, presence.name = now, name
+        X.peers[senderKey] = presence
+        if QueueRefresh then QueueRefresh() end
+      elseif packet.generation == generation then
+        OnCoordMessage(first, unit, name, now)
+      end
+    end
+
+    local function SyncControl(kind, current, epoch, challenge, target)
+      return X.Broadcast("SYNC;2;" .. kind .. ";" .. current.digest .. ";" .. epoch .. ";" .. challenge .. ";" .. target)
+    end
+
+    local function NewSyncSequence(window, seq)
+      -- Broadcast plan rows can arrive out of order. A fixed receive window
+      -- accepts that reordering without replaying a previously seen packet.
+      local slot = seq % 32
+      if seq <= window.high - 32 or window[slot] == seq then return false end
+      window.high = math_max(window.high, seq)
+      window[slot] = seq
+      return true
+    end
+
+    local function FindSyncPending(peer, epoch, now)
+      if not peer or not peer.pending then return end
+      for i = #peer.pending, 1, -1 do
+        local pending = peer.pending[i]
+        if now > pending.expires then
+          table.remove(peer.pending, i)
+        elseif pending.epoch == epoch then
+          return pending
+        end
+      end
+    end
+
+    local function ObserveSyncEpoch(peer, epoch)
+      local observed = peer.observed or {}
+      for _, previous in ipairs(observed) do if previous == epoch then return end end
+      if #observed >= 4 then table.remove(observed, 1) end
+      observed[#observed + 1] = epoch
+      peer.observed = observed
+    end
+
+    function X.HandleScopedSync(version, rest, channel, source, now)
+      if not CLASSIC_FEATURES or version ~= "2" then return end
+      local kind, digest, epoch, field, payload = rest:match("^;([DQP]);([%da-f]+);([%da-f]+);([^;]+);(.+)$")
+      if not kind or #digest ~= 16 or #epoch ~= 24 then return end
+      local me = CoordinationGUID("player")
+      if not me then return end
+      if kind ~= "D" and (payload ~= me or #field ~= 24 or not field:match("^[%da-f]+$")) then return end
+      local unit, name, senderKey = OtherSyncSender(source, channel)
+      local sender = unit and CoordinationGUID(unit)
+      if not sender then return end
+      local current, members = UpdateSyncScope()
+      if not current or current.digest ~= digest or not members[sender] or not members[me] then return end
+      local peer = current.peers[sender]
+      if kind ~= "D" then
+        if kind == "Q" then
+          if epoch == current.epoch and (not peer or peer.answered ~= field)
+            and SyncControl("P", current, epoch, field, sender) then
+            peer = peer or {}
+            peer.answered = field
+            current.peers[sender] = peer
+          end
+          return
+        end
+        local pending = FindSyncPending(peer, epoch, now)
+        if not pending or pending.challenge ~= field then return end
+        if retired[sender .. ":" .. epoch] then return end
+        RetireSyncEpoch(sender, peer.epoch)
+        peer.epoch, peer.window, peer.pending = epoch, pending.window, nil
+        table_sort(pending.packets, function(a, b) return a.seq < b.seq end)
+        for _, packet in ipairs(pending.packets) do
+          ApplyScopedPacket(packet, unit, name, senderKey, now)
+        end
+      else
+        if #field > 10 or not field:match("^[1-9]%d*$") or not ScopedPayload(payload)
+          or retired[sender .. ":" .. epoch] then return end
+        local seq = tonumber(field)
+        local packet = { payload = payload, generation = generation, seq = seq }
+        if peer and peer.epoch == epoch then
+          if not NewSyncSequence(peer.window, seq) then return end
+          ApplyScopedPacket(packet, unit, name, senderKey, now)
+        else
+          peer = peer or {}
+          local pending = FindSyncPending(peer, epoch, now)
+          if not pending then
+            -- An unknown epoch has to answer a fresh challenge before its
+            -- queued packets can affect the current scope.
+            local challenge = NewSyncNonce()
+            if not SyncControl("Q", current, epoch, challenge, sender) then return end
+            pending = { epoch = epoch, challenge = challenge, expires = now + 5, window = { high = 0 }, packets = {} }
+            peer.pending = peer.pending or {}
+            if #peer.pending >= 2 then table.remove(peer.pending, 1) end
+            peer.pending[#peer.pending + 1] = pending
+            current.peers[sender] = peer
+            ObserveSyncEpoch(peer, epoch)
+          end
+          if #pending.packets >= 8 or not NewSyncSequence(pending.window, seq) then return end
+          pending.packets[#pending.packets + 1] = packet
+          return
+        end
       end
     end
   end
@@ -5225,21 +5413,16 @@ do
     if not ReadText(msg) or #msg > 255 then return end
     local kind, first, rest = msg:match("^([A-Z]+);([^;]+)(.*)$")
     if not kind then return end
-    local unit, name = X.SenderUnit(sender)
-    if not unit then return end
-    local me = RosterNames("player")
-    local senderKey = Ignore.Key(name)
-    if unit == "player" or (me and senderKey == Ignore.Key(me)) then return end
-    if channel == "RAID" then
-      local isSelf = X.IsSelf(unit)
-      if isSelf == true or (isSelf == nil and not me) then return end
+    local now = GetTime()
+    if kind == "SYNC" then
+      X.HandleScopedSync(first, rest, channel, sender, now)
+      return
     end
 
-    local now = GetTime()
-    if kind == "COORD" then
-      X.HandleCoordinationMessage(first, rest, unit, name, now)
-      return
-    elseif kind == "CAST" then
+    local unit, name, senderKey, me = OtherSyncSender(sender, channel)
+    if not unit then return end
+    if kind == "CAST" then
+      if CLASSIC_FEATURES then return end
       local guid = rest:match("^;([%a]+%-%w[%w%-]*)$")
       if not guid or #guid > 85 or not ValidBuffKey(first) then return end
       RememberCast(guid, first, now)
@@ -8809,7 +8992,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if X.QueueAssignmentPreviewRefresh then X.QueueAssignmentPreviewRefresh() end
     return
   elseif event == "GROUP_LEFT" then
-    X.OnCoordinationRoster()
+    X.OnCoordinationRoster(true)
     if not InGroup() and X.CloseRaidPreparation then X.CloseRaidPreparation() end
     if not InRaid() then X.subgroupDuties = nil end
     local size = X.ReadUnitNumber(GetNumGroupMembers)
@@ -8874,6 +9057,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     return
   end
   if event == "PLAYER_ENTERING_WORLD" then
+    X.OnCoordinationRoster()
     X.ResetCastTracking()
     X.ClearReadyCheck()
     X.UpdatePlayerLife(event)

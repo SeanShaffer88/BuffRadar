@@ -1,7 +1,7 @@
 """Run two isolated Forever addon clients over an explicit offline message bus."""
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from lupa import lua51
@@ -19,9 +19,10 @@ CLIENT = r"""function(name, guid)
   local ns, driver = {}, nil
   local units = { player = { name, guid } }
   local leader, now = name, 1000
-  local function configure(other, otherGUID, third, newLeader, clock)
+  local function configure(other, otherGUID, third, newLeader, clock, fourth)
     units.party1 = { other, otherGUID }
     units.party2 = third and { "Tara", "Player-1-0003" } or nil
+    units.party3 = fourth and { "Wren", "Player-1-0004" } or nil
     leader, now = newLeader, clock
   end
   local over = env.__over
@@ -34,11 +35,13 @@ CLIENT = r"""function(name, guid)
     if units[unit] then return units[unit][1], "TestRealm" end
   end
   over.UnitClass = function(unit)
-    if unit == "party2" then return "Warrior", "WARRIOR" end
+    if unit == "party2" or unit == "party3" then return "Warrior", "WARRIOR" end
     if units[unit] then return "Priest", "PRIEST" end
   end
   env.IsInGroup = function() return units.party1 ~= nil end
-  env.GetNumGroupMembers = function() return units.party2 and 3 or units.party1 and 2 or 0 end
+  env.GetNumGroupMembers = function()
+    return units.party3 and 4 or units.party2 and 3 or units.party1 and 2 or 0
+  end
   env.UnitIsGroupLeader = function(unit) return units[unit] ~= nil and units[unit][1] == leader end
   env.UnitIsGroupAssistant = function() return false end
   env.IsSpellInRange = function() return 1 end
@@ -148,6 +151,7 @@ def forever_sources(addon):
 class Client:
     def __init__(self, stub, sources, name, guid):
         self.name, self.guid = name, guid
+        self.outbox = []
         self.lua = lua51.LuaRuntime(unpack_returned_tuples=True)
         self.lua.execute(stub)
         self.api = self.lua.eval(CLIENT)(name, guid)
@@ -168,6 +172,13 @@ class Packet:
     message: str
     channel: str
 
+    @property
+    def body(self):
+        parts = self.message.split(";", 6)
+        check(parts[:3] == ["SYNC", "2", "D"] and len(parts) == 7,
+              f"expected scoped data packet, got {self}")
+        return parts[6]
+
 
 class Party:
     def __init__(self, stub, sources, third=False):
@@ -178,32 +189,60 @@ class Party:
             client.api.start()
             client.api.drain()
 
-    def update(self, leader, third, clock, event=None):
+    def update(self, leader, third, clock, event=None, fourth=False, clients=None):
+        clients = (self.a, self.b) if clients is None else clients
         for local, remote in ((self.a, self.b), (self.b, self.a)):
-            local.api.configure(remote.name, remote.guid, third, leader.name, clock)
-        if event:
-            for client in (self.a, self.b):
-                client.api.fire(event)
-                client.api.drain()  # Ignore independent presence notifications.
+            if local in clients:
+                local.api.configure(remote.name, remote.guid, third, leader.name, clock, fourth)
+                if event:
+                    local.api.fire(event)
+                    local.api.drain()  # Ignore independent presence notifications.
 
     @staticmethod
-    def capture(client):
+    def drain(client):
         sent = client.api.drain()
         return [Packet(client.name + "-TestRealm", msg.prefix, msg.msg, msg.channel)
                 for msg in (sent[i] for i in range(1, len(sent) + 1))]
 
+    @staticmethod
+    def capture(client):
+        packets = client.outbox + Party.drain(client)
+        client.outbox = []
+        return packets
+
     def packet(self, client, start):
         packets = self.capture(client)
-        check(len(packets) == 1 and packets[0].message.startswith(start),
+        check(len(packets) == 1 and packets[0].body.startswith(start),
               f"{client.name} should send exactly one {start} packet, got {packets}")
         packet = packets[0]
-        check((packet.prefix, packet.channel) == ("BuffRadar", "PARTY"),
+        check((packet.prefix, packet.channel) == ("BuffRadar", "PARTY")
+              and len(packet.message) <= 255,
               f"bad packet envelope: {packet}")
         return packet
 
     @staticmethod
     def deliver(packet, client):
         client.api.fire("CHAT_MSG_ADDON", packet.prefix, packet.message, packet.channel, packet.sender)
+
+    def exchange(self, packet, receiver):
+        """Deliver a data packet and carry its challenge and proof if required."""
+        sender = next(client for client in (self.a, self.b) if packet.sender == client.name + "-TestRealm")
+        self.deliver(packet, receiver)
+        outgoing = self.drain(receiver)
+        questions = [reply for reply in outgoing if reply.message.startswith("SYNC;2;Q;")]
+        receiver.outbox.extend(reply for reply in outgoing if reply not in questions)
+        if not questions:
+            return []
+        check(len(questions) == 1, "one data packet produced more than one challenge")
+        question = questions[0]
+        self.deliver(question, sender)
+        outgoing = self.drain(sender)
+        proofs = [reply for reply in outgoing if reply.message.startswith("SYNC;2;P;")]
+        sender.outbox.extend(reply for reply in outgoing if reply not in proofs)
+        check(len(proofs) <= 1, "one challenge produced more than one proof")
+        for proof in proofs:
+            self.deliver(proof, receiver)
+        return questions + proofs
 
     @staticmethod
     def opt_in(leader, caster):
@@ -223,12 +262,12 @@ def member_status(leader, caster):
 def publish_plan(party, leader, caster):
     leader.action("request")
     request = party.packet(leader, "COORD;1;REQ;")
-    party.deliver(request, caster)
+    party.exchange(request, caster)
     report = party.packet(caster, "COORD;1;REPORT;")
-    request_id = request.message.split(";")[-1]
-    check(report.message == f"COORD;1;REPORT;{request_id};{leader.guid};FORTITUDE",
+    request_id = request.body.split(";")[-1]
+    check(report.body == f"COORD;1;REPORT;{request_id};{leader.guid};FORTITUDE",
           f"caster report did not bind learned Fortitude to leader request: {report}")
-    party.deliver(report, leader)
+    party.exchange(report, leader)
     leader.action("publish")
     check(not party.capture(leader), "leader published before review")
     leader.action("review")
@@ -237,7 +276,7 @@ def publish_plan(party, leader, caster):
           "review did not produce a publishable draft")
     leader.action("publish")
     plan = party.packet(leader, f"COORD;1;PLAN;{request_id};")
-    check(plan.message.endswith(f";{caster.guid};FORTITUDE"), f"bad plan recipient or buffs: {plan}")
+    check(plan.body.endswith(f";{caster.guid};FORTITUDE"), f"bad plan recipient or buffs: {plan}")
     check(member_status(leader, caster) == "sent", "leader did not await peer acknowledgement")
     check(not caster.snapshot().pending and not caster.api.holder("FORTITUDE"),
           "peer state changed before receiving PLAN")
@@ -245,9 +284,9 @@ def publish_plan(party, leader, caster):
 
 
 def accept_plan(party, leader, caster, plan):
-    party.deliver(plan, caster)
+    party.exchange(plan, caster)
     pending = caster.snapshot().pending
-    revision = plan.message.split(";")[4]
+    revision = plan.body.split(";")[4]
     check(pending and pending.revision == revision and len(pending["keys"]) == 1
           and pending["keys"][1] == "FORTITUDE"
           and not pending.reviewed and not caster.api.holder("FORTITUDE"),
@@ -260,11 +299,11 @@ def accept_plan(party, leader, caster, plan):
           and not caster.api.holder("FORTITUDE"), "inbox review incorrectly accepted the duty")
     caster.action("accept")
     ack = party.packet(caster, f"COORD;1;ACK;{revision}")
-    check(ack.message == f"COORD;1;ACK;{revision}", "ACK did not identify the exact plan")
+    check(ack.body == f"COORD;1;ACK;{revision}", "ACK did not identify the exact plan")
     check(not caster.snapshot().pending and caster.api.holder("FORTITUDE") == caster.name + "-TestRealm"
           and not caster.api.manualHolder("FORTITUDE"), "acceptance failed or changed manual assignment")
     check(member_status(leader, caster) == "sent", "leader acknowledged before ACK delivery")
-    party.deliver(ack, leader)
+    party.exchange(ack, leader)
     check(member_status(leader, caster) == "acknowledged", "leader did not observe delivered ACK")
     return ack
 
@@ -275,7 +314,7 @@ def coordination(stub, sources):
     leader.api.buffers(False, True)
     leader.action("on")
     leader.action("request")
-    party.deliver(party.packet(leader, "COORD;1;REQ;"), caster)
+    party.exchange(party.packet(leader, "COORD;1;REQ;"), caster)
     check(not party.capture(caster), "opted-out caster sent a report")
     print("PASS: opted-out caster ignores leader report request")
     party.update(leader, False, 1011)
@@ -309,18 +348,107 @@ def cast_sync(stub, sources):
         check(receiver.api.row("party2") == (True, False), "receiver target initially missing or already handled")
         sender.api.cast("party2", f"Cast-1-{index}")
         packet = party.packet(sender, "CAST;")
-        check(packet.message == "CAST;FORTITUDE;Player-1-0003", f"incorrect cast packet: {packet}")
+        check(packet.body == "CAST;FORTITUDE;Player-1-0003", f"incorrect cast packet: {packet}")
         check(receiver.api.handledAt("Player-1-0003", "FORTITUDE") != now,
               "receiver already knew about cast before delivery")
-        party.deliver(packet, receiver)
+        party.exchange(packet, receiver)
         check(receiver.api.handledAt("Player-1-0003", "FORTITUDE") == now,
               "receiver did not record synced Fortitude on the exact target")
         receiver.api.refresh()
         check(receiver.api.row("party2") == (True, True), "receiver did not mark the target as being buffed")
+        party.update(party.a, True, now + 1)
+        party.deliver(packet, receiver)
+        check(receiver.api.handledAt("Player-1-0003", "FORTITUDE") == now
+              and not party.capture(receiver), "duplicate CAST refreshed the handled timer")
         print(f"PASS: {sender.name} to {receiver.name} row cast publishes and marks the target handled")
 
 
-def stale_messages(stub, sources, leader_changes=False, probe=False):
+def stale_cast(stub, sources, boundary):
+    party = Party(stub, sources, third=True)
+    sender, receiver = party.a, party.b
+    for client in (sender, receiver):
+        client.api.buffers(True, False)
+
+    def mark():
+        return receiver.api.handledAt("Player-1-0003", "FORTITUDE")
+
+    def cast(label):
+        sender.api.refresh()
+        sender.api.cast("party2", "Cast-1-" + label)
+        return party.packet(sender, "CAST;")
+
+    old = cast("first")
+    party.deliver(old, receiver)
+    questions = party.capture(receiver)
+    check(len(questions) == 1 and questions[0].message.startswith("SYNC;2;Q;") and mark() is None,
+          "first CAST reached application state before proof")
+    old_query = questions[0]
+    party.deliver(old_query, sender)
+    proofs = party.capture(sender)
+    check(len(proofs) == 1 and proofs[0].message.startswith("SYNC;2;P;"), "scope proof was missing")
+    old_proof = proofs[0]
+    fields = old_proof.message.split(";")
+    fields[5] = ("1" if fields[5][0] == "0" else "0") + fields[5][1:]
+    party.deliver(replace(old_proof, message=";".join(fields)), receiver)
+    check(mark() is None, "proof for a different challenge applied the cast")
+    party.deliver(old_proof, receiver)
+    check(mark() == 1000, "first CAST did not apply after scope proof")
+    party.update(sender, True, 1000, "GROUP_ROSTER_UPDATE")
+    check(mark() == 1000, "identical roster notification cleared a current cast")
+    delayed = cast("delayed")
+    if boundary == "leader":
+        leader, fourth = receiver, False
+        party.update(leader, True, 1001, "PARTY_LEADER_CHANGED")
+    elif boundary == "roster":
+        leader, fourth = sender, True
+        party.update(leader, True, 1001, "GROUP_ROSTER_UPDATE", fourth=True)
+    else:
+        leader, fourth = sender, False
+        party.update(leader, True, 1001, "GROUP_ROSTER_UPDATE", fourth=True, clients=(receiver,))
+        party.update(leader, True, 1002, "GROUP_ROSTER_UPDATE", clients=(receiver,))
+    check(mark() is None, f"{boundary}: previously delivered cast survived a boundary")
+
+    party.deliver(old_query, sender)
+    party.capture(sender)  # A sender that missed the round trip can still echo an old query.
+    party.deliver(old_proof, receiver)
+    party.exchange(delayed, receiver)
+    check(mark() is None and not party.capture(receiver),
+          f"{boundary}: delayed CAST or scope proof revived a handled mark")
+    if boundary == "asymmetric roster round trip":
+        party.update(leader, True, 1001, "GROUP_ROSTER_UPDATE", fourth=True, clients=(sender,))
+        party.update(leader, True, 1002, "GROUP_ROSTER_UPDATE", clients=(sender,))
+
+    party.update(leader, True, 1003, fourth=fourth)
+    fresh = cast("fresh")
+    party.exchange(fresh, receiver)
+    check(mark() == 1003, f"{boundary}: fresh cast for the same player was lost")
+    print(f"PASS: {boundary} clears cast marks and rejects delayed CAST and proof before fresh cast")
+
+
+def unseen_epoch_after_round_trip(stub, sources):
+    party = Party(stub, sources, third=True)
+    sender, receiver = party.a, party.b
+    sender.api.buffers(True, False)
+    sender.api.refresh()
+    sender.api.cast("party2", "Cast-1-unseen")
+    delayed = party.packet(sender, "CAST;")
+    party.update(sender, True, 1001, "GROUP_ROSTER_UPDATE", fourth=True)
+    party.update(sender, True, 1002, "GROUP_ROSTER_UPDATE")
+
+    controls = party.exchange(delayed, receiver)
+    check(len(controls) == 1 and controls[0].message.startswith("SYNC;2;Q;"),
+          "the sender vouched for a superseded epoch after the original roster returned")
+    check(receiver.api.handledAt("Player-1-0003", "FORTITUDE") is None,
+          "an unseen old cast was applied while its scope was unproved")
+    sender.api.refresh()
+    sender.api.cast("party2", "Cast-1-restored")
+    party.exchange(party.packet(sender, "CAST;"), receiver)
+    check(receiver.api.handledAt("Player-1-0003", "FORTITUDE") == 1002,
+          "an unproved old cast blocked a fresh cast in the restored roster")
+    print("PASS: restored roster rejects an unseen old cast and accepts fresh traffic")
+
+
+def stale_messages(stub, sources, leader_changes=False):
     party = Party(stub, sources)
     leader, caster = party.a, party.b
     party.opt_in(leader, caster)
@@ -336,8 +464,8 @@ def stale_messages(stub, sources, leader_changes=False, probe=False):
 
     def replay_only(stage):
         tokens = (leader.snapshot().token, caster.snapshot().token)
-        party.deliver(plan, caster)
-        party.deliver(ack, leader)
+        for packet, receiver in ((request, caster), (plan, caster), (ack, leader)):
+            check(not party.exchange(packet, receiver), f"{label}, {stage}: old packet was challenged")
         check(tokens == (leader.snapshot().token, caster.snapshot().token)
               and not leader.snapshot().pending and not caster.snapshot().pending
               and not party.capture(leader) and not party.capture(caster),
@@ -346,16 +474,6 @@ def stale_messages(stub, sources, leader_changes=False, probe=False):
     replay_only("before re-opt-in")
     party.opt_in(fresh_leader, fresh_caster)
     replay_only("after re-opt-in")
-    if probe:
-        party.deliver(request, caster)
-        # REPORT may also be rejected if a future protocol revision binds REQ to the new party.
-        party.capture(caster)
-        party.deliver(plan, caster)
-        if caster.snapshot().pending:
-            print("REPRODUCED: full old REQ then PLAN reopened a pending duty after roster change and re-opt-in")
-            return 1
-        print("PASS: full old REQ then PLAN did not reopen a pending duty")
-        return 0
     _, fresh_plan = publish_plan(party, fresh_leader, fresh_caster)
     check(fresh_plan.message != plan.message, f"{label}: new publication reused old plan identity")
     replay_only("after fresh publication")
@@ -364,25 +482,37 @@ def stale_messages(stub, sources, leader_changes=False, probe=False):
     replay_only("after fresh acknowledgement")
     check(member_status(fresh_leader, fresh_caster) == "acknowledged"
           and fresh_caster.api.holder("FORTITUDE"), f"{label}: stale message cleared fresh acceptance")
-    print(f"PASS: {label} clears duties; delayed PLAN and ACK cannot reopen or alter old or fresh state")
-    return 0
+    print(f"PASS: {label} clears duties and prevents delayed REQ, PLAN and ACK from changing state")
+
+
+def legacy_packets(stub, sources):
+    party = Party(stub, sources, third=True)
+    party.opt_in(party.a, party.b)
+    guid = party.b.guid
+    for message in ("COORD;1;REQ;1000.1", f"COORD;1;PLAN;1000.1;1000.2;{guid};FORTITUDE",
+                    "CAST;FORTITUDE;Player-1-0003"):
+        party.deliver(Packet("Alia-TestRealm", "BuffRadar", message, "PARTY"), party.b)
+    check(not party.capture(party.b) and not party.b.snapshot().pending
+          and party.b.api.handledAt("Player-1-0003", "FORTITUDE") is None,
+          "legacy unscoped coordination or cast was accepted in Forever")
+    print("PASS: Forever ignores legacy unscoped coordination and casts")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stub", type=Path)
     parser.add_argument("addon", type=Path)
-    parser.add_argument("--probe-full-replay", action="store_true",
-                        help="check full old request/plan replay after re-opt-in; exit 1 if reproduced")
     args = parser.parse_args()
     stub = args.stub.read_text(encoding="utf-8-sig")
     sources = forever_sources(args.addon)
-    if args.probe_full_replay:
-        return stale_messages(stub, sources, probe=True)
     coordination(stub, sources)
     cast_sync(stub, sources)
     stale_messages(stub, sources)
     stale_messages(stub, sources, leader_changes=True)
+    for boundary in ("roster", "leader", "asymmetric roster round trip"):
+        stale_cast(stub, sources, boundary)
+    unseen_epoch_after_round_trip(stub, sources)
+    legacy_packets(stub, sources)
     return 0
 
 
