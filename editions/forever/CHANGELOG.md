@@ -2,6 +2,12 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## Unreleased
+
+- Watch **Shadowguard** on yourself as a priest self buff, like Inner Fire.
+  It shows only when you know the spell, is on by default, and can be
+  toggled with `/br toggle SHADOWGUARD`.
+
 ## 1.15.31 — WoW: Forever
 
 - Select **Auto** under **Settings → Window → Theme** to match a supported

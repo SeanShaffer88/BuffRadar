@@ -266,7 +266,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     local book = {  -- name, rank text, spell id
       { "Power Word: Fortitude", "Rank 1", 1243 }, { "Power Word: Fortitude", "Rank 2", 1244 },
       { "Prayer of Fortitude", "Rank 1", 21562 }, { "Inner Fire", "Rank 1", 588 },
-      { "Divine Spirit", "Rank 1", 14752 },
+      { "Divine Spirit", "Rank 1", 14752 }, { "Shadowguard", "Rank 1", 18137 },
     }
     local knownIds = {}
     for _, b in ipairs(book) do knownIds[b[3]] = true end

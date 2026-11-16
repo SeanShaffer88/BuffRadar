@@ -227,7 +227,7 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
 | Class   | On by default | Off by default (situational) |
 |---------|---------------|------------------------------|
 | Druid   | Mark of the Wild (everyone), Thorns (melee) | — |
-| Priest  | Power Word: Fortitude (everyone), Divine Spirit (mana users), Fear Ward (warriors), Inner Fire (you) | Shadow Protection |
+| Priest  | Power Word: Fortitude (everyone), Divine Spirit (mana users), Fear Ward (warriors), Inner Fire (you), Shadowguard (you) | Shadow Protection |
 | Mage    | Arcane Intellect (mana users), Molten / Mage / Ice / Frost Armor (you) | Dampen Magic, Amplify Magic |
 | Paladin | One blessing per class: Kings for everyone if you know it; otherwise Might for warriors and rogues, Wisdom for everyone else | — |
 | Warlock | Fel / Demon Armor or Demon Skin (you) | Unending Breath, Detect Invisibility |

@@ -153,7 +153,11 @@ else
       also={}, classes=TANKS, who="warriors", on=true },
     { key="INNER_FIRE",       id=588,   name="Inner Fire",
       self=true, also={}, who="you", on=true },
-    { key="SHADOW_PROT",      id=976,   name="Shadow Protection",
+    -- Shadowguard (18137): a self buff with charges. It started as the Troll
+    -- racial; like every entry it only shows for priests who know the spell.
+    { key="SHADOWGUARD",      id=18137, name="Shadowguard",
+      self=true, also={}, who="you", on=true },
+    { key="SHADOW_PROT",     id=976,   name="Shadow Protection",
       also={ {27683, "Prayer of Shadow Protection"} }, groupCast={ 27683, "Prayer of Shadow Protection" },
       classes=ALL, who="everyone (situational)", on=false },
     -- Druid

@@ -276,10 +276,13 @@ step("edition buff set", function()
   if env.__forever then
     assert(chatSince(n, "FORTITUDE") and chatSince(n, "INNER_FIRE") and chatSince(n, "DIVINE_SPIRIT"),
       "Forever priest buffs missing from /br buffs")
+    assert(chatSince(n, "SHADOWGUARD  -  Shadowguard (you)  [|cff00ff00on|r]"),
+      "Shadowguard missing from /br buffs or not on by default")
     assert(not chatSince(n, "SKYFURY"), "retail buff listed on Forever")
   else
     assert(chatSince(n, "SKYFURY") and chatSince(n, "SHAMAN_SHIELD"), "retail shaman buffs missing")
-    assert(not chatSince(n, "INNER_FIRE") and not chatSince(n, "WATER_BREATHING"), "Forever buff listed on retail")
+    assert(not chatSince(n, "INNER_FIRE") and not chatSince(n, "WATER_BREATHING")
+      and not chatSince(n, "SHADOWGUARD"), "Forever buff listed on retail")
   end
 end)
 step("edition commands: rank cast mode and group-cast offers", function()
@@ -6195,7 +6198,9 @@ step("Forever uses the eligible rank and falls back from an unaffordable group c
     end
     O.UnitLevel = function(u) return u == "party1" and targetLevel or 60 end
     O.Aura = function(u, name)
-      if u == "player" and name == "Inner Fire" then return { expirationTime = env.GetTime() + 1000 } end
+      if u == "player" and (name == "Inner Fire" or name == "Shadowguard") then
+        return { expirationTime = env.GetTime() + 1000 }
+      end
     end
     env.IsSpellInRange = function() return 1 end
     db.castMethod, db.groupCast, db.groupCastMin, db.includeSelf, db.modClick = "target", false, 2, false, true
