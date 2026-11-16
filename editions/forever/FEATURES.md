@@ -377,7 +377,8 @@ stays hidden on those characters.
 **Field test through 1.15.33:** on 2026-11-16 the maintainer reported that
 every release up to and including 1.15.31 passed in-game testing in WoW:
 Forever, and later that day that 1.15.32 (Shadowguard watch) and 1.15.33
-(input hardening) passed their checklist steps too.
+(input hardening) passed their checklist steps too. 1.15.34 (source
+file split and the row hover highlight) is not yet verified in game.
 
 **Current stable release:** 1.15.16. The maintainer confirmed live verification
 in WoW: Forever on 2026-11-14 using field-test build `d05115bdb03d`.

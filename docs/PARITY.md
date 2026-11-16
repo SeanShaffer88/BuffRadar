@@ -12,7 +12,8 @@ further SEAN-requested customization batch (10 items) shipped in
 evidence. In-game status: **1.12.0 verified by SEAN on Forever
 1.60.1.70862** (2026-11-08), and SEAN reported on 2026-11-16 that every
 release through **1.15.31** passed in game; 1.15.32 (Shadowguard watch)
-and 1.15.33 (input hardening) passed the same day.
+and 1.15.33 (input hardening) passed the same day. 1.15.34 (file split,
+row hover highlight) is Unverified.
 
 | Area | Target | State | Evidence (test / corpus) | Gap |
 |---|---|---|---|---|

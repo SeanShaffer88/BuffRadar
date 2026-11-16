@@ -149,7 +149,8 @@ passes, and the last one covered releases through 1.15.33.
 - **Fake client:** taint, real frame timing, server-side addon-message
   throttling and real secret-value behaviour can't be reproduced offline. A
   passing gate is evidence, not proof.
-- **In-game verification:** releases through 1.15.33 are field-verified.
+- **In-game verification:** releases through 1.15.33 are field-verified;
+  1.15.34 is Unverified in game.
 - **Fuzzing is sampled:** about 1,000 inputs per parser, 3,000 messages,
   1,500 commands, 250 corrupt saves and 200 API-chaos rounds per setup. It
   finds shallow-to-medium defects; it can't prove their absence. The

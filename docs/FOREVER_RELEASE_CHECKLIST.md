@@ -2,7 +2,7 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
-## Next release: file split Slices E, F and G
+## 1.15.34 File split (Slices E, F and G) and row hover highlight
 
 Code moved into `Coordination.lua`, `Wizard.lua` and `Window.lua`; nothing should look or
 behave differently. Check that both files load (no Lua error at login, and

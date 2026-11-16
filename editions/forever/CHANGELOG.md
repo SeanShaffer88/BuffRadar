@@ -2,7 +2,7 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
-## Unreleased — WoW: Forever
+## 1.15.34 — WoW: Forever
 
 - Hovering a name now lights its row with a faint wash in your theme's
   border colour, replacing the bright yellow glow.
