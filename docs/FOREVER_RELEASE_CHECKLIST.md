@@ -4,14 +4,22 @@ Run this against the exact candidate ZIP after CI passes. Record the version, cl
 
 ## 1.15.33 Input hardening
 
+Result: **passed** — SEAN, reported 2026-11-16 (client build not recorded).
+
 - Run `/br ignore |cffff0000Red|r` and check that it is refused. Run
   `/br ignore` with a plain name and check that it is added.
 - Import an ignore-list string over 16 KiB and check that it is refused with
   nothing added. Import a normal `BRI1;` string and check that it works.
 - In a 5-player group and a raid, check that the list still fills and
   updates as normal while you buff, including pets and the tooltip.
+- With friendly nameplates on, stand near an ungrouped player who already
+  has one of your buffs and run `/br why <name>`. The buff must read as
+  present or unverified, never as missing (a restricted aura read must not
+  pass as a definitive "absent").
 
 ## 1.15.32 Shadowguard watch
+
+Result: **passed** — SEAN, reported 2026-11-16 (client build not recorded).
 
 - On a priest who knows Shadowguard, run `/br buffs` and check that
   `SHADOWGUARD` is listed and on. Let Shadowguard expire and verify you are

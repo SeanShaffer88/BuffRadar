@@ -296,6 +296,20 @@ split, then Briefs 2, 3, 4 — nothing else built; file-split Slices B
   3 -> 4); maintainability stays 3 because `BuffRadar.lua` has grown back
   to ~9,700 lines.
 
+## 2026-11-16 — Field test passed for 1.15.32 and 1.15.33 (SEAN)
+
+- SEAN reported "all steps passed" for the 1.15.33 and 1.15.32 checklist
+  sections: ignore-name refusal, the 16 KiB import cap, group and raid
+  scans, and the Shadowguard watch. Both are now Verified in game on
+  Forever; the client build was not recorded.
+- An API audit against the `wow-addon-api` server (Forever 1.60.1.70755,
+  source commit 17ed2c3e) found BuffRadar's handling of `UnitExists`,
+  `UnitGUID`, `UnitClass`, `UnitName` and the `C_UnitAuras` reads matches
+  their secret-value and aura-access metadata. Its one open question
+  (could a restricted aura read pass as a definitive "absent"?) became a
+  checklist step, and it passed: an ungrouped player's existing buff
+  never showed as missing.
+
 ## 2026-11-16 — Risk matrix and robustness pass
 
 - SEAN asked for an exhaustive use-case / risk / test matrix, defensive
