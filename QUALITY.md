@@ -49,7 +49,7 @@ Re-checked on 2026-11-16 after SEAN reported that every release through
 1.15.31 passed in game: the UX field-test waiver is **closed**. UX moves
 2→4 and Correctness 4→5, as this scorecard set out; **total 69→74**.
 Multi-user coordination is covered by that report. 1.15.32
-(Shadowguard watch) is Unverified in game.
+(Shadowguard watch) and 1.15.33 (input hardening) are Unverified in game.
 Re-scored the same day against the current tree (1.15.32): stale rows that
 still described the single-file layout, the parked items and the 1.10.0
 corpus were brought up to date. Feature completeness 3→4 (program done,

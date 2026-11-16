@@ -2,6 +2,15 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.33 Input hardening
+
+- Run `/br ignore |cffff0000Red|r` and check that it is refused. Run
+  `/br ignore` with a plain name and check that it is added.
+- Import an ignore-list string over 16 KiB and check that it is refused with
+  nothing added. Import a normal `BRI1;` string and check that it works.
+- In a 5-player group and a raid, check that the list still fills and
+  updates as normal while you buff, including pets and the tooltip.
+
 ## 1.15.32 Shadowguard watch
 
 - On a priest who knows Shadowguard, run `/br buffs` and check that

@@ -1,7 +1,6 @@
 # BuffRadar — Use-Case, Risk and Test Matrix
 
-Written 2026-11-16 against 1.15.32 plus the hardening change that added this
-file. Each row ties a scenario to its mitigation and to the evidence that
+Written 2026-11-16 against 1.15.33, the release that added this file. Each row ties a scenario to its mitigation and to the evidence that
 checks it. Evidence names are trial-run steps in `tools/smoke51.py` unless
 marked `coord:` (`tools/coordination51.py`) or `gate` (`tools/gate.sh` /
 `tools/check.ps1`).
@@ -151,7 +150,7 @@ passes, and the last one covered releases through 1.15.31.
   throttling and real secret-value behaviour can't be reproduced offline. A
   passing gate is evidence, not proof.
 - **In-game verification:** releases through 1.15.31 are field-verified.
-  1.15.32 and this change are Unverified in game.
+  1.15.32 and 1.15.33 are Unverified in game.
 - **Fuzzing is sampled:** about 1,000 inputs per parser, 3,000 messages,
   1,500 commands, 250 corrupt saves and 200 API-chaos rounds per setup. It
   finds shallow-to-medium defects; it can't prove their absence. The
