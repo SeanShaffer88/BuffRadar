@@ -269,3 +269,13 @@ split, then Briefs 2, 3, 4 — nothing else built; file-split Slices B
   reliance on backdrop opacity. No db change (dbVersion stays 15).
 - 1.15.1 is Unverified in game until SEAN's re-check captures.
 
+## 2026-11-16 — Field test complete through 1.15.31 (SEAN)
+
+- SEAN reported: "I have tested all previous versions, all pass". Every
+  release through 1.15.31 is now Verified in game on Forever; the client
+  build of each run was not recorded.
+- QUALITY.md: the UX field-test waiver (approved 2026-10-25) is closed;
+  UX 2->4 and Correctness 4->5, total 69->74. The Performance-budget
+  waiver stays open.
+- The Shadowguard watch ships in 1.15.32 and is Unverified until the
+  next field pass.

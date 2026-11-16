@@ -10,8 +10,9 @@ further SEAN-requested customization batch (10 items) shipped in
 1.10.0, listed after the program below. Every
 "Complete" below names its test
 evidence. In-game status: **1.12.0 verified by SEAN on Forever
-1.60.1.70862** (2026-11-08); 1.13.0 additions are Unverified in game
-(see the Gap column and `QUALITY.md`).
+1.60.1.70862** (2026-11-08), and SEAN reported on 2026-11-16 that every
+release through **1.15.31** passed in game. Only 1.15.32 (Shadowguard
+watch) remains Unverified.
 
 | Area | Target | State | Evidence (test / corpus) | Gap |
 |---|---|---|---|---|
@@ -69,10 +70,10 @@ evidence. In-game status: **1.12.0 verified by SEAN on Forever
   item; it un-parked in 1.15.0 with the sharper definition the
   investigation asked for (the re-entry case — a buff that was up at
   a fight's start and is gone at the first scan after it — with its
-  own "fall" alert kind), shipped off by default and Unverified in
-  game. The 50-item program now has no parked items left.
-- **Un-parked in 1.14.0 (2), shipped off by default, Unverified in
-  game:** #8 pull-timer flash — sources verified from the boss mods'
+  own "fall" alert kind), shipped off by default; verified in game
+  with the 1.15.x field passes (SEAN, 2026-11-16). The 50-item program now has no parked items left.
+- **Un-parked in 1.14.0 (2), shipped off by default, verified in
+  game through 1.15.31 (SEAN, 2026-11-16):** #8 pull-timer flash — sources verified from the boss mods'
   own code (the native group countdown event; boss-mod pull comms
   from trusted senders), with an in-game probe in `/br apicheck`
   reporting which sources this client delivers. #19 modifier clicks —

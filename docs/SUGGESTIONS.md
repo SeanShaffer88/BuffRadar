@@ -76,7 +76,8 @@ Basis: read of `BuffRadar.lua` (8.1k lines, one file), tooling, docs and the 1.1
 ## Third list (2026-11-11, shipped as 1.15.0)
 
 Seven suggestions SEAN approved the day 1.14.0 shipped; all seven are
-built, gated and in 1.15.0 (Unverified in game, like 1.13.0/1.14.0).
+built, gated and in 1.15.0; verified in game with every release through
+1.15.31 (SEAN, 2026-11-16).
 
 | # | Item | Status |
 |---|---|---|

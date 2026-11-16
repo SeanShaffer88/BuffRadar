@@ -2,7 +2,18 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.32 Shadowguard watch
+
+- On a priest who knows Shadowguard, run `/br buffs` and check that
+  `SHADOWGUARD` is listed and on. Let Shadowguard expire and verify you are
+  listed as missing it; cast it and verify the row clears.
+- Run `/br toggle SHADOWGUARD` and check that the buff stops being watched.
+- On a priest who does not know Shadowguard, check that it is not listed.
+
 ## 1.15.31 Cast Queue and Wipe Reports
+
+Result: **passed** — SEAN, reported 2026-11-16 (all releases through
+1.15.31 pass in game; client build not recorded).
 
 - With both cast-next keybinds configured, test each while replacing a party
   member. Verify the next press after the list refreshes targets the
