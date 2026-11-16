@@ -279,3 +279,19 @@ split, then Briefs 2, 3, 4 — nothing else built; file-split Slices B
   waiver stays open.
 - The Shadowguard watch ships in 1.15.32 and is Unverified until the
   next field pass.
+
+## 2026-11-16 — Performance budget defined; scorecard re-scored (SEAN: "do all 4")
+
+- Budget (closes the 2026-10-25 performance waiver). Offline, enforced by
+  the trial-run step "performance budget: worst-case 40-player scan": with
+  every player missing every buff, a scan reads at most 8 auras per
+  player, 40 players cost at most 2.2x the reads of 20, and a 40-player
+  scan averages under 5 ms in the fake client. Measured at 1.15.32:
+  ~5.75 reads per player (Forever), ~0.7 ms per 40-player scan.
+- In-game target: `/br perf` average ≤2 ms and worst ≤8 ms in a 40-player
+  raid. Unverified — SEAN asked to skip in-game tests for now.
+- Real luacheck 1.2.0 (official release, pinned SHA-256 matched) run via
+  `tools/check.ps1`: 0 warnings / 0 errors on 1.15.32.
+- QUALITY.md re-scored 74 -> 78 (completeness, performance, diagnostics
+  3 -> 4); maintainability stays 3 because `BuffRadar.lua` has grown back
+  to ~9,700 lines.

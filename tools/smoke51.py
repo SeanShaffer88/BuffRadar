@@ -7658,6 +7658,50 @@ step("1.12.0 fuzz: random roster sizes and mid-combat flips never error", functi
   env.GetNumGroupMembers = nil
   refresh()
 end)
+-- Performance budget (1.15.32, docs/DECISIONS.md): a worst-case scan -- every
+-- player missing every buff -- reads at most 8 auras per player, grows
+-- linearly from 20 to 40 players, and averages under 5 ms in this fake client.
+step("performance budget: worst-case 40-player scan", function()
+  local O, X = env.__over, NS.X
+  local reads, perPlayer, ms = 0, {}, {}
+  local classes = { "WARRIOR", "MAGE", "PRIEST", "DRUID", "SHAMAN", "ROGUE", "HUNTER", "WARLOCK", "PALADIN" }
+  local size = 0
+  O.UnitExists = function(u)
+    if u == "player" then return true end
+    local i = tonumber(u:match("^party(%d+)$") or u:match("^raid(%d+)$"))
+    return i ~= nil and i <= size
+  end
+  O.UnitName = function(u) if u == "player" then return "Testshaman" end return "Raider" .. u end
+  O.UnitGUID = function(u) return "Player-1-" .. u end
+  O.UnitClass = function(u) local i = tonumber(u:match("%d+")) or 0; local c = classes[i % 9 + 1]; return c, c end
+  O.UnitIsPlayer = function() return true end
+  O.Aura = function() reads = reads + 1 end
+  env.IsSpellInRange = function() return 1 end
+  for _, n in ipairs({ 5, 20, 40 }) do
+    size = n
+    env.IsInGroup = function() return size > 1 end
+    env.IsInRaid = function() return size > 5 end
+    env.GetNumGroupMembers = function() return size end
+    pcall(fire, "GROUP_ROSTER_UPDATE"); refresh()
+    reads = 0
+    local t0 = os.clock()
+    for _ = 1, 50 do X.Refresh() end
+    ms[n] = (os.clock() - t0) * 1000 / 50
+    perPlayer[n] = reads / 50 / n
+  end
+  O.UnitExists, O.UnitName, O.UnitGUID, O.UnitClass, O.UnitIsPlayer, O.Aura = nil, nil, nil, nil, nil, nil
+  env.IsInGroup = function() return false end
+  env.IsInRaid = function() return false end
+  env.GetNumGroupMembers = nil
+  refresh()
+  for _, n in ipairs({ 5, 20, 40 }) do
+    assert(perPlayer[n] > 0 and perPlayer[n] <= 8,
+      string.format("%d players: %.2f aura reads per player (budget 8)", n, perPlayer[n]))
+  end
+  assert(perPlayer[40] * 40 <= perPlayer[20] * 20 * 2.2,
+    string.format("scan work grew faster than linear: %.0f reads at 20, %.0f at 40", perPlayer[20] * 20, perPlayer[40] * 40))
+  assert(ms[40] < 5, string.format("40-player scan averaged %.2f ms (budget 5 ms)", ms[40]))
+end)
 step("German client uses the translation", function()
   if not env.__german then return end
   local found
