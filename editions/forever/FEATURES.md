@@ -287,7 +287,7 @@ each needs in-game evidence or a sharper definition, recorded in
 | Class   | On by default | Off by default (situational) |
 |---------|---------------|------------------------------|
 | Druid   | Mark of the Wild (everyone), Thorns (melee) | — |
-| Priest  | Power Word: Fortitude (everyone), Divine Spirit (mana users), Fear Ward (warriors), Inner Fire (you) | Shadow Protection |
+| Priest  | Power Word: Fortitude (everyone), Divine Spirit (mana users), Fear Ward (warriors), Inner Fire (you), Shadowguard (you) | Shadow Protection |
 | Mage    | Arcane Intellect (mana users), Molten / Mage / Ice / Frost Armor (you) | Dampen Magic, Amplify Magic |
 | Paladin | One blessing per class: Kings for everyone if you know it; otherwise Might for warriors and rogues, Wisdom for everyone else | — |
 | Warlock | Fel / Demon Armor or Demon Skin (you) | Unending Breath, Detect Invisibility |
@@ -373,6 +373,10 @@ stays hidden on those characters.
 
 ## Verification status
 
+**Field test through 1.15.31:** on 2026-11-16 the maintainer reported that
+every release up to and including 1.15.31 passed in-game testing in WoW:
+Forever. The 1.15.32 change (Shadowguard watch) is not yet verified in game.
+
 **Current stable release:** 1.15.16. The maintainer confirmed live verification
 in WoW: Forever on 2026-11-14 using field-test build `d05115bdb03d`.
 
@@ -385,13 +389,10 @@ WoW: Forever on 2026-11-14.
 - 1.2.2 and earlier were confirmed working live by SEAN on
   2026-10-20. **1.12.0 was verified in game by SEAN on Forever
   1.60.1.70862** (2026-11-08) — that run covers the cumulative
-  1.3.2–1.12.0 feature set on the Forever client. **1.13.0, 1.14.0
-  and 1.15.0 are built but UNVERIFIED in game** — in particular the
-  new options below are off by default until they have been run in
-  game. A first in-game look at 1.15.0 (2026-11-11) confirmed the
-  main window and the settings window render and list correctly;
-  the layout faults it exposed in the settings window are fixed in
-  1.15.1, which is itself Unverified in game. The Retail edition ended at 1.7.0
+  1.3.2–1.12.0 feature set on the Forever client. 1.13.0 through
+  1.15.31 were verified in game by the maintainer (reported
+  2026-11-16). A first in-game look at 1.15.0 (2026-11-11) found
+  settings-window layout faults, fixed in 1.15.1. The Retail edition ended at 1.7.0
   (Interface 120105), a separate zip from the same source with its
   own feature list.
 
