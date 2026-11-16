@@ -257,7 +257,8 @@ each needs in-game evidence or a sharper definition, recorded in
 ## Buffing
 
 - **Click-to-buff.** Click a name to buff that player; hovering a
-  name shows exactly what will be cast and what they still need.
+  name lights its row with a faint wash in the theme's border colour
+  and shows exactly what will be cast and what they still need.
   Since 1.3.2, buffing a group member no longer changes your
   target; for anyone else, BuffRadar targets them by name, casts,
   then switches back to your previous target.
@@ -373,9 +374,11 @@ stays hidden on those characters.
 
 ## Verification status
 
-**Field test through 1.15.31:** on 2026-11-16 the maintainer reported that
+**Field test through 1.15.33:** on 2026-11-16 the maintainer reported that
 every release up to and including 1.15.31 passed in-game testing in WoW:
-Forever. 1.15.32 (Shadowguard watch) and 1.15.33 (input hardening) are not yet verified in game.
+Forever, and later that day that 1.15.32 (Shadowguard watch) and 1.15.33
+(input hardening) passed their checklist steps too. 1.15.34 (source
+file split and the row hover highlight) is not yet verified in game.
 
 **Current stable release:** 1.15.16. The maintainer confirmed live verification
 in WoW: Forever on 2026-11-14 using field-test build `d05115bdb03d`.
@@ -390,7 +393,7 @@ WoW: Forever on 2026-11-14.
   2026-10-20. **1.12.0 was verified in game by SEAN on Forever
   1.60.1.70862** (2026-11-08) — that run covers the cumulative
   1.3.2–1.12.0 feature set on the Forever client. 1.13.0 through
-  1.15.31 were verified in game by the maintainer (reported
+  1.15.33 were verified in game by the maintainer (reported
   2026-11-16). A first in-game look at 1.15.0 (2026-11-11) found
   settings-window layout faults, fixed in 1.15.1. The Retail edition ended at 1.7.0
   (Interface 120105), a separate zip from the same source with its

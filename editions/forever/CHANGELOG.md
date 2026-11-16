@@ -2,6 +2,14 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.34 — WoW: Forever
+
+- Hovering a name now lights its row with a faint wash in your theme's
+  border colour, replacing the bright yellow glow.
+- Move coordination code into `Coordination.lua`, the setup wizard and
+  diagnostics tools into `Wizard.lua`, and the window, toggle strip and
+  cast buttons into `Window.lua`. Nothing else changes.
+
 ## 1.15.33 — WoW: Forever
 
 - Keep the list updating when the game refuses to read one player's name,

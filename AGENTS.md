@@ -8,7 +8,7 @@ Purpose in one line: a click-to-buff list addon for World of Warcraft — it sho
 every nearby player who is missing one of your buffs; click a name (or press one
 key) to buff them.
 
-Frozen foundation: one shared Lua source (`BuffRadar/Data.lua` + `BuffRadar/BuffRadar.lua` + `BuffRadar/Config.lua` + `BuffRadar/Slash.lua` + `BuffRadar/Extras.lua` + `BuffRadar/Recaps.lua` + `BuffRadar/Profiles.lua`) builds both
+Frozen foundation: one shared Lua source (`BuffRadar/Data.lua` + `BuffRadar/BuffRadar.lua` + `BuffRadar/Coordination.lua` + `BuffRadar/Wizard.lua` + `BuffRadar/Window.lua` + `BuffRadar/Config.lua` + `BuffRadar/Slash.lua` + `BuffRadar/Extras.lua` + `BuffRadar/Recaps.lua` + `BuffRadar/Profiles.lua`) builds both
 editions; editions differ only in their `.toc` and bundled docs
 (`BuffRadar/` = Retail docs, `editions/forever/` = Forever docs). Every feature
 is reachable as a `/br` slash command — the slash surface is the operation
@@ -30,8 +30,8 @@ lands with steps in every setup it applies to.
 
 Budgets: the host's per-frame budget governs — scanning is event-driven plus a
 throttled ticker; no per-frame polling. Lua 5.1 hard limits enforced by
-`tools/lualimits.py`: ≤200 top-level locals (currently 194), ≤60 upvalues per
-function (currently 59 peak). New state goes in the `X` table or methods, never
+`tools/lualimits.py`: ≤200 top-level locals (currently 165 in `BuffRadar.lua`), ≤60 upvalues per
+function (currently 58 peak, `HandleSlash`). New state goes in the `X` table or methods, never
 new file-scope locals, unless the budget is re-checked in the same change.
 
 Coverage floors: every user-visible capability has smoke evidence before it is

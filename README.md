@@ -220,7 +220,8 @@ BuffRadar has targeted Forever since 1.8.0. The last Retail release was
 
 ## Source and Contributions
 
-- [Runtime](BuffRadar/BuffRadar.lua), [settings](BuffRadar/Config.lua),
+- [Runtime](BuffRadar/BuffRadar.lua), [coordination](BuffRadar/Coordination.lua),
+  [setup wizard and diagnostics](BuffRadar/Wizard.lua), [window](BuffRadar/Window.lua), [settings](BuffRadar/Config.lua),
   [slash commands](BuffRadar/Slash.lua), [profiles](BuffRadar/Profiles.lua), and
   [translations](BuffRadar/Locales).
 - [Report a bug or request a feature](https://github.com/SeanShaffer88/BuffRadar/issues/new/choose).

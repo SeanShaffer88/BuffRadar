@@ -2,7 +2,38 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.34 File split (Slices E, F and G) and row hover highlight
+
+Code moved into `Coordination.lua`, `Wizard.lua` and `Window.lua`; nothing should look or
+behave differently. Check that both files load (no Lua error at login, and
+`/br selftest` runs) and then:
+
+- **Coordination.lua:** with a second BuffRadar user in the group and cast
+  sync on, buff a player and check that their row clears on the other
+  client. Whisper yourself "buff" from a listed player and check that the row
+  is marked and the alert sound plays once. Join a group with buffs missing
+  and check the join digest line. Open Caster Coordination and request reports.
+- **Wizard.lua:** run `/br wizard` through all three pages. Save, apply and
+  delete a theme. Run `/br why <name>` on a nearby player and open the
+  Nearby Player panel with **?**. Check `/br history`, `/br stats` and an
+  export dialog. With alerts on, check that the window border flashes.
+- **Window.lua (secure cast path, test this first):** with `/br clicks` on,
+  buff from a row click, the Cast Next Buff key and Shift-click / the group
+  key. Check each cast lands on the displayed player and the counter moves
+  once. Enter and leave combat: rows and both buttons disarm and rebind.
+  Toggle a buff on the strip, use a role chip, let the window idle-fade,
+  drag the scale grips and edges, and close the window with its button (it
+  stays hidden until reopened). Run `/reload` and check the window returns
+  where it was.
+- **Row hover highlight:** move the mouse over names in the list. Each row
+  should light with a faint wash in the theme's border colour (no yellow
+  glow), and only while the mouse is on it. Switch theme, including Auto
+  with a UI suite loaded, and check the wash follows. With click-through
+  on and the window locked, rows should not highlight.
+
 ## 1.15.33 Input hardening
+
+Result: **passed** — SEAN, reported 2026-11-16 (client build not recorded).
 
 - Run `/br ignore |cffff0000Red|r` and check that it is refused. Run
   `/br ignore` with a plain name and check that it is added.
@@ -10,8 +41,14 @@ Run this against the exact candidate ZIP after CI passes. Record the version, cl
   nothing added. Import a normal `BRI1;` string and check that it works.
 - In a 5-player group and a raid, check that the list still fills and
   updates as normal while you buff, including pets and the tooltip.
+- With friendly nameplates on, stand near an ungrouped player who already
+  has one of your buffs and run `/br why <name>`. The buff must read as
+  present or unverified, never as missing (a restricted aura read must not
+  pass as a definitive "absent").
 
 ## 1.15.32 Shadowguard watch
+
+Result: **passed** — SEAN, reported 2026-11-16 (client build not recorded).
 
 - On a priest who knows Shadowguard, run `/br buffs` and check that
   `SHADOWGUARD` is listed and on. Let Shadowguard expire and verify you are

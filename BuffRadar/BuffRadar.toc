@@ -11,6 +11,9 @@
 Locales\deDE.lua
 Data.lua
 BuffRadar.lua
+Coordination.lua
+Wizard.lua
+Window.lua
 Config.lua
 Slash.lua
 Recaps.lua

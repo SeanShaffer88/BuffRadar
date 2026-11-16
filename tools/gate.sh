@@ -12,7 +12,7 @@ for candidate in python3 python; do
   if "$candidate" -c "import sys" >/dev/null 2>&1; then PY=$candidate; break; fi
 done
 [ -n "$PY" ] || { echo "No working python3 or python found."; exit 1; }
-LUA="BuffRadar/Data.lua BuffRadar/BuffRadar.lua BuffRadar/Config.lua BuffRadar/Slash.lua BuffRadar/Extras.lua BuffRadar/Recaps.lua BuffRadar/Profiles.lua"
+LUA="BuffRadar/Data.lua BuffRadar/BuffRadar.lua BuffRadar/Coordination.lua BuffRadar/Wizard.lua BuffRadar/Window.lua BuffRadar/Config.lua BuffRadar/Slash.lua BuffRadar/Extras.lua BuffRadar/Recaps.lua BuffRadar/Profiles.lua"
 LOC="$(ls BuffRadar/Locales/*.lua)"
 echo "== luacheck51";   "$PY" -I tools/luacheck51.py $LUA $LOC
 echo "== lualimits";    for f in $LUA; do "$PY" -I tools/lualimits.py "$f"; done

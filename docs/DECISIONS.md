@@ -296,6 +296,93 @@ split, then Briefs 2, 3, 4 — nothing else built; file-split Slices B
   3 -> 4); maintainability stays 3 because `BuffRadar.lua` has grown back
   to ~9,700 lines.
 
+## 2026-11-16 — Subtle row hover highlight (SEAN)
+
+- Rows already highlighted on hover, with the game's quest-title glow: a
+  bright yellow wash that ignored the theme. It is now a flat texture
+  (`Interface\Buttons\WHITE8X8`, ADD blend) tinted with the theme's border
+  colour at 15% (`X.ROW_HOVER_ALPHA`). `X.TintRowHover` sets it when a row
+  is built; `ApplyAppearance` re-tints every row when the theme changes.
+- Not a setting: a styling change with no on/off case, so no `dbVersion`
+  bump and no `/br` command. The engine shows the highlight only while the
+  mouse is over the row, so no OnEnter/OnLeave scripts were added to the
+  secure buttons.
+- Forever 1.60.1.70755 Texture API (wow-addon-api): `SetVertexColor` and
+  `SetBlendMode` are not protected; both run only out of combat here
+  (row build, and `ApplyAppearance` defers in combat).
+- Trial step added; the stub's buttons now keep their highlight texture.
+  Unverified in game.
+
+## 2026-11-16 — File split Slice G (SEAN: "complete next milestone, hold releases")
+
+- Slice G was the milestone QUALITY.md named. The window builder
+  (`BuildUI`), toggle strip, filter chips, idle fade, Cast Next / group
+  buttons with their secure bindings, and the scale / edge drag helpers
+  moved verbatim into `Window.lua` (about 830 lines), loaded after
+  `Wizard.lua`.
+- `BuildUI` assigns 11 window handles the main file reads everywhere
+  (frame, title, the text lines, nextBtn, grip, built). Window.lua keeps
+  its own copies and hands them to the main file through
+  `X.winAPI.setUI` (`PublishUI()`) right before `CreateRow` and the other
+  main-file calls, again once the cast buttons exist, and once `built`
+  is true. The close button writes `sessionShow` through
+  `setSessionShow`.
+- Main-file call sites now go through `X.BuildUI`, `X.ClearNext`,
+  `X.BindCached` and `X.ApplyNextRegistration`; `/br` state reads the
+  next-button flags through `X.NextBindState()`. The stray load-time
+  `X.BindCached = BindCached` line in the main file moved with it.
+- `BuffRadar.lua`: 8,017 -> 7,215 lines; main chunk 176 -> 165 locals;
+  `Refresh` 50 -> 49 upvalues. New trial step: after `X.BuildUI()` the
+  main file sees `built`, the frame, the grip and the same next-button
+  flags (mutation-checked: dropping the hand-off fails it and 271 other
+  steps).
+- Releases held at SEAN's request: no version bump, tag or release. The
+  checklist's "Next release" section covers Slices E-G in game, secure
+  cast path first.
+
+## 2026-11-16 — File split Slices E and F (SEAN: "E + F")
+
+- Slice E: cast sync, caster coordination, chat buff requests, per-buff
+  context checks and the join digest moved verbatim into
+  `Coordination.lua` (about 1,140 lines). Slice F: the setup wizard,
+  saved themes, alert flash, range and fall checks, `/br why` and the
+  Nearby Player explanations, history / stats / Discord text and the
+  export dialog moved into `Wizard.lua` (about 630 lines). Both load
+  straight after `BuffRadar.lua`.
+- Bridges follow Slices B–D: `X.coordAPI` and `X.wizAPI` carry stable
+  values; the list length and "any buff known" flag the main file
+  reassigns go through accessors; the window comes from `X.GetFrame()`.
+  The settings table reaches both files through `X.dbSinks`, which the
+  main file calls (`X.ShareDB`) the moment `db` is set.
+- The only non-verbatim edits: those accessor reads, one
+  `local frame = X.GetFrame()` in `X.Flash`, and the sound throttle
+  `lastSoundAt` moving from a main-file local to `X.lastSoundAt` because
+  both files write it. `X.farNow`/`X.farPrev` stay initialised in the
+  main file, since the scan writes them.
+- Kept in the main file on purpose: `X.ApplyClickThrough` and
+  `X.ApplyRowLayout` (window layout on secure rows), and Slice G (toggle
+  strip, next/group buttons, `BuildUI`), which needs its own field pass.
+- `BuffRadar.lua`: 9,741 -> 8,017 lines; main chunk 182 -> 176 locals;
+  `Refresh` 51 -> 50 upvalues. The trial run gained two load steps and a
+  step proving both files read the live settings table (mutation-checked:
+  breaking the hand-off fails it).
+- Unverified in game until the next field pass. No settings or saved
+  data change, so `dbVersion` stays 20.
+
+## 2026-11-16 — Field test passed for 1.15.32 and 1.15.33 (SEAN)
+
+- SEAN reported "all steps passed" for the 1.15.33 and 1.15.32 checklist
+  sections: ignore-name refusal, the 16 KiB import cap, group and raid
+  scans, and the Shadowguard watch. Both are now Verified in game on
+  Forever; the client build was not recorded.
+- An API audit against the `wow-addon-api` server (Forever 1.60.1.70755,
+  source commit 17ed2c3e) found BuffRadar's handling of `UnitExists`,
+  `UnitGUID`, `UnitClass`, `UnitName` and the `C_UnitAuras` reads matches
+  their secret-value and aura-access metadata. Its one open question
+  (could a restricted aura read pass as a definitive "absent"?) became a
+  checklist step, and it passed: an ungrouped player's existing buff
+  never showed as missing.
+
 ## 2026-11-16 — Risk matrix and robustness pass
 
 - SEAN asked for an exhaustive use-case / risk / test matrix, defensive
