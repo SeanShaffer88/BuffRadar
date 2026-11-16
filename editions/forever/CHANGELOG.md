@@ -2,7 +2,7 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
-## Unreleased
+## 1.15.33 — WoW: Forever
 
 - Keep the list updating when the game refuses to read one player's name,
   class or ID: that player is skipped for the scan instead of stopping it.
