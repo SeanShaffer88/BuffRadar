@@ -2,9 +2,9 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
-## Next release: file split Slices E and F
+## Next release: file split Slices E, F and G
 
-Code moved into `Coordination.lua` and `Wizard.lua`; nothing should look or
+Code moved into `Coordination.lua`, `Wizard.lua` and `Window.lua`; nothing should look or
 behave differently. Check that both files load (no Lua error at login, and
 `/br selftest` runs) and then:
 
@@ -17,6 +17,14 @@ behave differently. Check that both files load (no Lua error at login, and
   delete a theme. Run `/br why <name>` on a nearby player and open the
   Nearby Player panel with **?**. Check `/br history`, `/br stats` and an
   export dialog. With alerts on, check that the window border flashes.
+- **Window.lua (secure cast path, test this first):** with `/br clicks` on,
+  buff from a row click, the Cast Next Buff key and Shift-click / the group
+  key. Check each cast lands on the displayed player and the counter moves
+  once. Enter and leave combat: rows and both buttons disarm and rebind.
+  Toggle a buff on the strip, use a role chip, let the window idle-fade,
+  drag the scale grips and edges, and close the window with its button (it
+  stays hidden until reopened). Run `/reload` and check the window returns
+  where it was.
 
 ## 1.15.33 Input hardening
 

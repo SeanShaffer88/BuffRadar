@@ -296,6 +296,33 @@ split, then Briefs 2, 3, 4 — nothing else built; file-split Slices B
   3 -> 4); maintainability stays 3 because `BuffRadar.lua` has grown back
   to ~9,700 lines.
 
+## 2026-11-16 — File split Slice G (SEAN: "complete next milestone, hold releases")
+
+- Slice G was the milestone QUALITY.md named. The window builder
+  (`BuildUI`), toggle strip, filter chips, idle fade, Cast Next / group
+  buttons with their secure bindings, and the scale / edge drag helpers
+  moved verbatim into `Window.lua` (about 830 lines), loaded after
+  `Wizard.lua`.
+- `BuildUI` assigns 11 window handles the main file reads everywhere
+  (frame, title, the text lines, nextBtn, grip, built). Window.lua keeps
+  its own copies and hands them to the main file through
+  `X.winAPI.setUI` (`PublishUI()`) right before `CreateRow` and the other
+  main-file calls, again once the cast buttons exist, and once `built`
+  is true. The close button writes `sessionShow` through
+  `setSessionShow`.
+- Main-file call sites now go through `X.BuildUI`, `X.ClearNext`,
+  `X.BindCached` and `X.ApplyNextRegistration`; `/br` state reads the
+  next-button flags through `X.NextBindState()`. The stray load-time
+  `X.BindCached = BindCached` line in the main file moved with it.
+- `BuffRadar.lua`: 8,017 -> 7,215 lines; main chunk 176 -> 165 locals;
+  `Refresh` 50 -> 49 upvalues. New trial step: after `X.BuildUI()` the
+  main file sees `built`, the frame, the grip and the same next-button
+  flags (mutation-checked: dropping the hand-off fails it and 271 other
+  steps).
+- Releases held at SEAN's request: no version bump, tag or release. The
+  checklist's "Next release" section covers Slices E-G in game, secure
+  cast path first.
+
 ## 2026-11-16 — File split Slices E and F (SEAN: "E + F")
 
 - Slice E: cast sync, caster coordination, chat buff requests, per-buff

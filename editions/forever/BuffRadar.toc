@@ -17,6 +17,7 @@ Data.lua
 BuffRadar.lua
 Coordination.lua
 Wizard.lua
+Window.lua
 Config.lua
 Slash.lua
 Extras.lua
