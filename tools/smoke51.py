@@ -12,7 +12,7 @@ stub_path, addon_path = sys.argv[1], sys.argv[2]
 lua = lua51.LuaRuntime(unpack_returned_tuples=True)
 lua.execute(open(stub_path, encoding="utf-8").read())
 
-harness = lua.eval(r"""function(addonSrc, withTimer, noTemplates, forever, german, localeSrc, extrasSrc, dataSrc, configSrc, slashSrc, recapsSrc, profilesSrc)
+harness = lua.eval(r"""function(addonSrc, withTimer, noTemplates, forever, german, localeSrc, extrasSrc, dataSrc, configSrc, slashSrc, recapsSrc, profilesSrc, coordSrc, wizardSrc)
 local chat = {}
 local env = WOWSTUB(chat, withTimer, noTemplates, forever, german)
 local unitIsUnit = env.UnitIsUnit
@@ -91,6 +91,23 @@ if dataSrc then
   end)
 end
 step("load file (main chunk)", function() chunk("BuffRadar", NS) end)
+-- File split Slices E and F (1.15.34) load straight after the main file (.toc order).
+if coordSrc then
+  step("load Coordination.lua", function()
+    local och = assert(loadstring(coordSrc, "=Coordination.lua"))
+    setfenv(och, env)
+    och("BuffRadar", NS)
+    assert(NS.X.InitSync and NS.X.OnAddonMsg and NS.X.OnRoster, "Coordination.lua did not publish its entry points")
+  end)
+end
+if wizardSrc then
+  step("load Wizard.lua", function()
+    local wch = assert(loadstring(wizardSrc, "=Wizard.lua"))
+    setfenv(wch, env)
+    wch("BuffRadar", NS)
+    assert(NS.X.WizardPage, "Wizard.lua did not publish its entry points")
+  end)
+end
 if configSrc then
   step("load Config.lua", function()
     local cch = assert(loadstring(configSrc, "=Config.lua"))
@@ -8074,6 +8091,21 @@ step("German client uses the translation", function()
   for _, fs in ipairs(env.__fontstrings) do if fs.text == "Kampf" then found = true end end
   assert(found, "combat label not translated ('Kampf' not found)")
 end)
+step("split files share the live settings (Slices E and F)", function()
+  local X, db = NS.X, NS.X.GetDB()
+  assert(db, "settings not loaded")
+  local savedCtx, savedHistory, savedRaid = db.buffContext, db.history, env.IsInRaid
+  db.buffContext = { SPLITTEST = "raid" }
+  env.IsInRaid = function() return false end
+  local outside = X.ContextOK("SPLITTEST")
+  db.buffContext, env.IsInRaid = savedCtx, savedRaid
+  assert(outside == false, "Coordination.lua does not read the live settings table")
+  db.history = { { t = 0, who = "Splitcheck", spell = "Test" } }
+  local text = X.HistoryText()
+  db.history = savedHistory
+  assert(type(text) == "string" and text:find("Splitcheck", 1, true), "Wizard.lua does not read the live settings table")
+  assert(X.coordAPI.nEntries() == X.wizAPI.nEntries(), "list-length accessors disagree")
+end)
 step("right-click a row (ignore path)", function()
   local row = env.BuffRadarRow1
   row.entry = { name = "Testshaman", fullName = "Testshaman-TestRealm", missing = { "Skyfury" }, unit = "player" }
@@ -8098,6 +8130,10 @@ rc_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Recaps.lua
 rc_src = open(rc_path, encoding="utf-8").read() if os.path.exists(rc_path) else None
 pf_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Profiles.lua")
 pf_src = open(pf_path, encoding="utf-8").read() if os.path.exists(pf_path) else None
+co_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Coordination.lua")
+co_src = open(co_path, encoding="utf-8").read() if os.path.exists(co_path) else None
+wz_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Wizard.lua")
+wz_src = open(wz_path, encoding="utf-8").read() if os.path.exists(wz_path) else None
 sl_src = open(sl_path, encoding="utf-8").read() if os.path.exists(sl_path) else None
 setups = [
     ("Retail: modern client (C_Timer, UI templates)", True, False, False, False),
@@ -8110,7 +8146,7 @@ if de_src:
     setups.append(("Retail: German client (Locales/deDE.lua)", True, False, False, True))
 failed = False
 for label, with_timer, no_templates, forever, german in setups:
-    results, chat = harness(src, with_timer, no_templates, forever, german, de_src if german else None, ex_src, da_src, cf_src, sl_src, rc_src, pf_src)
+    results, chat = harness(src, with_timer, no_templates, forever, german, de_src if german else None, ex_src, da_src, cf_src, sl_src, rc_src, pf_src, co_src, wz_src)
     bad = 0
     for i in range(1, len(results) + 1):
         name, status = results[i][1], results[i][2]

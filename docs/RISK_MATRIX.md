@@ -98,7 +98,7 @@ passes, and the last one covered releases through 1.15.33.
 | F1 | Runtime error inside a scan | List stops updating | `SafeRefresh` wraps the scan in `pcall`; the error is printed once, not per frame | robustness fuzz | Covered |
 | F2 | Cast fails (line of sight, range, invalid target) | Queue stuck on one player | Target-failure messages skip that player for 30 s; other errors stay pending | range and invalid-target failures skip the current player; empty-state steps | Covered |
 | F3 | Roster changes between render and key press | Buffs the wrong person | Slot occupant check clears a stale binding | 1.15.31 checklist; cast-next steps | Covered |
-| F4 | Lua 5.1 local or upvalue ceilings | Addon fails to load after an edit | `tools/lualimits.py` in the gate | gate | Covered (main chunk 182/200, `HandleSlash` 58/60 upvalues) |
+| F4 | Lua 5.1 local or upvalue ceilings | Addon fails to load after an edit | `tools/lualimits.py` in the gate | gate | Covered (main chunk 176/200, `HandleSlash` 58/60 upvalues) |
 | F5 | Locale string with a mismatched placeholder | `string.format` error | `localecheck` checks placeholder parity | gate | Covered |
 | F6 | Package missing a file or in the wrong load order | Addon broken on install | `checkpackage.py` loads the ZIP in TOC order; release assets hash-verified after upload | gate; release workflow | Covered |
 | F7 | Chat send refused (throttle or channel) | Silent report failure | Send result checked; 255-byte cap | group reports respect ignored players and chat refusal | Covered |

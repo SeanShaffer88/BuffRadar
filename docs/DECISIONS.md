@@ -296,6 +296,35 @@ split, then Briefs 2, 3, 4 — nothing else built; file-split Slices B
   3 -> 4); maintainability stays 3 because `BuffRadar.lua` has grown back
   to ~9,700 lines.
 
+## 2026-11-16 — File split Slices E and F (SEAN: "E + F")
+
+- Slice E: cast sync, caster coordination, chat buff requests, per-buff
+  context checks and the join digest moved verbatim into
+  `Coordination.lua` (about 1,140 lines). Slice F: the setup wizard,
+  saved themes, alert flash, range and fall checks, `/br why` and the
+  Nearby Player explanations, history / stats / Discord text and the
+  export dialog moved into `Wizard.lua` (about 630 lines). Both load
+  straight after `BuffRadar.lua`.
+- Bridges follow Slices B–D: `X.coordAPI` and `X.wizAPI` carry stable
+  values; the list length and "any buff known" flag the main file
+  reassigns go through accessors; the window comes from `X.GetFrame()`.
+  The settings table reaches both files through `X.dbSinks`, which the
+  main file calls (`X.ShareDB`) the moment `db` is set.
+- The only non-verbatim edits: those accessor reads, one
+  `local frame = X.GetFrame()` in `X.Flash`, and the sound throttle
+  `lastSoundAt` moving from a main-file local to `X.lastSoundAt` because
+  both files write it. `X.farNow`/`X.farPrev` stay initialised in the
+  main file, since the scan writes them.
+- Kept in the main file on purpose: `X.ApplyClickThrough` and
+  `X.ApplyRowLayout` (window layout on secure rows), and Slice G (toggle
+  strip, next/group buttons, `BuildUI`), which needs its own field pass.
+- `BuffRadar.lua`: 9,741 -> 8,017 lines; main chunk 182 -> 176 locals;
+  `Refresh` 51 -> 50 upvalues. The trial run gained two load steps and a
+  step proving both files read the live settings table (mutation-checked:
+  breaking the hand-off fails it).
+- Unverified in game until the next field pass. No settings or saved
+  data change, so `dbVersion` stays 20.
+
 ## 2026-11-16 — Field test passed for 1.15.32 and 1.15.33 (SEAN)
 
 - SEAN reported "all steps passed" for the 1.15.33 and 1.15.32 checklist

@@ -2,6 +2,22 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## Next release: file split Slices E and F
+
+Code moved into `Coordination.lua` and `Wizard.lua`; nothing should look or
+behave differently. Check that both files load (no Lua error at login, and
+`/br selftest` runs) and then:
+
+- **Coordination.lua:** with a second BuffRadar user in the group and cast
+  sync on, buff a player and check that their row clears on the other
+  client. Whisper yourself "buff" from a listed player and check that the row
+  is marked and the alert sound plays once. Join a group with buffs missing
+  and check the join digest line. Open Caster Coordination and request reports.
+- **Wizard.lua:** run `/br wizard` through all three pages. Save, apply and
+  delete a theme. Run `/br why <name>` on a nearby player and open the
+  Nearby Player panel with **?**. Check `/br history`, `/br stats` and an
+  export dialog. With alerts on, check that the window border flashes.
+
 ## 1.15.33 Input hardening
 
 Result: **passed** — SEAN, reported 2026-11-16 (client build not recorded).
