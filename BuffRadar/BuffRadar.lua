@@ -1290,6 +1290,30 @@ function X.ReadUnitBool(api, ...)
   if t == "number" then return value ~= 0 end
 end
 
+-- Guarded unit identity reads for the scan path. A client that raises,
+-- refuses or returns a protected value makes the unit absent for this scan
+-- instead of aborting the whole refresh.
+function X.UnitPresent(unit)
+  return X.ReadUnitBool(UnitExists, unit) == true
+end
+
+function X.UnitGUIDOf(unit)
+  local ok, guid = pcall(UnitGUID, unit)
+  if not ok then return nil end
+  guid = SafeString(guid)
+  if guid and guid ~= "" then return guid end
+end
+
+function X.UnitClassToken(unit)
+  local ok, _, class = pcall(UnitClass, unit)
+  if ok then return SafeString(class) end
+end
+
+function X.UnitNameOf(unit)
+  local ok, name = pcall(UnitName, unit)
+  if ok then return SafeString(name) end
+end
+
 function X.PlayerSuspended()
   return X.playerDead == true or X.ReadUnitBool(_G.UnitIsDeadOrGhost, "player") == true
 end
@@ -2180,8 +2204,8 @@ end
 X.listedBefore = X.listA  -- guid -> true for names on the board last refresh
 
 function X.Track(unit)
-  if not UnitExists(unit) then return end
-  local guid = SafeString(UnitGUID(unit))
+  if not X.UnitPresent(unit) then return end
+  local guid = X.UnitGUIDOf(unit)
   if not guid then return end
   if X.ReadUnitBool(UnitIsDeadOrGhost, unit) == true then
     X.dead[guid] = true
@@ -2526,6 +2550,14 @@ function Ignore.Rebuild()
 end
 
 -- Returns false when the name (in any spelling) is already on the list.
+-- What a stored ignore entry may be: a plausible name or name-realm. Game
+-- escape codes ("|"), control characters and the list separator never occur
+-- in player names, and a stored one would render as markup in the list.
+function Ignore.Valid(name)
+  return type(name) == "string" and name ~= "" and #name <= 64
+    and name:find("%S") ~= nil and not name:find("[%c;|]")
+end
+
 function Ignore.Add(name)
   local k = Ignore.Key(name)
   if Ignore.index[k] then return false end
@@ -2600,7 +2632,7 @@ local function Consider(unit, isGroup)
   if not valid then return end
   -- The GUID is a table key (seen[], the listed sets) and gets compared; a
   -- protected one can't be either, so that unit is skipped.
-  local guid = SafeString(UnitGUID(unit))
+  local guid = X.UnitGUIDOf(unit)
   if not guid or seen[guid] then return end
   local blockedUntil = X.failedTargets[guid]
   if blockedUntil then
@@ -2621,8 +2653,7 @@ local function Consider(unit, isGroup)
   if isGroup and db.drinkWatch and CLASSIC_FEATURES
      and select(2, X.Remaining(unit, "Drink")) == "present" then
     X.drinkSet[guid] = true
-    local _, dclass = UnitClass(unit)
-    dclass = SafeString(dclass)
+    local dclass = X.UnitClassToken(unit)
     if dclass == "PRIEST" or dclass == "PALADIN" or dclass == "SHAMAN"
        or dclass == "DRUID" then
       X.drinkHealers = (X.drinkHealers or 0) + 1
@@ -2651,8 +2682,8 @@ local function Consider(unit, isGroup)
   local n, approximate = X.FilterInRange(unit, queue, e.missing, isSelf)
   if #queue > 0 and n == 0 and db.rangeWatch then X.farNow[guid] = nm or true end
   if n == 0 and (#queue > 0 or allN == 0) then return end
-  local _, class = UnitClass(unit)
-  e.unit, e.guid, e.name, e.class, e.group = unit, guid, nm or unit, SafeString(class), isGroup
+  local class = X.UnitClassToken(unit)
+  e.unit, e.guid, e.name, e.class, e.group = unit, guid, nm or unit, class, isGroup
   e.fullName, e.sortName = full, nm or ""
   e.isSelf = isSelf
   e.rangeBucket = 0
@@ -2724,15 +2755,15 @@ end
 -- pet unit, shows the pet's name and portrait, and sorts just after the
 -- players. Pooled-entry hygiene mirrors Consider, plus pet=true.
 function X.ConsiderPet(petUnit, ownerUnit)
-  if not UnitExists(petUnit) then return end
+  if not X.UnitPresent(petUnit) then return end
   if X.ReadUnitBool(UnitIsDeadOrGhost, petUnit) == true then return end
   if X.ReadUnitBool(UnitCanAssist, "player", petUnit) == false then return end
   local isSelf = X.IsSelf(petUnit)
   if isSelf == nil then return end
-  local guid = SafeString(UnitGUID(petUnit))
+  local guid = X.UnitGUIDOf(petUnit)
   if not guid or seen[guid] then return end
   seen[guid] = true
-  local pname = SafeString(UnitName(petUnit))
+  local pname = X.UnitNameOf(petUnit)
   if not pname then return end
   local slot = nEntries + 1
   local e = entries[slot]
@@ -2752,9 +2783,9 @@ function X.ConsiderPet(petUnit, ownerUnit)
   local n, approximate = X.FilterInRange(petUnit, queue, e.missing, isSelf)
   if n == 0 then return end
   nEntries = slot
-  local _, oclass = UnitClass(ownerUnit)
+  local oclass = X.UnitClassToken(ownerUnit)
   e.unit, e.guid, e.name = petUnit, guid, pname
-  e.sortName = (SafeString(UnitName(ownerUnit)) or "") .. " " .. pname
+  e.sortName = (X.UnitNameOf(ownerUnit) or "") .. " " .. pname
   e.fullName = nil
   e.class = SafeString(oclass)
   e.group, e.isSelf, e.pet = true, false, true
@@ -5937,7 +5968,7 @@ local function Row_OnEnter(self)
   if not self.entry then return end
   local e = self.entry
   GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-  if UnitExists(e.unit) and SafeString(UnitGUID(e.unit)) == e.guid then
+  if X.UnitPresent(e.unit) and X.UnitGUIDOf(e.unit) == e.guid then
     GameTooltip:SetUnit(e.unit)
   else
     GameTooltip:AddLine(e.name)
@@ -5971,7 +6002,7 @@ local function Row_OnEnter(self)
   -- The full picture (1.7.0): buffs this player HAS from your set, with
   -- the time left on each, soonest first — so a hover answers "what do
   -- they still need, and what's about to run out?" in one look.
-  if UnitExists(e.unit) then
+  if X.UnitPresent(e.unit) then
     local missSet = {}
     for _, m in ipairs(e.missing) do missSet[m] = true end
     local have, seenHave = {}, {}
@@ -6898,7 +6929,7 @@ function X.CheckDrops()
   local uncertain = {}
   if db.watchDrop then
     for key, prev in pairs(X.prevHolder) do
-      if not Single.holder[key] and prev.unit and UnitExists(prev.unit) and lookup then
+      if not Single.holder[key] and prev.unit and X.UnitPresent(prev.unit) and lookup then
         local aura, definitive = X.QueryNamedAura(lookup, prev.unit, Single.spell[key] or key, "HELPFUL|PLAYER")
         if definitive and not aura then
           Print(string_format("%s dropped off %s.", Single.spell[key] or key, prev.name))
@@ -6912,7 +6943,7 @@ function X.CheckDrops()
   end
   X.prevHolder = uncertain
   for key, unit in pairs(Single.holder) do
-    X.prevHolder[key] = { unit = unit, name = SafeString(UnitName(unit)) or unit }
+    X.prevHolder[key] = { unit = unit, name = X.UnitNameOf(unit) or unit }
   end
 end
 
@@ -8984,7 +9015,7 @@ local function Refresh()
   local focusValid, focusSelf
   if db.focusWatch and X.focusText then focusValid, focusSelf = Valid("focus") end
   if focusValid then
-    local fname = SafeString(UnitName("focus"))
+    local fname = X.UnitNameOf("focus")
     if fname then
       local fn = Missing("focus", X.focusMiss, false, focusSelf)
       if fn > 0 then

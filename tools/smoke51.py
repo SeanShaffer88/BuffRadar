@@ -7702,6 +7702,372 @@ step("performance budget: worst-case 40-player scan", function()
     string.format("scan work grew faster than linear: %.0f reads at 20, %.0f at 40", perPlayer[20] * 20, perPlayer[40] * 40))
   assert(ms[40] < 5, string.format("40-player scan averaged %.2f ms (budget 5 ms)", ms[40]))
 end)
+step("hardening regressions: decoder types, ignore import limits, one bad unit", function()
+  local X, O, db = NS.X, env.__over, env.BuffRadarDB
+  -- DecodeAssignment: happy path, edge and misuse.
+  assert(X.DecodeAssignment("0") == false, "zero mask is the explicit 'none' cell")
+  assert(type(X.DecodeAssignment("8")) == "table", "valid mask did not decode")
+  for _, bad in ipairs({ 8, true, {}, "", "08", "-1", "1e3", " 8" }) do
+    assert(X.DecodeAssignment(bad) == nil, "decoder accepted " .. tostring(bad))
+  end
+  -- IgnoreImport: valid, oversize, escape codes, control characters.
+  local before = {}
+  for k, v in pairs(db.ignored) do before[k] = v end
+  local ok = X.IgnoreImport("BRI1;Hardenone;Hardentwo")
+  assert(ok and db.ignored.Hardenone and db.ignored.Hardentwo, "valid ignore import failed")
+  local okBig, msgBig = X.IgnoreImport("BRI1;" .. string.rep("Floodname;", 2000))
+  assert(not okBig and msgBig:find("16 KiB", 1, true) and not db.ignored.Floodname,
+    "oversize ignore import was accepted")
+  assert(X.IgnoreImport("BRI1;|cffff0000Red|r;Tab\tName;Hardenthree"), "mixed ignore import refused")
+  assert(not db.ignored["|cffff0000Red|r"] and not db.ignored["Tab\tName"] and db.ignored.Hardenthree,
+    "escape-code or control-character name was stored")
+  assert(X.IgnoreImport(("BRI1;" .. string.rep("x", 65))), "overlong name aborted the import")
+  assert(not db.ignored[string.rep("x", 65)], "overlong name was stored")
+  env.SlashCmdList.BUFFRADAR("ignore |TInterface\\Icons\\X:0|t")
+  env.SlashCmdList.BUFFRADAR("ignore Hardenfour")
+  assert(not db.ignored["|TInterface\\Icons\\X:0|t"] and db.ignored.Hardenfour,
+    "/br ignore stored an escape code or refused a plain name")
+  assert(not X.PlanImport("BRPLAN1;A;FORTITUDE;Tab\tHolder"), "plan holder with a control character accepted")
+  assert(X.PlanImport("BRPLAN1;A;FORTITUDE;Aaron") and X.PlanImport("BRPLAN1;A;FORTITUDE;none"),
+    "a plain plan holder was refused")
+  for k in pairs(db.ignored) do if not before[k] then db.ignored[k] = nil end end
+  X.Ignore.Rebuild()
+  -- One unit whose identity read raises must not hide everyone else.
+  local cleanup = partyOfTwo()
+  env.IsSpellInRange = function() return 1 end
+  refresh()
+  local baseline = shownRows()
+  local okR, err, rows
+  if baseline.party1 and baseline.party2 then
+    local realGUID = O.UnitGUID
+    O.UnitGUID = function(u)
+      if u == "party2" then error("client refused") end
+      return realGUID(u)
+    end
+    okR, err = pcall(X.Refresh)
+    rows = shownRows()
+  end
+  cleanup()
+  refresh()
+  assert(baseline.party1 and baseline.party2, "both party members should be listed before the fault")
+  assert(okR, "a raising UnitGUID aborted the scan: " .. tostring(err))
+  assert(rows.party1 and not rows.party2, "the readable player was not listed beside the unreadable one")
+end)
+-- Robustness fuzz (docs/RISK_MATRIX.md): seeded, so a failure reproduces.
+-- Untrusted text (imports, addon messages, whispers, slash arguments),
+-- corrupted SavedVariables and failing game APIs must never raise, a
+-- rejected import must leave settings untouched, an accepted one must
+-- round-trip, and the sanitizer must restore every saved key's type.
+step("robustness fuzz: untrusted input, corrupt saves, failing game APIs", function()
+  local X, O, db = NS.X, env.__over, env.BuffRadarDB
+  local function deep(v, depth)
+    if type(v) ~= "table" or depth > 8 then return v end
+    local t = {}
+    for k, x in pairs(v) do t[k] = deep(x, depth + 1) end
+    return t
+  end
+  local pristine = deep(env.BuffRadarDB, 0)
+  local fails, seen, stats = {}, {}, {}
+  local function note(where, input, err)
+    local k = where .. ":" .. tostring(err):gsub("%[string.-%]:%d+:", "")
+    if seen[k] then return end
+    seen[k] = true
+    fails[#fails + 1] = where .. " <" .. string.format("%q", tostring(input)):sub(1, 80) .. "> " .. tostring(err):sub(1, 160)
+  end
+  math.randomseed(4242)
+  local nasty = { "", " ", ";", ";;;", "=", "==", "\0", "\255\254", "%", "%s%s%s%d", "[", "(", "|c", "|Hitem|h", "|r",
+    "\n", "\r\n", string.rep("A", 300), string.rep(";", 300), string.rep("=1;", 2000), "BR1", "BR2", "BR1;", "BR2;",
+    "BRPLAN1", "BRPLAN1;", "BR1;scale=nan", "BR1;scale=inf", "BR1;scale=-inf", "BR1;scale=1e309", "BR1;scale=-0",
+    "BR1;scale=0x10", "BR1;scale= 1", "BR1;__index=1", "BR1;dbVersion=999", "BR1;enabled.=1", "BR1;.=1",
+    "BuffRadar profile: \nBR1", "BuffRadar profile: x\n", "BuffRadar profile: " .. string.rep("n", 500) .. "\nBR1",
+    "Привет", "增益", "BRPLAN1;A;;", "BRPLAN1;P;;", "BRPLAN1;A;FORTITUDE;" .. string.rep("x", 300),
+    "18446744073709551616", "-1", "1.5", "0", "00", "9" .. string.rep("9", 40) }
+  local function mutate(base)
+    local t = base
+    for _ = 1, math.random(1, 4) do
+      local op, i = math.random(6), math.random(0, #t)
+      if op == 1 then t = t:sub(1, i)
+      elseif op == 2 then t = t:sub(1, i) .. string.char(math.random(0, 255)) .. t:sub(i + 1)
+      elseif op == 3 then t = t:sub(1, i) .. t:sub(i + 2)
+      elseif op == 4 then t = t:sub(1, i) .. nasty[math.random(#nasty)] .. t:sub(i + 1)
+      elseif op == 5 then t = t .. t:sub(i)
+      else local j = math.random(0, #t); t = t:sub(1, math.min(i, j)) .. t:sub(math.max(i, j) + 1) end
+    end
+    return t
+  end
+  local values = { "0", "1", "2", "-1", "0.01", "0.5", "1.5", "3", "100", "1e9", "-1e9", "1e-9", "nan", "inf",
+    "", "x", "name", "role", "need", "distance", "target", "macro", "rank", "raid", "instance", "0,0,0", "1,1,1",
+    "2,0,0", "-1,0,0", "0.1,0.2", "ui.auto", "midnight", "nosuch", string.rep("9", 30) }
+  local function fieldMutate(base)
+    local parts = {}
+    for part in (base .. ";"):gmatch("([^;]*);") do parts[#parts + 1] = part end
+    for _ = 1, math.random(1, 2) do
+      local i = math.random(2, math.max(2, #parts))
+      local key = (parts[i] or ""):match("^([^=]+)=")
+      if key then parts[i] = key .. "=" .. values[math.random(#values)] end
+    end
+    return table.concat(parts, ";")
+  end
+  local saved = X.Export()
+  local seeds = { saved, X.PlanExport and X.PlanExport() or "BRPLAN1", "BRPLAN1;A;FORTITUDE;Aaron;P;raid;Future",
+    "BuffRadar profile: Fz\n" .. saved, "BR1;scale=1.25;sortMode=name" }
+  local parsers = {
+    { "Import", X.Import, true }, { "SettingsDiff", X.SettingsDiff }, { "PlanImport", X.PlanImport },
+    { "ProfileImport", X.ProfileImport }, { "IgnoreImport", X.IgnoreImport }, { "ParseProfile", X.ParseProfile },
+    { "DecodeAssignment", X.DecodeAssignment },
+  }
+  for _, pz in ipairs(parsers) do
+    local name, fn, mutates = pz[1], pz[2], pz[3]
+    if fn then
+      local inputs = {}
+      for _, n in ipairs(nasty) do inputs[#inputs + 1] = n end
+      for _ = 1, 400 do inputs[#inputs + 1] = mutate(seeds[math.random(#seeds)]) end
+      for _ = 1, 600 do
+        local seed = seeds[math.random(#seeds)]
+        if name == "ProfileImport" then
+          inputs[#inputs + 1] = "BuffRadar profile: Fz\n" .. fieldMutate(saved)
+        else
+          inputs[#inputs + 1] = fieldMutate(seed)
+        end
+      end
+      for _, input in ipairs(inputs) do
+        local before = X.Export()
+        local ok, res = pcall(fn, input)
+        if ok and res then stats[name] = (stats[name] or 0) + 1 end
+        if not ok then note(name, input, res)
+        elseif not res and X.Export() ~= before then note(name, input, "rejected input changed settings")
+        elseif res and mutates then
+          -- Whatever an import accepts must export, re-import and export the same.
+          local okE, out = pcall(X.Export)
+          if not okE or not out then note(name, input, "accepted import cannot be exported: " .. tostring(out))
+          else
+            local okI, again = pcall(X.Import, out)
+            if not okI or not again then note(name, input, "accepted import does not round-trip: " .. tostring(again))
+            elseif X.Export() ~= out then note(name, input, "round-trip changed settings")
+            end
+          end
+          local okR, errR = pcall(refresh)
+          if not okR then note(name .. "+refresh", input, errR) end
+        end
+        if mutates and X.Export() ~= saved then X.Import(saved) end
+      end
+      for _, v in ipairs({ 1, true, {}, function() end }) do
+        local ok, err = pcall(fn, v)
+        if not ok then note(name .. "(non-string)", type(v), err) end
+      end
+    end
+  end
+  X.Import(saved)
+  O.UnitExists = function(u) return u == "player" or (u:match("^party[1-4]$") ~= nil) end
+  O.UnitName = function(u) if u == "player" then return "Testshaman" end local i = u:match("^party(%d)$"); if i then return "Peer" .. i end end
+  O.UnitGUID = function(u) return "Player-1-" .. u end
+  O.UnitIsPlayer = function() return true end
+  env.IsInGroup = function() return true end
+  env.IsInRaid = function() return false end
+  env.GetNumGroupMembers = function() return 5 end
+  local oldSync = db.sync
+  db.sync, db.requests = true, true
+  refresh()
+  local kinds = { "CAST", "ASSIGN", "BLESS", "COVER", "BACK", "HELLO", "HERE", "SYNC", "ZZZ", "" }
+  local fields = { "FORTITUDE", "KINGS", "WARRIOR", "Peer1", "Peer2", "none", "NONE", "3", "Player-1-party1",
+    "0123456789abcdef", "0123456789abcdef01234567", "B", "D", "Q", "P", "1", "999999999999", "" }
+  for _ = 1, 3000 do
+    local parts = { kinds[math.random(#kinds)] }
+    for _ = 1, math.random(0, 6) do
+      parts[#parts + 1] = math.random(5) == 1 and nasty[math.random(#nasty)] or fields[math.random(#fields)]
+    end
+    local msg = table.concat(parts, ";")
+    if math.random(4) == 1 then msg = mutate(msg) end
+    local sender = ({ "Peer1", "Peer2-TestRealm", "Testshaman", "Stranger", "", "Peer1-" .. string.rep("x", 60) })[math.random(6)]
+    local ok, err = pcall(X.OnAddonMsg, "BuffRadar", msg, "PARTY", sender)
+    if not ok then note("OnAddonMsg", msg, err) end
+    for _, pr in pairs(X.peers or {}) do
+      if pr.t ~= -1 then stats.msgAccepted = (stats.msgAccepted or 0) + 1; pr.t = -1 end
+    end
+    ok, err = pcall(X.OnChatAsk, math.random(2) == 1 and ("buff " .. mutate("me pls")) or mutate("buff"), sender)
+    if not ok then note("OnChatAsk", sender, err) end
+  end
+  for _, v in ipairs({ { nil, "x" }, { 1, "x" }, { "buff", nil }, { "buff", 5 }, { {}, {} } }) do
+    local ok, err = pcall(X.OnChatAsk, v[1], v[2])
+    if not ok then note("OnChatAsk(types)", tostring(v[1]), err) end
+    ok, err = pcall(X.OnAddonMsg, "BuffRadar", v[1], "PARTY", v[2])
+    if not ok then note("OnAddonMsg(types)", tostring(v[1]), err) end
+  end
+  for _ in pairs(X.assign or {}) do stats.assigns = (stats.assigns or 0) + 1 end
+  for _ in pairs(X.blessPlan or {}) do stats.bless = (stats.bless or 0) + 1 end
+  local nPeers, nCover = 0, 0
+  for _ in pairs(X.peers or {}) do nPeers = nPeers + 1 end
+  for _ in pairs(X.cover or {}) do nCover = nCover + 1 end
+  if nPeers > 4 then note("state", "peers", "peer table grew to " .. nPeers) end
+  if nCover > 4 then note("state", "cover", "cover table grew to " .. nCover) end
+  db.sync = oldSync
+  O.UnitExists, O.UnitName, O.UnitGUID, O.UnitIsPlayer = nil, nil, nil, nil
+  env.IsInGroup = function() return false end
+  env.GetNumGroupMembers = nil
+  X.assign, X.blessPlan, X.cover = {}, {}, {}
+  local cmds = {}
+  for w in ("nearby coordinate buffassign undo coverage show hide group cities sync requests digest sound soundfor prio view scroll clickthrough counts macro keybind clicks mode clickreg debug lock self pvp autohide rebuff groupcast sort filter strip fade mana selftest compact text charpoint export import profile plan summary discord offenders preset fastaura modclick grouppair pullflash ready prep subgroup fallsound consumables custom assign pin history throttle growup cover rowcolor tooltip rowgap iconsize twocol find findbox bars markers focus pets aura thornsoutdoors worldbuff drink context theme weapon enterflash readypost death wipe buddy bless uptime autoprofile ignore unignore ignores bg taxi watch alertsound minimap stats specscale tagsymbols motion rangewatch assumerange snap scale width buffs toggle announce signore unsignore plates why apicheck buffcheck perf diff practice config"):gmatch("%S+") do
+    cmds[#cmds + 1] = w
+  end
+  local args = { "", "on", "off", "toggle", "list", "add", "remove", "clear", "set", "save", "load", "delete", "export",
+    "import", "FORTITUDE", "SHADOWGUARD", "KINGS", "raid", "instance", "always", "1", "0", "-1", "999", "0.5", "nan",
+    "Aaron", "Peer1", "%s", "[", "|cffff0000", string.rep("z", 300), "Привет", "1243", "18137", "999999999" }
+  local snapshot = X.Export()
+  for _ = 1, 1500 do
+    local line = cmds[math.random(#cmds)]
+    for _ = 1, math.random(0, 3) do line = line .. " " .. args[math.random(#args)] end
+    local n0 = #chat
+    local ok, err = pcall(env.SlashCmdList.BUFFRADAR, line)
+    if not ok then note("slash", line, err) end
+    for i = n0 + 1, #chat do
+      if chat[i]:find("error:", 1, true) then note("slash", line, chat[i]); break end
+    end
+  end
+  X.Import(snapshot)
+  refresh()
+  -- Corrupted SavedVariables: hand edits, truncated writes, other tools.
+  local function copy(v, depth)
+    if type(v) ~= "table" or depth > 6 then return v end
+    local t = {}
+    for k, x in pairs(v) do t[k] = copy(x, depth + 1) end
+    return t
+  end
+  local good = copy(env.BuffRadarDB, 0)
+  local keys = {}
+  for k in pairs(good) do keys[#keys + 1] = k end
+  table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+  local junk = { 0, -1, 1e309, -1e309, 0 / 0, 2 ^ 53, 0.5, "", "x", "nan", string.rep("q", 5000), true, false,
+    {}, { 1, 2, 3 }, { x = { y = { z = 1 } } }, { [true] = 1, [1.5] = "a" } }
+  local function junkValue() local v = junk[math.random(#junk)]; return copy(v, 0) end
+  local function junkKey()  -- a key a saved file can hold (never NaN or nil)
+    local v = junkValue()
+    if v ~= v then return "nan" end
+    return v
+  end
+  local expected = {}
+  for k, v in pairs(good) do expected[k] = type(v) end
+  for round = 1, 250 do
+    local d = copy(good, 0)
+    for _ = 1, math.random(1, 6) do
+      local k = keys[math.random(#keys)]
+      if type(d[k]) == "table" and math.random(2) == 1 then
+        local sub = {}
+        for sk in pairs(d[k]) do sub[#sub + 1] = sk end
+        if #sub > 0 then d[k][sub[math.random(#sub)]] = junkValue() else d[k][junkKey()] = junkValue() end
+      elseif math.random(8) == 1 then d[k] = nil
+      else d[k] = junkValue() end
+    end
+    if math.random(5) == 1 then d.dbVersion = junk[math.random(#junk)] end
+    if math.random(10) == 1 then d[junkKey()] = junkValue() end
+    env.BuffRadarDB = d
+    local ok, err = pcall(fire, "ADDON_LOADED", "BuffRadar")
+    if not ok then note("savedvars load", round, err)
+    else
+      local db2 = env.BuffRadarDB
+      if type(db2) ~= "table" then note("savedvars load", round, "save is no longer a table")
+      else
+        for k, ty in pairs(expected) do
+          if db2[k] ~= nil and type(db2[k]) ~= ty then
+            note("savedvars type", k, "kept " .. type(db2[k]) .. ", expected " .. ty)
+          elseif type(db2[k]) == "number" and (db2[k] ~= db2[k] or db2[k] == 1e309 or db2[k] == -1e309) then
+            note("savedvars number", k, "kept a non-finite number")
+          end
+        end
+        local okR, errR = pcall(refresh)
+        if not okR then note("savedvars refresh", round, errR) end
+        local okE, errE = pcall(X.Export)
+        if not okE then note("savedvars export", round, errE) end
+        local okS, errS = pcall(env.SlashCmdList.BUFFRADAR, "selftest")
+        if not okS then note("savedvars selftest", round, errS) end
+      end
+    end
+  end
+  env.BuffRadarDB = copy(good, 0)
+  fire("ADDON_LOADED", "BuffRadar")
+  refresh()
+  -- Game API misbehavior during a raid scan: errors, nil, wrong types.
+  local chaos = { function() error("api failure") end, function() return nil end, function() return 42 end,
+    function() return "" end, function() return {} end, function() return true end }
+  local function flaky(real)
+    return function(...)
+      if math.random(6) == 1 then return chaos[math.random(#chaos)]() end
+      return real(...)
+    end
+  end
+  local names = { "UnitExists", "UnitName", "UnitGUID", "UnitClass", "UnitIsPlayer", "UnitLevel", "Aura",
+    "UnitIsDeadOrGhost", "UnitIsConnected", "UnitInRange", "UnitGroupRolesAssigned" }
+  for round = 1, 200 do
+    local size = math.random(1, 40)
+    local real = {
+      UnitExists = function(u)
+        if u == "player" then return true end
+        local i = tonumber(u:match("^party(%d+)$") or u:match("^raid(%d+)$"))
+        return i ~= nil and i <= size
+      end,
+      UnitName = function(u) if u == "player" then return "Testshaman" end return "Chaos" .. u end,
+      UnitGUID = function(u) return "Player-1-" .. u end,
+      UnitClass = function() return "PRIEST", "PRIEST" end,
+      UnitIsPlayer = function() return true end,
+      UnitLevel = function() return 60 end,
+      Aura = function() if math.random(3) == 1 then return { expirationTime = env.GetTime() + 100 } end end,
+      UnitIsDeadOrGhost = function() return false end,
+      UnitIsConnected = function() return true end,
+      UnitInRange = function() return true, true end,
+      UnitGroupRolesAssigned = function() return "DAMAGER" end,
+    }
+    for _, n in ipairs(names) do O[n] = flaky(real[n]) end
+    env.IsInGroup = function() return size > 1 end
+    env.IsInRaid = function() return size > 5 end
+    env.GetNumGroupMembers = function() return size end
+    pcall(fire, "GROUP_ROSTER_UPDATE")
+    local ok, err = xpcall(X.Refresh, function(e)
+      local tb = debug and debug.traceback and debug.traceback("", 2) or ""
+      local at = {}
+      for loc in tb:gmatch("([%w]+%.lua:%d+)") do at[#at + 1] = loc; if #at == 3 then break end end
+      return tostring(e) .. " @ " .. table.concat(at, " < ")
+    end)
+    if not ok then note("api chaos", round, err) end
+  end
+  for _, only in ipairs(names) do
+    for _, n in ipairs(names) do O[n] = nil end
+    local size = 12
+    O.UnitExists = function(u)
+      if u == "player" then return true end
+      local i = tonumber(u:match("^party(%d+)$") or u:match("^raid(%d+)$"))
+      return i ~= nil and i <= size
+    end
+    O.UnitName = function(u) if u == "player" then return "Testshaman" end return "Chaos" .. u end
+    O.UnitIsPlayer = function() return true end
+    O[only] = function() error("raised by " .. only) end
+    env.IsInGroup = function() return true end
+    env.IsInRaid = function() return true end
+    env.GetNumGroupMembers = function() return size end
+    pcall(fire, "GROUP_ROSTER_UPDATE")
+    local ok, err = xpcall(X.Refresh, function(e) return tostring(e) .. " @ " .. ((debug and debug.traceback and debug.traceback("", 2) or ""):match("BuffRadar%.lua:%d+") or "?") end)
+    if not ok then note("api raises", only, err) end
+  end
+  for _, n in ipairs(names) do O[n] = nil end
+  env.IsInGroup = function() return false end
+  env.IsInRaid = function() return false end
+  env.GetNumGroupMembers = nil
+  refresh()
+  local st = {}
+  for k, v in pairs(stats) do st[#st + 1] = k .. "=" .. v end
+  table.sort(st)
+  for _, k in ipairs(names) do O[k] = nil end
+  env.BuffRadarDB = deep(pristine, 0)
+  fire("ADDON_LOADED", "BuffRadar")
+  X.search = ""
+  if env.BuffRadarConfig and env.BuffRadarConfig.Hide then env.BuffRadarConfig:Hide() end
+  refresh()
+  -- Depth floor: the field-level mutations must reach the accepting paths,
+  -- or a "clean" run would only prove the frame check works.
+  assert((stats.Import or 0) > 0 and (stats.ProfileImport or 0) > 0 and (stats.PlanImport or 0) > 0,
+    "fuzz never reached an accepting import path [" .. table.concat(st, " ") .. "]")
+  if #fails > 0 then
+    error(#fails .. " finding(s) [" .. table.concat(st, " ") .. "]:\n    " .. table.concat(fails, "\n    "))
+  end
+end)
 step("German client uses the translation", function()
   if not env.__german then return end
   local found

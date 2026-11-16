@@ -1258,6 +1258,7 @@ local function HandleSlash(msg)
     end
   elseif cmd == "ignore" then
     if rest == "" then Print("Usage: /br ignore <name> or <name-realm>  (or right-click a row)"); return end
+    if not Ignore.Valid(rest) then Print("That is not a player name (64 characters at most, no | or ;)."); return end
     if Ignore.Add(rest) then
       Print("Ignoring " .. rest .. (rest:find("-", 1, true) and "." or " on every realm."))
     else

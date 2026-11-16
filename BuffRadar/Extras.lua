@@ -188,11 +188,11 @@ end
 -- the case the group-range API refuses to describe. Prefer the target, then
 -- any player nameplate, and fall back to the player.
 local function ProbeUnit()
-  if UnitExists("target") and X.ReadUnitBool(UnitIsPlayer, "target") == true
+  if X.UnitPresent("target") and X.ReadUnitBool(UnitIsPlayer, "target") == true
      and X.IsSelf("target") == false then return "target", "your target" end
   for i = 1, 40 do
     local u = "nameplate" .. i
-    if UnitExists(u) and X.ReadUnitBool(UnitIsPlayer, u) == true then
+    if X.UnitPresent(u) and X.ReadUnitBool(UnitIsPlayer, u) == true then
       return u, "a player nameplate"
     end
   end
@@ -344,18 +344,25 @@ function X.IgnoreExport()
   return "BRI1;" .. table.concat(X.Ignore.Sorted(), ";")
 end
 
+-- Same ceiling as the settings clipboard, so a pasted or shared string can't
+-- flood the saved ignore list. The whole string is checked before anything
+-- is added. "|" starts a game escape code and never appears in a player name.
+X.IGNORE_IMPORT_MAX_BYTES = 16384
 function X.IgnoreImport(text)
   if type(text) ~= "string" then return false, "Nothing to import." end
+  if #text > X.IGNORE_IMPORT_MAX_BYTES then return false, "That import exceeds 16 KiB." end
   text = text:gsub("^%s+", ""):gsub("%s+$", "")
   if text:sub(1, 5) ~= "BRI1;" then return false, "Not a BuffRadar ignore-list string (should start with BRI1;)." end
-  local added, seen = 0, 0
+  local names = {}
   for name in (text:sub(6) .. ";"):gmatch("(.-);") do
     name = name:gsub("^%s+", ""):gsub("%s+$", "")
-    if name ~= "" and #name <= 64 and not name:find("[%c]") then
-      seen = seen + 1
-      if X.Ignore.Add(name) then added = added + 1 end
-    end
+    if X.Ignore.Valid(name) then names[#names + 1] = name end
   end
+  local added = 0
+  for _, name in ipairs(names) do
+    if X.Ignore.Add(name) then added = added + 1 end
+  end
+  local seen = #names
   if X.Refresh then X.Refresh() end
   return true, string.format("Ignore list: %d added, %d already there.", added, seen - added)
 end

@@ -2,6 +2,15 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## Unreleased
+
+- Keep the list updating when the game refuses to read one player's name,
+  class or ID: that player is skipped for the scan instead of stopping it.
+- Refuse ignore-list imports over 16 KiB, checked before any name is added.
+- Skip ignore-list names with `|` escape codes, `;` or control characters,
+  in `/br ignore` and in imports. No player name contains them.
+- Refuse plan holders that contain control characters.
+
 ## 1.15.32 — WoW: Forever
 
 - Watch **Shadowguard** on yourself as a priest self buff, like Inner Fire.

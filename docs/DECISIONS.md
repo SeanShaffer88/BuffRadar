@@ -295,3 +295,23 @@ split, then Briefs 2, 3, 4 — nothing else built; file-split Slices B
 - QUALITY.md re-scored 74 -> 78 (completeness, performance, diagnostics
   3 -> 4); maintainability stays 3 because `BuffRadar.lua` has grown back
   to ~9,700 lines.
+
+## 2026-11-16 — Risk matrix and robustness pass
+
+- SEAN asked for an exhaustive use-case / risk / test matrix, defensive
+  implementation and tests. The matrix is `docs/RISK_MATRIX.md`: 51 rows
+  over users, environments, inputs, failure modes and abuse cases, each
+  with its mitigation, evidence and status.
+- Method: a seeded fuzz step mutates every untrusted input (imports, plan
+  and ignore strings, addon messages, whispers, slash arguments), corrupts
+  SavedVariables and makes game APIs raise or return garbage. Field-level
+  mutations plus a depth floor keep it reaching the accepting import
+  paths; accepted imports must round-trip.
+- Fixed: DecodeAssignment on non-strings; uncapped ignore import; `|`
+  markup in ignore names; control characters in plan holders; raw
+  UnitExists / UnitGUID / UnitClass / UnitName calls that could abort a
+  whole scan (now X.UnitPresent / X.UnitGUIDOf / X.UnitClassToken /
+  X.UnitNameOf). Each fix fails its regression test when reverted.
+- Added `tools/patterncheck.py` to the gate. gate.sh now probes that the
+  interpreter runs, so the Windows Store python3 stub no longer stops it.
+- Unverified in game.

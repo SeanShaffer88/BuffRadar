@@ -85,6 +85,10 @@ Section 'Translations'
 & $py -I (Join-Path $here 'localecheck.py') $lua $locales
 if ($LASTEXITCODE -ne 0) { $failed += 'translations' }
 
+Section 'Lua pattern arguments'
+& $py -I (Join-Path $here 'patterncheck.py') @($luaFiles | ForEach-Object { "$_" })
+if ($LASTEXITCODE -ne 0) { $failed += 'patterns' }
+
 # 3. Advisory Lua 5.1 limits. Only the compiler decides whether Lua can load.
 Section 'Lua 5.1 limits (estimates)'
 foreach ($file in $luaFiles) {

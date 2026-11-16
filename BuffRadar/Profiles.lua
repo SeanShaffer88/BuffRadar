@@ -351,7 +351,7 @@ local planContexts = { raid = true, dungeon = true, pvp = true, world = true, so
 
 local function PlanHolder(value)
   return value and #value <= 128 and value:match("^%S") and value:match("%S$")
-    and not value:find("[;|]")
+    and not value:find("[%c;|]")
 end
 
 local function ParsePlan(text)

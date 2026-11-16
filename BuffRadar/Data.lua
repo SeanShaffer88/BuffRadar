@@ -302,6 +302,7 @@ do
   end
 
   function X.DecodeAssignment(raw)
+    if type(raw) ~= "string" then return nil end
     local mask = tonumber(raw)
     if not mask or not raw:match("^%d+$") or raw ~= tostring(mask)
       or mask < 0 or mask >= 2 ^ #profileKeys then return nil end
