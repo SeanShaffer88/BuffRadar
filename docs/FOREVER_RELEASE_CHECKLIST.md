@@ -25,6 +25,11 @@ behave differently. Check that both files load (no Lua error at login, and
   drag the scale grips and edges, and close the window with its button (it
   stays hidden until reopened). Run `/reload` and check the window returns
   where it was.
+- **Row hover highlight:** move the mouse over names in the list. Each row
+  should light with a faint wash in the theme's border colour (no yellow
+  glow), and only while the mouse is on it. Switch theme, including Auto
+  with a UI suite loaded, and check the wash follows. With click-through
+  on and the window locked, rows should not highlight.
 
 ## 1.15.33 Input hardening
 

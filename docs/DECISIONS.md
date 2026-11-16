@@ -296,6 +296,23 @@ split, then Briefs 2, 3, 4 — nothing else built; file-split Slices B
   3 -> 4); maintainability stays 3 because `BuffRadar.lua` has grown back
   to ~9,700 lines.
 
+## 2026-11-16 — Subtle row hover highlight (SEAN)
+
+- Rows already highlighted on hover, with the game's quest-title glow: a
+  bright yellow wash that ignored the theme. It is now a flat texture
+  (`Interface\Buttons\WHITE8X8`, ADD blend) tinted with the theme's border
+  colour at 15% (`X.ROW_HOVER_ALPHA`). `X.TintRowHover` sets it when a row
+  is built; `ApplyAppearance` re-tints every row when the theme changes.
+- Not a setting: a styling change with no on/off case, so no `dbVersion`
+  bump and no `/br` command. The engine shows the highlight only while the
+  mouse is over the row, so no OnEnter/OnLeave scripts were added to the
+  secure buttons.
+- Forever 1.60.1.70755 Texture API (wow-addon-api): `SetVertexColor` and
+  `SetBlendMode` are not protected; both run only out of combat here
+  (row build, and `ApplyAppearance` defers in combat).
+- Trial step added; the stub's buttons now keep their highlight texture.
+  Unverified in game.
+
 ## 2026-11-16 — File split Slice G (SEAN: "complete next milestone, hold releases")
 
 - Slice G was the milestone QUALITY.md named. The window builder

@@ -257,7 +257,8 @@ each needs in-game evidence or a sharper definition, recorded in
 ## Buffing
 
 - **Click-to-buff.** Click a name to buff that player; hovering a
-  name shows exactly what will be cast and what they still need.
+  name lights its row with a faint wash in the theme's border colour
+  and shows exactly what will be cast and what they still need.
   Since 1.3.2, buffing a group member no longer changes your
   target; for anyone else, BuffRadar targets them by name, casts,
   then switches back to your previous target.

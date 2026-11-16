@@ -94,7 +94,12 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     function methods.SetWidth(self, w) self.width = w end
     function methods.SetSize(self, w, h) self.size = { w, h } end
     function methods.SetFrameStrata(self, s) self.strata = s end
-    function methods.SetVertexColor(self, r, g, b) self.vcolor = { r, g, b } end
+    function methods.SetVertexColor(self, r, g, b, a) self.vcolor = { r, g, b, a } end
+    function methods.SetHighlightTexture(self, file, blend)
+      self.highlight = newObject("Texture")
+      self.highlight.file, self.highlight.blend = file, blend
+    end
+    function methods.GetHighlightTexture(self) return self.highlight end
     function methods.EnableMouse(self, v) self.mouseEnabled = v end
     function methods.EnableMouseWheel(self, v) self.wheelEnabled = v end
     function methods.IsMouseWheelEnabled(self) return not not self.wheelEnabled end

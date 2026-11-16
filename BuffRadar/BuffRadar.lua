@@ -4962,6 +4962,18 @@ function X.RowWheel(_, delta)
   if delta ~= 0 then X.ScrollRows(delta < 0 and 1 or -1) end
 end
 
+-- Row hover highlight (1.15.34): a faint wash in the theme's border colour
+-- instead of the bright quest-title glow. The engine shows a button's
+-- highlight texture only while the mouse is over it, so no script is
+-- needed; ApplyAppearance re-tints every row when the theme changes.
+X.ROW_HOVER_ALPHA = 0.15
+function X.TintRowHover(b)
+  local hl = b and b.GetHighlightTexture and b:GetHighlightTexture()
+  if not hl or not hl.SetVertexColor then return end
+  local bc = X.ThemeBorder()
+  hl:SetVertexColor(bc[1], bc[2], bc[3], X.ROW_HOVER_ALPHA)
+end
+
 local function CreateRow(i)
   local b = CreateFrame("Button", "BuffRadarRow" .. i, frame,
                         "SecureActionButtonTemplate,SecureHandlerStateTemplate")
@@ -4976,7 +4988,8 @@ local function CreateRow(i)
   else
     b:RegisterForClicks("AnyUp", "AnyDown")
   end
-  b:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+  b:SetHighlightTexture("Interface\\Buttons\\WHITE8X8", "ADD")
+  X.TintRowHover(b)
   -- Right-click only ignores (see the OnClick hook below). Bind() sets the plain
   -- "type" attribute, which the secure template uses for EVERY mouse button
   -- unless a button-specific one exists; this "type2" override is a made-up
@@ -5289,6 +5302,7 @@ local function ApplyAppearance()
     frame:SetBackdropColor(c[1], c[2], c[3], db.bgAlpha or 0.92)
     frame:SetBackdropBorderColor(bc[1], bc[2], bc[3], db.showBorder and 1 or 0)
   end
+  for i = 1, #rows do X.TintRowHover(rows[i]) end
   if X.pill and X.pill.SetBackdropColor then
     X.pill:SetBackdropColor(c[1], c[2], c[3], db.bgAlpha or 0.92)
     X.pill:SetBackdropBorderColor(bc[1], bc[2], bc[3], db.showBorder and 1 or 0)

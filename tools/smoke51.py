@@ -8115,6 +8115,27 @@ step("split files share the live settings (Slices E and F)", function()
   assert(type(text) == "string" and text:find("Splitcheck", 1, true), "Wizard.lua does not read the live settings table")
   assert(X.coordAPI.nEntries() == X.wizAPI.nEntries(), "list-length accessors disagree")
 end)
+step("row hover highlight is a faint theme-coloured wash", function()
+  local X, db = NS.X, NS.X.GetDB()
+  X.BuildUI()
+  local row = env.BuffRadarRow1
+  local hl = row and row:GetHighlightTexture()
+  assert(hl, "row has no hover highlight")
+  assert(hl.file == "Interface\\Buttons\\WHITE8X8" and hl.blend == "ADD", "hover highlight is not the flat wash")
+  local function matches()
+    local bc, c = X.ThemeBorder(), hl.vcolor
+    return c and c[1] == bc[1] and c[2] == bc[2] and c[3] == bc[3] and c[4] == X.ROW_HOVER_ALPHA
+  end
+  assert(matches(), "hover highlight does not use the theme border colour")
+  assert(X.ROW_HOVER_ALPHA > 0 and X.ROW_HOVER_ALPHA <= 0.2, "hover highlight is not subtle")
+  local saved = db.theme
+  db.theme = (saved == "crimson") and "forest" or "crimson"
+  X.ApplyAppearance()
+  local followed = matches() and hl.vcolor[1] == X.THEMES[db.theme].border[1]
+  db.theme = saved
+  X.ApplyAppearance()
+  assert(followed, "hover highlight did not follow a theme change")
+end)
 step("Window.lua hands the window back to the main file (Slice G)", function()
   local X = NS.X
   X.BuildUI()
