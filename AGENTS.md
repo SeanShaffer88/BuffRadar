@@ -8,31 +8,29 @@ Purpose in one line: a click-to-buff list addon for World of Warcraft — it sho
 every nearby player who is missing one of your buffs; click a name (or press one
 key) to buff them.
 
-Frozen foundation: one shared Lua source (`BuffRadar/Data.lua` + `BuffRadar/BuffRadar.lua` + `BuffRadar/Coordination.lua` + `BuffRadar/Wizard.lua` + `BuffRadar/Window.lua` + `BuffRadar/Config.lua` + `BuffRadar/Slash.lua` + `BuffRadar/Extras.lua` + `BuffRadar/Recaps.lua` + `BuffRadar/Profiles.lua`) builds both
-editions; editions differ only in their `.toc` and bundled docs
-(`BuffRadar/` = Retail docs, `editions/forever/` = Forever docs). Every feature
-is reachable as a `/br` slash command — the slash surface is the operation
-registry — as well as through its settings control where it has one.
-SavedVariables are versioned (`dbVersion`, currently 20) with a tested migration
-chain; adding or changing a setting is a format change and updates the migration
-smoke fixtures in the same change.
+Frozen foundation: both editions share the Lua source under `BuffRadar/`.
+Their `.toc` files declare load order; do not use `require` or add globals for
+module communication. `Data.lua` initializes the addon namespace, `SavedVariables.lua`
+owns the schema and publishes the live DB, `BuffRadar.lua` owns scanning and
+cast decisions, and `Window.lua` and `Minimap.lua` own their frames and caches.
+Keep implementation state local and share entry points through the addon table.
+Every feature is reachable through `/br` as well as through its settings control
+where it has one. SavedVariables are versioned (`dbVersion`, currently 21) with
+migration smoke fixtures; keep those fixtures in sync with format changes.
 
 Build: none (interpreted Lua 5.1).
-Full gate (all of it, every time, output read):
-`python3 tools/luacheck51.py BuffRadar/BuffRadar.lua BuffRadar/Extras.lua BuffRadar/Locales/*.lua` · (or just `sh tools/gate.sh`; `sh tools/install-hooks.sh` runs it before every push) ·
-`python3 tools/lualimits.py BuffRadar/BuffRadar.lua` ·
-`python3 tools/localecheck.py BuffRadar/BuffRadar.lua BuffRadar/Locales` ·
-real luacheck 1.2.0 over both Lua files (0 warnings / 0 errors) ·
-`python3 tools/smoke51.py tools/wowstub.lua BuffRadar/BuffRadar.lua`
-(six fake-client setups, 0 errors required).
-Test corpus: the trial run in `tools/smoke51.py` — it only grows; every feature
-lands with steps in every setup it applies to.
+Full gate (all of it, every time, output read): `sh tools/gate.sh` runs the Lua
+5.1 compiler, advisory limit estimates, locale and pattern checks, seven
+fake-client smoke setups using the two TOCs, and two-client coordination.
+`sh tools/install-hooks.sh` installs the pre-push gate. Also run real luacheck
+1.2.0 on all addon Lua files (0 warnings / 0 errors); `tools/check.ps1` runs the
+checks on Windows. Add trial steps for every feature in the setups it applies to.
 
-Budgets: the host's per-frame budget governs — scanning is event-driven plus a
-throttled ticker; no per-frame polling. Lua 5.1 hard limits enforced by
-`tools/lualimits.py`: ≤200 top-level locals (currently 165 in `BuffRadar.lua`), ≤60 upvalues per
-function (currently 58 peak, `HandleSlash`). New state goes in the `X` table or methods, never
-new file-scope locals, unless the budget is re-checked in the same change.
+Budgets: scanning is event-driven plus a throttled ticker; no per-frame
+polling. The Lua 5.1 compiler enforces 200 active locals per function or chunk
+and 60 upvalues per function. Check headroom with `tools/lualimits.py` when
+adding file-scope state; keep state in its owning module rather than moving it
+into the shared `X` table to work around the limits.
 
 Coverage floors: every user-visible capability has smoke evidence before it is
 called done; in-game behaviour is labelled **Unverified** until SEAN's field test

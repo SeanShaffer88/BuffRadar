@@ -21,7 +21,16 @@ local function UpdateNearbyNameplates()
   nearby.lastNameplates = enabled
   local status = enabled == true and L["On"] or enabled == false and L["Off"] or L["Unknown"]
   nearby.nameplates:SetText(string.format(L["Friendly nameplates: %s"], status))
-  nearby.enablePlates:SetShown(enabled == false)
+  nearby.togglePlates:SetText(L[enabled and "Disable Friendly Nameplates" or "Enable Friendly Nameplates"])
+  nearby.togglePlates:SetShown(enabled ~= nil)
+  local namesOnly = X.ReadBooleanCVar(X.friendlyPlateNamesCVar)
+  nearby.plateStyle:SetText(L[namesOnly and "Show Friendly Health Bars" or "Show Friendly Names Only"])
+  nearby.plateStyle:SetShown(namesOnly ~= nil)
+  nearby.restorePlates:SetShown(next(X.GetDB().plateRestore) ~= nil)
+end
+
+function X.UpdateNearbyPlateControls()
+  if nearby and nearby:IsShown() then UpdateNearbyNameplates() end
 end
 
 function X.UpdateNearbyScanCount()
@@ -55,7 +64,7 @@ end
 
 local function BuildNearby()
   local f = CreateFrame("Frame", "BuffRadarNearbyDiagnostics", UIParent)
-  f:SetSize(450, 252)
+  f:SetSize(480, 298)
   f:SetPoint("CENTER")
   f:SetFrameStrata("DIALOG")
   f:SetClampedToScreen(true)
@@ -88,9 +97,9 @@ local function BuildNearby()
 
   local scroll = CreateFrame("ScrollFrame", "BuffRadarNearbyScroll", f, "UIPanelScrollFrameTemplate")
   scroll:SetPoint("TOPLEFT", 14, -112)
-  scroll:SetPoint("BOTTOMRIGHT", -30, 76)
+  scroll:SetPoint("BOTTOMRIGHT", -30, 108)
   local child = CreateFrame("Frame", nil, scroll)
-  child:SetSize(406, 1)
+  child:SetSize(436, 1)
   scroll:SetScrollChild(child)
   f.scroll, f.scrollChild = scroll, child
   f.details = child:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -99,20 +108,34 @@ local function BuildNearby()
   f.details:SetJustifyH("LEFT")
   f.details:SetJustifyV("TOP")
   f.details:SetWordWrap(true)
-  f.message = Label("GameFontHighlightSmall", -182)
+  f.message = Label("GameFontHighlightSmall", -196)
+  f.message:SetWordWrap(true)
+  f.message:SetJustifyV("TOP")
 
-  local enable = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  enable:SetSize(280, 22)
-  enable:SetPoint("BOTTOMLEFT", 14, 12)
-  enable:SetText(L["Enable Friendly Nameplates"])
-  enable:SetScript("OnClick", function()
-    if not f:IsShown() or X.PlayerSuspended() or InCombatLockdown() or X.FriendlyPlatesOn() ~= false then return end
-    local message
-    X.EnableFriendlyNameplates(function(line) message = line end)
-    UpdateNearbyNameplates()
-    f.message:SetText(message or "")
+  local function PlateButton(width, point, x, y, chooseMode)
+    local btn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    btn:SetSize(width, 22)
+    btn:SetPoint(point, x, y)
+    btn:SetScript("OnClick", function()
+      if not f:IsShown() or not btn:IsShown() or X.PlayerSuspended() or InCombatLockdown() then return end
+      local mode = chooseMode()
+      if not mode then return end
+      local message
+      X.ChangeFriendlyNameplates(mode, function(line) message = line end)
+      f.message:SetText(message or "")
+    end)
+    return btn
+  end
+  f.togglePlates = PlateButton(266, "BOTTOMLEFT", 14, 42, function()
+    local enabled = X.FriendlyPlatesOn()
+    if enabled ~= nil then return enabled and "off" or "on" end
   end)
-  f.enablePlates = enable
+  f.plateStyle = PlateButton(266, "BOTTOMLEFT", 14, 12, function()
+    local namesOnly = X.ReadBooleanCVar(X.friendlyPlateNamesCVar)
+    if namesOnly ~= nil then return namesOnly and "bars" or "names" end
+  end)
+  f.restorePlates = PlateButton(176, "BOTTOMRIGHT", -14, 42, function() return "restore" end)
+  f.restorePlates:SetText(L["Restore Nameplates"])
 
   local refresh = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   refresh:SetSize(110, 22)
@@ -268,7 +291,7 @@ function X.ApiCheck(export)
   -- Readability tier: the presence table above cannot see a restricted
   -- result, which is the failure that actually hides players from the list.
   local unit, unitWhy = ProbeUnit()
-  local buffs = X.slashAPI and X.slashAPI.myBuffs
+  local buffs = X.Core.Buffs
   local spell = (buffs and buffs[1] and buffs[1].name) or "Arcane Intellect"
   out(string.format("  readability on %s (%s), spell %s:", unit, unitWhy, spell))
   local PROBES = {
@@ -603,7 +626,7 @@ do
 end
 
 ---------------------------------------------------------------------------
--- Slash registration (dispatched from BuffRadar.lua's HandleSlash)
+-- Slash registration (dispatched by Slash.lua)
 ---------------------------------------------------------------------------
 X.ext.apicheck = function(rest) X.ApiCheck(rest == "export") end
 X.ext.ignorelist = function(rest)

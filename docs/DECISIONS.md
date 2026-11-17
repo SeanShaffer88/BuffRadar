@@ -402,3 +402,18 @@ split, then Briefs 2, 3, 4 — nothing else built; file-split Slices B
 - Added `tools/patterncheck.py` to the gate. gate.sh now probes that the
   interpreter runs, so the Windows Store python3 stub no longer stops it.
 - Unverified in game.
+
+## 2026-11-17 — Separate queue, UI, and SavedVariables ownership
+
+- Both TOCs load data before settings, then the core and feature modules. WoW's
+  addon table carries the private interfaces; there is no runtime module loader.
+- `SavedVariables.lua` validates and migrates `BuffRadarDB` to v21 before sharing
+  it with the modules. The defensive login fallback still sanitizes without
+  migrating. Import validation does not replace the live table.
+- The core chooses what to cast. `Window.lua` owns frames, the viewport, secure
+  attributes and their cache, and post-combat appearance. A scan invalidates the
+  viewport before reusing queue entries. `Minimap.lua` owns both minimap and
+  compartment click dispatch. Existing frame and binding names are retained.
+- The smoke harness follows both manifests and checks load order, replaced saves,
+  secure driver refusal, and position-only resets. The Forever field test is
+  still required on the candidate ZIP.

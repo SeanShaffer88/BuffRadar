@@ -1,51 +1,42 @@
--- BuffRadar - Slash: every /br command (HandleSlash and its helpers:
--- OnOff, ListBuffs, X.Context, X.AutoProfileCheck, X.SelfTest).
--- Loaded after BuffRadar.lua and Config.lua through the .toc. This is
--- file-split Slice C (1.15.0): the code below is the slash do-block that
--- used to sit at the bottom of BuffRadar.lua, moved verbatim; it reaches
--- the main file's locals through X.slashAPI, which BuffRadar.lua fills
--- in before this file loads. State the main file owns and reassigns
--- (the window and build/session flags) is re-read through
--- syncState() at each command, so nothing here can go stale.
+-- BuffRadar - /br command parsing and dispatch.
 -- Copyright (C) 2026 Malikor. GPLv3 or later.
 
-local _, NS = ...
-NS = NS or {}
-local X = NS.X or {}
-NS.X = X
-local A = X.slashAPI or {}
-local L = X.cfgAPI.L
+local _, ns = ...
+local X = ns.X
+local core = X.Core
+local L = X.L
 
 local db  -- the live settings table; read fresh by syncState (X.GetDB)
-local Print, Refresh, PlayAlert = A.Print, A.Refresh, A.PlayAlert
-local RefreshConfig, OpenConfig = A.RefreshConfig, A.OpenConfig
-local ApplyAppearance, ApplyGeometry = A.ApplyAppearance, A.ApplyGeometry
-local BuildBuffList, BuildUI, InvalidateRows = A.BuildBuffList, A.BuildUI, A.InvalidateRows
-local IsOn, FriendlyPlatesOn = A.IsOn, A.FriendlyPlatesOn
-local InGroup, InInstanceNow, InMajorCity = A.InGroup, A.InInstanceNow, A.InMajorCity
-local MakeMacro, OpenKeybinds = A.MakeMacro, A.OpenKeybinds
-local RefreshMinimapButton, RestorePosition = A.RefreshMinimapButton, A.RestorePosition
-local SpellName, UpdateCounter, QueueRefresh = A.SpellName, A.UpdateCounter, A.QueueRefresh
-local myBuffs, myBlessing = A.myBuffs, A.myBlessing
-local Ignore = A.Ignore
-local BLESSINGS, BUFF_DEFS = A.BLESSINGS, A.BUFF_DEFS
-local ranks, rows = A.ranks, A.rows
-local CLASSIC_FEATURES = A.CLASSIC_FEATURES
-local MAX_WIDTH, MIN_WIDTH = A.MAX_WIDTH, A.MIN_WIDTH
+local Print, Refresh, PlayAlert = X.Print, X.Refresh, core.PlayAlert
+local RefreshConfig, OpenConfig = X.RefreshConfig, X.OpenConfig
+local ApplyAppearance, ApplyGeometry = X.ApplyAppearance, X.ApplyGeometry
+local BuildBuffList, BuildUI, InvalidateRows = core.BuildBuffList, X.BuildUI, X.InvalidateRows
+local IsOn, FriendlyPlatesOn = core.IsOn, X.FriendlyPlatesOn
+local InGroup, InInstanceNow, InMajorCity = X.InGroup, core.InInstance, core.InMajorCity
+local MakeMacro, OpenKeybinds = core.MakeMacro, core.OpenKeybinds
+local RefreshMinimapButton = X.RefreshMinimapButton
+local SpellName, UpdateCounter, QueueRefresh = core.SpellName, X.UpdateCounter, core.QueueRefresh
+local myBuffs, myBlessing = core.Buffs, core.BlessingsByClass
+local Ignore = X.Ignore
+local BLESSINGS, BUFF_DEFS = X.BLESSINGS, X.BUFF_DEFS
+local ranks = core.Ranks
+local CLASSIC_FEATURES = X.classic
+local MIN_WIDTH, MAX_WIDTH = X.Settings.MinWidth, X.Settings.MaxWidth
 local pairs, ipairs, next, type, tonumber, tostring, pcall = pairs, ipairs, next, type, tonumber, tostring, pcall
 local math_floor, math_min = math.floor, math.min
 local string_format = string.format
 local table_sort = table.sort
 local wipe = wipe or function(t) for k in pairs(t) do t[k] = nil end return t end
 
--- State owned by BuffRadar.lua; refreshed at every command entry.
+-- Read the current settings, scan and window state at command entry.
 local frame, built, hasAnyBuff, sessionShow
 local lastError, bookCount, nextWrapped, nextCombatDriver
 local function syncState()
   db = X.GetDB()
-  local s = A.getState()
-  frame, built, hasAnyBuff, sessionShow = s.frame, s.built, s.hasAnyBuff, s.sessionShow
-  lastError, bookCount, nextWrapped, nextCombatDriver = s.lastError, s.bookCount, s.nextWrapped, s.nextCombatDriver
+  frame, built = X.GetFrame(), X.WindowReady()
+  hasAnyBuff, sessionShow = core.HasAnyBuff(), core.SessionShow()
+  lastError, bookCount = core.LastError(), core.BookCount()
+  nextWrapped, nextCombatDriver = X.NextBindState()
 end
 
 local function OnOff(v) return v and "|cff00ff00on|r" or "|cffff4040off|r" end
@@ -264,14 +255,12 @@ local function HandleSlash(msg)
   if cmd == "" then
     if frame and frame:IsShown() then
       db.hidden, sessionShow = true, false
-    A.setSessionShow(sessionShow)
-      A.setSessionShow(sessionShow)
+      core.SetSessionShow(sessionShow)
       frame:Hide()
       Print("Hidden.")
     else
       db.hidden, sessionShow = false, true
-    A.setSessionShow(sessionShow)
-      A.setSessionShow(sessionShow)
+      core.SetSessionShow(sessionShow)
       Print("Shown." .. (hasAnyBuff and "" or " (No supported buffs found; try /br debug)"))
     end
   elseif cmd == "show" then
@@ -408,9 +397,12 @@ local function HandleSlash(msg)
     UpdateCounter()
     Print("Cast counts reset.")
   elseif cmd == "macro" then
-    MakeMacro(false)
-  elseif cmd == "key" or cmd == "keybind" then
+    MakeMacro()
+  elseif cmd == "key" or cmd == "keybind" or cmd == "gamepad" then
     OpenKeybinds()
+    if cmd == "gamepad" and not InCombatLockdown() and not X.PlayerSuspended() then
+      Print(L["Bind a controller button to BuffRadar's Cast next buff, or put /br macro on an action bar."])
+    end
   elseif cmd == "clicks" then
     db.clickDebug = not db.clickDebug
     Print("Click diagnostics " .. OnOff(db.clickDebug))
@@ -437,11 +429,7 @@ local function HandleSlash(msg)
     if m == "both" or m == "down" or m == "up" then
       if InCombatLockdown() then Print("Can't change this during combat."); return end
       db.clickReg = m
-      for _, row in ipairs(rows) do
-        if m == "down" then row:RegisterForClicks("AnyDown")
-        elseif m == "up" then row:RegisterForClicks("AnyUp")
-        else row:RegisterForClicks("AnyUp", "AnyDown") end
-      end
+      X.ApplyRowClickRegistration()
       Print("Clicks trigger on: " .. m)
     else
       Print("Usage: /br clickreg both|down|up   (currently " .. tostring(db.clickReg) .. ")")
@@ -572,7 +560,6 @@ local function HandleSlash(msg)
     local n = tonumber(rest)
     if n and n >= 0 and n <= 90 then
       db.idleFade = math_floor(n)
-      X.curAlpha = nil
       Print(string.format("Idle fade: %d%% while the mouse is away (0 = off).", db.idleFade))
     else
       Print("Usage: /br fade <0-90>   (currently " .. tostring(db.idleFade or 0) .. ")")
@@ -962,18 +949,15 @@ local function HandleSlash(msg)
     end
   elseif cmd == "twocol" then
     db.twoCol = not db.twoCol
-    X.cols = nil  -- force the column split to re-decide on the next refresh
     Print("Two columns when the list is long " .. OnOff(db.twoCol)
       .. " — on: past 8 rows the list splits into two columns.")
     Refresh()
   elseif cmd == "find" then
     if rest == "" or rest:lower() == "off" then
-      X.search = ""
-      if X.findEdit then X.findEdit:SetText("") end
+      X.SetFinderText("")
       Print("Name finder cleared — everyone is listed again.")
     else
-      X.search = rest:lower()
-      if X.findEdit then X.findEdit:SetText(rest) end
+      X.SetFinderText(rest)
       Print("Name finder: only names matching '" .. rest .. "' are listed. /br find off clears it.")
     end
     Refresh()
@@ -1157,7 +1141,16 @@ local function HandleSlash(msg)
       local cls, bkey, bname = rest:match("^(%S*)%s*(%S*)%s*(.-)%s*$")
       cls = (cls or ""):upper()
       bkey = (bkey or ""):upper()
-      if cls == "PLAYER" then
+      if cls == "COMPLEMENT" then
+        if bname ~= "" or (bkey ~= "" and bkey ~= "ON" and bkey ~= "OFF") then
+          Print(L["Usage: /br bless complement on|off"])
+        elseif bkey ~= "" and not X.SetBlessingComplement(bkey == "ON") then
+          Print(L["Learn a blessing before changing this setting."])
+        else
+          Print(string.format(L["Complement Nearby Blessings: %s"], db.blessingComplement and L["On"] or L["Off"]))
+        end
+        return
+      elseif cls == "PLAYER" then
         local name, key = rest:match("^%S+%s+(.+)%s+(%S+)%s*$")
         if not name then
           Print("Usage: /br bless player <player name> <BLESSING|DEFAULT>.")
@@ -1367,14 +1360,9 @@ local function HandleSlash(msg)
     else
       Print(string.format("Usage: /br width <%d - %d>", MIN_WIDTH, MAX_WIDTH))
     end
-  elseif cmd == "reset" then
-    X.ClearSavedPoint()
-    if frame then RestorePosition() end
-    Print("Position reset.")
-  elseif cmd == "resetpos" then
-    X.ClearSavedPoint()
-    if frame then RestorePosition() end
-    Print("Window position reset to the default spot.")
+  elseif cmd == "reset" or cmd == "resetpos" then
+    X.ResetWindowPosition()
+    Print(cmd == "reset" and "Position reset." or "Window position reset to the default spot.")
   elseif cmd == "buffs" then
     ListBuffs()
   elseif cmd == "toggle" then
@@ -1411,7 +1399,8 @@ local function HandleSlash(msg)
       Print(rest .. " isn't ignored for this session.")
     end
   elseif cmd == "plates" then
-    X.EnableFriendlyNameplates(Print)
+    X.ChangeFriendlyNameplates(rest == "" and "on" or rest:lower(), Print)
+    return
   elseif X.ext[cmd] then
     X.ext[cmd](rest)
   else
@@ -1421,6 +1410,7 @@ local function HandleSlash(msg)
     Print(L["  /br config navigate - keyboard navigation   /br config narrate - keyboard navigation with speech"])
     Print("  /br macro  - create a 'BuffRadar' macro that casts the next buff")
     Print("  /br key  - open Key Bindings to bind 'Cast next buff'")
+    Print(L["/br gamepad - set up controller buffing"])
     Print("  /br sound  - toggle the water droplet alert")
     Print("  /br group  - only show the window in a party or raid")
     Print("  /br cities  - pause scanning in major cities")
@@ -1432,7 +1422,7 @@ local function HandleSlash(msg)
     Print("  /br mode " .. (CLASSIC_FEATURES and "target|id|macro|rank" or "target|macro") ..
       "  - how clicks cast (default target)")
     Print("  /br clickreg both|down|up  - which half of the click casts")
-    Print("  /br plates  - turn on friendly nameplates (needed for non-group players)")
+    Print(L["Usage: /br plates on|off|names|bars|restore"])
     if CLASSIC_FEATURES then Print("  /br nearby  - diagnose nearby players and your current target") end
     if CLASSIC_FEATURES then
       Print("  /br groupcast [on|off|<n>]  - offer group buffs when n+ players need one")
@@ -1494,6 +1484,7 @@ local function HandleSlash(msg)
     Print("  /br autoprofile <context> <profile>  - load a profile by context")
     if CLASSIC_FEATURES then
       Print("  /br bless <CLASS> <BLESSING> [name]  - blessing planner")
+      Print(L["Usage: /br bless complement on|off"])
       Print("  /br buffassign [on|off|preview]  - class and role buff assignments")
       Print("  /br practice · /br undo  - practice blocker edits or undo the last one")
       Print("  /br coverage  - read-only buff coverage by raid subgroup")
@@ -1508,5 +1499,8 @@ local function HandleSlash(msg)
   Refresh()
 end
 
-X.HandleSlash = HandleSlash
 X.OnOff = OnOff
+SlashCmdList.BUFFRADAR = function(msg)
+  local ok, err = pcall(HandleSlash, msg)
+  if not ok then Print("|cffff4040error:|r " .. tostring(err)) end
+end

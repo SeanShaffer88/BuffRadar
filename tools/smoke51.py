@@ -1,18 +1,19 @@
 """Smoke-run BuffRadar.lua under real Lua 5.1 against a fake WoW API (wowstub.lua).
 
-Loads the file, fires ADDON_LOADED and PLAYER_LOGIN, runs a refresh and a set
+Loads the TOC entries in order, fires ADDON_LOADED and PLAYER_LOGIN, runs a refresh and a set
 of slash commands, opens every settings tab and fires the controls' handlers.
 Reports the first Lua error of each step plus anything the addon printed as
 an error. Usage: python -I smoke51.py STUB.lua ADDON.lua
 """
 import sys
+from pathlib import Path
 from lupa import lua51
 
 stub_path, addon_path = sys.argv[1], sys.argv[2]
 lua = lua51.LuaRuntime(unpack_returned_tuples=True)
 lua.execute(open(stub_path, encoding="utf-8").read())
 
-harness = lua.eval(r"""function(addonSrc, withTimer, noTemplates, forever, german, localeSrc, extrasSrc, dataSrc, configSrc, slashSrc, recapsSrc, profilesSrc, coordSrc, wizardSrc, windowSrc)
+harness = lua.eval(r"""function(sources, withTimer, noTemplates, forever, german)
 local chat = {}
 local env = WOWSTUB(chat, withTimer, noTemplates, forever, german)
 local unitIsUnit = env.UnitIsUnit
@@ -71,92 +72,55 @@ local function step(name, fn)
 end
 
 local NS = {}
-local chunk, cerr = loadstring(addonSrc, "=BuffRadar.lua")
-if not chunk then return { { "compile", "FAIL: " .. cerr } }, chat end
-setfenv(chunk, env)
-if localeSrc then  -- Locales\*.lua load before BuffRadar.lua (.toc order)
-  step("load translation file", function()
-    local lchunk = assert(loadstring(localeSrc, "=Locales/deDE.lua"))
-    setfenv(lchunk, env)
-    lchunk("BuffRadar", NS)
-    assert(NS.Locales and NS.Locales.deDE and not env.BuffRadarLocales, "locale pack did not stay in the addon namespace")
-  end)
-end
-if dataSrc then
-  step("load Data.lua", function()
-    local dch = assert(loadstring(dataSrc, "=Data.lua"))
-    setfenv(dch, env)
-    dch("BuffRadar", NS)
-    assert(NS.X and NS.X.BUFF_DEFS and NS.X.BLESSINGS, "Data.lua did not publish its tables")
-  end)
-end
-step("load file (main chunk)", function() chunk("BuffRadar", NS) end)
--- File split Slices E, F and G (1.15.34) load straight after the main file (.toc order).
-if coordSrc then
-  step("load Coordination.lua", function()
-    local och = assert(loadstring(coordSrc, "=Coordination.lua"))
-    setfenv(och, env)
-    och("BuffRadar", NS)
-    assert(NS.X.InitSync and NS.X.OnAddonMsg and NS.X.OnRoster, "Coordination.lua did not publish its entry points")
-  end)
-end
-if wizardSrc then
-  step("load Wizard.lua", function()
-    local wch = assert(loadstring(wizardSrc, "=Wizard.lua"))
-    setfenv(wch, env)
-    wch("BuffRadar", NS)
-    assert(NS.X.WizardPage, "Wizard.lua did not publish its entry points")
-  end)
-end
-if windowSrc then
-  step("load Window.lua", function()
-    local gch = assert(loadstring(windowSrc, "=Window.lua"))
-    setfenv(gch, env)
-    gch("BuffRadar", NS)
-    assert(NS.X.BuildUI and NS.X.ClearNext and NS.X.BindCached and NS.X.NextBindState,
-      "Window.lua did not publish its entry points")
-  end)
-end
-if configSrc then
-  step("load Config.lua", function()
-    local cch = assert(loadstring(configSrc, "=Config.lua"))
-    setfenv(cch, env)
-    cch("BuffRadar", NS)
-    assert(NS.X.RefreshConfig and NS.X.OpenConfig, "Config.lua did not publish its entry points")
-  end)
-end
-if slashSrc then
-  step("load Slash.lua", function()
-    local sch = assert(loadstring(slashSrc, "=Slash.lua"))
-    setfenv(sch, env)
-    sch("BuffRadar", NS)
-    assert(NS.X.HandleSlash and NS.X.OnOff, "Slash.lua did not publish its entry points")
-  end)
-end
-if extrasSrc then
-  step("load Extras.lua", function()
-    local ech = assert(loadstring(extrasSrc, "=Extras.lua"))
-    setfenv(ech, env)
-    ech("BuffRadar", NS)
-  end)
+local initialGlobals = {}
+for key in pairs(env) do initialGlobals[key] = true end
+local addonGlobals = {
+  BuffRadarDB = true,
+  BuffRadar_ToggleWindow = true, BuffRadar_ToggleSound = true,
+  SLASH_BUFFRADAR1 = true, SLASH_BUFFRADAR2 = true,
+  BINDING_HEADER_BUFFRADAR = true, BINDING_CATEGORY_BUFFRADAR = true,
+  BINDING_NAME_BUFFRADAR_TOGGLE = true, BINDING_NAME_BUFFRADAR_MUTE = true,
+  ["BINDING_NAME_CLICK BuffRadarNextButton:LeftButton"] = true,
+  ["BINDING_NAME_CLICK BuffRadarGroupButton:LeftButton"] = true,
+}
+local function CheckGlobals()
+  local frames = {}
+  for _, f in ipairs(env.__frames) do
+    local name = f:GetName()
+    if name then frames[name] = f end
+  end
+  for key, value in pairs(env) do
+    assert(initialGlobals[key] or addonGlobals[key] or frames[key] == value, "unexpected global: " .. tostring(key))
+  end
 end
 
-if recapsSrc then
-  step("load Recaps.lua", function()
-    local rch = assert(loadstring(recapsSrc, "=Recaps.lua"))
-    setfenv(rch, env)
-    rch("BuffRadar", NS)
-    assert(NS.X.DeathRecap and NS.X.WipeCheck, "Recaps.lua did not publish its entry points")
-  end)
+local function LoadFile(file, client, ns)
+  local chunk = assert(loadstring(file[2], "@" .. file[1]))
+  setfenv(chunk, client)
+  chunk("BuffRadar", ns)
 end
-if profilesSrc then
-  step("load Profiles.lua", function()
-    local pch = assert(loadstring(profilesSrc, "=Profiles.lua"))
-    setfenv(pch, env)
-    pch("BuffRadar", NS)
-    assert(NS.X.Export and NS.X.Import and NS.X.ApplyPreset, "Profiles.lua did not publish its entry points")
-  end)
+for _, file in ipairs(sources) do
+  step("load " .. file[1], function() LoadFile(file, env, NS) end)
 end
+step("TOC modules initialize in the private namespace", function()
+  CheckGlobals()
+  local X = NS.X
+  assert(X and X.BUFF_DEFS and X.BLESSINGS and X.Settings and X.BuildUI and X.BuildMinimapButton,
+    "data, settings, window or minimap module missing")
+  assert(X.InitSync and X.OnAddonMsg and X.OnRoster and X.WizardPage and X.RefreshConfig
+    and X.OpenConfig and env.SlashCmdList.BUFFRADAR and X.OnOff and X.DeathRecap and X.WipeCheck
+    and X.Export and X.Import and X.ApplyPreset, "feature module did not publish its entry points")
+  assert(NS.Locales and NS.Locales.deDE, "locale pack did not stay in the addon namespace")
+end)
+step("SavedVariables are not opened by module loading or profile validation", function()
+  local X = NS.X
+  assert(X.GetDB() == nil and env.BuffRadarDB == nil, "settings loaded before ADDON_LOADED")
+  local first, second = X.Settings.Sanitize({}), X.Settings.Sanitize({})
+  first.enabled.TEST = true
+  first.bgColor[1] = 1
+  assert(not second.enabled.TEST and second.bgColor[1] == 0.04, "clean settings share defaults by reference")
+  assert(X.GetDB() == nil and env.BuffRadarDB == nil, "sanitizing a candidate published it")
+end)
 
 local driver
 for _, f in ipairs(env.__frames) do
@@ -166,6 +130,48 @@ for _, f in ipairs(env.__frames) do
 end
 step("find event frame", function() assert(driver, "no frame registered ADDON_LOADED") end)
 if not driver then return results, chat end
+local function TestClient()
+  local messages = {}
+  local client = WOWSTUB(messages, withTimer, noTemplates, forever, german)
+  client._G = client
+  return setmetatable(client, { __index = std }), messages
+end
+local function LoadClient(client)
+  local ns = {}
+  for _, file in ipairs(sources) do LoadFile(file, client, ns) end
+  for _, f in ipairs(client.__frames) do
+    if f.events and f.events.PLAYER_LOGIN and f.events.ADDON_LOADED then return ns.X, f end
+  end
+  error("login driver did not register both events")
+end
+step("login fallback sanitizes without migrating and later loads replace the live save", function()
+  local client = TestClient()
+  local saved = { dbVersion = 9, scale = 9, castMethod = "rank", showOutOfRange = true,
+                  showMinimap = false, ignored = { BeforeLogin = true }, obsolete = true }
+  client.BuffRadarDB = saved
+  local X, startup = LoadClient(client)
+  local onEvent = startup.scripts.OnEvent
+  onEvent(startup, "ADDON_LOADED", "OtherAddon")
+  assert(not X.GetDB() and saved.obsolete and saved.scale == 9, "settings changed before BuffRadar loaded")
+  onEvent(startup, "PLAYER_LOGIN")
+  assert(not startup.events.PLAYER_LOGIN and client.BuffRadarFrame, "login fallback did not build the window once")
+  assert(X.GetDB() == saved and saved.scale == 2 and not saved.obsolete, "fallback did not sanitize and publish the save")
+  assert(saved.dbVersion == 9 and not saved.wizardSeen and saved.showOutOfRange and saved.castMethod == "rank",
+    "login fallback applied normal-load migrations")
+  assert(X.Ignore.Has("BeforeLogin", "BeforeLogin"), "fallback did not rebuild the ignore index")
+  local minimap = client.BuffRadarMinimapButton
+  assert(minimap and not minimap:IsShown(), "minimap did not receive fallback settings")
+
+  local replacement = { dbVersion = 9, scale = 1.5, showMinimap = true }
+  client.BuffRadarDB = replacement
+  onEvent(startup, "ADDON_LOADED", "BuffRadar")
+  assert(X.GetDB() == replacement and replacement.dbVersion == 21 and replacement.wizardSeen,
+    "normal load did not migrate and publish the replacement")
+  assert(not X.Ignore.Has("BeforeLogin", "BeforeLogin"), "ignore index retained a replaced save")
+  X.ApplyGeometry()
+  X.RefreshMinimapButton()
+  assert(client.BuffRadarFrame:GetScale() == 1.5 and minimap:IsShown(), "UI modules held onto replaced settings")
+end)
 local fire = function(ev, ...)
   driver.scripts.OnEvent(driver, ev, ...)
   if ev == "PLAYER_REGEN_DISABLED" or (ev == "PLAYER_DEAD" and env.__combat) then
@@ -180,7 +186,9 @@ local fire = function(ev, ...)
 end
 step("ADDON_LOADED", function()
   fire("ADDON_LOADED", "BuffRadar")
+  assert(NS.X.GetDB() == env.BuffRadarDB and env.BuffRadarDB.dbVersion == 21, "live settings were not published")
   local pullFrame = NS.X.pullFrame
+  if not NS.X.ApiCheck then return end -- not in the Retail TOC
   assert(pullFrame and pullFrame.events.ADDON_LOADED, "pull listener missing at startup")
   local before, registered = env.C_ChatInfo, {}
   env.C_ChatInfo = { RegisterAddonMessagePrefix = function(prefix) registered[#registered + 1] = prefix end }
@@ -197,7 +205,7 @@ step("PLAYER_LOGIN while dead starts with all buff surfaces hidden and disarmed"
   local oldMinimap = db.showMinimap
   db.showMinimap = true
   fire("PLAYER_LOGIN")
-  assert(not env.BuffRadarFrame:IsShown() and not NS.X.pill:IsShown(), "dead login showed a buff surface")
+  assert(not env.BuffRadarFrame:IsShown() and not env.BuffRadarPill:IsShown(), "dead login showed a buff surface")
   assert(not env.BuffRadarMinimapButton:IsShown() and db.showMinimap, "dead login changed minimap preference")
   assert(not env.BuffRadarNextButton:GetAttribute("type") and not env.BuffRadarGroupButton:GetAttribute("type"),
     "dead login armed a cast binding")
@@ -205,8 +213,9 @@ step("PLAYER_LOGIN while dead starts with all buff surfaces hidden and disarmed"
   fire("PLAYER_ALIVE")
   assert(env.BuffRadarMinimapButton:IsShown(), "living player did not regain configured minimap button")
   db.showMinimap = oldMinimap
-  NS.X.cfgAPI.RefreshMinimapButton()
+  NS.X.RefreshMinimapButton()
 end)
+step("startup creates only game entry points and named frames", CheckGlobals)
 step("window exists", function() assert(env.BuffRadarFrame, "BuffRadarFrame not created") end)
 step("minimap button exists", function() assert(env.BuffRadarMinimapButton, "no minimap button") end)
 step("minimap button follows both axes after the map is resized", function()
@@ -214,7 +223,7 @@ step("minimap button follows both axes after the map is resized", function()
   local oldWidth, oldHeight, oldAngle, oldCursor = map.GetWidth, map.GetHeight, db.minimapAngle, env.GetCursorPosition
   map.GetWidth, map.GetHeight = function() return 240 end, function() return 160 end
   db.minimapAngle = 0
-  NS.X.cfgAPI.RefreshMinimapButton()
+  NS.X.RefreshMinimapButton()
   local p = button.points[#button.points]
   local horizontal = #button.points == 1 and math.abs(p[4] - 125) < 0.01
   map.GetWidth, map.GetHeight = function() return 300 end, function() return 200 end
@@ -228,34 +237,76 @@ step("minimap button follows both axes after the map is resized", function()
   button:GetScript("OnDragStop")(button)
   local angle = db.minimapAngle
   map.GetWidth, map.GetHeight, db.minimapAngle, env.GetCursorPosition = oldWidth, oldHeight, oldAngle, oldCursor
-  NS.X.cfgAPI.RefreshMinimapButton()
+  NS.X.RefreshMinimapButton()
   assert(horizontal and followsSize and math.abs(angle - 45) < 0.01, "minimap geometry ignored an axis or resize")
 end)
-step("friendly nameplates select the supported CVar and verify changes", function()
-  local vars = { nameplateShowFriendlyPlayers = "0", nameplateShowAll = "0" }
+step("friendly plate styles and restore only change verified, supported CVars", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local style = X.friendlyPlateNamesCVar
+  local vars = { nameplateShowFriendlyPlayers = "0", nameplateShowAll = "0", [style] = "0",
+    nameplateShowEnemies = "1", nameplateShowSelf = "1" }
   local oldCVar, oldGet, oldBool, oldSet = env.C_CVar, env.GetCVar, env.GetCVarBool, env.SetCVar
+  local oldRestore = db.plateRestore
   env.GetCVar, env.GetCVarBool, env.SetCVar = nil, function() return false end, nil
-  env.C_CVar = {
-    GetCVar = function(key) return vars[key] end,
-    SetCVar = function(key, value) if vars[key] then vars[key] = value end end,
-  }
-  local friendly = NS.X.FriendlyPlatesOn
-  local initiallyOff = friendly and friendly() == false
-  env.SlashCmdList.BUFFRADAR("plates")
-  local modernSet = vars.nameplateShowFriendlyPlayers == "1" and vars.nameplateShowAll == "1"
-  vars.nameplateShowFriendlyPlayers, vars.nameplateShowFriends = nil, "1"
-  local legacy, name
-  if friendly then legacy, name = friendly() end
-  vars.nameplateShowFriends = nil
-  local unknown = friendly and friendly() == nil
-  vars.nameplateShowFriendlyPlayers = "0"
-  env.C_CVar.SetCVar = function() return true end
-  local n = #chat
-  env.SlashCmdList.BUFFRADAR("plates")
-  local reportsFailure = #chat > n and not chat[#chat]:find("Friendly nameplates turned on", 1, true)
+  db.plateRestore = {}
+  local ok, err = pcall(function()
+    local writes, refused = 0, "nameplateShowFriendlyPlayers"
+    env.C_CVar = {
+      GetCVar = function(key) return vars[key] end,
+      SetCVar = function(key, value)
+        writes = writes + 1
+        if vars[key] and key ~= refused then vars[key] = value end
+      end,
+    }
+    local slash = env.SlashCmdList.BUFFRADAR
+    assert(X.FriendlyPlatesOn() == false and writes == 0, "reading nameplates changed settings")
+    slash("plates")
+    assert(writes == 1 and vars.nameplateShowAll == "0" and not next(db.plateRestore),
+      "a refused write changed or recorded other settings")
+    refused = nil
+    slash("plates")
+    assert(vars.nameplateShowFriendlyPlayers == "1" and vars.nameplateShowAll == "1", "enable skipped a setting")
+    assert(db.plateRestore.nameplateShowFriendlyPlayers == false and db.plateRestore.nameplateShowAll == false,
+      "the original off values were not saved")
+    slash("plates names")
+    assert(vars[style] == "1" and vars.nameplateShowFriendlyPlayers == "1", "names-only lost friendly plate discovery")
+    assert(not assert(X.ProfileSnapshot()):find("plateRestore", 1, true)
+      and not assert(X.Export()):find("plateRestore", 1, true), "local nameplate settings leaked into a shareable export")
+    slash("plates bars")
+    assert(vars[style] == "0" and db.plateRestore[style] == nil, "bars did not clear its pending change")
+    slash("plates names")
+    env.__combat = true
+    local before = writes
+    slash("plates restore")
+    slash("plates off")
+    assert(writes == before, "plate settings changed during combat")
+    env.__combat = false
+    refused = style
+    slash("plates restore")
+    assert(vars.nameplateShowAll == "0" and vars.nameplateShowFriendlyPlayers == "0" and vars[style] == "1"
+      and db.plateRestore[style] == false, "partial restore did not preserve the refused setting for retry")
+    refused = nil
+    slash("plates restore")
+    assert(vars[style] == "0" and not next(db.plateRestore), "restore retry did not finish")
+    assert(vars.nameplateShowEnemies == "1" and vars.nameplateShowSelf == "1", "unrelated plates were changed")
+
+    vars.nameplateShowFriendlyPlayers, vars.nameplateShowFriends, vars[style] = nil, "1", nil
+    local legacy, name = X.FriendlyPlatesOn()
+    assert(legacy and name == "nameplateShowFriends", "legacy nameplate CVar was not found")
+    slash("plates off")
+    assert(vars.nameplateShowFriends == "0" and db.plateRestore.nameplateShowFriends == true,
+      "explicit off did not save the previously enabled state")
+    slash("plates restore")
+    assert(vars.nameplateShowFriends == "1", "restore did not reenable previously enabled nameplates")
+    before = writes
+    slash("plates names")
+    vars.nameplateShowFriends = nil
+    slash("plates off")
+    assert(writes == before and X.FriendlyPlatesOn() == nil, "unsupported plate setting was written")
+  end)
   env.C_CVar, env.GetCVar, env.GetCVarBool, env.SetCVar = oldCVar, oldGet, oldBool, oldSet
-  assert(initiallyOff and modernSet and legacy and name == "nameplateShowFriends" and unknown and reportsFailure,
-    "friendly nameplate CVar selection or readback failed")
+  db.plateRestore, env.__combat = oldRestore, false
+  assert(ok, err)
 end)
 step("slash command registered", function()
   assert(env.SLASH_BUFFRADAR1 == "/br" and env.SlashCmdList.BUFFRADAR, "no /br")
@@ -475,6 +526,7 @@ step("UNIT_AURA on yourself: refresh queued", function()
   runQueued()
 end)
 step("pull timer: probe counts sightings; flash fires with casts outstanding (1.14.0)", function()
+  if not NS.X.ApiCheck then return end -- optional Extras.lua
   local pf
   for _, f in ipairs(env.__frames) do if f.events and f.events.START_TIMER then pf = f end end
   assert(pf, "no frame registered START_TIMER")
@@ -504,6 +556,7 @@ step("pull timer: probe counts sightings; flash fires with casts outstanding (1.
   env.SlashCmdList.BUFFRADAR("pullflash off")
 end)
 step("changing a pull timer keeps its replacement until the replacement expires", function()
+  if not NS.X.ApiCheck then return end -- optional Extras.lua
   if not env.__timers then return end
   runQueued()
   local X, db = NS.X, env.BuffRadarDB
@@ -884,6 +937,268 @@ local function partyOfTwo(suffix)
     env.IsSpellInRange = nil
   end
 end
+step("action-bar macro follows self and nearby targets without chaining macros", function()
+  local cleanup = twoTanks()
+  local X, O, db = NS.X, env.__over, env.BuffRadarDB
+  local index = env.GetMacroIndexByName("BuffRadar")
+  local savedMacro = env.__macros[index]
+  local oldCVar, oldOpen, oldSpell, oldZone = env.GetCVarBool, env.Settings.OpenToCategory, env.C_Spell, env.__zone
+  local oldSelf, oldMode, oldMod, oldSort, oldCity = db.includeSelf, db.castMethod, db.modClick, db.sortMode, db.pauseInCities
+  local oldEdit, oldFrame, oldOffer, oldShift = env.EditMacro, env.MacroFrame, X.GroupOffer, env.IsShiftKeyDown
+  local function idle(body) return body and not body:find("\n/click", 1, true) and not body:find("\n/cast", 1, true) end
+  local ok, err = pcall(function()
+    env.__macros[index] = nil
+    fire("UPDATE_MACROS")
+    X.SyncCastMacro(true)
+    assert(env.GetMacroIndexByName("BuffRadar") == 0, "background sync created a macro without permission")
+    env.SlashCmdList.BUFFRADAR("macro")
+    index = env.GetMacroIndexByName("BuffRadar")
+    assert(index > 0 and env.__pickedMacro == index, "/br macro did not create and pick up a new macro")
+    env.__macros[index] = nil
+    fire("UPDATE_MACROS")
+    X.SyncCastMacro(true)
+    -- A macro already in a user's action bar should be upgraded in its own slot.
+    index = env.CreateMacro("BuffRadar", 134400, "/click BuffRadarNextButton LeftButton 1")
+    fire("UPDATE_MACROS")
+    env.EditMacro = function(...)
+      local slot = oldEdit(...)
+      fire("UPDATE_MACROS") -- this event is synchronous on the real client
+      return slot
+    end
+    X.SyncCastMacro(true)
+    assert(idle(env.GetMacroBody(index)), "old addon macro was not migrated to a harmless idle body")
+    local keyDown, selfCovered, hasTarget = false, false, true
+    local exists, name, guid = O.UnitExists, O.UnitName, O.UnitGUID
+    local renamed, replacement
+    O.UnitExists = function(unit) return unit == "target" and hasTarget or exists(unit) end
+    O.UnitGUID = function(unit) if unit == "nameplate1" and replacement then return replacement end; return guid(unit) end
+    O.UnitName = function(unit)
+      if unit == "nameplate1" then return renamed or "Alden", env.__forever and "Ashford" or nil end
+      return name(unit)
+    end
+    O.Aura = function(unit)
+      if unit == "player" and selfCovered then return { expirationTime = env.GetTime() + 3600 } end
+      return nil
+    end
+    env.IsSpellInRange = function() return 1 end
+    env.GetCVarBool = function(key)
+      if key == "ActionButtonUseKeyDown" then return keyDown end
+      return oldCVar(key)
+    end
+    db.includeSelf, db.castMethod, db.modClick, db.sortMode = true, "target", false, "name"
+    X.Refresh()
+    local button = env.BuffRadarNextButton
+    local selfBody = env.GetMacroBody(index)
+    assert(button.entry and button.entry.isSelf and selfBody:find("\n/click BuffRadarNextButton$"),
+      "self-priority or native spell action changed")
+    keyDown = true
+    fire("CVAR_UPDATE", "ACTION_BUTTON_USE_KEY_DOWN")
+    assert(button.clickRegistration[1] == "LeftButtonDown"
+      and env.GetMacroBody(index):find("BuffRadarNextButton LeftButton 1$"), "key-down phase not synced for spell casts")
+    env.SlashCmdList.BUFFRADAR("macro")
+    assert(env.__pickedMacro == index, "create macro did not preserve the existing action bar slot")
+
+    selfCovered = true
+    X.Refresh()
+    local target = env.__forever and "Alden Ashford" or "Alden"
+    local body = env.GetMacroBody(index)
+    assert(button.entry and button.entry.unit == "nameplate1" and button:GetAttribute("type") == "macro",
+      "next secure button did not move from self to the nearby player")
+    assert(body:find("/stopmacro [combat][@player,dead]", 1, true)
+      and not body:find("/click BuffRadarNextButton", 1, true)
+      and body:find("\n/cleartarget\n/targetexact " .. target .. "\n/cast [help,nodead] ", 1, true)
+      and body:find("\n/targetlasttarget$"), "managed macro does not execute a guarded exact-name cast at top level")
+    assert(body:find(shownRows().nameplate1.row:GetAttribute("macrotext"), 1, true),
+      "row and bar macro disagreed on how to reach the player")
+    local writes = env.__macroWrites
+    X.Refresh(); X.Refresh()
+    assert(env.__macroWrites == writes, "a steady queue rewrote its macro")
+    keyDown = false
+    fire("CVAR_UPDATE", "ActionButtonUseKeyDown")
+    assert(button.clickRegistration[1] == "LeftButtonUp" and env.GetMacroBody(index) == body,
+      "changing key phase rewrote a direct bar cast or lost the up binding")
+
+    -- Model only the relevant slash commands, including a /targetexact miss
+    -- leaving its input target alone. The real secure execution needs WoW.
+    local function simulate(text, previous, available, stopped)
+      local current, last, cast = previous, "Old target"
+      for line in text:gmatch("[^\n]+") do
+        if line == "/stopmacro [combat][@player,dead]" and stopped then break end
+        if line == "/cleartarget" then
+          if current then last = current end
+          current = nil
+        elseif line:find("^/targetexact ") then
+          if available then current = line:sub(14) end
+        elseif line:find("/cast [help,nodead] ", 1, true) then
+          cast = current
+        elseif line == "/targetlasttarget" then
+          current = last
+        end
+      end
+      return cast, current
+    end
+    local recipient, restored = simulate(body, "Previous friend", false)
+    assert(not recipient and restored == "Previous friend", "a missed exact name cast on the old target or self")
+    recipient, restored = simulate(body, "Previous friend", true)
+    assert(recipient == target and restored == "Previous friend", "exact cast did not hand back the prior target")
+    hasTarget = false
+    X.Refresh()
+    body = env.GetMacroBody(index)
+    recipient, restored = simulate(body, nil, true)
+    assert(recipient == target and not restored, "cast with no original target reselected a stale previous one")
+
+    -- The action marker does not cast. Only the spell event with the intended
+    -- target and ID can advance the counter, whether the input was key or bar.
+    local spellID = env.__forever and 1244 or 462854
+    env.C_Spell = { GetSpellIDForSpellIdentifier = function() return spellID end }
+    local before = db.castsTotal
+    X.ResetCastTracking()
+    env.__runningMacro = index + 1
+    env.BuffRadarMacroButton:Click()
+    fire("UNIT_SPELLCAST_SENT", "player", target, "macro-unowned", spellID)
+    fire("UNIT_SPELLCAST_SUCCEEDED", "player", "macro-unowned", spellID)
+    assert(db.castsTotal == before, "a different macro claimed the managed cast")
+    env.__runningMacro = index
+    env.BuffRadarMacroButton:Click()
+    env.__runningMacro = nil
+    fire("UNIT_SPELLCAST_SENT", "player", target, "managed-macro", spellID)
+    fire("UNIT_SPELLCAST_SUCCEEDED", "player", "managed-macro", spellID)
+    assert(db.castsTotal == before + 1 and db.history[#db.history].who == target,
+      "the direct bar cast lost confirmed recipient attribution")
+    local opened
+    env.Settings.OpenToCategory = function(category, section) opened = category == env.Settings.KEYBINDINGS_CATEGORY_ID and section end
+    env.SlashCmdList.BUFFRADAR("gamepad")
+    assert(opened == "BuffRadar" and button.entry.unit == "nameplate1", "controller setup did not open the native buff binding")
+
+    env.__runningMacro = index
+    X.SyncCastMacro(true)
+    assert(env.GetMacroBody(index) == body, "an in-progress macro was rewritten")
+    env.__runningMacro = nil
+    fire("NAME_PLATE_UNIT_REMOVED", "nameplate2")
+    assert(env.GetMacroBody(index) == body, "an unrelated nameplate disarmed the macro")
+    fire("NAME_PLATE_UNIT_REMOVED", "nameplate1")
+    assert(idle(env.GetMacroBody(index)), "nameplate removal left the macro armed until the next scan")
+    renamed, replacement = "Cedric", "Player-1-T99"
+    X.Refresh()
+    assert(env.GetMacroBody(index):find("/targetexact Cedric", 1, true), "recycled nameplate kept its old target")
+    db.castMethod = "macro"
+    X.Refresh()
+    assert(button:GetAttribute("macrotext"):find("[@nameplate1,help,nodead]", 1, true)
+      and env.GetMacroBody(index):find("/targetexact Cedric", 1, true), "bar macro embedded a recycled unit token")
+    renamed, replacement, db.castMethod = nil, nil, "target"
+    X.Refresh()
+
+    -- The editor may have unsaved text. Background writes must not fire
+    -- UPDATE_MACROS until it closes, and a hand-edit loses ownership.
+    env.MacroFrame = env.CreateFrame("Frame")
+    env.MacroFrame:Show()
+    renamed, replacement = "Cedric", "Player-1-T99"
+    X.Refresh()
+    assert(env.GetMacroBody(index) == body, "macro editor did not defer automatic writes")
+    env.MacroFrame:Hide()
+    timerTick()
+    assert(env.GetMacroBody(index):find("/targetexact Cedric", 1, true), "macro did not catch up after editing finished")
+    env.MacroFrame = oldFrame
+
+    -- Refuse a body the game would truncate, without disabling the native
+    -- action (its shorter script still fits). Then verify a Shift variant.
+    renamed, replacement = "A" .. string.rep("é", 77), "Player-1-T100"
+    X.Refresh()
+    assert(button.entry and #button:GetAttribute("macrotext") <= 255 and idle(env.GetMacroBody(index)),
+      "an oversized bar macro was stored or disabled the native cast")
+    renamed, replacement = "Alden\n/cast Another Spell", "Player-1-T101"
+    X.Refresh()
+    assert(not button:GetAttribute("macrotext") and idle(env.GetMacroBody(index)),
+      "an unusable exact name became macro commands")
+    renamed, replacement = nil, nil
+    X.Refresh()
+    if env.__forever then
+      local base = button.bSpell
+      db.modClick = true
+      X.GroupOffer = function(spell, unit)
+        if spell == base and unit == "nameplate1" then return "Group buff" end
+        return oldOffer(spell, unit)
+      end
+      X.Refresh()
+      local shifted = env.GetMacroBody(index)
+      assert(shifted:find("/cast [mod:shift,nomod:ctrl,nomod:alt,help,nodead] Group buff; [help,nodead] ", 1, true)
+        and not shifted:find("/click BuffRadarNextButton", 1, true), "bar cast lost or nested the Shift variant")
+      X.ResetCastTracking()
+      env.IsShiftKeyDown = function() return true end
+      env.__runningMacro = index
+      env.BuffRadarMacroButton:Click()
+      env.__runningMacro = nil
+      fire("UNIT_SPELLCAST_SENT", "player", target, "shifted-macro", spellID)
+      fire("UNIT_SPELLCAST_SUCCEEDED", "player", "shifted-macro", spellID)
+      assert(db.history[#db.history].spell == "Group buff", "bar macro attributed Shift to the unmodified spell")
+      env.IsShiftKeyDown, db.modClick, X.GroupOffer = oldShift, false, oldOffer
+      X.Refresh()
+    end
+    assert(env.GetMacroBody(index) == body, "restoring the original queue did not restore the original macro")
+    db.pauseInCities, env.__zone = true, "Stormwind City"
+    fire("ZONE_CHANGED_NEW_AREA")
+    timerTick()
+    assert(idle(env.GetMacroBody(index)) and not button.entry, "city pause left the macro armed")
+    db.pauseInCities, env.__zone = false, oldZone
+    X.Refresh()
+    assert(not idle(env.GetMacroBody(index)), "turning off city pause did not rearm the macro")
+
+    env.__combat = true
+    fire("PLAYER_REGEN_DISABLED")
+    local combatWrites = env.__macroWrites
+    X.SyncCastMacro(true)
+    assert(env.__macroWrites == combatWrites and not simulate(body, "Previous friend", true, true),
+      "combat attempted to edit the macro or left the direct cast enabled")
+    env.__combat = false
+    fire("PLAYER_REGEN_ENABLED")
+    assert(idle(env.GetMacroBody(index)), "pre-combat macro was still armed before a safe rescan")
+    X.Refresh()
+    assert(not idle(env.GetMacroBody(index)), "leaving combat did not rearm the macro")
+    fire("PLAYER_DEAD")
+    assert(idle(env.GetMacroBody(index)), "death left the macro armed")
+    fire("PLAYER_ALIVE")
+    X.Refresh()
+    assert(not idle(env.GetMacroBody(index)), "resurrection did not rearm the macro")
+    fire("PLAYER_LEAVING_WORLD")
+    X.Refresh()
+    assert(idle(env.GetMacroBody(index)), "loading screen left an armed macro")
+    fire("PLAYER_ENTERING_WORLD")
+    X.Refresh()
+    assert(not idle(env.GetMacroBody(index)), "returning to the world did not rearm the macro")
+
+    -- A manual edit may happen before the next UPDATE_MACROS. Recheck
+    -- before disarming so the write cannot hit an unrelated macro slot.
+    local custom = env.GetMacroBody(index) .. "\n/say hello"
+    oldEdit(index, nil, nil, custom)
+    X.SyncCastMacro(true)
+    fire("UPDATE_MACROS")
+    X.Refresh()
+    env.SlashCmdList.BUFFRADAR("macro")
+    assert(env.GetMacroBody(index) == custom, "an edited BuffRadar macro was overwritten")
+    env.__macros[index] = nil
+    fire("UPDATE_MACROS")
+    X.SyncCastMacro(true)
+    index = env.CreateMacro("BuffRadar", 134400, custom) -- even before it is tracked this session
+    fire("UPDATE_MACROS")
+    X.SyncCastMacro(true)
+    assert(env.GetMacroBody(index) == custom, "a macro with an added line was reclaimed from the marker alone")
+  end)
+  env.__combat, env.__runningMacro, X.macroParked = false, nil, nil
+  env.GetCVarBool, env.Settings.OpenToCategory, env.C_Spell, env.__zone = oldCVar, oldOpen, oldSpell, oldZone
+  env.EditMacro, env.MacroFrame, X.GroupOffer, env.IsShiftKeyDown = oldEdit, oldFrame, oldOffer, oldShift
+  db.includeSelf, db.castMethod, db.modClick, db.sortMode, db.pauseInCities = oldSelf, oldMode, oldMod, oldSort, oldCity
+  env.__macros[index] = nil
+  fire("UPDATE_MACROS")
+  X.SyncCastMacro(true)
+  if savedMacro then env.CreateMacro(savedMacro.name, savedMacro.icon, savedMacro.body); fire("UPDATE_MACROS") end
+  cleanup()
+  env.IsSpellInRange = nil
+  X.ResetCastTracking()
+  fire("PLAYER_ALIVE")
+  X.ApplyNextRegistration()
+  X.Refresh()
+  assert(ok, err)
+end)
 step("cast keybinds disarm when a roster token changes after the scan", function()
   local cleanup = partyOfTwo("KEY")
   local O, X, db = env.__over, NS.X, env.BuffRadarDB
@@ -1350,7 +1665,7 @@ step("coverage line: progress and per-buff counts (1.4.0)", function()
 end)
 step("rezzed party member jumps the queue (1.4.0)", function()
   if env.__forever then return end
-  local cleanup = partyOfTwo()
+  local cleanup = partyOfTwo("RezSymbols")
   local O = env.__over
   env.IsSpellInRange = function() return 1 end  -- in range: the tag, not the far label, applies
   local dead = false
@@ -1368,6 +1683,15 @@ step("rezzed party member jumps the queue (1.4.0)", function()
     "rezzed member not second (after self): " .. tostring(row2 and row2.entry and row2.entry.unit))
   assert(row2.entry.rezzed, "rezzed flag not set on the entry")
   assert(row2.tag and row2.tag.shown, "'recently rezzed' tag not shown")
+  local db = env.BuffRadarDB
+  local oldSymbols = db.tagSymbols
+  db.tagSymbols = true
+  NS.X.InvalidateTags()
+  refresh()
+  local withSymbol = row2.tag:GetText()
+  db.tagSymbols = oldSymbols
+  NS.X.InvalidateTags()
+  assert(withSymbol == "+ " .. NS.X.L["recently rezzed"], "rezzed tag lost its accessibility symbol")
   O.UnitIsDeadOrGhost = nil
   cleanup()
 end)
@@ -1416,7 +1740,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 20, "dbVersion not migrated to 20: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 21, "dbVersion not migrated to 21: " .. tostring(d.dbVersion))
   assert(d.assignmentEnabled == false and next(d.buffAssignments) == nil, "migration activated assignments")
   assert(next(d.blessingPreferences) == nil, "existing character got a blessing override")
   assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
@@ -1440,7 +1764,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 20 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 21 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
   -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
@@ -1448,18 +1772,32 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = { dbVersion = 9 }
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 20 and d.wizardSeen == true,
+  assert(d.dbVersion == 21 and d.wizardSeen == true,
     "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
   d.dbVersion, d.assignmentEnabled, d.thornsAnyClassOutdoors = 18, true, nil
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 20 and d.thornsAnyClassOutdoors == false and d.assignmentEnabled,
+  assert(d.dbVersion == 21 and d.thornsAnyClassOutdoors == false and d.assignmentEnabled,
     "v18 settings did not gain an opt-in Thorns default while preserving assignments")
   d.dbVersion, d.autoThemePriority, d.theme = 19, nil, "ui.auto"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 20 and d.theme == "ui.auto" and d.autoThemePriority == "",
+  assert(d.dbVersion == 21 and d.theme == "ui.auto" and d.autoThemePriority == "",
     "v19 migration changed Auto opt-in or failed to default the priority order")
+  d.dbVersion, d.blessingComplement, d.plateRestore = 20, nil, nil
+  fire("ADDON_LOADED", "BuffRadar")
+  d = env.BuffRadarDB
+  assert(d.dbVersion == 21 and d.blessingComplement == false and not next(d.plateRestore) and d.assignmentEnabled,
+    "v20 migration turned on a new feature or lost an existing preference")
+  d.blessingComplement = true
+  d.plateRestore = { nameplateShowFriends = false, nameplateShowAll = true,
+    [NS.X.friendlyPlateNamesCVar] = "0", nameplateShowEnemies = false }
+  fire("ADDON_LOADED", "BuffRadar")
+  d = env.BuffRadarDB
+  assert(d.blessingComplement and d.plateRestore.nameplateShowFriends == false and d.plateRestore.nameplateShowAll == true
+    and d.plateRestore[NS.X.friendlyPlateNamesCVar] == nil and d.plateRestore.nameplateShowEnemies == nil,
+    "reloading lost valid options or accepted unsupported CVars")
+  d.blessingComplement, d.plateRestore = false, {}
   NS.X.ApplyTheme("midnight")
   d.assignmentEnabled = false
   d.wizardSeen = false  -- leave the save as the rest of the suite expects
@@ -1680,6 +2018,7 @@ step("dual-spec scale: each spec keeps its own window scale (1.13.0)", function(
   env.GetSpecialization = nil
 end)
 step("ignore list export/import round-trip (1.13.0)", function()
+  if not NS.X.ApiCheck then return end -- optional Extras.lua
   local d = env.BuffRadarDB
   env.SlashCmdList.BUFFRADAR("ignore Zork")
   env.SlashCmdList.BUFFRADAR("ignore Bleep-Realm")
@@ -1705,6 +2044,7 @@ step("ignore list export/import round-trip (1.13.0)", function()
 end)
 step("/br summary and /br apicheck export (1.13.0)", function()
   env.SlashCmdList.BUFFRADAR("summary")
+  if not NS.X.ApiCheck then return end -- optional Extras.lua
   env.SlashCmdList.BUFFRADAR("apicheck export")
   local f = env.BuffRadarExportFrame
   assert(f and f.editBox:GetText():find("API check", 1, true), "apicheck export text missing")
@@ -1752,7 +2092,7 @@ step("clipboard settings imports require complete input and apply atomically", f
     "BR1;" .. string.rep("A", 16384),
   }
   for i, input in ipairs(bad) do
-    assert(not X.Import(input) and not X.SettingsDiff(input), "invalid clipboard accepted: " .. i)
+    assert(not X.Import(input) and (not X.SettingsDiff or not X.SettingsDiff(input)), "invalid clipboard accepted: " .. i)
     assert(d.enabled.TEST and d.rebuffPer.TEST == 33 and d.ignored.Zed and d.scale == 1,
       "invalid clipboard changed settings: " .. i)
   end
@@ -2989,7 +3329,7 @@ step("window palette presets use their approved colors and labels", function()
         "incorrect swatch for " .. palette[1])
     end
     assert(appliedBackground[4] == alpha, "theme changed background opacity")
-    local restored = X.SanitizeDB({ theme = palette[1], bgColor = db.bgColor })
+    local restored = X.Settings.Sanitize({ theme = palette[1], bgColor = db.bgColor })
     assert(restored.theme == palette[1], "sanitizer discarded " .. palette[1])
   end
   slash("theme parchment")
@@ -3064,7 +3404,7 @@ step("Auto theme opts in and uses exact loaded addon folders with stable priorit
     local queries = 0
     env.IsAddOnLoaded = nil
     env.C_AddOns = { IsAddOnLoaded = function(name) queries = queries + 1; return loaded[name] == true, loaded[name] == true end }
-    assert(X.SanitizeDB({}).theme == "midnight", "Auto replaced the default")
+    assert(X.Settings.Sanitize({}).theme == "midnight", "Auto replaced the default")
     slash("theme midnight")
     fire("ADDON_LOADED", "ElvUI")
     assert(db.theme == "midnight" and queries == 0, "manual/default theme opted in or probed addons")
@@ -3314,13 +3654,13 @@ step("Auto Theme Priority repairs saved orders and round trips through old and n
   local slash = env.SlashCmdList.BUFFRADAR
   local prevModern, prevLegacy, prevOrder = env.C_AddOns, env.IsAddOnLoaded, db.autoThemePriority
   local ok, err = pcall(function()
-    local repaired = X.SanitizeDB({
+    local repaired = X.Settings.Sanitize({
       autoThemePriority = "  UI.WICKS ,unknown,ui.elvui,ui.wicks,ui.auto",
     })
     assert(repaired.autoThemePriority:match("^ui%.wicks,ui%.elvui,ui%.ellesmereui,ui%.anoui,"),
       "partial order did not allowlist, dedupe, and append default candidates")
     for _, malformed in ipairs({ {}, 42, "unknown", string.rep("x", 513) }) do
-      assert(X.SanitizeDB({ autoThemePriority = malformed }).autoThemePriority == "",
+      assert(X.Settings.Sanitize({ autoThemePriority = malformed }).autoThemePriority == "",
         "corrupt priority order did not use defaults")
     end
     env.C_AddOns = { IsAddOnLoaded = function(name)
@@ -3412,14 +3752,18 @@ step("combat always hides the list and restores it afterward", function()
 end)
 step("close control follows hover without reserving titleless header space", function()
   local X, db = NS.X, env.BuffRadarDB
-  local frame, close = env.BuffRadarFrame, NS.X.closeButton
+  local frame, close = env.BuffRadarFrame
+  for _, widget in ipairs(env.__frames) do
+    if widget.parent == frame and widget.template == "UIPanelCloseButton" then close = widget; break end
+  end
+  assert(close, "main window did not create its close button")
   local oldTitle, oldLocked, oldClick = db.showTitle, db.locked, db.clickThrough
   local oldMouse, oldCloseMouse, oldTop = env.__mouseOver, close.IsMouseOver, env.UIParent.GetTop
   local ok, err = pcall(function()
     db.showTitle, db.locked, db.clickThrough = true, false, false
     env.__mouseOver = false
     X.ApplyRowLayout()
-    local titledTop = X.topH
+    local titledY = env.BuffRadarRow1.points[1][5]
     frame:Show()
     X.UpdateFade()
     assert(not close:IsShown(), "close control is visible without hover")
@@ -3430,7 +3774,7 @@ step("close control follows hover without reserving titleless header space", fun
     db.showTitle = false
     X.ApplyRowLayout()
     X.UpdateFade()
-    assert(titledTop - X.topH == 24, "titleless rows still reserve the title header")
+    assert(env.BuffRadarRow1.points[1][5] - titledY == 24, "titleless rows still reserve the title header")
     assert(close.hoverAnchor == "BOTTOMRIGHT", "titleless close does not float above its rows")
     env.__mouseOver = false
     close.IsMouseOver = function() return true end
@@ -3457,7 +3801,7 @@ step("close control follows hover without reserving titleless header space", fun
   assert(ok, err)
 end)
 step("combat visibility leaves locked frames to the secure driver", function()
-  local frame, pill = env.BuffRadarFrame, NS.X.pill
+  local frame, pill = env.BuffRadarFrame, env.BuffRadarPill
   local db = env.BuffRadarDB
   local oldHidden = db.hidden
   local hideFrame, hidePill = frame.Hide, pill.Hide
@@ -3493,14 +3837,14 @@ step("combat visibility leaves locked frames to the secure driver", function()
 end)
 step("death suspends the window, settings and casts through release and combat exit", function()
   local X, db = NS.X, env.BuffRadarDB
-  local frame, pill, button = env.BuffRadarFrame, X.pill, env.BuffRadarMinimapButton
+  local frame, pill, button = env.BuffRadarFrame, env.BuffRadarPill, env.BuffRadarMinimapButton
   local oldHidden, oldMinimap, oldDead = db.hidden, db.showMinimap, env.__over.UnitIsDeadOrGhost
   local oldHide = frame.Hide
   local tooltip, oldOwner = env.GameTooltip, env.GameTooltip.GetOwner
   local dead = true
   local ok, err = pcall(function()
     db.hidden, db.showMinimap = false, true
-    X.cfgAPI.RefreshMinimapButton()
+    X.RefreshMinimapButton()
     X.OpenConfig(true)
     local cfg = assert(env.BuffRadarConfig)
     frame:Show()
@@ -3561,28 +3905,27 @@ step("death suspends the window, settings and casts through release and combat e
   tooltip.GetOwner = oldOwner
   tooltip:Hide()
   fire("PLAYER_ALIVE")
-  X.cfgAPI.RefreshMinimapButton()
+  X.RefreshMinimapButton()
   timerTick()
   assert(ok, err)
 end)
 step("appearance refresh never changes the frame layer and flash restore waits for combat", function()
   local X, db = NS.X, env.BuffRadarDB
-  local frame, pill = env.BuffRadarFrame, X.pill
+  local frame, pill = env.BuffRadarFrame, env.BuffRadarPill
   local oldFrame, oldPill = frame.SetFrameStrata, pill.SetFrameStrata
   local oldMotion, writes = db.reduceMotion, 0
   frame.SetFrameStrata = function() writes = writes + 1; error("main frame layer is fixed") end
   pill.SetFrameStrata = function() writes = writes + 1; error("pill frame layer is fixed") end
   local ok, err = pcall(function()
     db.reduceMotion = false
-    X.cfgAPI.ApplyAppearance()
+    X.ApplyAppearance()
     assert(writes == 0, "appearance refresh changed a frame layer")
     local restoreBorder
     X.Flash()
+    assert(frame.borderColor[1] == 1 and frame.borderColor[2] == 0.35, "border pulse did not show")
     if env.C_Timer then
       restoreBorder = table.remove(env.__timers)
       assert(restoreBorder, "border pulse did not schedule a restore")
-    else
-      assert(X.flashPending, "border pulse did not request a fallback restore")
     end
     env.__combat = true
     local delayOk, delayErr = true, nil
@@ -3591,8 +3934,10 @@ step("appearance refresh never changes the frame layer and flash restore waits f
     assert(writes == 0, "combat flash restore changed a frame layer")
     env.__combat = false
     fire("PLAYER_REGEN_ENABLED")
-    assert(not X.flashPending, "appearance replay left a redundant fallback border restore")
-    X.cfgAPI.ApplyAppearance()
+    local expected = X.ThemeBorder()
+    assert(frame.borderColor[1] == expected[1] and frame.borderColor[2] == expected[2],
+      "post-combat appearance did not restore the border colour")
+    X.ApplyAppearance()
     assert(writes == 0, "appearance refresh attempted a protected frame-layer change")
   end)
   env.__combat = false
@@ -3617,7 +3962,7 @@ step("Lightning Shield secure actions rearm after combat and failed setup stays 
     env.GetSpellTabInfo = function() return "General", nil, 0, 1 end
     db.hidden, db.groupOnly, db.includeSelf, db.pauseInCities = false, false, true, false
     db.castMethod, db.enabled.SHAMAN_SHIELD = "target", true
-    X.cfgAPI.BuildBuffList()
+    X.Core.BuildBuffList()
     X.Refresh()
     local listed = assert(shownRows().player, "Lightning Shield self row is absent")
     row = listed.row
@@ -3660,29 +4005,48 @@ step("Lightning Shield secure actions rearm after combat and failed setup stays 
   env.GetSpellBookItemName, env.GetSpellBookItemInfo, env.GetSpellTabInfo = oldNames, oldInfo, oldTab
   db.hidden, db.groupOnly, db.includeSelf, db.pauseInCities = oldHidden, oldGroup, oldSelf, oldCity
   db.castMethod, db.enabled.SHAMAN_SHIELD = oldMethod, oldShield
-  X.cfgAPI.BuildBuffList()
+  X.Core.BuildBuffList()
   assert(ok, err)
 end)
 
-step("combat cast driver requires both secure setup operations to accept", function()
-  local X = NS.X
-  local previousRegister = env.RegisterStateDriver
-  local registrations, snippetResult, driverResult = 0, false, nil
-  local button = { SetAttribute = function() return snippetResult end }
-  local ok, err = pcall(function()
-    env.RegisterStateDriver = function()
-      registrations = registrations + 1
-      return driverResult
+step("secure rows and keys arm only after the combat driver is installed", function()
+  for _, outcome in ipairs({ "snippet refused", "registration refused", "success" }) do
+    local client, messages = TestClient()
+    local create, registrations = client.CreateFrame, {}
+    client.CreateFrame = function(kind, name, parent, template)
+      local button = create(kind, name, parent, template)
+      if template and template:find("SecureActionButtonTemplate", 1, true) then
+        local setScript, setAttribute = button.SetScript, button.SetAttribute
+        button.SetScript = function(self, event, callback)
+          assert(event ~= "OnClick", name .. " replaced a secure OnClick")
+          return setScript(self, event, callback)
+        end
+        button.SetAttribute = function(self, key, value)
+          if key == "_onstate-combat" and outcome == "snippet refused" then return false end
+          return setAttribute(self, key, value)
+        end
+      end
+      return button
     end
-    assert(not X.InstallCombatDriver(button, ""), "explicit snippet refusal armed the control")
-    assert(registrations == 0, "driver installed after the snippet failed")
-    snippetResult, driverResult = nil, false
-    assert(not X.InstallCombatDriver(button, ""), "explicit driver refusal armed the control")
-    snippetResult, driverResult = nil, nil
-    assert(X.InstallCombatDriver(button, "") and registrations == 2, "successful void calls did not arm")
-  end)
-  env.RegisterStateDriver = previousRegister
-  assert(ok, err)
+    client.RegisterStateDriver = function(button, state)
+      if state ~= "combat" then return end
+      registrations[button] = (registrations[button] or 0) + 1
+      if outcome == "registration refused" then return false end
+    end
+    local X, startup = LoadClient(client)
+    startup.scripts.OnEvent(startup, "ADDON_LOADED", "BuffRadar")
+    startup.scripts.OnEvent(startup, "PLAYER_LOGIN")
+    X.Refresh()
+    for _, message in ipairs(messages) do assert(not message:find("error", 1, true), message) end
+    local row = assert(client.BuffRadarRow1)
+    assert(row:IsShown() and row.entry, "no eligible row to exercise secure setup")
+    for _, name in ipairs({ "BuffRadarRow1", "BuffRadarNextButton", "BuffRadarGroupButton" }) do
+      local button = assert(client[name], name .. " was not built")
+      local expected = outcome == "snippet refused" and 0 or 1
+      assert((registrations[button] or 0) == expected, name .. " registered unexpectedly: " .. outcome)
+      assert((button:GetAttribute("type") ~= nil) == (outcome == "success"), name .. " armed incorrectly: " .. outcome)
+    end
+  end
 end)
 
 step("name finder filters the list (1.8.0)", function()
@@ -5845,14 +6209,14 @@ step("per-class blessing choices persist and defer to the group plan", function(
   local function cleanup()
     env.IsPlayerSpell, db.blessingPreferences, X.blessPlan.MAGE = oldKnown, oldPreferences, oldPlan
     X.DeleteProfile("AuditBlessing")
-    X.cfgAPI.BuildBuffList()
+    X.Core.BuildBuffList()
     if env.BuffRadarBlessingPreferences then env.BuffRadarBlessingPreferences:Hide() end
     if X.RefreshConfig then X.RefreshConfig() end
   end
   local ok, err = pcall(function()
     env.IsPlayerSpell = function(id) return id == 19740 or id == 19742 or oldKnown(id) end
     db.blessingPreferences, X.blessPlan.MAGE = {}, nil
-    X.cfgAPI.BuildBuffList()
+    X.Core.BuildBuffList()
     assert(X.BlessingForClass("MAGE").name == "Blessing of Wisdom", "default blessing changed")
     local sent = #env.__addonSent
     env.SlashCmdList.BUFFRADAR("bless prefer MAGE MIGHT")
@@ -5877,11 +6241,131 @@ step("per-class blessing choices persist and defer to the group plan", function(
     assert(env.BuffRadarBlessingPreferences.shown and #cfg.blessingSelectors == 9,
       "blessing settings did not show one control per Forever class")
     env.IsPlayerSpell = function(id) return id == 19742 or oldKnown(id) end
-    X.cfgAPI.BuildBuffList()
+    X.Core.BuildBuffList()
     assert(X.BlessingForClass("MAGE").name == "Blessing of Wisdom" and db.blessingPreferences.MAGE == "MIGHT",
       "an unavailable saved preference did not fall back without clearing it")
   end)
   cleanup()
+  assert(ok, err)
+end)
+step("Forever nearby blessing complement respects caster ownership and explicit rules", function()
+  if not env.__forever then return end
+  local cleanup = twoTanks()
+  local X, O, db = NS.X, env.__over, env.BuffRadarDB
+  local oldKnown, oldAuras, oldSecret = env.IsPlayerSpell, env.C_UnitAuras, env.issecretvalue
+  local oldComplement, oldPrefs, oldRules, oldMode = db.blessingComplement, db.blessingPreferences, db.buffAssignments, db.assignmentEnabled
+  local oldPlan, oldEnabled, oldContext = X.blessPlan, db.enabled.BLESSINGS, db.buffContext.BLESSINGS
+  local ok, err = pcall(function()
+    local kings, greater, wisdom, might = "Blessing of Kings", "Greater Blessing of Kings", "Blessing of Wisdom", "Blessing of Might"
+    local unit = "nameplate2"
+    local expiry, auras = env.GetTime() + 600, {}
+    env.IsPlayerSpell = function(id) return id == 20217 or id == 19742 or id == 19740 or oldKnown(id) end
+    db.blessingComplement, db.blessingPreferences, db.buffAssignments, db.assignmentEnabled = false, {}, {}, false
+    db.enabled.BLESSINGS, db.buffContext.BLESSINGS, X.blessPlan = true, nil, {}
+    env.IsSpellInRange = function() return 1 end
+    O.Aura = function(u, name) if u == unit then return auras[name] end; return nil end
+    X.Core.BuildBuffList()
+    local function aura(owner, timer)
+      return { isFromPlayerOrPlayerPet = owner, expirationTime = timer or expiry }
+    end
+    local scan = 0
+    local function offers(expected)
+      X.Refresh()
+      scan = scan + 1
+      local row = shownRows()[unit] or {}
+      for _, name in ipairs({ kings, wisdom, might }) do
+        assert((row[name] == true) == (expected == name), "scan " .. scan .. " unexpected queue spell: " .. name .. "; wanted " .. tostring(expected))
+      end
+    end
+    auras[kings] = aura(false)
+    offers(nil)
+    local slash, sent = env.SlashCmdList.BUFFRADAR, #env.__addonSent
+    slash("bless complement on")
+    assert(db.blessingComplement and #env.__addonSent == sent, "world blessing opt-in was not local")
+    offers(wisdom)
+    local before = #chat
+    slash("why Tank2")
+    assert(chatSince(before, "complement another Paladin") and chatSince(before, wisdom),
+      "why disagreed with the nearby blessing on offer")
+    auras[might] = aura(true)
+    offers(nil) -- Don't cycle away from your own already-active alternate.
+    auras[might].expirationTime = env.GetTime() + 5
+    offers(might)
+    auras[might], auras[wisdom] = nil, aura(false)
+    offers(might)
+    auras[might], auras[kings].expirationTime = aura(false), env.GetTime() + 5
+    offers(nil) -- Don't overwrite a foreign blessing when no alternative fits.
+    auras = { [kings] = aura(true, env.GetTime() + 5) }
+    offers(kings)
+    auras = { [wisdom] = aura(false) }
+    offers(kings) -- The usual preference is already complementary.
+    local masked = {}
+    env.issecretvalue = function(v) return v == masked end
+    auras = { [kings] = aura(masked, env.GetTime() + 5) }
+    offers(nil)
+    env.issecretvalue = oldSecret
+
+    local list = { { name = greater, expirationTime = expiry, sourceUnit = "nameplate1" } }
+    env.C_UnitAuras = { GetBuffDataByIndex = oldAuras.GetBuffDataByIndex }
+    O.AuraList = function(u) if u == unit then return list end end
+    offers(wisdom) -- Greater and normal share a family, including on the index API.
+    env.C_UnitAuras = nil
+    offers(wisdom) -- Legacy UnitBuff's caster return carries the same meaning.
+    list[1].sourceUnit = "player"
+    offers(nil)
+    local guid = O.UnitGUID
+    list[1].sourceUnit = "target"
+    O.UnitGUID = function(u) if u == "target" then return guid("player") end; return guid(u) end
+    offers(nil) -- A caster token can alias the player.
+    O.UnitGUID = guid
+    offers(nil) -- A caster token with no readable GUID is not another Paladin.
+    list[1].sourceUnit = "nameplate1"
+    list[2] = { name = masked, expirationTime = expiry, sourceUnit = "player" }
+    env.issecretvalue = function(v) return v == masked end
+    offers(nil) -- An incomplete index read cannot prove the alternate is absent.
+    env.issecretvalue, env.C_UnitAuras = oldSecret, oldAuras
+    auras = { [kings] = aura(false) }
+    O.AuraList = nil
+
+    X.blessPlan.PALADIN = { mine = true, key = "KINGS" }
+    offers(nil)
+    X.blessPlan.PALADIN = nil
+    assert(X.SetAssignmentEnabled(true) and X.SetAssignment("PALADIN", "WORLD", { BLESS_KINGS = true }))
+    offers(nil)
+    assert(X.SetAssignmentEnabled(false))
+    offers(wisdom)
+    local details, groupMissing = { cooldown = {}, cooldowns = {} }, {}
+    X.Core.Missing(unit, groupMissing, true, false, "why", details)
+    assert(not table.concat(groupMissing):find(wisdom, 1, true) and not details.blessing,
+      "world option affected a grouped recipient")
+
+    assert(X.SaveProfile("ComplementAudit"), "could not save complement setting")
+    local shared = assert(X.ProfileShareText("ComplementAudit"))
+    assert(shared:find(";blessingComplement=1;", 1, true), "BR2 did not serialize the opt-in")
+    assert(not X.ProfileImport(shared:gsub("blessingComplement=1", "blessingComplement=maybe")),
+      "BR2 accepted a malformed complement setting")
+    local older = shared:gsub(";blessingComplement=1;", ";")
+    assert(X.ProfileImport(older) and X.LoadProfile("ComplementAudit") and not db.blessingComplement,
+      "a pre-v21 BR2 did not load with complement off")
+    offers(nil)
+    assert(X.ProfileImport(shared) and X.LoadProfile("ComplementAudit") and db.blessingComplement,
+      "a shared profile did not restore the opt-in")
+    local cfg = env.BuffRadarConfig
+    X.OpenConfig(true)
+    cfg.blessingButton:Click()
+    local check = env.BuffRadarBlessingPreferences.complement
+    assert(check:GetChecked(), "blessing panel did not reflect the setting")
+    check:SetChecked(false); check:Click()
+    assert(not db.blessingComplement, "the complement checkbox did not turn the option off")
+  end)
+  env.IsPlayerSpell, env.C_UnitAuras, env.issecretvalue = oldKnown, oldAuras, oldSecret
+  db.blessingComplement, db.blessingPreferences, db.buffAssignments, db.assignmentEnabled = oldComplement, oldPrefs, oldRules, oldMode
+  X.blessPlan, db.enabled.BLESSINGS, db.buffContext.BLESSINGS = oldPlan, oldEnabled, oldContext
+  X.DeleteProfile("ComplementAudit")
+  if env.BuffRadarBlessingPreferences then env.BuffRadarBlessingPreferences:Hide() end
+  X.Core.BuildBuffList()
+  cleanup()
+  env.IsSpellInRange = nil
   assert(ok, err)
 end)
 step("blessing plan: set, broadcast, receive, list (1.6.0)", function()
@@ -6056,7 +6540,8 @@ step("Forever nearby diagnostics update their own panel and verify explicit name
   if not env.__forever then return end
   local cleanup = partyOfTwo("Nearby")
   local X, O, db = NS.X, env.__over, env.BuffRadarDB
-  local oldCVar, oldCount = env.C_CVar, X.playersSeen
+  local oldCVar, oldCount, oldRestore = env.C_CVar, X.playersSeen, db.plateRestore
+  db.plateRestore = {}
   local oldRole, oldAssignments, oldMode = env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled
   local oldTitle, oldLocked, oldClick = db.showTitle, db.locked, db.clickThrough
   local ok, err = pcall(function()
@@ -6077,7 +6562,7 @@ step("Forever nearby diagnostics update their own panel and verify explicit name
     env.UnitGroupRolesAssigned = function(unit) return unit == "party1" and "DAMAGER" or "NONE" end
     db.buffAssignments = {}
     assert(X.SetAssignmentEnabled(true) and X.SetAssignment("MAGE", "DAMAGER", false))
-    local vars = { nameplateShowFriendlyPlayers = "0", nameplateShowAll = "0" }
+    local vars = { nameplateShowFriendlyPlayers = "0", nameplateShowAll = "0", [X.friendlyPlateNamesCVar] = "0" }
     local writes, allow = 0, false
     env.C_CVar = {
       GetCVar = function(key) return vars[key] end,
@@ -6092,16 +6577,20 @@ step("Forever nearby diagnostics update their own panel and verify explicit name
     X.ApplyRowLayout()
     db.locked, db.clickThrough = true, true
     X.ApplyClickThrough()
-    assert(X.nearbyButton and not X.nearbyButton:IsShown(), "nearby help intercepted locked click-through")
+    local help
+    for _, widget in ipairs(env.__frames) do
+      if widget.parent == env.BuffRadarFrame and widget:GetText() == "?" then help = widget; break end
+    end
+    assert(help and not help:IsShown(), "nearby help intercepted locked click-through")
     db.locked, db.clickThrough = false, false
     X.ApplyClickThrough()
     X.playersSeen = nil
     local tally, n = X.tally, #chat
     local cast = env.BuffRadarNextButton:GetAttribute("unit")
-    assert(X.nearbyButton:IsShown(), "nearby help missing from the titleless window with eligible players")
-    X.nearbyButton:Click()
+    assert(help:IsShown(), "nearby help missing from the titleless window with eligible players")
+    help:Click()
     local panel = env.BuffRadarNearbyDiagnostics
-    assert(panel:IsShown() and panel.enablePlates:IsShown() and panel.nameplates:GetText() == "Friendly nameplates: Off",
+    assert(panel:IsShown() and panel.togglePlates:IsShown() and panel.nameplates:GetText() == "Friendly nameplates: Off",
       "off nameplates did not offer an action in the diagnostics panel")
     assert(panel.count:GetText():find("unavailable", 1, true) and panel.details:GetText() ~= "",
       "missing scan data or target was not explained")
@@ -6115,17 +6604,24 @@ step("Forever nearby diagnostics update their own panel and verify explicit name
     assert(panel.targetDirty and reason:find("Aaron", 1, true) and reason:find("DPS rule", 1, true)
       and reason:find("None", 1, true) and X.tally == tally and #chat == n,
       "the read-only target diagnosis lost the matched party unit or its explicit role rule")
-    panel.enablePlates:Click()
-    assert(writes == 1 and panel.enablePlates:IsShown() and panel.message:GetText() ~= "",
+    panel.togglePlates:Click()
+    assert(writes == 1 and panel.togglePlates:IsShown() and panel.message:GetText() ~= "",
       "a refused nameplate write was accepted")
     allow = true
-    panel.enablePlates:Click()
-    assert(writes == 3 and not panel.enablePlates:IsShown() and panel.nameplates:GetText() == "Friendly nameplates: On",
+    panel.togglePlates:Click()
+    assert(writes == 3 and panel.togglePlates:GetText() == "Disable Friendly Nameplates"
+      and panel.restorePlates:IsShown() and panel.nameplates:GetText() == "Friendly nameplates: On",
       "a verified nameplate write did not update the panel")
-    assert(#chat == n and X.tally == tally, "the enable action posted chat or rebuilt the queue")
+    panel.plateStyle:Click()
+    assert(vars[X.friendlyPlateNamesCVar] == "1" and panel.plateStyle:GetText() == "Show Friendly Health Bars",
+      "names-only control did not update the native style")
+    panel.restorePlates:Click()
+    assert(not panel.restorePlates:IsShown() and vars.nameplateShowAll == "0" and vars[X.friendlyPlateNamesCVar] == "0"
+      and panel.togglePlates:GetText() == "Enable Friendly Nameplates", "restore did not return the panel and CVars to baseline")
+    assert(#chat == n and X.tally == tally, "the plate controls posted chat or rebuilt the queue synchronously")
     vars.nameplateShowFriendlyPlayers = nil
     event(panel, "CVAR_UPDATE")
-    assert(panel.nameplates:GetText() == "Friendly nameplates: Unknown" and not panel.enablePlates:IsShown()
+    assert(panel.nameplates:GetText() == "Friendly nameplates: Unknown" and not panel.togglePlates:IsShown()
       and panel.message:GetText() == "", "unknown nameplate setting was treated as a writable off setting")
 
     plate = true
@@ -6150,7 +6646,7 @@ step("Forever nearby diagnostics update their own panel and verify explicit name
     assert(not panel:IsShown() and not panel.events.CVAR_UPDATE, "death left nearby diagnostics open")
   end)
   X.CloseNearbyDiagnostics()
-  env.C_CVar, env.__combat, X.playersSeen = oldCVar, false, oldCount
+  env.C_CVar, env.__combat, X.playersSeen, db.plateRestore = oldCVar, false, oldCount, oldRestore
   env.UnitGroupRolesAssigned, db.buffAssignments, db.assignmentEnabled = oldRole, oldAssignments, oldMode
   db.showTitle, db.locked, db.clickThrough = oldTitle, oldLocked, oldClick
   cleanup()
@@ -6160,6 +6656,7 @@ step("Forever nearby diagnostics update their own panel and verify explicit name
   assert(ok, err)
 end)
 step("pull countdown shows on the coverage line (1.15.0)", function()
+  if not NS.X.ApiCheck then return end -- optional Extras.lua
   local cleanup = partyOfTwo()
   local pf
   for _, f in ipairs(env.__frames) do if f.events and f.events.START_TIMER then pf = f end end
@@ -6264,7 +6761,7 @@ step("Forever uses the eligible rank and falls back from an unaffordable group c
     estimate = X.ReagentEstimate(report)
     assert(#estimate == 1 and estimate[1].needed == 1 and estimate[1].carried == nil
       and X.ReagentSummary(report):find("17028 ?/1", 1, true), "unreadable stock was treated as zero")
-    assert(shownRows().party1.row:GetAttribute("spell") == 1243 and X.NoCastReason():find("Could not check reagent"),
+    assert(shownRows().party1.row:GetAttribute("spell") == 1243 and (group.bOfferReason or ""):find("Could not check reagent", 1, true),
       "unreadable bags armed a reagent spell or hid the reason")
     targetLevel = 30
     refresh()
@@ -6460,6 +6957,14 @@ step("Forever assignment preview and why explain winning rules without changing 
   local oldSize = env.GetNumGroupMembers
   local oldCount, oldTip = env.C_Item.GetItemCount, env.GameTooltip
   local oldIncludeSelf, oldGroupCast, oldClickThrough = db.includeSelf, db.groupCast, db.clickThrough
+  local previewAnchor
+  for _, widget in ipairs(env.__frames) do
+    if widget.parent == env.BuffRadarFrame and widget.kind == "Frame" and widget:GetScript("OnEnter") then
+      previewAnchor = widget
+      break
+    end
+  end
+  assert(previewAnchor, "next-cast preview control not built")
   local ok, err = pcall(function()
     local role = "DAMAGER"
     env.GetNumGroupMembers = function() return 3 end
@@ -6503,7 +7008,7 @@ step("Forever assignment preview and why explain winning rules without changing 
     local lines = {}
     env.GameTooltip = { SetOwner = function() end, Show = function() end, Hide = function() end,
       AddLine = function(_, line) lines[#lines + 1] = line end }
-    X.ShowNextPreview({})
+    previewAnchor:GetScript("OnEnter")(previewAnchor)
     local tooltip = table.concat(lines, "\n")
     assert(tooltip:find("Prayer of Fortitude is blocked by 1 group member.", 1, true),
       "next-cast tooltip did not count the blocker: " .. tooltip)
@@ -6563,7 +7068,7 @@ step("Forever assignment preview and why explain winning rules without changing 
     lines = {}
     env.GameTooltip = { SetOwner = function() end, Show = function() end, Hide = function() end,
       AddLine = function(_, line) lines[#lines + 1] = line end }
-    X.ShowNextPreview({})
+    previewAnchor:GetScript("OnEnter")(previewAnchor)
     tooltip = table.concat(lines, "\n")
     assert(tooltip:find("Prayer of Fortitude is blocked by 2 group members.", 1, true)
       and tooltip:find("incomplete", 1, true)
@@ -7139,7 +7644,7 @@ step("Forever outdoor Thorns shares cast eligibility and persists as an opt-in",
     end
     db.assignmentEnabled, db.buffAssignments, db.enabled.THORNS, db.buffContext.THORNS = false, {}, true, nil
     db.thornsAnyClassOutdoors = false
-    X.cfgAPI.BuildBuffList()
+    X.Core.BuildBuffList()
     X.Refresh()
     local function offered(unit, buff)
       local row = shownRows()[unit]
@@ -7237,7 +7742,7 @@ step("Forever outdoor Thorns shares cast eligibility and persists as an opt-in",
   X.DeleteProfile("OutdoorThornsTest")
   cleanup()
   env.IsSpellInRange = oldRange
-  X.cfgAPI.BuildBuffList()
+  X.Core.BuildBuffList()
   refresh()
   assert(ok, err)
 end)
@@ -7433,19 +7938,36 @@ step("flight-path pause (1.5.0)", function()
   assert(shownRows().party1, "party not listed after landing")
   cleanup()
 end)
-step("/br resetpos clears the saved window spot (1.5.0)", function()
-  local db = env.BuffRadarDB
-  db.point = { "TOPLEFT", "BOTTOMLEFT", 5000, 4000 }
-  local n = #chat
-  env.SlashCmdList.BUFFRADAR("resetpos")
-  assert(db.point == nil, "resetpos did not clear the saved spot")
-  assert(chatSince(n, "default spot"), "no resetpos message")
+step("/br reset and resetpos clear only the current window position", function()
+  local X, db = NS.X, env.BuffRadarDB
+  local character = assert(X.CharKey())
+  local point, byChar, charPoint = db.point, db.pointByChar, db.charPoint
+  local width, casts, profiles = db.width, db.castsTotal, db.profiles
+  db.charPoint, db.width, db.castsTotal = true, 275, 42
+  db.profiles = { Keep = "BR1;width=250" }
+  local expected = X.Export()
+  local otherPoint = { "TOPLEFT", "BOTTOMLEFT", 200, 600 }
+  for _, command in ipairs({ "reset", "resetpos" }) do
+    db.point = { "TOPLEFT", "BOTTOMLEFT", 5000, 4000 }
+    db.pointByChar = { [character] = db.point, ["Offline-Realm"] = otherPoint }
+    local n = #chat
+    env.SlashCmdList.BUFFRADAR(command)
+    assert(X.GetDB() == db and not db.point and not db.pointByChar[character], command .. " kept the saved spot")
+    assert(db.pointByChar["Offline-Realm"] == otherPoint, command .. " reset another character's spot")
+    assert(X.Export() == expected and db.castsTotal == 42 and db.profiles.Keep == "BR1;width=250",
+      command .. " changed unrelated settings")
+    local anchor = env.BuffRadarFrame.points[1]
+    assert(anchor[1] == "TOPLEFT" and anchor[3] == "LEFT" and anchor[4] == 40, command .. " did not reanchor the window")
+    assert(chatSince(n, command == "reset" and "Position reset." or "default spot"), "no " .. command .. " message")
+  end
+  db.point, db.pointByChar, db.charPoint = point, byChar, charPoint
+  db.width, db.castsTotal, db.profiles = width, casts, profiles
 end)
 step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 20"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 21"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
   assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
   assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")
@@ -7501,6 +8023,7 @@ step("corner grips scale the window (1.11.0)", function()
   env.SlashCmdList.BUFFRADAR("width 210")
 end)
 step("1.12.0 diagnostics: apicheck, buffcheck, perf, settings diff", function()
+  if not NS.X.ApiCheck then return end -- optional Extras.lua
   local X = NS.X
   local n = #chat
   env.SlashCmdList.BUFFRADAR("apicheck")
@@ -7527,16 +8050,21 @@ step("1.12.0 diagnostics: apicheck, buffcheck, perf, settings diff", function()
   env.SlashCmdList.BUFFRADAR("profile delete dtest")
 end)
 step("cast counter fits a narrow window instead of being cut off", function()
-  local X = NS.X
-  local f = X.footerText
-  assert(f, "footer text was not exposed")
+  local f
+  for _, label in ipairs(env.__fontstrings) do
+    local right = label.points and label.points[2]
+    if right and right[1] == "RIGHT" and right[2] == env.BuffRadarFrame and right[3] == "BOTTOMRIGHT" then
+      f = label
+      break
+    end
+  end
+  assert(f, "cast counter not anchored to the window footer")
   local prevW, prevSW = f.GetWidth, f.GetStringWidth
 
   -- Plenty of room: the full line stays.
   f.GetWidth = function() return 400 end
   f.GetStringWidth = function() return 120 end
-  X.lastCounterRoom = nil
-  NS.X.slashAPI.UpdateCounter()
+  NS.X.UpdateCounter()
   -- Checked on the "/" that only the compact form has, so this holds in every
   -- locale: the German pack translates the words but not the separator.
   assert(not f:GetText():find("/", 1, true),
@@ -7546,16 +8074,15 @@ step("cast counter fits a narrow window instead of being cut off", function()
   -- right with word wrap off, the alternative is a cut-off "39 all-t...".
   f.GetWidth = function() return 40 end
   f.GetStringWidth = function() return 120 end
-  X.lastCounterRoom = nil
-  NS.X.slashAPI.UpdateCounter()
+  NS.X.UpdateCounter()
   local narrow = f:GetText()
   assert(narrow:find("/", 1, true),
     "the long counter line survived a window too narrow for it")
 
   f.GetWidth, f.GetStringWidth = prevW, prevSW
-  X.lastCounterRoom = nil
 end)
 step("apicheck readability tier tells restricted apart from absent", function()
+  if not NS.X.ApiCheck then return end -- optional Extras.lua
   local n = #chat
   env.SlashCmdList.BUFFRADAR("apicheck")
   assert(chatSince(n, "readability on"), "no readability section")
@@ -7597,7 +8124,6 @@ step("1.12.0 toggles: tag symbols, reduced motion, range watch, snap, per-spec s
   assert(db.tagSymbols == true, "tagsymbols not on")
   env.SlashCmdList.BUFFRADAR("tagsymbols")
   assert(db.tagSymbols == false, "tagsymbols not off")
-  assert(X.TAGSYM["recently rezzed"] == "+" or env.__german, "tag symbol table")
   env.SlashCmdList.BUFFRADAR("motion")
   assert(db.reduceMotion == true, "reduced motion not on")
   local a = env.BuffRadarFrame.borderColor
@@ -7630,24 +8156,25 @@ step("1.12.0 toggles: tag symbols, reduced motion, range watch, snap, per-spec s
 end)
 step("1.12.0 badges: update pending (combat) and data hidden (secret)", function()
   local X = NS.X
-  local frame = env.BuffRadarFrame
+  local function HasTitleMark(mark)
+    for _, label in ipairs(env.__fontstrings) do
+      local text = label:GetText()
+      if type(text) == "string" and text:find("|cff33ccffBuff|rRadar", 1, true) == 1
+          and text:find(mark, 1, true) then return true end
+    end
+  end
   env.__combat = true
-  env.SlashCmdList.BUFFRADAR("width 250")
+  X.ApplyGeometry()
+  local pending = HasTitleMark("(update pending)")
   env.__combat = false
-  X.ext = X.ext  -- (slash width is refused in combat; ApplyGeometry path is what we test)
-  env.__combat = true
-  X.ApplyScaleNow()
-  assert(X.geoPending == true, "pending flag not set in combat")
-  env.__combat = false
-  X.ApplyScaleNow()
-  assert(not X.geoPending, "pending flag not cleared out of combat")
+  X.ApplyGeometry()
+  assert(pending and not HasTitleMark("(update pending)"), "combat geometry title did not mark and clear the pending change")
   X.hid = env.GetTime()
-  X.titleKey = nil
-  X.UpdateTitleMarks()
-  assert(X.titleKey == "h", "data-hidden mark not set: " .. tostring(X.titleKey))
+  X.RefreshWindowHeader()
+  local hidden = HasTitleMark("(data hidden)")
   X.hid = 0
-  X.UpdateTitleMarks()
-  assert(X.titleKey == "", "data-hidden mark not cleared")
+  X.RefreshWindowHeader()
+  assert(hidden and not HasTitleMark("(data hidden)"), "unreadable aura title did not mark and clear the data warning")
 end)
 step("1.12.0 UNIT_AURA payload: empty incremental update is dropped", function()
   local n0 = env.__zoneCalls
@@ -7739,16 +8266,18 @@ step("hardening regressions: decoder types, ignore import limits, one bad unit",
   -- IgnoreImport: valid, oversize, escape codes, control characters.
   local before = {}
   for k, v in pairs(db.ignored) do before[k] = v end
-  local ok = X.IgnoreImport("BRI1;Hardenone;Hardentwo")
-  assert(ok and db.ignored.Hardenone and db.ignored.Hardentwo, "valid ignore import failed")
-  local okBig, msgBig = X.IgnoreImport("BRI1;" .. string.rep("Floodname;", 2000))
-  assert(not okBig and msgBig:find("16 KiB", 1, true) and not db.ignored.Floodname,
-    "oversize ignore import was accepted")
-  assert(X.IgnoreImport("BRI1;|cffff0000Red|r;Tab\tName;Hardenthree"), "mixed ignore import refused")
-  assert(not db.ignored["|cffff0000Red|r"] and not db.ignored["Tab\tName"] and db.ignored.Hardenthree,
-    "escape-code or control-character name was stored")
-  assert(X.IgnoreImport(("BRI1;" .. string.rep("x", 65))), "overlong name aborted the import")
-  assert(not db.ignored[string.rep("x", 65)], "overlong name was stored")
+  if X.IgnoreImport then -- optional Extras.lua
+    local ok = X.IgnoreImport("BRI1;Hardenone;Hardentwo")
+    assert(ok and db.ignored.Hardenone and db.ignored.Hardentwo, "valid ignore import failed")
+    local okBig, msgBig = X.IgnoreImport("BRI1;" .. string.rep("Floodname;", 2000))
+    assert(not okBig and msgBig:find("16 KiB", 1, true) and not db.ignored.Floodname,
+      "oversize ignore import was accepted")
+    assert(X.IgnoreImport("BRI1;|cffff0000Red|r;Tab\tName;Hardenthree"), "mixed ignore import refused")
+    assert(not db.ignored["|cffff0000Red|r"] and not db.ignored["Tab\tName"] and db.ignored.Hardenthree,
+      "escape-code or control-character name was stored")
+    assert(X.IgnoreImport(("BRI1;" .. string.rep("x", 65))), "overlong name aborted the import")
+    assert(not db.ignored[string.rep("x", 65)], "overlong name was stored")
+  end
   env.SlashCmdList.BUFFRADAR("ignore |TInterface\\Icons\\X:0|t")
   env.SlashCmdList.BUFFRADAR("ignore Hardenfour")
   assert(not db.ignored["|TInterface\\Icons\\X:0|t"] and db.ignored.Hardenfour,
@@ -8100,7 +8629,7 @@ step("German client uses the translation", function()
   for _, fs in ipairs(env.__fontstrings) do if fs.text == "Kampf" then found = true end end
   assert(found, "combat label not translated ('Kampf' not found)")
 end)
-step("split files share the live settings (Slices E and F)", function()
+step("coordination and wizard share the live settings", function()
   local X, db = NS.X, NS.X.GetDB()
   assert(db, "settings not loaded")
   local savedCtx, savedHistory, savedRaid = db.buffContext, db.history, env.IsInRaid
@@ -8113,7 +8642,6 @@ step("split files share the live settings (Slices E and F)", function()
   local text = X.HistoryText()
   db.history = savedHistory
   assert(type(text) == "string" and text:find("Splitcheck", 1, true), "Wizard.lua does not read the live settings table")
-  assert(X.coordAPI.nEntries() == X.wizAPI.nEntries(), "list-length accessors disagree")
 end)
 step("row hover highlight is a faint theme-coloured wash", function()
   local X, db = NS.X, NS.X.GetDB()
@@ -8124,10 +8652,9 @@ step("row hover highlight is a faint theme-coloured wash", function()
   assert(hl.file == "Interface\\Buttons\\WHITE8X8" and hl.blend == "ADD", "hover highlight is not the flat wash")
   local function matches()
     local bc, c = X.ThemeBorder(), hl.vcolor
-    return c and c[1] == bc[1] and c[2] == bc[2] and c[3] == bc[3] and c[4] == X.ROW_HOVER_ALPHA
+    return c and c[1] == bc[1] and c[2] == bc[2] and c[3] == bc[3] and c[4] == 0.15
   end
   assert(matches(), "hover highlight does not use the theme border colour")
-  assert(X.ROW_HOVER_ALPHA > 0 and X.ROW_HOVER_ALPHA <= 0.2, "hover highlight is not subtle")
   local saved = db.theme
   db.theme = (saved == "crimson") and "forest" or "crimson"
   X.ApplyAppearance()
@@ -8136,15 +8663,16 @@ step("row hover highlight is a faint theme-coloured wash", function()
   X.ApplyAppearance()
   assert(followed, "hover highlight did not follow a theme change")
 end)
-step("Window.lua hands the window back to the main file (Slice G)", function()
+step("window creation is idempotent and keeps bindings on the same frames", function()
   local X = NS.X
+  local count = #env.__frames
   X.BuildUI()
-  local st = X.slashAPI.getState()
-  assert(st.built == true, "main file does not see the window as built")
-  assert(st.frame and st.frame == env.BuffRadarFrame and X.GetFrame() == st.frame, "main file did not receive the window frame")
-  assert(st.grip, "main file did not receive the resize grip")
-  local wrapped, driver = X.NextBindState()
-  assert(st.nextWrapped == wrapped and st.nextCombatDriver == driver, "next-button state differs between files")
+  assert(X.WindowReady() and #env.__frames == count, "second window build created more frames")
+  assert(X.GetFrame() == env.BuffRadarFrame, "window accessor returned the wrong frame")
+  local nextButton = env.BuffRadarNextButton
+  assert(X.GetNextButton() == nextButton, "next-cast accessor returned the wrong frame")
+  local _, installed = X.NextBindState()
+  assert(installed == nextButton.combatDriver, "next-button driver state differs from diagnostics")
 end)
 step("right-click a row (ignore path)", function()
   local row = env.BuffRadarRow1
@@ -8155,40 +8683,36 @@ end)
 return results, chat
 end""")
 
-import os
-src = open(addon_path, encoding="utf-8").read()
-de_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Locales", "deDE.lua")
-de_src = open(de_path, encoding="utf-8").read() if os.path.exists(de_path) else None
-ex_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Extras.lua")
-ex_src = open(ex_path, encoding="utf-8").read() if os.path.exists(ex_path) else None
-da_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Data.lua")
-da_src = open(da_path, encoding="utf-8").read() if os.path.exists(da_path) else None
-cf_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Config.lua")
-cf_src = open(cf_path, encoding="utf-8").read() if os.path.exists(cf_path) else None
-sl_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Slash.lua")
-rc_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Recaps.lua")
-rc_src = open(rc_path, encoding="utf-8").read() if os.path.exists(rc_path) else None
-pf_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Profiles.lua")
-pf_src = open(pf_path, encoding="utf-8").read() if os.path.exists(pf_path) else None
-co_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Coordination.lua")
-co_src = open(co_path, encoding="utf-8").read() if os.path.exists(co_path) else None
-wz_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Wizard.lua")
-wz_src = open(wz_path, encoding="utf-8").read() if os.path.exists(wz_path) else None
-wn_path = os.path.join(os.path.dirname(os.path.abspath(addon_path)), "Window.lua")
-wn_src = open(wn_path, encoding="utf-8").read() if os.path.exists(wn_path) else None
-sl_src = open(sl_path, encoding="utf-8").read() if os.path.exists(sl_path) else None
+addon = Path(addon_path).resolve()
+root = addon.parent
+
+
+def read_sources(toc):
+    paths = [line.strip().replace("\\", "/") for line in toc.read_text(encoding="utf-8-sig").splitlines()
+             if line.strip() and not line.lstrip().startswith("#") and line.strip().lower().endswith(".lua")]
+    if len(paths) != len(set(paths)) or addon.name not in paths:
+        sys.exit(f"Duplicate entries or missing core file in {toc}")
+    return [(path, (root / path).read_text(encoding="utf-8-sig")) for path in paths]
+
+
+retail_sources = read_sources(root / "BuffRadar.toc")
+forever_sources = read_sources(root.parent / "editions" / "forever" / "BuffRadar.toc")
+# Keep the older Retail+Extras coverage for optional-API paths (especially
+# diagnostics with unreadable values), in addition to the real Retail TOC.
+retail_extras = retail_sources + [file for file in forever_sources if file[0] == "Extras.lua"]
 setups = [
-    ("Retail: modern client (C_Timer, UI templates)", True, False, False, False),
-    ("Retail: fallback timer (OnUpdate)", False, False, False, False),
-    ("Retail: no UI templates (fallback settings look)", True, True, False, False),
-    ("Forever: modern client", True, False, True, False),
-    ("Forever: fallback timer, no UI templates", False, True, True, False),
+    ("Retail: declared TOC (no Extras)", True, False, False, False, retail_sources),
+    ("Retail + Extras: modern client (C_Timer, UI templates)", True, False, False, False, retail_extras),
+    ("Retail + Extras: fallback timer (OnUpdate)", False, False, False, False, retail_extras),
+    ("Retail + Extras: no UI templates", True, True, False, False, retail_extras),
+    ("Forever: modern client", True, False, True, False, forever_sources),
+    ("Forever: fallback timer, no UI templates", False, True, True, False, forever_sources),
+    ("Retail + Extras: German client (Locales/deDE.lua)", True, False, False, True, retail_extras),
 ]
-if de_src:
-    setups.append(("Retail: German client (Locales/deDE.lua)", True, False, False, True))
 failed = False
-for label, with_timer, no_templates, forever, german in setups:
-    results, chat = harness(src, with_timer, no_templates, forever, german, de_src if german else None, ex_src, da_src, cf_src, sl_src, rc_src, pf_src, co_src, wz_src, wn_src)
+for label, with_timer, no_templates, forever, german, sources in setups:
+    results, chat = harness(lua.table_from([lua.table_from(file) for file in sources]),
+                            with_timer, no_templates, forever, german)
     bad = 0
     for i in range(1, len(results) + 1):
         name, status = results[i][1], results[i][2]

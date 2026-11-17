@@ -1,6 +1,6 @@
-"""Rough Lua 5.1 limit checker for BuffRadar.lua (WoW's Lua is 5.1).
+"""Rough limit checker for BuffRadar's Lua 5.1 modules.
 
-Checks the two compile-time limits most likely to break a big single-file addon:
+Checks the two compile-time limits most likely to break a large module:
   * at most 200 active local variables in the main chunk (LUAI_MAXVARS)
   * at most 60 upvalues per function (LUAI_MAXUPVALUES)
 Approximate: top-level code is assumed to start at column 0 (the file's style),
@@ -17,14 +17,22 @@ import sys
 KEYWORDS = set("and break do else elseif end false for function if in local nil not or repeat return then true until while".split())
 
 
+# Match comments and strings together so a comment marker inside a quoted
+# message (e.g. "Low mana -- buffing paused.") never swallows the closing quote.
+NON_CODE = re.compile(
+    r"--\[(?P<comment>=*)\[.*?\](?P=comment)\]|--[^\n]*"
+    r"|\[(?P<brackets>=*)\[.*?\](?P=brackets)\]"
+    r"|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'",
+    re.S,
+)
+
+
 def strip(src):
-    # remove long comments/strings, comments, then short strings (keep line count)
-    src = re.sub(r"--\[(=*)\[.*?\]\1\]", lambda m: "\n" * m.group(0).count("\n"), src, flags=re.S)
-    src = re.sub(r"\[(=*)\[.*?\]\1\]", lambda m: '""' + "\n" * m.group(0).count("\n"), src, flags=re.S)
-    src = re.sub(r"--[^\n]*", "", src)
-    src = re.sub(r'"(?:\\.|[^"\\\n])*"', '""', src)
-    src = re.sub(r"'(?:\\.|[^'\\\n])*'", "''", src)
-    return src
+    def blank(token):
+        text = token.group()
+        return (" " if text.startswith("--") else '""') + "\n" * text.count("\n")
+
+    return NON_CODE.sub(blank, src)
 
 
 def top_level_locals(lines):

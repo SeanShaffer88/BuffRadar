@@ -1,34 +1,21 @@
--- BuffRadar - Wizard: the first-run setup wizard (1.9.0) and the
--- tools around it that only the slash commands, settings and timers call:
--- saved themes, the alert flash, range and fall checks, /br why and the
--- Nearby Player explanations, history / stats / Discord text and the
--- export dialog.
--- Loaded after BuffRadar.lua through the .toc. This is file-split Slice F
--- (1.15.34): the code below moved verbatim from BuffRadar.lua and reaches
--- that file's locals through X.wizAPI, which BuffRadar.lua fills in
--- before this file loads. The settings table arrives through X.dbSinks;
--- the window comes from X.GetFrame() and the list length from an accessor.
+-- BuffRadar - setup wizard, themes, and nearby / cast diagnostics.
 -- Copyright (C) 2026 Malikor. GPLv3 or later.
 
-local _, NS = ...
-local X = NS and NS.X
-if not X or not X.wizAPI then return end
-local A = X.wizAPI
+local _, ns = ...
+local X = ns.X
+local core = X.Core
 
-local db = X.GetDB and X.GetDB()  -- nil until ADDON_LOADED; X.dbSinks updates it
-X.dbSinks = X.dbSinks or {}
-X.dbSinks[#X.dbSinks + 1] = function(value) db = value end
+local db
+X.OnDBLoaded(function(value) db = value end)
 
-local L, Print, PlayAlert, QueueRefresh = A.L, A.Print, A.PlayAlert, A.QueueRefresh
-local RefreshConfig, OpenConfig = A.RefreshConfig, A.OpenConfig
-local ApplyAppearance, ApplyGeometry = A.ApplyAppearance, A.ApplyGeometry
-local Ignore, Readable, SafeString = A.Ignore, A.Readable, A.SafeString
-local Single, Missing, Valid = A.Single, A.Missing, A.Valid
-local InGroup, InRaid = A.InGroup, A.InRaid
-local RAID, PARTY, PLATES = A.RAID, A.PARTY, A.PLATES
-local myBuffs, entries, rows = A.myBuffs, A.entries, A.rows
-local CLASSIC_FEATURES = A.CLASSIC_FEATURES
-local MAX_ROWS = A.MAX_ROWS
+local L, Print, PlayAlert, QueueRefresh = X.L, X.Print, core.PlayAlert, core.QueueRefresh
+local ApplyAppearance, ApplyGeometry = X.ApplyAppearance, X.ApplyGeometry
+local Ignore, Readable, SafeString = X.Ignore, X.Readable, core.SafeString
+local Single, Missing, Valid = core.Single, core.Missing, core.Valid
+local InGroup, InRaid = X.InGroup, X.InRaid
+local RAID, PARTY, PLATES = core.RAID, core.PARTY, core.PLATES
+local myBuffs, entries = core.Buffs, core.Entries
+local CLASSIC_FEATURES = X.classic
 local pairs, ipairs, type, pcall = pairs, ipairs, type, pcall
 local math_min, math_max, math_floor = math.min, math.max, math.floor
 local string_format = string.format
@@ -65,7 +52,7 @@ function X.WizardPage(n)
           ApplyGeometry()
           ApplyAppearance()
           X.ApplyRowLayout()
-          if RefreshConfig then RefreshConfig() end
+          if X.RefreshConfig then X.RefreshConfig() end
           if QueueRefresh then QueueRefresh() end
           Print("Setup wizard: the " .. s[2] .. " preset is applied.")
         end
@@ -87,7 +74,7 @@ function X.WizardPage(n)
       local cur = 1
       for i, k in ipairs(order) do if k:lower() == (db.theme or ""):lower() then cur = i end end
       X.ApplyTheme(order[cur % #order + 1])
-      if RefreshConfig then RefreshConfig() end
+      if X.RefreshConfig then X.RefreshConfig() end
       b:SetText(themeLabel())
     end)
     b:Show()
@@ -104,7 +91,7 @@ function X.WizardPage(n)
       or "You don't know any buffs BuffRadar handles yet; the list appears once you learn one. Press Finish to close.")
     local b = w.choice[1]
     b:SetText("Open settings")
-    b:SetScript("OnClick", function() OpenConfig() end)
+    b:SetScript("OnClick", function() X.OpenConfig() end)
     b:Show()
     w.next:SetText("Finish")
     w.next:Show()
@@ -189,7 +176,7 @@ function X.ApplyTheme(name)
   if id ~= X.AUTO_THEME_ID then db.bgColor = { t.bg[1], t.bg[2], t.bg[3] } end
   if not X.ResolveAutoTheme() then
     ApplyAppearance()
-    if RefreshConfig then RefreshConfig() end
+    if X.RefreshConfig then X.RefreshConfig() end
   end
   return true
 end
@@ -224,25 +211,12 @@ function X.DeleteTheme(name)
       if not X.THEMES[name:lower()] and (db.theme or ""):lower() == name:lower() then
         db.theme = "custom"
         ApplyAppearance()
-        if RefreshConfig then RefreshConfig() end
+        if X.RefreshConfig then X.RefreshConfig() end
       end
       return true
     end
   end
   return false
-end
-
--- One border pulse; restores the normal border shortly after. Assigned
--- here because frame / ApplyAppearance only exist from this point on.
-function X.Flash()
-  local frame = X.GetFrame()
-  if not frame or not frame.SetBackdropBorderColor or InCombatLockdown() or db.reduceMotion then return end
-  frame:SetBackdropBorderColor(1, 0.35, 0.35, 1)
-  if C_Timer and C_Timer.After then
-    C_Timer.After(0.7, function() if frame then ApplyAppearance() end end)
-  else
-    X.flashPending = true  -- no timer API: Refresh() restores it next pass
-  end
 end
 
 -- Watched-buff drop alert (1.5.0): your single-target buff (Earth Shield)
@@ -259,7 +233,7 @@ function X.CheckRange()
   if not db.rangeWatch then
     wipe(X.farPrev); wipe(X.farNow); return
   end
-  for i = 1, A.nEntries() do
+  for i = 1, core.EntryCount() do
     local e = entries[i]
     local g = e.guid
     if g and X.farPrev[g] and not e.outOfRange and not e.pet then
@@ -395,16 +369,12 @@ function X.ExplainPlayer(selected, emit, showUnknown)
       .. (failure and failure.guid == guid and " " .. failure.message or "") .. " Try again in a few seconds.")
     return
   end
-  for i = 1, A.nEntries() do
+  for i = 1, core.EntryCount() do
     if guid and entries[i].guid == guid then
-      local shown = false
-      for r = 1, MAX_ROWS do
-        if rows[r] and rows[r].entry == entries[i] then shown = true break end
-      end
-      if shown then
+      local visibility = X.QueueVisibility(entries, i)
+      if visibility == "visible" then
         emit(disp .. " is on the list (row " .. i .. "), missing: " .. table.concat(miss, ", ") .. ".")
-      elseif db.viewMode == "people" and X.rowView == entries
-          and (i <= (X.rowOffset or 0) or i > (X.rowOffset or 0) + MAX_ROWS) then
+      elseif visibility == "overflow" then
         emit(disp .. " is outside the visible rows. " .. L["Use the mouse wheel to see more rows."])
       else
         emit(disp .. " needs " .. table.concat(miss, ", ") .. " and is collected, but the row is not shown -- the role filter under the title is the usual reason.")
@@ -458,28 +428,62 @@ function X.ExplainCurrentTarget(emit)
   X.ExplainPlayer({ unit = unit, full = full, short = short, group = unit ~= "target", guid = guid }, emit, true)
 end
 
-function X.EnableFriendlyNameplates(emit)
+-- These are game settings, not frame overrides. Remember only values we
+-- changed and verified, and never save them in a shareable profile.
+local function WritePlateSetting(name, value, remember)
+  local before = X.ReadBooleanCVar(name)
+  if before == nil then return false end
+  if before ~= value then
+    local setter = (C_CVar and C_CVar.SetCVar) or SetCVar
+    if not setter then return false end
+    pcall(setter, name, value and "1" or "0")
+    if X.ReadBooleanCVar(name) ~= value then return false end
+    if remember and db.plateRestore[name] == nil then db.plateRestore[name] = before end
+  end
+  if db.plateRestore[name] == value then db.plateRestore[name] = nil end
+  return true
+end
+
+function X.ChangeFriendlyNameplates(mode, emit)
   if InCombatLockdown() then emit(L["Can't change nameplate settings during combat."]); return end
   if X.PlayerSuspended() then emit(L["Nameplate settings are unavailable while dead."]); return end
-  local enabled, name = X.FriendlyPlatesOn()
-  local setter = (C_CVar and C_CVar.SetCVar) or SetCVar
-  if not name or not setter then
-    emit(L["Couldn't find a supported friendly nameplate setting on this client."])
-    return
-  end
-  if not enabled then pcall(setter, name, "1") end
-  if X.FriendlyPlatesOn() ~= true then
-    emit(L["Couldn't turn on friendly nameplates. Check the game's nameplate settings."])
-    return
-  end
-  if X.ReadBooleanCVar("nameplateShowAll") == false then
-    pcall(setter, "nameplateShowAll", "1")
-    if X.ReadBooleanCVar("nameplateShowAll") ~= true then
-      emit(L["Friendly nameplates are enabled. The game may still hide them outside combat."])
+  if mode == "restore" then
+    if not next(db.plateRestore) then emit(L["No nameplate changes to restore."]); return end
+    for name, value in pairs(db.plateRestore) do WritePlateSetting(name, value, false) end
+    emit(L[next(db.plateRestore) and "Some nameplate settings could not be restored. Try again or check the game's options."
+      or "Restored your previous nameplate settings."])
+  elseif mode == "names" or mode == "bars" then
+    local namesOnly = mode == "names"
+    if not WritePlateSetting(X.friendlyPlateNamesCVar, namesOnly, true) then
+      emit(L["Couldn't change friendly nameplate style. Check the game's nameplate settings."])
       return
     end
+    emit(L[namesOnly and "Friendly nameplates now show names only." or "Friendly nameplates can show health bars again."])
+  elseif mode == "on" or mode == "off" then
+    local _, name = X.FriendlyPlatesOn()
+    if not name then
+      emit(L["Couldn't find a supported friendly nameplate setting on this client."])
+      return
+    end
+    local enable = mode == "on"
+    if not WritePlateSetting(name, enable, true) then
+      emit(L[enable and "Couldn't turn on friendly nameplates. Check the game's nameplate settings."
+        or "Couldn't turn off friendly nameplates. Check the game's nameplate settings."])
+      return
+    end
+    if not enable then
+      emit(L["Friendly nameplates turned off. Your group, target, and mouseover are still checked."])
+    elseif X.ReadBooleanCVar("nameplateShowAll") == false and not WritePlateSetting("nameplateShowAll", true, true) then
+      emit(L["Friendly nameplates are enabled. The game may still hide them outside combat."])
+    else
+      emit(L["Friendly nameplates turned on, so nearby non-group players can be listed."])
+    end
+  else
+    emit(L["Usage: /br plates on|off|names|bars|restore"])
+    return
   end
-  emit(L["Friendly nameplates turned on, so nearby non-group players can be listed."])
+  if X.UpdateNearbyPlateControls then X.UpdateNearbyPlateControls() end
+  QueueRefresh()
 end
 
 function X.CheckDrops()
@@ -646,7 +650,7 @@ function X.ShowExport(text, forImport, titleText, mode)
         f:Hide()
         ApplyGeometry()
         ApplyAppearance()
-        if RefreshConfig then RefreshConfig() end
+        if X.RefreshConfig then X.RefreshConfig() end
         if QueueRefresh then QueueRefresh() end
       end
     end)
@@ -662,10 +666,4 @@ function X.ShowExport(text, forImport, titleText, mode)
   f:Show()
   if f.editBox.SetFocus then f.editBox:SetFocus() end
   if f.editBox.HighlightText then f.editBox:HighlightText() end
-end
-
--- Your own "Name-Realm", for per-character settings.
-function X.CharKey()
-  local full = Ignore.UnitNames("player")
-  return full
 end
