@@ -145,7 +145,7 @@ local function BuildReadyView()
 end
 
 function X.RaidPreparationSnapshot(personal)
-  if not X.CLASSIC or not X.InGroup() or InCombatLockdown() or X.PlayerSuspended() then return end
+  if not X.classic or not X.InGroup() or InCombatLockdown() or X.PlayerSuspended() then return end
   local report = X.GroupBuffReport(false, true, true)
   local reagents, incomplete = X.ReagentEstimate(report)
   local snapshot = { members = {}, reagents = reagents, incomplete = incomplete }
@@ -189,7 +189,7 @@ function X.RaidPreparationSnapshot(personal)
 end
 
 function X.RaidPreparationCommand(mode)
-  if not X.CLASSIC then return end
+  if not X.classic then return end
   if mode == "hide" then X.CloseRaidPreparation(); return end
   if InCombatLockdown() or X.PlayerSuspended() then return end
   if mode == "next" or mode == "prev" then X.MoveRaidPreparation(mode == "next" and 1 or -1); return end

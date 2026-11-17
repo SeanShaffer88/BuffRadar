@@ -1,13 +1,10 @@
 -- BuffRadar - Data: buff tables, class sets, blessings, presets and themes.
--- Loaded FIRST through the .toc; everything lives on the shared namespace
--- table X so BuffRadar.lua (loaded next) can alias what it needs without
--- spending its own main-chunk locals (Lua 5.1 caps them at 200).
+-- Initializes the private namespace before settings and core load.
 -- Copyright (C) 2026 Malikor. GPLv3 or later.
 
-local _, NS = ...
-NS = NS or {}
-local X = NS.X or {}
-NS.X = X
+local _, ns = ...
+local X = {}
+ns.X = X
 
 -- Edition, picked at load from the client's interface version: the
 -- Forever client reports 16001, retail 120105 and up. One source serves
@@ -22,6 +19,9 @@ do
   CLASSIC_FEATURES = iface > 0 and iface < 100000
 end
 X.classic = CLASSIC_FEATURES
+
+X.friendlyPlateCVars = { "nameplateShowFriendlyPlayers", "nameplateShowFriends" }
+X.friendlyPlateNamesCVar = "nameplateShowOnlyNameForFriendlyPlayerUnits"
 
 -- Forever group spells consume one reagent per cast. The spellbook rank ID
 -- selects the item, because the first ranks of two spells use cheaper items.

@@ -2,6 +2,45 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.35 Nearby casting, controller input, blessings, and nameplates
+
+Result: **Unverified in game**. Run against the candidate ZIP, not a loose copy.
+
+- **Save and window compatibility:** Upgrade with an existing `BuffRadarDB`, a
+  saved profile, and per-character positions. Reload and check that the profile,
+  window position, minimap button, and settings persist. `/br reset` and
+  `/br resetpos` should reset only the current window position. On leaving
+  combat, check that deferred scale and theme changes apply, the border flash
+  returns to the normal colour, and the rows and both cast bindings rearm.
+- **Existing and new macros:** Upgrade with the old BuffRadar-generated macro
+  already on a bar; it should update in place. Try both key-down and key-up
+  settings. With your own buff missing and an ungrouped player on the list,
+  the macro should buff you once and then the other player, including a
+  player with a surname. Test `/br macro` on a fresh install too.
+- **Target safety:** Test with a friendly target selected, and again with no
+  target. After buffing a nearby player your previous target state should
+  return. If the exact player has left, the cast must not land on the old
+  target or yourself. Try a party member, combat, death, and a loading
+  screen. The macro must never cast during combat. Inspect `/br history` and
+  the counter after successful and failed attempts.
+- **Controller:** On the standard gamepad, bind **Cast next buff** via
+  `/br gamepad` and press it without pointing to a row. Repeat using the
+  managed action-bar macro. Check one cast per press and that toggling the
+  game's key-down setting doesn't break the native binding.
+- **Blessings:** On a Paladin who knows Kings and a class-appropriate
+  alternate, test on a nearby player outside your group who has another
+  Paladin's Kings (then Greater Kings). With the option off, no alternate
+  should appear. With it on, cast the alternate and check that the queue
+  does not cycle to a third blessing. Repeat using your own Kings, then with
+  a group plan or explicit World assignment; the opt-in must not override them.
+- **Nameplates:** Note your game settings before using `/br plates` and
+  `/br plates names`. Make sure the friendly health bar disappears but the
+  nearby player remains discoverable. Turn plates off, then target or mouse
+  over the same player; these sources should still work. Change settings
+  again, reload, and use **Restore Nameplates** or `/br plates restore` to
+  confirm the recorded values (including Always Show, if changed) return.
+  Check that enemy and personal nameplate preferences stay untouched.
+
 ## 1.15.34 File split (Slices E, F and G) and row hover highlight
 
 Code moved into `Coordination.lua`, `Wizard.lua` and `Window.lua`; nothing should look or

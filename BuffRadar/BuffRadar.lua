@@ -1,6 +1,6 @@
 -- BuffRadar - click-to-buff list for World of Warcraft (Retail and Forever)
 -- One source for both editions: the buff set and class tables are picked at
--- load from the client's interface version (see CLASSIC_FEATURES below).
+-- load from the client's interface version by Data.lua.
 -- Copyright (C) 2026 Malikor
 --
 -- This program is free software: you can redistribute it and/or modify
@@ -28,9 +28,10 @@
 --    target and mouseover). Turn friendly nameplates on (Shift+V, or /br plates)
 --    to see strangers. There is no API that lists nearby players directly.
 
-local ADDON = ...
+local ADDON, namespace = ...
+local X = namespace.X
 
--- Cached globals: hot paths (refresh, aura reads, row rendering) use these locals
+-- Cached globals: hot paths (scans and aura reads) use these locals
 -- instead of a global-table lookup on every call.
 local _G = _G
 local pairs, ipairs, next, type, select, pcall = pairs, ipairs, next, type, select, pcall
@@ -56,505 +57,30 @@ BINDING_NAME_BUFFRADAR_MUTE = "Mute / unmute sound"
 local NEXT_BINDING = "CLICK BuffRadarNextButton:LeftButton"
 local MACRO_NAME = "BuffRadar"
 
----------------------------------------------------------------------------
--- Layout
----------------------------------------------------------------------------
-local MAX_ROWS  = 15
-local ROW_H     = 24
-local WIDTH     = 210  -- default window width; drag the corner grip to change it
-local MIN_WIDTH, MAX_WIDTH = 180, 400
-local SCALE_PRESETS = { 0.5, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2 }  -- scale dropdowns
-local HEADER_H  = 24
-local MAX_ICONS = 5
 local UPDATE_INTERVAL = 0.4
-local FOOTER_H  = 16
 local SOUND_FILE = "Interface\\AddOns\\BuffRadar\\Media\\droplet.ogg"
 
--- Enhancement state (1.4.0), declared up here so every later section -- and
--- Extras.lua -- can reach it. One table on purpose: the main chunk is at
--- Lua 5.1's 200-local limit, so new state lives here, not in new locals.
-local X = (select(2, ...) and select(2, ...).X) or {}
+-- Runtime state used across the feature modules, not SavedVariables.
 do
-  local _defs = { session = {}, dead = {}, rezAt = {}, tally = {}, tallyUnits = 0,
-            listA = {}, listB = {}, recentlyGone = {}, sessionCasts = 0,
-            missPrev = {}, missNow = {}, expiredAt = {}, rowH = 24,
-            handled = {}, asked = {}, applyFilter = true,
-            failedTargets = {},
-            prevHolder = {}, queueAt = 0, consTally = {},
-            assign = {}, blessPlan = {}, peers = {}, cover = {}, myCover = false,
-            expiryTally = {}, upTotal = 0, upFull = 0,
-            search = "", offNow = {}, drinkSet = {}, focusMiss = {}, cfgReg = {} }
-  for k, v in pairs(_defs) do if X[k] == nil then X[k] = v end end
+  local shared = {
+    session = {}, dead = {}, rezAt = {}, tally = {}, tallyUnits = 0,
+    sessionCasts = 0, missPrev = {}, missNow = {}, expiredAt = {},
+    handled = {}, asked = {}, applyFilter = true, failedTargets = {},
+    prevHolder = {}, queueAt = 0, consTally = {}, assign = {}, blessPlan = {},
+    peers = {}, cover = {}, myCover = false, expiryTally = {}, upTotal = 0, upFull = 0,
+    search = "", offNow = {}, drinkSet = {},
+    hid = 0,  -- last unreadable aura data
+  }
+  for key, value in pairs(shared) do X[key] = value end
 end
-X.hid = 0  -- last time an aura read came back unreadable (secret) (1.12.0)
-if select(2, ...) then select(2, ...).X = X end  -- shared with Data.lua / Extras.lua
 
--- Buff data lives in Data.lua (loaded first through the .toc); these
--- locals alias the shared tables so the rest of this file reads as it
--- always has.
 local CLASSIC_FEATURES = X.classic
 local ALL, BUFF_DEFS = X.ALL, X.BUFF_DEFS
 local BLESSINGS = X.BLESSINGS
 -- (X.MANA / X.MELEE / X.TANKS / X.AURA_DEFS / X.BLESSING_PRIORITY are read
 -- through X at their few use sites, to keep main-chunk locals freed.)
----------------------------------------------------------------------------
--- Saved settings
----------------------------------------------------------------------------
-local DEFAULTS = {
-  locked = false,
-  hidden = false,
-  includeSelf = true,  -- your own character gets every buff that suits your class (top of the list)
-  avoidPvP = true,     -- don't list PvP-flagged players unless you're flagged too
-  autoHide = false,    -- hide the window when nobody needs anything
-  rebuff = 30,         -- re-list a player when your buff has less than this many seconds left
-  scale = 1,
-  width = 210,         -- list window width (corner grip); height always follows the list
-  cfgScale = 1,        -- settings window scale
-  enabled = {},
-  point = nil,
-  castMethod = "target", -- "target" (target player, cast, restore target), "id", "macro", "rank"
-  clickDebug = false,
-  clickReg = "both",   -- which mouse half triggers the cast: "both", "down" or "up"
-  bgColor = { 0.04, 0.05, 0.09 },
-  bgAlpha = 0.92,
-  showTitle = true,
-  showBorder = true,
-  playSound = true,    -- water droplet when a new name shows up
-  showCounter = true,  -- cast counter at the bottom of the window
-  castsTotal = 0,      -- all-time casts made through BuffRadar
-  groupOnly = false,   -- only show the window while in a party or raid
-  pauseInCities = true, -- stop scanning in major cities
-  groupCast = false,   -- offer the group version (Prayer of Fortitude etc.) when enough group members need a buff
-  groupCastMin = 3,    -- how many group members must need the buff first
-  showOutOfRange = false, -- the list only includes targets in cast range
-  sortMode = "name",   -- list order: "name" or "role" (tanks and leaders first)
-  ignored = {},        -- player names BuffRadar never lists (right-click a row)
-  rebuffPer = {},      -- per-buff rebuff thresholds in seconds: buff key -> seconds
-  alertSound = "droplet", -- alert sound: "droplet", "system" or "none"
-  alertSounds = {},     -- per-alert-kind sound: new/drop/ask/fall -> a sound name (empty = use alertSound)
-  buffPrio = {},        -- your buff order: buff keys, first offered first (empty = normal order)
-  blessingPreferences = {}, -- class token -> preferred blessing key
-  assignmentEnabled = false,
-  thornsAnyClassOutdoors = false,
-  buffAssignments = {},
-  clickThrough = false, -- while locked, let clicks pass through the window to the game
-  muteInInstance = false, -- no alert sound while in a dungeon, raid or battleground
-  showMinimap = true,  -- minimap button (the addon compartment works regardless)
-  minimapAngle = 215,  -- minimap button position, degrees
-  pauseInBG = false,   -- pause listing in battlegrounds and arenas
-  pauseTaxi = false,   -- pause listing while on a flight path (1.5.0)
-  watchDrop = true,    -- alert when your single-target buff drops off its holder (1.5.0)
-  fallSound = false,   -- alert when a watched group buff falls off mid-fight (1.15.0, #33)
-  lowMana = 0,         -- pause offering buffs below this mana % (0 = off) (1.4.0)
-  specProfiles = {},   -- per-spec overrides: spec key -> { enabled=, rebuffPer= } (1.4.0)
-  compact = false,     -- half-height rows without portraits (1.4.0)
-  textScale = 1,       -- list text scale, separate from the window scale (1.4.0)
-  charPoint = false,   -- remember the window position per character (1.4.0)
-  pointByChar = {},    -- charPoint positions: "Name-Realm" -> point table (1.4.0)
-  profiles = {},       -- named settings profiles: name -> settings string (1.5.0)
-  sync = true,         -- trade "I just buffed them" notes with other BuffRadar users (1.5.0)
-  requests = true,     -- tag players who ask for a buff in chat (1.5.0)
-  joinDigest = true,   -- one-line summary when joining a group (1.5.0)
-  roleFilter = "ALL",  -- window list filter: "ALL", "TANK", "HEALER" or "DAMAGER" (1.5.0)
-  showStrip = true,    -- buff toggle strip + filter chips under the title (1.5.0)
-  scalePerSpec = false, -- remember a window scale per specialization (1.12.0)
-  specScales = {},     -- spec key -> scale (1.12.0)
-  gripSnap = true,     -- Shift while dragging a scale grip snaps to 75/100/125/150% (1.12.0)
-  tagSymbols = false,  -- add a symbol to row tags so meaning never rests on color (1.12.0)
-  reduceMotion = false, -- no idle fade, no border flash (1.12.0)
-  rangeWatch = false,  -- say when a player who needs a buff walks into range (1.12.0)
-  assumeRange = false, -- list players the client refuses to place, flagged as estimated
-  idleFade = 0,        -- fade the window by this % while the mouse is away (0 = off) (1.5.0)
-  pill = false,        -- collapse to a small pill while everyone is buffed (1.6.0)
-  queueTag = true,     -- tag the top row "up next" right after a cast lands (1.6.0)
-  consumables = false, -- coverage line also tracks flasks, food and runes (1.6.0)
-  buddySplit = false,  -- share the list with other BuffRadar users present (1.6.0)
-  readyPost = false,   -- post the ready-check summary to group chat (leader/assistant) (1.7.0)
-  deathRecap = true,   -- print who was missing buffs when you died (1.9.0)
-  wipeReport = false,  -- print a rebuff report after a wipe (1.9.0)
-  wizardSeen = false,  -- the setup wizard has been run or dismissed (1.9.0)
-  customThemes = {},   -- your saved themes: { name, bg, border } (1.10.0)
-  rowGap = 0,          -- extra space between rows, 0-8 (1.10.0)
-  iconSize = 0,        -- buff icon size 10-24; 0 = automatic (1.10.0)
-  strata = "MEDIUM",   -- legacy saved value; frames keep the client's default layer
-  coverParts = {},     -- coverage-line parts switched OFF (absent = on) (1.10.0)
-  tooltipLevel = "standard", -- row tooltips: minimal | standard | full (1.10.0)
-  viewMode = "people",  -- list view: "people" (one row per player) or "buffs" (one row per buff still needed)
-  classColors = true,  -- row names in class colors (1.10.0)
-  showRealm = false,   -- show -Realm after row names (1.10.0)
-  nameTrim = 0,        -- shorten row names past this many letters, 0 = off (1.10.0)
-  rowColors = {},      -- colored edge marks on rows: mine|tank|expiring|buddy (1.10.0)
-  pinned = "",         -- full or short name of the player pinned to the top (1.7.0)
-  weaponWatch = false, -- remind me when my weapon has no temporary enchant (1.7.0)
-  fastAura = false,    -- skip refreshes for aura changes that touch no watched buff (1.14.0, Brief 2)
-  modClick = false,    -- Shift-click a row casts the group version of its buff (1.14.0, Brief 3)
-  pullFlash = false,   -- flash + countdown line when a pull timer starts (1.14.0, Brief 4)
-  enterFlash = true,   -- print a reminder when entering an instance unbuffed (1.7.0)
-  scanThrottle = false, -- halve the steady rescan rate in groups over 20 (1.7.0)
-  history = {},        -- last 50 casts through BuffRadar: { t, spell, who } (1.7.0)
-  growUp = false,      -- the list grows upward from a fixed bottom edge (1.8.0)
-  hideInCombat = true,  -- no buff targets are available while you are in combat
-  twoCol = false,      -- two columns when the list is long (1.9.0)
-  theme = "midnight",  -- window color theme (1.8.0)
-  autoThemePriority = "", -- an empty setting uses the built-in addon priority
-  findBox = false,     -- name finder box on the window (1.8.0)
-  durationBars = false, -- thin bar per row: time left on the expiring buff (1.8.0)
-  raidMarkers = false, -- show raid target markers on rows (1.8.0)
-  rangeText = false,   -- word band ("near") on out-of-range rows (1.8.0)
-  focusWatch = false,  -- a line about your focus target's buffs (1.8.0)
-  pets = false,        -- list group pets that need buffs (1.8.0)
-  auraWatch = false,   -- watch your own aura / aspect (Forever) (1.8.0)
-  worldWatch = false,  -- show your active world buffs on the coverage line (Forever) (1.8.0)
-  drinkWatch = false,  -- mark healers who are drinking (Forever) (1.8.0)
-  buffContext = {},    -- per-buff context: buff key -> "raid" | "instance" (1.8.0)
-  offenders = {},      -- group sessions where a player was seen unbuffed: name -> count (1.8.0)
-  autoProfile = {},    -- load a named profile per context: raid/dungeon/pvp/world/solo -> name (1.6.0)
-  customSpells = {},   -- extra spell IDs to watch, added with /br custom (1.6.0)
-  customGroup = {},    -- your own group-cast pairs: spell name -> group spell name, /br grouppair (1.15.0)
-  stats = {},          -- all-time casts per spell name: name -> count
-}
 local db
-local PROFILE_MAX_BYTES = 4000
-
-local function IsProfileName(name)
-  return type(name) == "string" and #name <= 40 and name:match("^[%w_%-]+$") ~= nil
-end
-
--- SavedVariables sanity check: anything missing, mistyped, out of range or left over
--- from an older layout is repaired or dropped, so a damaged WTF file can't break the addon.
--- (Its helpers live in a do-block to stay within Lua 5.1's 200-local limit for
--- the file; see the config window section.)
-local SanitizeDB
-do
-local KNOWN_KEYS = { point = true, dbVersion = true }
-for k in pairs(DEFAULTS) do KNOWN_KEYS[k] = true end
-local ENUMS = {
-  castMethod = { target = true, id = true, macro = true, rank = true },
-  clickReg = { both = true, down = true, up = true },
-  sortMode = { name = true, role = true, distance = true, need = true },
-  roleFilter = { ALL = true, TANK = true, HEALER = true, DAMAGER = true },
-  alertSound = { droplet = true, system = true, none = true },
-  strata = { LOW = true, MEDIUM = true, HIGH = true, DIALOG = true },
-  tooltipLevel = { minimal = true, standard = true, full = true },
-  viewMode = { people = true, buffs = true },
-}
-local RANGES = { bgAlpha = { 0, 1 }, scale = { 0.5, 2 }, cfgScale = { 0.5, 2 },
-                 width = { MIN_WIDTH, MAX_WIDTH }, rebuff = { 0, 3600 }, castsTotal = { 0, 1e9 },
-                 groupCastMin = { 2, 40 }, minimapAngle = { 0, 360 },
-                 lowMana = { 0, 100 }, textScale = { 0.8, 1.5 }, idleFade = { 0, 90 },
-                 rowGap = { 0, 8 }, iconSize = { 0, 24 }, nameTrim = { 0, 24 } }
-
-local function IsNumber(v)
-  return type(v) == "number" and v == v and v ~= math_huge and v ~= -math_huge
-end
-local function Clamp(v, lo, hi) return math_max(lo, math_min(hi, v)) end
-
-local MAX_AUTO_PRIORITY_BYTES = 512
-
-local function OrderedAutoThemeAddons(value)
-  local order, seen = {}, {}
-  if type(value) == "string" and value ~= "" and #value <= MAX_AUTO_PRIORITY_BYTES then
-    local byID = {}
-    for _, entry in ipairs(X.AUTO_THEME_ADDONS) do byID[entry[2]] = entry end
-    for token in value:gmatch("[^,]+") do
-      local id = token:match("^%s*(.-)%s*$"):lower()
-      if byID[id] and not seen[id] then
-        order[#order + 1], seen[id] = byID[id], true
-      end
-    end
-  end
-  for _, entry in ipairs(X.AUTO_THEME_ADDONS) do
-    if not seen[entry[2]] then order[#order + 1] = entry end
-  end
-  return order
-end
-
-local function EncodeAutoThemePriority(order)
-  local ids, isDefault = {}, true
-  for i, entry in ipairs(order) do
-    ids[i] = entry[2]
-    if entry ~= X.AUTO_THEME_ADDONS[i] then isDefault = false end
-  end
-  return isDefault and "" or table.concat(ids, ",")
-end
-
-function X.AutoThemePriority()
-  return OrderedAutoThemeAddons(db and db.autoThemePriority)
-end
-
-function X.MoveAutoThemePriority(palette, offset)
-  if not db or (offset ~= -1 and offset ~= 1) then return false end
-  local order = X.AutoThemePriority()
-  for i, entry in ipairs(order) do
-    if entry[2] == palette then
-      local nextIndex = i + offset
-      if not order[nextIndex] then return false end
-      order[i], order[nextIndex] = order[nextIndex], entry
-      db.autoThemePriority = EncodeAutoThemePriority(order)
-      X.ResolveAutoTheme()
-      return true
-    end
-  end
-  return false
-end
-
-function X.ResetAutoThemePriority()
-  if not db then return false end
-  local changed = db.autoThemePriority ~= ""
-  db.autoThemePriority = ""
-  X.ResolveAutoTheme()
-  return changed
-end
-
-function X.ProfileScalarValid(key, value)
-  if key == "theme" then return #value >= 1 and #value <= 24 end
-  if key == "autoThemePriority" then return #value <= MAX_AUTO_PRIORITY_BYTES end
-  local choices = ENUMS[key]
-  return not choices or choices[value] == true
-end
-
-function SanitizeDB(saved)
-  if type(saved) ~= "table" then saved = {} end
-  for k in pairs(saved) do
-    if type(k) ~= "string" or not KNOWN_KEYS[k] then saved[k] = nil end
-  end
-  for k, def in pairs(DEFAULTS) do
-    local v, dt = saved[k], type(def)
-    if dt == "table" then
-      if type(v) ~= "table" then v = nil end
-      if k == "bgColor" then
-        if v and IsNumber(v[1]) and IsNumber(v[2]) and IsNumber(v[3]) then
-          v = { Clamp(v[1], 0, 1), Clamp(v[2], 0, 1), Clamp(v[3], 0, 1) }
-        else
-          v = { def[1], def[2], def[3] }
-        end
-      elseif k == "alertSounds" then
-        local clean = {}
-        if v then
-          for kind, choice in pairs(v) do
-            if (kind == "new" or kind == "drop" or kind == "ask" or kind == "fall")
-               and (choice == "droplet" or choice == "system" or choice == "none") then
-              clean[kind] = choice
-            end
-          end
-        end
-        v = clean
-      elseif k == "buffPrio" then
-        local clean, seenKeys = {}, {}
-        if v then
-          for _, key in ipairs(v) do
-            if type(key) == "string" and #key <= 40 and not seenKeys[key] then
-              seenKeys[key] = true
-              clean[#clean + 1] = key
-              if #clean >= 24 then break end
-            end
-          end
-        end
-        v = clean
-      elseif k == "buffAssignments" then
-        v = X.CopyAssignments(v)
-      elseif k == "blessingPreferences" then
-        local clean = {}
-        if v then
-          for class, key in pairs(v) do
-            if type(class) == "string" and type(key) == "string"
-               and X.BLESSING_CLASSES[class] and BLESSINGS[key] then clean[class] = key end
-          end
-        end
-        v = clean
-      elseif k == "enabled" or k == "ignored" or k == "coverParts" then
-        local clean = {}
-        if v then
-          for key, on in pairs(v) do
-            if type(key) == "string" and type(on) == "boolean" then clean[key] = on end
-          end
-        end
-        v = clean
-      elseif k == "specScales" then
-        local clean = {}
-        if v then
-          for sk, n in pairs(v) do
-            if type(sk) == "string" and IsNumber(n) then clean[sk] = Clamp(n, 0.5, 2) end
-          end
-        end
-        v = clean
-      elseif k == "specProfiles" then
-        local clean = {}
-        if v then
-          for sk, prof in pairs(v) do
-            if type(sk) == "string" and type(prof) == "table" then
-              local p = { enabled = {}, rebuffPer = {} }
-              if type(prof.enabled) == "table" then
-                for key, on in pairs(prof.enabled) do
-                  if type(key) == "string" and type(on) == "boolean" then p.enabled[key] = on end
-                end
-              end
-              if type(prof.rebuffPer) == "table" then
-                for key, n in pairs(prof.rebuffPer) do
-                  if type(key) == "string" and IsNumber(n) and n >= 0 then p.rebuffPer[key] = n end
-                end
-              end
-              clean[sk] = p
-            end
-          end
-        end
-        v = clean
-      elseif k == "pointByChar" then
-        local clean = {}
-        if v then
-          for name, p in pairs(v) do
-            if type(name) == "string" and type(p) == "table" and type(p[1]) == "string"
-               and type(p[2]) == "string" and IsNumber(p[3]) and IsNumber(p[4]) then
-              clean[name] = { p[1], p[2], p[3], p[4] }
-            end
-          end
-        end
-        v = clean
-      elseif k == "profiles" then
-        local clean = {}
-        if v then
-          for name, s in pairs(v) do
-            if IsProfileName(name) and type(s) == "string" and #s <= PROFILE_MAX_BYTES then
-              clean[name] = s
-            end
-          end
-        end
-        v = clean
-      elseif k == "autoProfile" then
-        local clean = {}
-        if v then
-          for ctx, name in pairs(v) do
-            if type(ctx) == "string" and type(name) == "string" and #name <= 40 then
-              clean[ctx] = name
-            end
-          end
-        end
-        v = clean
-      elseif k == "history" then
-        local clean = {}
-        if v then
-          for _, e in ipairs(v) do
-            if type(e) == "table" and type(e.spell) == "string" and type(e.who) == "string" then
-              clean[#clean + 1] = { t = IsNumber(e.t) and math_floor(e.t) or 0,
-                                    spell = e.spell, who = e.who }
-            end
-          end
-        end
-        while #clean > 50 do table.remove(clean, 1) end
-        v = clean
-      elseif k == "customSpells" then
-        local clean, seenIds = {}, {}
-        if v then
-          for _, id in ipairs(v) do
-            if IsNumber(id) and id >= 1 and id <= 2000000 and not seenIds[id] then
-              seenIds[id] = true
-              clean[#clean + 1] = math_floor(id)
-              if #clean >= 20 then break end
-            end
-          end
-        end
-        v = clean
-      elseif k == "customGroup" then
-        local clean, n = {}, 0
-        if v then
-          for single, group in pairs(v) do
-            if type(single) == "string" and type(group) == "string"
-               and #single >= 1 and #single <= 60 and #group >= 1 and #group <= 60 then
-              clean[single] = group
-              n = n + 1
-              if n >= 20 then break end
-            end
-          end
-        end
-        v = clean
-      elseif k == "customThemes" then
-        local clean, seenNames = {}, {}
-        if v then
-          for _, t in ipairs(v) do
-            if type(t) == "table" and type(t.name) == "string" and #t.name >= 1 and #t.name <= 24
-               and type(t.bg) == "table" and type(t.border) == "table"
-               and IsNumber(t.bg[1]) and IsNumber(t.bg[2]) and IsNumber(t.bg[3])
-               and IsNumber(t.border[1]) and IsNumber(t.border[2]) and IsNumber(t.border[3])
-               and not seenNames[t.name:lower()] then
-              seenNames[t.name:lower()] = true
-              clean[#clean + 1] = {
-                name = t.name,
-                bg = { Clamp(t.bg[1], 0, 1), Clamp(t.bg[2], 0, 1), Clamp(t.bg[3], 0, 1) },
-                border = { Clamp(t.border[1], 0, 1), Clamp(t.border[2], 0, 1), Clamp(t.border[3], 0, 1) },
-              }
-              if #clean >= 4 then break end
-            end
-          end
-        end
-        v = clean
-      elseif k == "rowColors" then
-        local clean = {}
-        if v then
-          for rule, c in pairs(v) do
-            if (rule == "mine" or rule == "tank" or rule == "expiring" or rule == "buddy")
-               and type(c) == "table" and IsNumber(c[1]) and IsNumber(c[2]) and IsNumber(c[3]) then
-              clean[rule] = { Clamp(c[1], 0, 1), Clamp(c[2], 0, 1), Clamp(c[3], 0, 1) }
-            end
-          end
-        end
-        v = clean
-      elseif k == "buffContext" then
-        local clean = {}
-        if v then
-          for key, ctx in pairs(v) do
-            if type(key) == "string" and (ctx == "raid" or ctx == "instance") then
-              clean[key] = ctx
-            end
-          end
-        end
-        v = clean
-      elseif k == "rebuffPer" or k == "stats" or k == "offenders" then
-        local clean = {}
-        if v then
-          for key, n in pairs(v) do
-            if type(key) == "string" and IsNumber(n) and n >= 0 then clean[key] = n end
-          end
-        end
-        v = clean
-      elseif not v then
-        v = {}
-        for i, x in pairs(def) do v[i] = x end
-      end
-    elseif dt == "number" then
-      if not IsNumber(v) then v = def end
-      local r = RANGES[k]
-      if r then v = Clamp(v, r[1], r[2]) end
-      if k == "castsTotal" then v = math_floor(v) end
-    elseif dt == "boolean" then
-      if type(v) ~= "boolean" then v = def end
-    elseif dt == "string" then
-      if type(v) ~= "string" or (ENUMS[k] and not ENUMS[k][v]) then v = def end
-      if k == "theme" and type(v) == "string" and #v > 24 then v = def end
-      if k == "autoThemePriority" and v ~= "" then
-        v = EncodeAutoThemePriority(OrderedAutoThemeAddons(v))
-      end
-    end
-    saved[k] = v
-  end
-  local themeID = saved.theme:lower()
-  if X.THEMES[themeID] or themeID == "custom" then
-    saved.theme = themeID
-  else
-    local found = false
-    for _, t in ipairs(saved.customThemes or {}) do
-      if t.name == saved.theme then found = true; break end
-    end
-    if not found then saved.theme = "custom" end
-  end
-  local p = saved.point
-  if p ~= nil and not (type(p) == "table" and type(p[1]) == "string" and type(p[2]) == "string"
-                       and IsNumber(p[3]) and IsNumber(p[4])) then
-    saved.point = nil
-  end
-  if saved.dbVersion ~= nil and not IsNumber(saved.dbVersion) then saved.dbVersion = nil end
-  return saved
-end
-end -- SanitizeDB block
+X.OnDBLoaded(function(value) db = value end)
 
 local function Print(msg)
   DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffBuffRadar|r: " .. tostring(msg))
@@ -563,7 +89,6 @@ end
 ---------------------------------------------------------------------------
 -- Localization scaffolding: enUS strings are the keys. A translation file
 -- can set the addon's private Locales["deDE"] before this file loads.
--- before this file loads; only the window's status lines are wired so far.
 ---------------------------------------------------------------------------
 -- Every string the main window, its row tooltips and the minimap / addon-menu
 -- tooltips show is listed here (the list doubles as the translator's checklist).
@@ -660,6 +185,34 @@ local L = {
   ["Friendly nameplates turned on, so nearby non-group players can be listed."] = "Friendly nameplates turned on, so nearby non-group players can be listed.",
   ["Nameplate settings are unavailable while dead."] = "Nameplate settings are unavailable while dead.",
   ["Next buff: %s — %s"] = "Next buff: %s — %s",
+  ["Complement Nearby Blessings"] = "Complement Nearby Blessings",
+  ["Offer a different known blessing outside your group if another Paladin already provides your preferred blessing. Explicit rules still take precedence."] = "Offer a different known blessing outside your group if another Paladin already provides your preferred blessing. Explicit rules still take precedence.",
+  ["Blessing: complement another Paladin"] = "Blessing: complement another Paladin",
+  ["Usage: /br bless complement on|off"] = "Usage: /br bless complement on|off",
+  ["Learn a blessing before changing this setting."] = "Learn a blessing before changing this setting.",
+  ["Complement Nearby Blessings: %s"] = "Complement Nearby Blessings: %s",
+  ["Disable Friendly Nameplates"] = "Disable Friendly Nameplates",
+  ["Show Friendly Health Bars"] = "Show Friendly Health Bars",
+  ["Show Friendly Names Only"] = "Show Friendly Names Only",
+  ["Restore Nameplates"] = "Restore Nameplates",
+  ["No nameplate changes to restore."] = "No nameplate changes to restore.",
+  ["Some nameplate settings could not be restored. Try again or check the game's options."] = "Some nameplate settings could not be restored. Try again or check the game's options.",
+  ["Restored your previous nameplate settings."] = "Restored your previous nameplate settings.",
+  ["Couldn't change friendly nameplate style. Check the game's nameplate settings."] = "Couldn't change friendly nameplate style. Check the game's nameplate settings.",
+  ["Friendly nameplates now show names only."] = "Friendly nameplates now show names only.",
+  ["Friendly nameplates can show health bars again."] = "Friendly nameplates can show health bars again.",
+  ["Couldn't turn off friendly nameplates. Check the game's nameplate settings."] = "Couldn't turn off friendly nameplates. Check the game's nameplate settings.",
+  ["Friendly nameplates turned off. Your group, target, and mouseover are still checked."] = "Friendly nameplates turned off. Your group, target, and mouseover are still checked.",
+  ["Usage: /br plates on|off|names|bars|restore"] = "Usage: /br plates on|off|names|bars|restore",
+  ["Macro controls are unavailable. Bind Cast next buff with /br key instead."] = "Macro controls are unavailable. Bind Cast next buff with /br key instead.",
+  ["Rename your custom BuffRadar macro first, or bind Cast next buff with /br key."] = "Rename your custom BuffRadar macro first, or bind Cast next buff with /br key.",
+  ["Your general macro slots are full. Make room or bind Cast next buff with /br key."] = "Your general macro slots are full. Make room or bind Cast next buff with /br key.",
+  ["Close the macro editor before creating the BuffRadar macro."] = "Close the macro editor before creating the BuffRadar macro.",
+  ["Couldn't save the BuffRadar macro. Bind Cast next buff with /br key instead."] = "Couldn't save the BuffRadar macro. Bind Cast next buff with /br key instead.",
+  ["Place the BuffRadar macro on an action bar. It follows the next buff automatically."] = "Place the BuffRadar macro on an action bar. It follows the next buff automatically.",
+  ["Bind a controller button to BuffRadar's Cast next buff, or put /br macro on an action bar."] = "Bind a controller button to BuffRadar's Cast next buff, or put /br macro on an action bar.",
+  ["/br gamepad - set up controller buffing"] = "/br gamepad - set up controller buffing",
+  ["Cast next buff works with a keyboard or controller and does not fire in combat."] = "Cast next buff works with a keyboard or controller and does not fire in combat.",
   ["Group buff key: %s"] = "Group buff key: %s",
   ["Group blessing would conflict with a player exception."] = "Group blessing would conflict with a player exception.",
   ["Could not check reagent: %s."] = "Could not check reagent: %s.",
@@ -1004,8 +557,7 @@ local L = {
 setmetatable(L, { __index = function(_, k) return k end })
 do
   local loc = (GetLocale and GetLocale()) or "enUS"
-  local ns = select(2, ...)
-  local pack = ns and ns.Locales and ns.Locales[loc]
+  local pack = namespace.Locales and namespace.Locales[loc]
   if type(pack) == "table" then
     for k, v in pairs(pack) do if type(v) == "string" then L[k] = v end end
   end
@@ -1117,7 +669,6 @@ function X.FriendlyPlatesOn()
     end
   end
 end
-X.friendlyPlateCVars = { "nameplateShowFriendlyPlayers", "nameplateShowFriends" }
 
 -- Major cities. Matched by map ID (both the classic-era and modern ID sets, since the
 -- Forever client could use either) and by zone name as a fallback.
@@ -1274,7 +825,6 @@ local function SafeString(v)
   local ok, s = pcall(tostring, v)
   return ok and s or nil
 end
-X.Readable = Readable
 
 -- A unit flag the client may refuse to answer: true or false when it answers,
 -- nil when the value is restricted. Callers decide what an unknown means,
@@ -1371,9 +921,26 @@ do
     end
   end
 
-  function X.ReadBuff(unit, i)
-    -- done, name, expirationTime, complete (only when done)
-    local name, expiry
+  local function SourceOwner(source)
+    if not Readable(source) or type(source) ~= "string" or source == "" then return "unknown" end
+    if source == "player" or source == "pet" then return "mine" end
+    -- Use readable identities rather than assuming UnitIsUnit's false
+    -- means a different caster on a restricted unit.
+    local caster, player = X.UnitGUIDOf(source), X.UnitGUIDOf("player")
+    if caster and player then return caster == player and "mine" or "other" end
+    return "unknown"
+  end
+
+  local function AuraOwner(aura)
+    local ok, mine = pcall(GetField, aura, "isFromPlayerOrPlayerPet")
+    if ok and Readable(mine) and type(mine) == "boolean" then return mine and "mine" or "other" end
+    local sourceOK, source = pcall(GetField, aura, "sourceUnit")
+    return sourceOK and SourceOwner(source) or "unknown"
+  end
+
+  function X.ReadBuff(unit, i, withOwner)
+    -- done, name, expirationTime, complete (only when done), optional owner
+    local name, expiry, owner
     if C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
       local aura, definitive = X.QueryAura(C_UnitAuras.GetBuffDataByIndex, unit, i)
       if not definitive then return true, nil, nil, false end
@@ -1381,11 +948,14 @@ do
       local nameOK, value = pcall(GetField, aura, "name")
       if nameOK then name = value end
       expiry = AuraExpiration(aura)
+      if withOwner then owner = AuraOwner(aura) end
     elseif UnitBuff then
-      local ok, value, _, _, _, _, expiration = pcall(UnitBuff, unit, i)
+      -- UnitBuff's rank-less return list: expirationTime, then source.
+      local ok, value, _, _, _, _, expiration, source = pcall(UnitBuff, unit, i)
       if not ok then return true, nil, nil, false end
       if type(value) == "nil" then return true, nil, nil, true end
       name, expiry = value, expiration
+      if withOwner then owner = SourceOwner(source) end
     else
       return true, nil, nil, false
     end
@@ -1394,7 +964,7 @@ do
       return false
     end
     if not Readable(expiry) or type(expiry) ~= "number" or not (expiry >= 0 and expiry < math_huge) then expiry = nil end
-    return false, name, expiry
+    return false, name, expiry, nil, owner
   end
 
   local function SecondsLeft(expiry, now)
@@ -1441,6 +1011,57 @@ do
       return scanCache[name], "present", uncertainExpiry[name] or not complete
     end
     return nil, complete and "absent" or "unknown"
+  end
+
+  -- Only used when the nearby complement option is on. The index fallback
+  -- shares one walk across all the blessing families for this recipient.
+  local owners, ownersComplete = {}, false
+  local function MergeOwner(a, b)
+    if a == "mine" or b == "mine" then return "mine" end
+    if a == "unknown" or b == "unknown" then return "unknown" end
+    if a == "other" or b == "other" then return "other" end
+    return "absent"
+  end
+
+  local function IndexedOwner(unit, name)
+    if X.blessingScanUnit ~= unit then
+      wipe(owners)
+      X.blessingScanUnit, ownersComplete = unit, false
+      local now, readableNames = GetTime(), true
+      for i = 1, 40 do
+        local done, auraName, expiry, ended, owner = X.ReadBuff(unit, i, true)
+        if done then ownersComplete = ended and readableNames; break end
+        if not auraName then
+          readableNames = false
+        elseif not expiry or expiry == 0 or expiry > now then
+          owners[auraName] = MergeOwner(owners[auraName], owner)
+        end
+      end
+    end
+    if owners[name] == "mine" then return "mine" end
+    if not ownersComplete then return "unknown" end
+    return owners[name] or "absent"
+  end
+
+  local function NamedOwner(unit, name)
+    local lookup = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
+    if lookup then
+      local aura, definitive = X.QueryNamedAura(lookup, unit, name, "HELPFUL")
+      if definitive then
+        if not aura then return "absent" end
+        local expiry = AuraExpiration(aura)
+        if expiry and expiry ~= 0 and expiry <= GetTime() then return "absent" end
+        local owner = AuraOwner(aura)
+        if owner ~= "unknown" then return owner end
+        local indexed = IndexedOwner(unit, name)
+        return indexed ~= "absent" and indexed or "unknown"
+      end
+    end
+    return IndexedOwner(unit, name)
+  end
+
+  function X.BlessingOwner(unit, names)
+    return MergeOwner(NamedOwner(unit, names[1]), NamedOwner(unit, names[2]))
   end
 end
 
@@ -1796,6 +1417,35 @@ function X.SetBlessingPreference(class, key)
   return true
 end
 
+function X.SetBlessingComplement(enabled)
+  if not X.HasKnownBlessings() or X.PlayerSuspended() then return false end
+  db.blessingComplement = enabled == true
+  X.Refresh()
+  if X.RefreshConfig then X.RefreshConfig() end
+  return true
+end
+
+function X.ComplementWorldBlessing(unit, class, preferred)
+  local owner = X.BlessingOwner(unit, preferred.names)
+  if owner ~= "other" then
+    -- With an unreadable caster, don't switch blessing or top up one that
+    -- could belong to a different Paladin. Regular missing-aura checks stay in force.
+    return preferred, owner == "unknown" and HasAny(unit, preferred.names, 0) == true
+  end
+  local alternate, uncertain
+  for _, key in ipairs(X.BLESSING_PRIORITY[class] or {}) do
+    local blessing = blessKnown[key]
+    if blessing and blessing.name ~= preferred.name then
+      local source = X.BlessingOwner(unit, blessing.names)
+      if source == "mine" then return blessing end -- keep our own alternate, even if an earlier one is now free
+      if source == "absent" and not alternate then alternate = blessing end
+      if source == "unknown" then uncertain = true end
+    end
+  end
+  if alternate and not uncertain then return alternate end
+  return preferred, true -- already covered; do not refresh another Paladin's copy
+end
+
 function X.AssignmentEnabled()
   return CLASSIC_FEATURES and db and db.assignmentEnabled == true or false
 end
@@ -2128,16 +1778,6 @@ end
 -- keep/drop are scratch lists reused by CollectEntries.
 local Single = { holder = {}, spell = {}, keep = {}, drop = {} }
 
----------------------------------------------------------------------------
--- Enhancement state (1.4.0). One table on purpose: the main chunk is near
--- Lua 5.1's 200-local limit, so new state lives here, not in new locals.
---   session: session-only ignore set, Ignore.Key(name) -> true (never saved)
---   dead / rezAt: group members seen dead, and when each was seen alive
---     again -- a rezzed player has lost every buff and jumps the queue
---   tally: per-buff coverage over group members from the latest scan,
---     buff key -> { total = n, miss = n }; tallyUnits = members scanned
----------------------------------------------------------------------------
-
 -- Consumables watch (1.6.0): not castable, so these never make rows --
 -- they only feed the coverage line. Matched by aura name: exact names, or
 -- a substring ("Flask of ..." covers every flask on both clients).
@@ -2201,7 +1841,6 @@ function X.ConsHas(unit, def)
     else complete = false end
   end
 end
-X.listedBefore = X.listA  -- guid -> true for names on the board last refresh
 
 function X.Track(unit)
   if not X.UnitPresent(unit) then return end
@@ -2243,7 +1882,7 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
       if has == false then t.miss = t.miss + 1 end
     end
   end
-  if not reviewing then X.scanUnit = nil end  -- fresh index scan for aura readers
+  if not reviewing then X.scanUnit, X.blessingScanUnit = nil, nil end -- fresh index scans for aura readers
   local n = 0
   local unknown, checked
   local proposal, member
@@ -2363,7 +2002,13 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
     elseif reviewing and blessingEligible then
       out[#out + 1] = bl.name
     elseif blessingEligible then
-      local has = HasAny(unit, bl.names)
+      local covered
+      if db.blessingComplement and not isGroup and isSelf == false and assignment == nil and not blessingSource then
+        local preferred = bl
+        bl, covered = X.ComplementWorldBlessing(unit, class, preferred)
+        if report == "why" and bl ~= preferred then detail.blessing = L["Blessing: complement another Paladin"] end
+      end
+      local has = covered or HasAny(unit, bl.names)
       if report then
         checked = true
         if has == nil then unknown = true end
@@ -2521,8 +2166,6 @@ end
 -- Ignore.Key(): lowercase, spaces removed. "Name-Realm" ignores one player;
 -- a bare "Name" (every entry saved before 1.3.2) ignores that name on any realm.
 ---------------------------------------------------------------------------
--- One table rather than separate locals: the file's main chunk is close to
--- Lua 5.1's 200-local limit (see the config window section).
 --   index: Ignore.Key(name) -> name as stored in db.ignored
 --   realm: your own realm, filled in on first use
 local Ignore = { index = {} }
@@ -2605,6 +2248,12 @@ function Ignore.UnitNames(unit)
     realm = Ignore.realm
   end
   return realm and realm ~= "" and (name .. "-" .. realm) or name, name
+end
+
+-- Your own "Name-Realm", for per-character settings.
+function X.CharKey()
+  local full = Ignore.UnitNames("player")
+  return full
 end
 
 function Ignore.Has(full, short)
@@ -3044,7 +2693,7 @@ function X.SpecSwap()
     local sc = db.specScales[key]
     if sc and sc ~= db.scale then
       db.scale = sc
-      if X.ApplyScaleNow then X.ApplyScaleNow() end
+      if X.ApplyGeometry then X.ApplyGeometry() end
     end
   end
   X.spec = key
@@ -3351,31 +3000,8 @@ function X.ReadyReport(report)
   end
 end
 
--- Settings export / import: one copyable string. Covers the window look,
--- behavior toggles, buff toggles, rebuff timings and both ignore sets --
--- not positions, cast counts or stats (those belong to one machine / char).
-X.EXPORT_KEYS = { "locked", "includeSelf", "avoidPvP", "autoHide", "rebuff", "scale",
-  "width", "cfgScale", "castMethod", "clickReg", "bgAlpha", "showTitle", "showBorder",
-  "playSound", "showCounter", "groupOnly", "pauseInCities", "groupCast", "groupCastMin",
-  "sortMode", "alertSound", "alertSounds", "buffPrio", "clickThrough", "muteInInstance", "showMinimap", "lowMana",
-  "sync", "requests", "joinDigest", "roleFilter", "showStrip", "idleFade",
-  "pill", "queueTag", "consumables", "buddySplit", "readyPost", "weaponWatch", "enterFlash",
-  "scanThrottle", "growUp", "theme", "autoThemePriority", "findBox", "durationBars", "raidMarkers",
-  "focusWatch", "pets", "auraWatch", "worldWatch", "drinkWatch", "twoCol",
-  "deathRecap", "wipeReport", "rowGap", "iconSize",
-  "tooltipLevel", "viewMode", "classColors", "showRealm", "nameTrim",
-  "scalePerSpec", "gripSnap", "tagSymbols", "reduceMotion", "rangeWatch", "assumeRange",
-  "fastAura", "modClick", "pullFlash", "fallSound" }
-
-local function Esc(v) return (tostring(v):gsub("%%", "%%25"):gsub(";", "%%3B"):gsub("=", "%%3D")) end
-local function Unesc(v) return (v:gsub("%%3D", "="):gsub("%%3B", ";"):gsub("%%25", "%%")) end
-
--- X.Export, X.Import, plan strings, profiles and presets live in Profiles.lua
--- since Slice E (Esc/Unesc stay here: the settings window takes Esc by value).
-
 -- /br announce: post the group's missing buffs to party/raid chat (or
--- print them locally when solo). Lives here, not in HandleSlash, to keep
--- that function's upvalue count down.
+-- print them locally when solo).
 function X.Announce()
   local report = X.GroupBuffReport()
   local note = X.GroupCoverageNote(report)
@@ -4241,7 +3867,56 @@ function X.ReagentSummary(report)
   return string_format(L["Estimated group reagents (carried/needed): %s"], table.concat(parts, ", "))
 end
 
-function Bind(btn, unit, spell, isSelf, pick, gspell, gpick)
+local function MacroArgument(value)
+  return type(value) == "string" and Readable(value) and value:find("%S") and not value:find("[%c;%[%]|]")
+end
+
+local function ExactCastName(unit)
+  if CLASSIC_FEATURES then
+    -- On Forever the second return is a surname, not a realm. Use the
+    -- unmodified name for targeting, not a shortened name from the list.
+    local ok, first, surname = pcall(_G.UnitNameUnmodified or UnitName, unit)
+    if not ok or not MacroArgument(first) then return nil end
+    if type(surname) == "nil" then return first end
+    if not Readable(surname) then return nil end
+    if surname == "" then return first end
+    local constants = _G.Constants and _G.Constants.CharacterNameSeparatorConsts
+    local separator = constants and constants.CHARACTERNAME_SURNAME_SEPARATOR or " "
+    if MacroArgument(surname) then return first .. separator .. surname end
+    return nil
+  end
+  local ok, full = pcall(GetUnitName or UnitName, unit, true)
+  if ok and MacroArgument(full) then return full end
+end
+
+function X.NeedsExactTarget(unit, isSelf, method)
+  return method == "target" and not isSelf and not unit:match("^party%d+$") and not unit:match("^raid%d+$")
+end
+
+local function ExactCastMacro(name, text, hadTarget)
+  if not MacroArgument(text) then return nil end
+  -- A failed /targetexact must not leave a friendly previous target (or
+  -- auto-self-cast) eligible. Restore the target, or the lack of one.
+  local macro = "/cleartarget\n/targetexact " .. name .. "\n/cast [help,nodead] " .. text
+    .. (hadTarget and "\n/targetlasttarget" or "\n/cleartarget")
+  if #macro <= 255 then return macro end
+end
+
+function X.ExactCastBody(unit, text, shifted, hadTarget)
+  local name = ExactCastName(unit)
+  if name then
+    return ExactCastMacro(name, text, hadTarget), shifted and ExactCastMacro(name, shifted, hadTarget)
+  end
+end
+
+local function UnitCastMacro(unit, text)
+  if MacroArgument(text) then
+    local macro = "/cast [@" .. unit .. ",help,nodead] " .. text
+    if #macro <= 255 then return macro end
+  end
+end
+
+function Bind(btn, unit, spell, isSelf, pick, gspell, gpick, hadTarget)
   btn:SetAttribute("shift-type1", nil)
   btn:SetAttribute("shift-spell1", nil)
   btn:SetAttribute("shift-unit1", nil)
@@ -4283,14 +3958,13 @@ function Bind(btn, unit, spell, isSelf, pick, gspell, gpick)
       end
       return
     end
-    local ok, name = pcall(GetUnitName or UnitName, unit, true)
-    name = ok and SafeString(name) or nil  -- a protected name can't build a macro: no cast
-    if name and name ~= "" then
+    local macro, shifted = X.ExactCastBody(unit, CastText(spell, pick), gspell and CastText(gspell, gpick), hadTarget)
+    if macro then
       btn:SetAttribute("type", "macro")
-      btn:SetAttribute("macrotext", "/targetexact " .. name .. "\n/cast " .. CastText(spell, pick) .. "\n/targetlasttarget")
-      if gspell then
+      btn:SetAttribute("macrotext", macro)
+      if shifted then
         btn:SetAttribute("shift-type1", "macro")
-        btn:SetAttribute("shift-macrotext1", "/targetexact " .. name .. "\n/cast " .. CastText(gspell, gpick) .. "\n/targetlasttarget")
+        btn:SetAttribute("shift-macrotext1", shifted)
       end
     end
   elseif method == "id" and pick and pick.id then
@@ -4304,32 +3978,24 @@ function Bind(btn, unit, spell, isSelf, pick, gspell, gpick)
       btn:SetAttribute("shift-spell1", (gpick and gpick.id) or gspell)
     end
   else
-    local text = (method == "rank") and CastText(spell, pick) or spell
-    btn:SetAttribute("type", "macro")
+    local text = UnitCastMacro(unit, method == "rank" and CastText(spell, pick) or spell)
+    btn:SetAttribute("type", text and "macro" or nil)
     btn:SetAttribute("unit", nil)
     btn:SetAttribute("spell", nil)
-    btn:SetAttribute("macrotext", "/cast [@" .. unit .. ",help,nodead] " .. text)
-    if gspell then
-      local gtext = (method == "rank") and CastText(gspell, gpick) or gspell
+    btn:SetAttribute("macrotext", text)
+    local shifted = gspell and UnitCastMacro(unit, method == "rank" and CastText(gspell, gpick) or gspell)
+    if text and shifted then
       btn:SetAttribute("shift-type1", "macro")
-      btn:SetAttribute("shift-macrotext1", "/cast [@" .. unit .. ",help,nodead] " .. gtext)
+      btn:SetAttribute("shift-macrotext1", shifted)
     end
   end
 end
 X.PickRank, X.CastText = PickRank, CastText
 end -- Bind block
 
----------------------------------------------------------------------------
--- UI
----------------------------------------------------------------------------
-local frame, title, countText, emptyText, overflowText, combatText, nextBtn, coverText
-local OpenConfig, RefreshConfig, MakeMacro  -- defined further down
-local QueueRefresh  -- assigned to the event coalescer further down
-local BuildMinimapButton, RefreshMinimapButton  -- assigned in the minimap section further down
-local footerText
--- (X.sessionCasts, the cast tracking, the double-buffered listed sets and
--- X.recentlyGone live on X since 1.4.0 -- see the enhancement state block.)
-X.lastSoundAt = 0  -- shared with Coordination.lua (Slice E)
+local MakeMacro  -- defined with the macro helpers below
+local QueueRefresh  -- assigned to the event coalescer below
+X.lastSoundAt = 0  -- shared with Coordination.lua
 
 local function InInstanceNow()
   if IsInInstance then
@@ -4350,27 +4016,6 @@ local function PlayAlert(kind)
     if pcall(PlaySound, id, "Master") then return end
   end
   if PlaySoundFile then pcall(PlaySoundFile, SOUND_FILE, "Master") end
-end
-
-local function UpdateCounter()
-  if not footerText then return end
-  local show = db.showCounter and true or false
-  if (footerText:IsShown() and true or false) ~= show then footerText:SetShown(show) end
-  local total = db.castsTotal or 0
-  -- The counter shares its row with the settings gear and stops short of the
-  -- resize grip, so a narrow window used to cut it to "39 all-t...". Width is
-  -- part of the cache key so a resize re-fits the line, not just a new cast.
-  local room = footerText:GetWidth() or 0
-  if X.sessionCasts ~= X.lastCounterSession or total ~= X.lastCounterTotal
-     or room ~= X.lastCounterRoom then
-    X.lastCounterSession, X.lastCounterTotal, X.lastCounterRoom = X.sessionCasts, total, room
-    footerText:SetText(string_format(L["Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time"],
-      X.sessionCasts, total))
-    if room > 0 and footerText:GetStringWidth() > room then
-      footerText:SetText(string_format(L["Casts: |cffffffff%d|r / |cffffffff%d|r"],
-        X.sessionCasts, total))
-    end
-  end
 end
 
 do
@@ -4417,7 +4062,7 @@ local function SpellID(value)
 end
 
 local function CastTargetNames(unit, macro)
-  local exact = macro and macro:match("^/targetexact ([^\r\n]+)")
+  local exact = macro and (macro:match("^/targetexact ([^\r\n]+)") or macro:match("\n/targetexact ([^\r\n]+)"))
   if exact then return exact, exact:lower() end
   -- Forever's NameUtil combines the two character-name fields using the
   -- client's surname separator. Treat the resulting name as an exact alias.
@@ -4455,7 +4100,7 @@ local function CastTargetNames(unit, macro)
     localTarget and name:lower() or nil, preferred and preferred:lower() or nil
 end
 
-function X.BeginCastClick(btn, button, down, label)
+function X.BeginCastClick(btn, button, down, label, barBody)
   local entry = btn.entry
   Trace(label .. " pre", button, down and "down" or "up", entry and entry.missing and entry.missing[1])
   recentFailure = nil
@@ -4477,7 +4122,7 @@ function X.BeginCastClick(btn, button, down, label)
   local guid = entry.castGuid or entry.guid -- folded rows borrow a real recipient
   local ok, currentGUID = pcall(UnitGUID, entry.unit)
   if not guid or not ok or StringField(currentGUID) ~= guid then return end
-  local macro = action == "macro" and StringField(btn:GetAttribute(shift and "shift-macrotext1" or "macrotext"))
+  local macro = action == "macro" and (barBody or StringField(btn:GetAttribute(shift and "shift-macrotext1" or "macrotext")))
   if action == "macro" and not macro then return end
   local nameOfTarget, full, short, preferred = CastTargetNames(entry.unit, macro)
   if not nameOfTarget then return end
@@ -4505,7 +4150,7 @@ function X.BeginCastClick(btn, button, down, label)
   local keyDown = not isRow and GetCVarBool and GetCVarBool("ActionButtonUseKeyDown")
   dispatch = { button = btn, spell = name, expectedID = id, guid = guid, who = nameOfTarget,
     full = full, short = short, preferred = preferred, terminals = {}, ambiguous = ambiguous,
-    press = press, deferred = (isRow or (not not down) == (not not keyDown)) and not entry.pet }
+    press = press, deferred = (isRow or label == "bar macro" or (not not down) == (not not keyDown)) and not entry.pet }
   Trace("expected", name, id, nameOfTarget, guid)
 end
 
@@ -4525,7 +4170,7 @@ local function ApplyCast(cast, terminal, targetError)
     db.history = db.history or {}
     db.history[#db.history + 1] = { t = (time and time()) or 0, spell = name, who = cast.who }
     while #db.history > 50 do table.remove(db.history, 1) end
-    UpdateCounter()
+    X.UpdateCounter()
     local key = X.KeyOfName(name)
     if key then X.SyncSend(key, cast.guid) end
     X.queueAt = GetTime()
@@ -4693,253 +4338,6 @@ function X.ClearCastIntent()
 end
 end -- cast tracking
 
----------------------------------------------------------------------------
--- Coordination (cast sync, caster coordination, chat requests, context
--- checks, join digest) lives in Coordination.lua since 1.15.34 (file split
--- Slice E); it reaches this file's locals through X.coordAPI (bottom).
----------------------------------------------------------------------------
-
-local rows = {}
-local built = false
-
-local function ClassColor(class)
-  local c = (CUSTOM_CLASS_COLORS and CUSTOM_CLASS_COLORS[class])
-         or (RAID_CLASS_COLORS and RAID_CLASS_COLORS[class])
-  if c then return c.r, c.g, c.b end
-  return 1, 1, 1
-end
-
--- The window is ALWAYS anchored by its top-left corner, and only by that
--- corner. Refresh() changes the frame's height as names are added and
--- removed; with any other anchor (the old default was LEFT, and a drag
--- could leave CENTER or BOTTOM) SetHeight grows/shrinks the frame around
--- that point, so the top edge -- and the whole window -- jumps up and down
--- as the list changes. Anchored at TOPLEFT, the top edge stays exactly
--- where the user put it and the list grows/shrinks downward only.
--- Saved positions are therefore stored as a TOPLEFT anchor:
---   { "TOPLEFT", <UIParent point>, x, y }
--- (Same fix as Forever edition 1.2.4; the two editions share the
--- BuffRadarDB saved variable format, so positions saved by either
--- edition's fixed version load unchanged in the other.)
-local function SavePosition()
-  if db.growUp then
-    -- Grow-up form: the bottom-left corner is the anchor (see X.ApplyAnchor).
-    local left, bottom = frame:GetLeft(), frame:GetBottom()
-    if left and bottom then
-      frame:ClearAllPoints()
-      frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
-      db.point = { "BOTTOMLEFT", "BOTTOMLEFT", left, bottom }
-      if db.charPoint then
-        local k = X.CharKey()
-        if k then db.pointByChar[k] = db.point end
-      end
-      return
-    end
-  end
-  local left, top = frame:GetLeft(), frame:GetTop()
-  if left and top then
-    -- Store the top-left corner in screen coordinates (origin bottom-left;
-    -- GetLeft/GetTop and SetPoint offsets use the same coordinate system
-    -- for this frame). Re-anchor in that form right away, too:
-    -- StopMovingOrSizing can leave the frame anchored by whatever point
-    -- the drag used, which would bring the jumping back until next reload.
-    frame:ClearAllPoints()
-    frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
-    db.point = { "TOPLEFT", "BOTTOMLEFT", left, top }
-  else
-    -- Position not measurable yet (frame never laid out): keep whatever
-    -- anchor the drag left rather than saving nothing. RestorePosition
-    -- converts a non-TOPLEFT anchor like this one on the next load.
-    local p, _, rp, x, y = frame:GetPoint()
-    if p then db.point = { p, rp, x, y } end
-  end
-  if db.charPoint then
-    local k = X.CharKey()
-    if k and db.point then db.pointByChar[k] = db.point end
-  end
-end
-
--- Where a named anchor point sits inside a frame, as fractions of its
--- width (from the left edge) and height (from the bottom edge).
-local POINT_FRACTION = {
-  TOPLEFT = { 0, 1 },     TOP = { 0.5, 1 },   TOPRIGHT = { 1, 1 },
-  LEFT = { 0, 0.5 },      CENTER = { 0.5, 0.5 }, RIGHT = { 1, 0.5 },
-  BOTTOMLEFT = { 0, 0 },  BOTTOM = { 0.5, 0 },   BOTTOMRIGHT = { 1, 0 },
-}
-
--- Forget the saved window spot (shared and per-character), so the next
--- RestorePosition lands on the default anchor.
-function X.ClearSavedPoint()
-  db.point = nil
-  if db.charPoint then
-    local k = X.CharKey()
-    if k then db.pointByChar[k] = nil end
-  end
-end
-
-local function RestorePosition()
-  if db.charPoint then
-    local k = X.CharKey()
-    if k and db.pointByChar[k] then db.point = db.pointByChar[k] end
-  end
-  frame:ClearAllPoints()
-  -- Rescue (1.5.0): a saved spot can end up off-screen after a monitor or
-  -- resolution change. Saved points anchor TOPLEFT to the screen's
-  -- BOTTOMLEFT, so x is the left edge and y the top edge from the bottom;
-  -- if the window would be (mostly) unreachable, forget the spot instead
-  -- of restoring it blind.
-  if db.point and db.point[1] == "TOPLEFT" and db.point[2] == "BOTTOMLEFT"
-     and _G.GetScreenWidth and _G.GetScreenHeight then
-    local okW, sw = pcall(_G.GetScreenWidth)
-    local okH, sh = pcall(_G.GetScreenHeight)
-    local x, y = db.point[3], db.point[4]
-    if okW and okH and type(sw) == "number" and type(sh) == "number"
-       and (x < 30 - frame:GetWidth() or x > sw - 50 or y < 50 or y > sh) then
-      X.ClearSavedPoint()
-    end
-  end
-  if db.growUp and db.point and db.point[1] == "BOTTOMLEFT" then
-    -- Grow-up form (1.8.0): restore the bottom anchor as saved.
-    frame:SetPoint("BOTTOMLEFT", UIParent, db.point[2], db.point[3], db.point[4])
-    return
-  end
-  if not db.point then
-    -- Default spot, in top-left form: the pre-1.3.1 default anchored the
-    -- frame's LEFT point at (40, 80) from the screen's left edge; at the
-    -- height the frame is built with, that puts the top-left corner half
-    -- a build-height above it.
-    frame:SetPoint("TOPLEFT", UIParent, "LEFT", 40, 80 + (HEADER_H + 30) / 2)
-    return
-  end
-  local p, rp, x, y = db.point[1], db.point[2], db.point[3], db.point[4]
-  local f = POINT_FRACTION[p]
-  if p == "TOPLEFT" or not f then
-    frame:SetPoint(p, UIParent, rp, x, y)
-    return
-  end
-  -- Legacy save (1.3.0 and earlier stored the drag anchor verbatim, e.g.
-  -- LEFT or CENTER): convert it to a TOPLEFT anchor against the same
-  -- point of UIParent. The top-left corner sits (-fx * W, (1 - fy) * H)
-  -- from the old anchor point, so with the frame's current size the
-  -- window does not move at all in this conversion -- it just stops
-  -- moving afterwards, when its height starts changing. The height at
-  -- drag time was never saved, so this preserves the position as
-  -- restored now, not necessarily the exact top edge seen while dragging.
-  local w, h = frame:GetWidth(), frame:GetHeight()
-  db.point = { "TOPLEFT", rp, x - f[1] * w, y + (1 - f[2]) * h }
-  frame:SetPoint("TOPLEFT", UIParent, rp, db.point[3], db.point[4])
-end
-
-local function Row_OnEnter(self)
-  if not self.entry then return end
-  local e = self.entry
-  GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-  if X.UnitPresent(e.unit) and X.UnitGUIDOf(e.unit) == e.guid then
-    GameTooltip:SetUnit(e.unit)
-  else
-    GameTooltip:AddLine(e.name)
-  end
-  GameTooltip:AddLine(" ")
-  if e.outOfRange then
-    GameTooltip:AddLine(L["Out of range — move closer to cast:"], 1, 0.5, 0.3)
-    GameTooltip:AddLine("|cff00ff00" .. e.missing[1] .. "|r")
-  else
-    GameTooltip:AddLine(string_format(L["Click to cast: %s"], "|cff00ff00" .. (self.bSpellText or e.missing[1]) .. "|r"))
-    if db.modClick and CLASSIC_FEATURES then
-      local gs = self.bGroupText or self.bGroupSpell
-      if gs then
-        GameTooltip:AddLine(string_format(L["Shift-click to cast: %s"], "|cff00ff00" .. gs .. "|r"))
-      end
-      if self.bOfferReason then GameTooltip:AddLine(self.bOfferReason, 1, 0.7, 0.3, true) end
-    end
-  end
-  if e.groupCast then
-    GameTooltip:AddLine(L["Group version — one cast buffs the whole party."], 0.4, 0.8, 1)
-  end
-  -- Tooltip detail (1.10.0): minimal stops at the cast line.
-  if db.tooltipLevel == "minimal" then GameTooltip:Show() return end
-  GameTooltip:AddLine(L["Right-click to ignore this player."], 0.6, 0.6, 0.6)
-  GameTooltip:AddLine(L["Shift-right-click to ignore for this session only."], 0.6, 0.6, 0.6)
-  if #e.missing > 1 then
-    local rest = {}
-    for i = 2, #e.missing do rest[#rest + 1] = e.missing[i] end
-    GameTooltip:AddLine(string_format(L["Still needs: %s"], table.concat(rest, ", ")), 0.8, 0.8, 0.8, true)
-  end
-  -- The full picture (1.7.0): buffs this player HAS from your set, with
-  -- the time left on each, soonest first — so a hover answers "what do
-  -- they still need, and what's about to run out?" in one look.
-  if X.UnitPresent(e.unit) then
-    local missSet = {}
-    for _, m in ipairs(e.missing) do missSet[m] = true end
-    local have, seenHave = {}, {}
-    for _, def in ipairs(myBuffs) do
-      local nm = def.name
-      if nm and not seenHave[nm] and not missSet[nm] then
-        seenHave[nm] = true
-        local left = X.Remaining(e.unit, nm)
-        if left and left < math_huge and left > 0 then
-          have[#have + 1] = { name = nm, left = left }
-        end
-      end
-    end
-    table_sort(have, function(x, y) return x.left < y.left end)
-    for i = 1, math_min(6, #have) do
-      local h = have[i]
-      local t = h.left >= 90 and string_format(L["~%dm left"], math_floor(h.left / 60))
-        or string_format(L["~%ds left"], math_floor(h.left))
-      GameTooltip:AddLine(h.name .. " — " .. t, 0.55, 0.85, 0.55)
-    end
-  end
-  -- Full tooltips (1.10.0) add the context lines: class and group, the
-  -- range in words, and which other classes could cast the first buff.
-  if db.tooltipLevel == "full" then
-    local bits = {}
-    if e.class then bits[#bits + 1] = e.class:sub(1, 1) .. e.class:sub(2):lower() end
-    bits[#bits + 1] = e.group and "In your group" or "Nearby, not in your group"
-    if not e.outOfRange then bits[#bits + 1] = "in cast range"
-    elseif e.approximateRange then bits[#bits + 1] = L["Estimated range"]
-    elseif e.rangeBucket == 1 then bits[#bits + 1] = "near — just out of range" end
-    GameTooltip:AddLine(table.concat(bits, " · "), 0.7, 0.7, 0.7)
-    -- Which other classes could cast the first missing buff: scanned
-    -- from the definitions on the spot (a hover is rare; no state kept).
-    local _, myClass = UnitClass("player")
-    local names, seenCls = {}, {}
-    for _, d in ipairs(BUFF_DEFS) do
-      local dn
-      if d.choices then dn = SpellName(d.choices[1][1], d.choices[1][2])
-      else dn = SpellName(d.id, d.name) end
-      if dn == e.missing[1] then
-        for c in pairs(d.classes or ALL) do
-          if c ~= myClass and not seenCls[c] then
-            seenCls[c] = true
-            names[#names + 1] = c:sub(1, 1) .. c:sub(2):lower()
-          end
-        end
-      end
-    end
-    table_sort(names)
-    if #names > 0 then
-      GameTooltip:AddLine("Also castable by: " .. table.concat(names, ", "), 0.7, 0.7, 0.7, true)
-    end
-  end
-  GameTooltip:Show()
-end
-
--- The name field stops this far short of the row's right edge to leave
--- room for the buff icons; it follows the icon size (1.10.0).
-local function IconInset()
-  local isz = (db.iconSize or 0) > 0 and db.iconSize or (db.compact and 12 or 16)
-  return MAX_ICONS * (isz + 2) + 4
-end
-
-function X.InstallCombatDriver(button, snippet)
-  if not RegisterStateDriver then return false end
-  local ok, accepted = pcall(button.SetAttribute, button, "_onstate-combat", snippet)
-  if not ok or accepted == false then return false end
-  ok, accepted = pcall(RegisterStateDriver, button, "combat", "[@player,dead][combat] combat; nocombat")
-  return ok and accepted ~= false
-end
-
 function X.RowTargetMatches(e)
   local guid = e and (e.castGuid or e.guid)
   if not guid or not e.unit then return false end
@@ -4947,714 +4345,24 @@ function X.RowTargetMatches(e)
   return ok and SafeString(current) == guid
 end
 
-function X.RowMouseHeld()
-  for button, expires in pairs(X.rowMouseButtons) do
-    local down = X.ReadUnitBool(_G.IsMouseButtonDown, button)
-    if down == false or (down == nil and GetTime() >= expires) then
-      X.rowMouseButtons[button] = nil
-    end
-  end
-  return next(X.rowMouseButtons) ~= nil
-end
-X.rowMouseButtons = {}
-
-function X.RowWheel(_, delta)
-  if delta ~= 0 then X.ScrollRows(delta < 0 and 1 or -1) end
-end
-
--- Row hover highlight (1.15.34): a faint wash in the theme's border colour
--- instead of the bright quest-title glow. The engine shows a button's
--- highlight texture only while the mouse is over it, so no script is
--- needed; ApplyAppearance re-tints every row when the theme changes.
-X.ROW_HOVER_ALPHA = 0.15
-function X.TintRowHover(b)
-  local hl = b and b.GetHighlightTexture and b:GetHighlightTexture()
-  if not hl or not hl.SetVertexColor then return end
-  local bc = X.ThemeBorder()
-  hl:SetVertexColor(bc[1], bc[2], bc[3], X.ROW_HOVER_ALPHA)
-end
-
-local function CreateRow(i)
-  local b = CreateFrame("Button", "BuffRadarRow" .. i, frame,
-                        "SecureActionButtonTemplate,SecureHandlerStateTemplate")
-  -- Anchored on both sides, so rows follow the window's width when it's resized.
-  b:SetHeight(ROW_H)
-  b:SetPoint("TOPLEFT", frame, "TOPLEFT", 6, -HEADER_H - (i - 1) * ROW_H)
-  b:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -6, -HEADER_H - (i - 1) * ROW_H)
-  if db.clickReg == "down" then
-    b:RegisterForClicks("AnyDown")
-  elseif db.clickReg == "up" then
-    b:RegisterForClicks("AnyUp")
-  else
-    b:RegisterForClicks("AnyUp", "AnyDown")
-  end
-  b:SetHighlightTexture("Interface\\Buttons\\WHITE8X8", "ADD")
-  X.TintRowHover(b)
-  -- Right-click only ignores (see the OnClick hook below). Bind() sets the plain
-  -- "type" attribute, which the secure template uses for EVERY mouse button
-  -- unless a button-specific one exists; this "type2" override is a made-up
-  -- action the template doesn't know, so a right-click casts nothing.
-  -- Bind() never touches "type2", so this holds for the row's lifetime.
-  b:SetAttribute("type2", "buffradarignore")
-  b.combatDriver = X.InstallCombatDriver(b, [[
-    if newstate == "combat" then
-      self:SetAttribute("type", nil)
-      self:SetAttribute("spell", nil)
-      self:SetAttribute("unit", nil)
-      self:SetAttribute("macrotext", nil)
-      self:SetAttribute("shift-type1", nil)
-      self:SetAttribute("shift-spell1", nil)
-      self:SetAttribute("shift-unit1", nil)
-      self:SetAttribute("shift-macrotext1", nil)
-    end
-  ]])
-
-  b.portrait = b:CreateTexture(nil, "ARTWORK")
-  b.portrait:SetSize(ROW_H - 2, ROW_H - 2)
-  b.portrait:SetPoint("LEFT", 1, 0)
-  if b.CreateMaskTexture and b.portrait.AddMaskTexture then
-    local m = b:CreateMaskTexture()
-    m:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask",
-                 "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-    m:SetAllPoints(b.portrait)
-    b.portrait:AddMaskTexture(m)
-  end
-
-  b.cMissing = {}  -- render cache: icons currently drawn
-  b.icons = {}
-  for j = 1, MAX_ICONS do
-    local t = b:CreateTexture(nil, "ARTWORK")
-    t:SetSize(16, 16)
-    t:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    if j == 1 then
-      t:SetPoint("RIGHT", b, "RIGHT", -2, 0)
-    else
-      t:SetPoint("RIGHT", b.icons[j - 1], "LEFT", -2, 0)
-    end
-    b.icons[j] = t
-  end
-
-  b.name = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  b.name:SetPoint("LEFT", b.portrait, "RIGHT", 6, 0)
-  b.name:SetPoint("RIGHT", b, "RIGHT", -(IconInset()), 0)
-  b.name:SetJustifyH("LEFT")
-  if b.name.SetWordWrap then b.name:SetWordWrap(false) end
-  -- "out of range" under the name of a greyed row, so the state doesn't rest
-  -- on color alone (RenderRow moves the name up to make room).
-  b.far = b:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  b.far:SetPoint("TOPLEFT", b.name, "BOTTOMLEFT", 0, -1)
-  b.far:SetText(L["out of range"])
-  b.far:Hide()
-
-  -- Duration bar (1.8.0): a thin bar along the row's bottom edge showing
-  -- how much of a 30-minute span the expiring buff has left.
-  b.tint = b:CreateTexture(nil, "OVERLAY")
-  b.tint:SetTexture("Interface\\Buttons\\WHITE8X8")
-  b.tint:SetPoint("TOPLEFT", b, "TOPLEFT", 0, -1)
-  b.tint:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 0, 1)
-  b.tint:SetWidth(3)
-  b.tint:Hide()
-  b.bar = b:CreateTexture(nil, "ARTWORK")
-  b.bar:SetTexture("Interface\\Buttons\\WHITE8X8")
-  b.bar:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 2, 1)
-  b.bar:SetHeight(3)
-  b.bar:SetWidth(10)
-  b.bar:Hide()
-  -- Raid marker badge (1.8.0): the player's raid target icon, drawn over
-  -- the portrait's top-left corner.
-  b.marker = b:CreateTexture(nil, "OVERLAY")
-  b.marker:SetSize(12, 12)
-  b.marker:SetPoint("TOPLEFT", b, "TOPLEFT", 1, -1)
-  b.marker:Hide()
-
-  -- Short status tag under the name ("recently rezzed"); shares the slot
-  -- with the out-of-range label, which wins when both would apply.
-  b.tag = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  b.tag:SetPoint("TOPLEFT", b.name, "BOTTOMLEFT", 0, -1)
-  b.tag:SetTextColor(1, 0.85, 0.4)
-  b.tag:Hide()
-
-  -- HookScript, never SetScript: SetScript would REPLACE the
-  -- SecureActionButtonTemplate's own OnClick (SecureActionButton_OnClick),
-  -- which is what actually performs the cast -- with it replaced, clicks run
-  -- only this handler and nothing is ever cast (the 1.2.0/1.2.1 bug).
-  b:HookScript("OnClick", function(self, button, down)
-    if button ~= "RightButton" or InCombatLockdown() then return end
-    -- With AnyUp+AnyDown registered, OnClick fires twice per physical click;
-    -- toggle on exactly one phase (release, unless casts trigger on press).
-    if down ~= (db.clickReg == "down") then return end
-    local e = self.entry
-    if not e or not db or e.spell then return end
-    local short = e.pet and SafeString(e.name) or e.sortName
-    if short == "" then short = nil end
-    local who = e.fullName or short   -- Name-Realm: ignores this one player only
-    if not who then return end
-    if _G.IsShiftKeyDown and _G.IsShiftKeyDown() then
-      local k = Ignore.Key(who)
-      if X.session[k] then
-        X.session[k] = nil
-        Print("No longer ignoring " .. who .. " for this session.")
-      else
-        X.session[k] = true
-        Print("Ignoring " .. who .. " for this session only (not saved).")
-      end
-      if QueueRefresh then QueueRefresh() end
-      return
-    end
-    if Ignore.Has(e.fullName, short) then
-      -- (a row still showing an ignored player: it drops off on the next refresh)
-      local removed = Ignore.Remove(who)
-      if #removed == 0 and short then removed = Ignore.Remove(short) end
-      Print("No longer ignoring " .. table.concat(removed, ", ") .. ".")
-    else
-      Ignore.Add(who)
-      Print("Ignoring " .. who .. ". Undo with /br unignore " .. who .. " or on the Ignore & Stats tab.")
-    end
-    if QueueRefresh then QueueRefresh() end
-  end)
-  b:HookScript("PreClick", function(self, button, down)
-    if button == "LeftButton" and not InCombatLockdown() and self.bGuid then
-      local press = not down and X.rowLeftPress
-      local changed = press and (press.row ~= self or press.guid ~= self.bGuid
-        or press.unit ~= self.bUnit or press.spell ~= self.bSpell)
-      if changed or not X.RowTargetMatches(self.entry) then
-        X.ClearRowCast(self)
-        self.entry, self.guid = nil, nil
-        if QueueRefresh then QueueRefresh() end
-        return
-      end
-    end
-    X.BeginCastClick(self, button, down, "click")
-  end)
-  b:HookScript("PostClick", function(self, button, down)
-    X.EndCastClick(self, button, down, "click")
-    if button == "LeftButton" and not down then X.rowLeftPress = nil end
-  end)
-  b:SetScript("OnEnter", Row_OnEnter)
-  b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-  b:HookScript("OnMouseDown", function(self, button)
-    if button == "LeftButton" or button == "RightButton" then X.rowMouseButtons[button] = GetTime() + 1 end
-    if button == "LeftButton" then
-      -- The mouse-up notification may precede the up-phase secure click.
-      -- Keep the presented binding through dispatch, independently of that notification.
-      X.rowLeftPress = { row = self, guid = self.bGuid, unit = self.bUnit, spell = self.bSpell }
-    end
-  end)
-  b:HookScript("OnMouseUp", function(_, button)
-    X.rowMouseButtons[button] = nil
-  end)
-  b:SetScript("OnMouseWheel", X.RowWheel)
-  b:EnableMouseWheel(false)
-  b:Hide()
-  rows[i] = b
-end
-
-local grip  -- width resize grip, bottom-right corner (built in BuildUI)
-
--- Color themes (1.8.0): a theme is a background color + border color pair.
--- Picking one sets both; picking a custom background color afterwards
--- switches the theme back to "custom" (border returns to the default).
-
--- Saved themes (1.10.0): your own background + border pairs, kept in
--- db.customThemes, usable anywhere a built-in theme is.
-function X.SavedTheme(name)
-  if not db or not name then return nil end
-  local id = name:lower()
-  if X.THEMES[id] or id == "custom" then return nil end
-  for _, t in ipairs(db.customThemes or {}) do
-    if t.name:lower() == id then
-      return { label = t.name, bg = t.bg, border = t.border }
-    end
-  end
-  return nil
-end
-
-function X.ThemeDef(name)
-  if not name then return nil end
-  return X.THEMES[name:lower()] or X.SavedTheme(name)
-end
-
--- The cycle order: built-in themes followed by your saved themes.
-function X.ThemeOrder()
-  local order = {}
-  for _, k in ipairs(X.THEME_ORDER) do order[#order + 1] = k end
-  if db then
-    for _, t in ipairs(db.customThemes or {}) do
-      local id = t.name:lower()
-      if not X.THEMES[id] and id ~= "custom" then order[#order + 1] = t.name end
-    end
-  end
-  return order
-end
-
-function X.EffectiveTheme()
-  if db and db.theme == X.AUTO_THEME_ID then
-    return X.THEMES[X.autoThemeResolved or "midnight"]
-  end
-  return db and X.ThemeDef(db.theme)
-end
-
-function X.ThemeBorder()
-  local t = X.EffectiveTheme()
-  if t then return t.border end
-  return { 0.35, 0.55, 0.8 }
-end
-
-function X.ThemeBackground()
-  if db and db.theme == X.AUTO_THEME_ID then
-    return X.EffectiveTheme().bg
-  end
-  return db and db.bgColor or DEFAULTS.bgColor
-end
-
-function X.ThemeLabel(detail)
-  if db and db.theme == X.AUTO_THEME_ID then
-    if detail then
-      return string_format(L["Auto (%s)"], X.EffectiveTheme().label)
-    end
-    return L["Auto"]
-  end
-  local t = db and X.ThemeDef(db.theme)
-  return t and t.label or "Custom"
-end
-
-function X.AutoThemeStatus()
-  if not db or db.theme ~= X.AUTO_THEME_ID then
-    return string_format(L["Auto is off. Current theme: %s."], X.ThemeLabel())
-  end
-  if not X.autoThemeAddon then return L["No supported UI addon is loaded. Using Midnight."] end
-  return string_format(L["Selected: %s (%s)"], X.EffectiveTheme().label, X.autoThemeAddon)
-end
-
--- Grow-up (1.8.0): normally the window hangs from its top-left corner and
--- the list grows downward. With grow-up on, the window stands on its
--- bottom-left corner instead, so the list grows upward and the bottom
--- edge never moves. The saved point records which form it holds.
-function X.ApplyAnchor()
-  if not frame then return end
-  local left = frame:GetLeft()
-  if not left then return end
-  if db.growUp then
-    local bottom = frame:GetBottom()
-    if not bottom then return end
-    frame:ClearAllPoints()
-    frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
-    db.point = { "BOTTOMLEFT", "BOTTOMLEFT", left, bottom }
-  else
-    local top = frame:GetTop()
-    if not top then return end
-    frame:ClearAllPoints()
-    frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
-    db.point = { "TOPLEFT", "BOTTOMLEFT", left, top }
-  end
-  if db.charPoint then
-    local k = X.CharKey()
-    if k then db.pointByChar[k] = db.point end
-  end
-end
-
--- Title suffix (1.12.0): "(update pending)" while a size/scale change waits
--- for combat to end; "(data hidden)" while the game is withholding aura
--- data from addons (secret values), so a stale-looking list has a reason.
-function X.UpdateTitleMarks()
-  if not title then return end
-  local hid = X.hid > 0 and (GetTime() - X.hid) < 10
-  local key = (X.geoPending and "p" or "") .. (hid and "h" or "")
-  if X.titleKey == key then return end
-  X.titleKey = key
-  local txt = "|cff33ccffBuff|rRadar"
-  if X.geoPending then txt = txt .. " |cffffa040(update pending)|r" end
-  if hid then txt = txt .. " |cffffa040(data hidden)|r" end
-  title:SetText(txt)
-end
-
--- Width and scale. The window holds secure row buttons, so its size can't
--- change in combat; callers retry after combat (PLAYER_REGEN_ENABLED).
-local function ApplyGeometry()
-  if not frame then return end
-  if InCombatLockdown() then
-    X.geoPending = true  -- lands at PLAYER_REGEN_ENABLED; the title says so meanwhile (1.12.0)
-    X.UpdateTitleMarks()
-    return
-  end
-  X.geoPending = nil
-  -- Two-column layout (1.9.0): each column keeps the chosen width, with
-  -- a small gap between the columns.
-  local cols = X.cols or 1
-  frame:SetWidth((db.width or WIDTH) * cols + (cols - 1) * 6)
-  frame:SetScale(db.scale or 1)
-  X.UpdateTitleMarks()
-end
-
-function X.ApplyScaleNow() ApplyGeometry() end
-
-local function ApplyAppearance()
-  if not frame then return end
-  if InCombatLockdown() then
-    X.appearancePending = true
-    return
-  end
-  X.appearancePending = nil
-  X.flashPending = nil
-  local c = X.ThemeBackground()
-  local bc = X.ThemeBorder()
-  if frame.SetBackdropColor then
-    frame:SetBackdropColor(c[1], c[2], c[3], db.bgAlpha or 0.92)
-    frame:SetBackdropBorderColor(bc[1], bc[2], bc[3], db.showBorder and 1 or 0)
-  end
-  for i = 1, #rows do X.TintRowHover(rows[i]) end
-  if X.pill and X.pill.SetBackdropColor then
-    X.pill:SetBackdropColor(c[1], c[2], c[3], db.bgAlpha or 0.92)
-    X.pill:SetBackdropBorderColor(bc[1], bc[2], bc[3], db.showBorder and 1 or 0)
-  end
-  if grip then grip:SetShown(not db.locked) end
-  if X.gripL then X.gripL:SetShown(not db.locked) end
-  if X.edge then X.edge:SetShown(not db.locked) end
-  title:SetShown(db.showTitle and true or false)
-  if X.titleLayoutState ~= db.showTitle then X.ApplyRowLayout() end
-  combatText:ClearAllPoints()
-  if db.showTitle then
-    combatText:SetPoint("LEFT", title, "RIGHT", 6, 0)
-  else
-    combatText:SetPoint("TOPLEFT", frame, "TOPLEFT", 9, -8)
-  end
-end
-
-do
-  local function LoadFinished(ok, loaded, ...)
-    if not ok or not Readable(loaded) then return false end
-    -- The two-result API can report loaded while the addon's load is
-    -- still in progress. A legacy one-result API has no separate flag.
-    if select("#", ...) == 0 then return loaded == true or loaded == 1 end
-    local finished = ...
-    return loaded == true and Readable(finished) and finished == true
-  end
-
-  function X.ResolveAutoTheme()
-    local resolved, selectedAddon
-    if db and db.theme == X.AUTO_THEME_ID then
-      resolved = "midnight"
-      local isLoaded = _G.C_AddOns and _G.C_AddOns.IsAddOnLoaded
-      if type(isLoaded) ~= "function" then isLoaded = _G.IsAddOnLoaded end
-      if type(isLoaded) == "function" then
-        for _, entry in ipairs(X.AutoThemePriority()) do
-          if LoadFinished(pcall(isLoaded, entry[1])) then
-            resolved, selectedAddon = entry[2], entry[1]
-            break
-          end
-        end
-      end
-    end
-    if X.autoThemeResolved == resolved and X.autoThemeAddon == selectedAddon then
-      if X.RefreshAutoThemePriority then X.RefreshAutoThemePriority() end
-      return false
-    end
-    X.autoThemeResolved, X.autoThemeAddon = resolved, selectedAddon
-    ApplyAppearance()
-    if RefreshConfig then RefreshConfig() end
-    local wizard = X.wizardFrame
-    if wizard and wizard:IsShown() and wizard.page == 2 then
-      wizard.choice[1]:SetText("Theme: " .. X.ThemeLabel(true))
-    end
-    return true
-  end
-end
-
 ---------------------------------------------------------------------------
--- The setup wizard, saved themes, alert flash, range and fall checks,
--- /br why and the Nearby Player explanations, history / stats text and
--- the export dialog live in Wizard.lua since 1.15.34 (file split
--- Slice F); it reaches this file's locals through X.wizAPI (bottom).
+-- Queue refresh
 ---------------------------------------------------------------------------
-X.farNow, X.farPrev = {}, {}  -- range-watch sets; the scan writes X.farNow
+X.farNow, X.farPrev = {}, {} -- range-watch sets shared with Wizard.lua
 
--- Compact rows + list text scale (1.4.0). Re-anchors every row; height
--- changes are not combat-safe on secure buttons, so this no-ops in combat
--- and lands on the post-combat refresh instead.
--- Click-through (1.10.0): while the window is locked AND the player
--- asked for it, the window and its rows stop eating mouse clicks, so
--- clicks land on the game world behind them. Never changed in combat
--- (secure buttons refuse it there); re-applied when combat ends and
--- whenever the lock or the setting changes.
-function X.ApplyClickThrough()
-  if not frame or not db then return end
-  if InCombatLockdown and InCombatLockdown() then return end
-  local mouse = not (db.clickThrough and db.locked)
-  if frame.EnableMouse then frame:EnableMouse(mouse) end
-  for i = 1, MAX_ROWS do
-    local row = rows[i]
-    if row and row.EnableMouse then row:EnableMouse(mouse) end
-  end
-  if nextBtn and nextBtn.EnableMouse then nextBtn:EnableMouse(mouse) end
-  if X.nextPreview then X.nextPreview:EnableMouse(mouse) end
-  if X.nearbyButton then X.nearbyButton:SetShown(mouse) end
-  X.ApplyRowWheel()
-  if X.UpdateFade then X.UpdateFade() end
-end
-
-function X.ApplyRowLayout()
-  if not frame or InCombatLockdown() then return end
-  X.titleLayoutState = db.showTitle
-  local h = db.compact and 16 or ROW_H
-  local header = db.showTitle and HEADER_H or 0
-  local barHeight = X.BarHeight()
-  X.rowH = h
-  if X.findBar then
-    X.findBar:SetShown(db.findBox and true or false)
-    X.findBar:ClearAllPoints()
-    X.findBar:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -header - barHeight)
-    X.findBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -header - barHeight)
-  end
-  local top = header + barHeight + (db.findBox and 16 or 0)
-  X.topH = top
-  if X.bar then
-    X.bar:SetShown(barHeight > 0)
-    X.bar:ClearAllPoints()
-    X.bar:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -header)
-    X.bar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -header)
-  end
-  if X.edge then
-    X.edge:ClearAllPoints()
-    X.edge:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -header)
-    X.edge:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 18)
-  end
-  emptyText:ClearAllPoints()
-  emptyText:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -top - 3)
-  countText:ClearAllPoints()
-  if db.showTitle then
-    countText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -24, -6)
-  else
-    countText:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -16, 6)
-  end
-  if X.footerText then
-    X.footerText:ClearAllPoints()
-    X.footerText:SetPoint("LEFT", X.nearbyButton or X.gear, "RIGHT", 5, 0)
-    X.footerText:SetPoint("RIGHT", frame, "BOTTOMRIGHT", db.showTitle and -16 or -48, 13)
-  end
-  -- Two-column layout (1.9.0): rows fill the first column top to
-  -- bottom, then the second. X.cols / X.rowsPerCol are kept current by
-  -- Refresh; with one column this is exactly the old anchoring.
-  local per = X.rowsPerCol or MAX_ROWS
-  local cols = X.cols or 1
-  local cellW = (db.width or WIDTH) + 6  -- column width + the gap
-  for i = 1, #rows do
-    local row = rows[i]
-    local col = math_floor((i - 1) / per)
-    local idx = (i - 1) % per
-    row:SetHeight(h)
-    row:ClearAllPoints()
-    row:SetPoint("TOPLEFT", frame, "TOPLEFT", 6 + col * cellW, -top - idx * (h + (db.rowGap or 0)))
-    row:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -(6 + (cols - 1 - col) * cellW), -top - idx * (h + (db.rowGap or 0)))
-    if row.portrait then row.portrait:SetShown(not db.compact) end
-    local isz = (db.iconSize or 0) > 0 and db.iconSize or (db.compact and 12 or 16)
-    for j = 1, MAX_ICONS do if row.icons[j] then row.icons[j]:SetSize(isz, isz) end end
-    local ts = db.textScale or 1
-    if row.name then row.name:SetScale(ts) end
-    if row.far then row.far:SetScale(ts) end
-    if row.tag then row.tag:SetScale(ts) end
-  end
-  if emptyText then
-    emptyText:ClearAllPoints()
-    emptyText:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -top - 3)
-  end
-end
-
----------------------------------------------------------------------------
--- The window builder (BuildUI), toggle strip, filter chips, idle fade,
--- Cast Next / group buttons and the scale / edge drag helpers live in
--- Window.lua since 1.15.34 (file split Slice G). It reaches this file's
--- locals through X.winAPI (bottom) and hands the window handles back
--- through X.winAPI.setUI.
----------------------------------------------------------------------------
-
----------------------------------------------------------------------------
--- Minimap button + addon compartment (block-scoped: 200-local limit)
----------------------------------------------------------------------------
-do
-local minimapBtn
-
-local function MinimapRadii()
-  local w = Minimap.GetWidth and Minimap:GetWidth()
-  local h = Minimap.GetHeight and Minimap:GetHeight()
-  return w and w > 0 and w / 2 + 5 or 80, h and h > 0 and h / 2 + 5 or 80
-end
-
-local function PositionMinimapButton()
-  if not minimapBtn then return end
-  local angle = math.rad((db and db.minimapAngle) or 215)
-  local rx, ry = MinimapRadii()
-  minimapBtn:ClearAllPoints()
-  minimapBtn:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * rx, math.sin(angle) * ry)
-end
-
-function RefreshMinimapButton()
-  if not minimapBtn then return end
-  if db and db.showMinimap and not X.PlayerSuspended() then
-    minimapBtn:Show()
-    PositionMinimapButton()
-  else
-    minimapBtn.dragging = false
-    minimapBtn:Hide()
-  end
-end
-
-BuildMinimapButton = function()
-  if minimapBtn or not Minimap then return end
-  local b = CreateFrame("Button", "BuffRadarMinimapButton", Minimap)
-  b:SetSize(31, 31)
-  b:SetFrameStrata("MEDIUM")
-  b:SetFrameLevel(8)
-  b:RegisterForDrag("LeftButton")
-  b:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight", "ADD")
-  local icon = b:CreateTexture(nil, "BACKGROUND")
-  icon:SetSize(20, 20)
-  icon:SetPoint("CENTER", 0, 1)
-  icon:SetTexture("Interface\\AddOns\\BuffRadar\\Media\\icon.png")
-  local border = b:CreateTexture(nil, "ARTWORK")
-  border:SetSize(52, 52)
-  border:SetPoint("TOPLEFT")
-  border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
-  b:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-    GameTooltip:AddLine("|cff33ccffBuff|rRadar")
-    GameTooltip:AddLine(L["Left-click: show / hide the window"], 0.8, 0.8, 0.8)
-    GameTooltip:AddLine(L["Right-click: settings"], 0.8, 0.8, 0.8)
-    GameTooltip:AddLine(L["Drag: move around the minimap"], 0.8, 0.8, 0.8)
-    GameTooltip:Show()
-  end)
-  b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-  -- A Button only receives left clicks unless told otherwise; without this the
-  -- right-click-for-settings in the tooltip never fired.
-  b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-  b:SetScript("OnClick", function(_, button)
-    if button == "RightButton" then OpenConfig()
-    elseif BuffRadar_ToggleWindow then BuffRadar_ToggleWindow() end
-  end)
-  b:SetScript("OnDragStart", function(self) self.dragging = true end)
-  b:SetScript("OnDragStop", function(self) self.dragging = false end)
-  b:SetScript("OnUpdate", function(self)
-    if not self.dragging or not db then return end
-    local mx, my = Minimap:GetCenter()
-    if not mx or not my then return end
-    local cx, cy = GetCursorPosition()
-    local scale = (Minimap.GetEffectiveScale and Minimap:GetEffectiveScale()) or 1
-    cx, cy = cx / scale, cy / scale
-    local rx, ry = MinimapRadii()
-    local atan2 = math.atan2 or math.atan
-    db.minimapAngle = math.deg(atan2((cy - my) / ry, (cx - mx) / rx)) % 360
-    PositionMinimapButton()
-  end)
-  minimapBtn = b
-  if Minimap.HookScript then Minimap:HookScript("OnSizeChanged", PositionMinimapButton) end
-  RefreshMinimapButton()
-
-  -- Addon compartment (the minimap's addon menu): same clicks as the minimap
-  -- button. The click callback's arguments differ between client versions:
-  -- newer menus pass a table with .buttonName, older dropdowns pass the mouse
-  -- button as the 5th argument; anything else counts as a left click.
-  if AddonCompartmentFrame and AddonCompartmentFrame.RegisterAddon then
-    pcall(AddonCompartmentFrame.RegisterAddon, AddonCompartmentFrame, {
-      text = "BuffRadar",
-      icon = "Interface\\AddOns\\BuffRadar\\Media\\icon.png",
-      notCheckable = true,
-      registerForAnyClick = true,
-      func = function(...)
-        local a2, a5 = select(2, ...), select(5, ...)
-        local mouse = (type(a2) == "table" and a2.buttonName) or a5
-        if mouse == "RightButton" then OpenConfig()
-        elseif BuffRadar_ToggleWindow then BuffRadar_ToggleWindow() end
-      end,
-      funcOnEnter = function(button)
-        if type(button) ~= "table" or X.PlayerSuspended() then return end
-        GameTooltip:SetOwner(button, "ANCHOR_LEFT")
-        GameTooltip:AddLine("|cff33ccffBuff|rRadar")
-        GameTooltip:AddLine(L["Left-click: show / hide the window"], 0.8, 0.8, 0.8)
-        GameTooltip:AddLine(L["Right-click: settings"], 0.8, 0.8, 0.8)
-        GameTooltip:Show()
-      end,
-      funcOnLeave = function() GameTooltip:Hide() end,
-    })
-  end
-end
-end -- minimap block
-
----------------------------------------------------------------------------
--- Refresh
----------------------------------------------------------------------------
--- Widget writes only when the value actually changes (no redundant redraws).
-local function SetTextIfChanged(fs, text)
-  if fs.cText ~= text then fs.cText = text; fs:SetText(text) end
-end
-local function SetShownIfChanged(w, show)
-  if (w:IsShown() and true or false) ~= show then
-    if show then w:Show() else w:Hide() end
-  end
-end
--- Height changes are safe to make freely: the frame is anchored by its
--- TOPLEFT corner only (see SavePosition/RestorePosition), so growing or
--- shrinking the height moves only the bottom edge -- the list grows
--- downward and the top of the window never moves.
-local function SetHeightIfChanged(f, h)
-  if f.cHeight ~= h then f.cHeight = h; f:SetHeight(h) end
-end
-
+-- While scanning is idle the ticker waits for a spell, zone or roster event.
 local refreshIdle = false
-local function ClearRow(row)
-  row.entry, row.guid = nil, nil
-  if row.bGuid ~= nil then X.ClearRowCast(row) end
-  if row:IsShown() then row:Hide() end
+
+local function ClearCastQueue()
+  X.ClearKeybindCasts()
+  X.SyncCastMacro(true)
 end
 
-function X.HideOwnedTooltip()
-  if not GameTooltip or not GameTooltip.GetOwner then return end
-  local owner = GameTooltip:GetOwner()
-  if not owner then return end
-  local config = _G.BuffRadarConfig
-  while owner do
-    if owner == frame or owner == config or owner == _G.BuffRadarMinimapButton
-       or owner == X.pill or owner == X.wizardFrame or owner == X.exportFrame then
-      GameTooltip:Hide()
-      return
-    end
-    if not owner.GetParent then return end
-    owner = owner:GetParent()
-  end
-end
-
-function X.SuspendBuffUI()
+local function SuspendBuffing()
   refreshIdle = true
-  X.ClearRowViewport()
-  wipe(X.rowMouseButtons)
-  X.rowLeftPress = nil
   X.ResetCastTracking()
-  X.pillPeek = nil
-  X.HideOwnedTooltip()
-  if X.HideConfig then X.HideConfig() end
-  if X.CloseRaidPreparation then X.CloseRaidPreparation() end
-  if X.CloseNearbyDiagnostics then X.CloseNearbyDiagnostics() end
-  if X.wizardFrame and X.wizardFrame:IsShown() then X.wizardFrame:Hide() end
-  if X.exportFrame and X.exportFrame:IsShown() then X.exportFrame:Hide() end
-  if X.EndEditMode then X.EndEditMode(true) end
-  if RefreshMinimapButton then RefreshMinimapButton() end
-
-  -- The state drivers hide and disarm protected frames during lockdown.
-  -- Clear the Lua-side click bookkeeping immediately in either case.
-  local locked = InCombatLockdown()
-  if nextBtn then nextBtn.entry = nil end
-  if X.groupBtn then X.groupBtn.entry = nil end
-  for i = 1, #rows do
-    rows[i].entry, rows[i].guid = nil, nil
-    if not locked then
-      X.ClearRowCast(rows[i])
-      ClearRow(rows[i])
-    end
-  end
-  if locked then return end
-  X.EndWindowDrags()
-  X.ClearNext()
-  X.ClearGroup()
-  if frame then SetShownIfChanged(frame, false) end
-  if X.pill then SetShownIfChanged(X.pill, false) end
+  X.SuspendWindow()
+  X.SyncCastMacro(true)
 end
 
 function X.UpdatePlayerLife(event)
@@ -5675,513 +4383,50 @@ function X.UpdatePlayerLife(event)
     end
   end
   if X.playerDead then
-    X.SuspendBuffUI()
+    SuspendBuffing()
   elseif wasDead then
-    if RefreshMinimapButton then RefreshMinimapButton() end
+    X.RefreshMinimapButton()
     if QueueRefresh then QueueRefresh() end
   end
   if wasDead ~= X.playerDead and event ~= "PLAYER_LOGIN" then X.SendCover() end
 end
 
-local function InvalidateRows()
-  for i = 1, #rows do
-    local row = rows[i]
-    row.cGuid, row.cUnit, row.bGuid, row.cFar, row.cTag = nil, nil, nil, nil, nil
-    row.cBar, row.cMarker, row.cFarTxt = nil, nil, nil
-    row.cTint = nil
-    wipe(row.cMissing)
-  end
-  if nextBtn then nextBtn.bGuid, nextBtn.isClear = nil, false end
-end
-
--- The name shown on a row (1.10.0): optionally with the realm, and
--- optionally shortened.
-local function DispName(e)
-  local nm = (db.showRealm and e.fullName) or e.name or ""
-  local trim = db.nameTrim or 0
-  if trim > 0 and Readable(nm) and type(nm) == "string" and #nm > trim then
-    local count = 0
-    -- Skip UTF-8 continuation bytes when looking for the first character
-    -- beyond the display limit. Keep the engine's original text if unreadable.
-    for offset in nm:gmatch("()[^\128-\191]") do
-      if count == trim then return nm:sub(1, offset - 1) .. "…" end
-      count = count + 1
-    end
-  end
-  return nm
-end
-
--- Tag symbols (1.12.0): with tagSymbols on, a status tag also carries a
--- symbol, so its meaning never rests on color alone.
-function X.InvalidateTags()
-  for i = 1, #rows do rows[i].cTag = false end
-  if QueueRefresh then QueueRefresh() end
-end
-
-X.TAGSYM = setmetatable({}, { __index = function() return "*" end })
-do
-  local T = X.TAGSYM
-  T[L["a buff just expired"]] = "!"; T[L["recently rezzed"]] = "+"; T[L["up next"]] = ">"
-  T[L["being buffed"]] = "~"; T[L["your assignment"]] = "#"; T[L["assigned elsewhere"]] = "x"
-  T[L["buddy's watch"]] = "&"; T[L["pinned"]] = "^"; T[L["weapon enchant missing"]] = "/"
-  T[L["drinking"]] = "o"; T[L["asked for a buff"]] = "?"; T[L["pet"]] = "p"
-end
-
-local function RenderRow(row, e, cached)
-  row.entry, row.guid = e, e.guid
-  local m = e.missing
-  if row.cGuid ~= e.guid or row.cUnit ~= e.unit then
-    -- 3D portrait render: only for a new player/token. Guarded like the rest of
-    -- this file: if a build renames or restricts it, the row still renders.
-    if SetPortraitTexture then pcall(SetPortraitTexture, row.portrait, e.unit) end
-    row.name:SetText(DispName(e))
-    row.cGuid, row.cUnit = e.guid, e.unit
-    row.cFar = nil  -- new player on this row: set color and layout below
-  end
-  -- In range: class-colored name centered on the row. Out of range: grey name
-  -- moved up, with "out of range" under it. (Before 1.3.2 the grey stayed
-  -- after the player came back into range.)
-  local far = e.outOfRange and true or false
-  if row.cFar ~= far then
-    row.cFar = far
-    row.name:ClearAllPoints()
-    row.name:SetPoint("LEFT", row.portrait, "RIGHT", 6, far and 5 or 0)
-    row.name:SetPoint("RIGHT", row, "RIGHT", -(IconInset()), far and 5 or 0)
-    row.far:SetShown(far)
-    if far then row.name:SetTextColor(0.55, 0.55, 0.55)
-    elseif db.classColors then row.name:SetTextColor(ClassColor(e.class))
-    else row.name:SetTextColor(0.92, 0.92, 0.92) end
-  end
-  -- Status tag: a rezzed player (lost every buff) is marked under the name;
-  -- the name shifts up for it just like the out-of-range layout, minus grey.
-  local tag
-  if not far then
-    if e.expired then tag = L["a buff just expired"]
-    elseif e.rezzed then tag = L["recently rezzed"]
-    elseif e.queued then tag = L["up next"]
-    elseif e.handled then tag = L["being buffed"]
-    elseif e.mine then tag = L["your assignment"]
-    elseif e.theirs then tag = L["assigned elsewhere"]
-    elseif e.buddy then tag = L["buddy's watch"]
-    elseif e.pinned then tag = L["pinned"]
-    elseif e.weapon then tag = L["weapon enchant missing"]
-    elseif e.drinking then tag = L["drinking"]
-    elseif e.asked then tag = L["asked for a buff"]
-    elseif e.pet then tag = L["pet"] end
-  end
-  if tag and db.tagSymbols then
-    tag = (X.TAGSYM[tag] or "*") .. " " .. tag
-  end
-  if not tag and e.remain1 then
-    tag = e.remain1 >= 90 and string_format(L["~%dm left"], math_floor(e.remain1 / 60))
-      or string_format(L["~%ds left"], math_floor(e.remain1))
-  end
-  if row.cTag ~= tag then
-    row.cTag = tag
-    if tag then
-      row.tag:SetText(tag)
-      row.name:ClearAllPoints()
-      row.name:SetPoint("LEFT", row.portrait, "RIGHT", 6, 5)
-      row.name:SetPoint("RIGHT", row, "RIGHT", -(IconInset()), 5)
-      row.tag:Show()
-    else
-      row.tag:Hide()
-      if not far then
-        row.name:ClearAllPoints()
-        row.name:SetPoint("LEFT", row.portrait, "RIGHT", 6, 0)
-        row.name:SetPoint("RIGHT", row, "RIGHT", -(IconInset()), 0)
-      end
-    end
-  end
-  -- Range band in words (1.8.0): a greyed row in group range reads
-  -- "near" instead of "out of range" when the setting is on.
-  local farTxt = far and (db.rangeText and e.rangeBucket == 1 and L["near"] or L["out of range"]) or nil
-  if row.cFarTxt ~= farTxt then
-    row.cFarTxt = farTxt
-    if farTxt then row.far:SetText(farTxt) end
-  end
-  -- Duration bar (1.8.0): the expiring buff's remaining time as a share
-  -- of 30 minutes; the color band shifts green -> yellow -> red.
-  local barKey
-  if db.durationBars and e.remain1 and e.remain1 < math_huge then
-    local frac = math_min(1, e.remain1 / 1800)
-    local band = e.remain1 < 300 and 1 or (e.remain1 < 900 and 2 or 3)
-    barKey = math_floor(frac * 40) .. ":" .. band
-    if row.cBar ~= barKey then
-      row.cBar = barKey
-      row.bar:SetWidth(math_max(2, (row:GetWidth() - 4) * frac))
-      if band == 1 then row.bar:SetVertexColor(1, 0.3, 0.3)
-      elseif band == 2 then row.bar:SetVertexColor(1, 0.85, 0.4)
-      else row.bar:SetVertexColor(0.4, 0.9, 0.4) end
-      row.bar:Show()
-    end
-  end
-  if not barKey then
-    -- Unconditional: InvalidateRows clears the cache without touching
-    -- the texture, so the hide can't ride on the cache alone.
-    row.cBar = nil
-    row.bar:Hide()
-  end
-  -- Raid marker badge (1.8.0).
-  local mk = (db.raidMarkers and e.marker) or nil
-  if row.cMarker ~= mk then
-    row.cMarker = mk
-    if mk then
-      row.marker:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_" .. mk)
-      row.marker:Show()
-    else
-      row.marker:Hide()
-    end
-  end
-  if not mk then row.marker:Hide() end
-  -- Row color mark (1.10.0): a colored strip on the row's left edge for
-  -- the first matching rule you switched on — yours, tanks, expiring
-  -- soon, your split partner's half.
-  local tint
-  local rc = db.rowColors
-  if rc then
-    if rc.mine and e.mine then tint = rc.mine
-    elseif rc.tank and e.role == 1 then tint = rc.tank
-    elseif rc.expiring and (e.expired or (e.remain1 and e.remain1 < 300)) then tint = rc.expiring
-    elseif rc.buddy and e.buddy then tint = rc.buddy end
-  end
-  if row.cTint ~= tint then
-    row.cTint = tint
-    if tint then
-      row.tint:SetVertexColor(tint[1], tint[2], tint[3])
-      row.tint:Show()
-    else
-      row.tint:Hide()
-    end
-  end
-  if not tint then row.tint:Hide() end
-  local cm, changed = row.cMissing, false
-  for j = 1, MAX_ICONS do
-    if cm[j] ~= m[j] then changed = true; break end
-  end
-  if changed then
-    for j = 1, MAX_ICONS do
-      local t, spell = row.icons[j], m[j]
-      if spell then
-        t:SetTexture(SpellIcon(spell))
-        t:SetAlpha(j == 1 and 1 or 0.5)
-        t:Show()
-      else
-        t:Hide()
-      end
-      cm[j] = spell
-    end
-  end
-  if e.outOfRange or (cached and not X.RowTargetMatches(e)) then
-    -- Greyed placeholder row: no live binding behind the click, and the
-    -- cached binding is cleared so a reused row can't cast a stale target.
-    row:SetAlpha(0.6)
-    if row.bGuid ~= nil then X.ClearRowCast(row) end
-  else
-    row:SetAlpha(1)
-    X.BindCached(row, e.unit, m[1], e.castGuid or e.guid)
-  end
-  if not row:IsShown() then row:Show() end
-end
-
--- Row color marks (1.10.0): named colors for the row edge strip.
-X.ROW_PALETTE = {
-  gold = { 1, 0.8, 0.2 }, sky = { 0.4, 0.7, 1 }, red = { 1, 0.35, 0.35 },
-  green = { 0.45, 0.95, 0.45 }, violet = { 0.75, 0.5, 1 },
-}
-X.ROW_PALETTE_ORDER = { "gold", "sky", "red", "green", "violet" }
-
-function X.RowColorName(rule)
-  local c = db.rowColors and db.rowColors[rule]
-  if not c then return "off" end
-  for name, rgb in pairs(X.ROW_PALETTE) do
-    if rgb[1] == c[1] and rgb[2] == c[2] and rgb[3] == c[3] then return name end
-  end
-  return "custom"
-end
-
-function X.SetRowColor(rule, c)
-  db.rowColors = db.rowColors or {}
-  db.rowColors[rule] = c and { c[1], c[2], c[3] } or nil
-  InvalidateRows()
-  if QueueRefresh then QueueRefresh() end
-end
-
--- Shared look for the "nothing to list" states (no buffs known / paused in a city).
-local function ShowStatus(text)
-  if X.pill then SetShownIfChanged(X.pill, false) end
-  if X.focusText then SetShownIfChanged(X.focusText, false) end
-  SetShownIfChanged(coverText, false)
-  SetTextIfChanged(countText, "")
-  SetShownIfChanged(overflowText, false)
-  SetTextIfChanged(emptyText, text)
-  SetShownIfChanged(emptyText, true)
-  UpdateCounter()
-  SetHeightIfChanged(frame, (X.topH or HEADER_H) + 26 + FOOTER_H)
-  SetShownIfChanged(frame, true)
-end
-
--- Pick an honest explanation for an empty list when the client cannot verify range.
-function X.EmptyStatus()
-  if X.scanHasUnknownBuffs or (X.tallyUnknownUnits or 0) > 0 then
-    return L["Some buff information is unavailable."]
-  end
-  if X.FriendlyPlatesOn() == false then
-    return L["Friendly nameplates are off."]
-  end
-  if X.rangeSilent then
-    return L["Range could not be confirmed; the list may be incomplete."]
-  end
-  if X.scanNameFiltered then return L["The name finder hides all buff targets."] end
-  if (X.lastTargetCastProblem and GetTime() < X.lastTargetCastProblem.expires)
-     or (X.NoCastReason and X.NoCastReason()) then return L["No cast target is available."] end
-  return L["No targets in the buff queue."]
-end
-
-function X.EmptyStatusHint()
-  if X.FriendlyPlatesOn() == false then return L["Use /br plates to see nearby players."] end
-  if X.rangeSilent then return L["Move closer or use /br why <name>."] end
-  if X.lastTargetCastProblem and GetTime() < X.lastTargetCastProblem.expires then
-    return X.lastTargetCastProblem.message
-  end
-  if X.NoCastReason then return X.NoCastReason() end
-end
-
-function X.ScanConfirmsGroupBuffed()
+local function ScanConfirmsGroupBuffed()
   if X.scanHasUnknownBuffs or X.scanHasMissingBuffs or X.scanNameFiltered then return false end
   local size = X.ReadUnitNumber(_G.GetNumGroupMembers)
   return size ~= nil and size > 1 and X.tallyUnits == size
 end
 
--- True while the last refresh found nothing that time alone can change: no
--- supported buffs known, or scanning paused (city / battleground). The steady
--- timer skips its refreshes then; events (zone changes, learning a spell,
--- settings changes) still refresh right away and clear it.
-
--- Coverage-line parts (1.10.0): the line is assembled from parts, each
--- with its own switch in db.coverParts; absent means on.
-local function CoverOn(part)
-  local cp = db and db.coverParts
-  return not cp or cp[part] ~= false
+-- Focus is outside the group tallies. Pass display text, not aura reads,
+-- back to the window.
+local focusMissing = {}
+local function FocusLine()
+  local valid, isSelf = Valid("focus")
+  if not valid then return end
+  local name = X.UnitNameOf("focus")
+  if not name then return end
+  local count = Missing("focus", focusMissing, false, isSelf)
+  if count > 0 then
+    return "Focus " .. name .. ": needs " .. table.concat(focusMissing, ", ", 1, math_min(count, 3))
+      .. (count > 3 and (" +" .. (count - 3)) or "")
+  end
+  if not X.auraUnknown then return "Focus " .. name .. ": buffed" end
 end
 
--- Group-by-buff view (1.10.0): fold the people entries into one row
--- per buff still needed. Each folded row stands for the buff itself:
--- its name carries the count, and it borrows an in-range holder (if
--- any) as its cast target, so clicking the row buffs that player with
--- exactly that spell. Only the render stage uses the folded list --
--- coverage, sounds and reports keep working on people.
-function X.BuildBuffView(list, n)
-  local bySpell, order = {}, {}
-  for i = 1, n do
-    local e = list[i]
-    if not e.header then
-      for j = 1, #(e.missing or {}) do
-        local spell = e.missing[j]
-        local g = bySpell[spell]
-        if not g then
-          g = { spell = spell, count = 0, missing = { spell }, group = true }
-          bySpell[spell] = g
-          order[#order + 1] = g
-        end
-        g.count = g.count + 1
-        if (not e.outOfRange and (g.unit == nil or g.outOfRange)) or g.unit == nil then
-          g.unit, g.class, g.castGuid, g.pet = e.unit, e.class, e.guid, e.pet
-          g.outOfRange = e.outOfRange and true or false
-          g.rangeBucket, g.approximateRange = e.rangeBucket, e.approximateRange
-        end
-      end
-    end
+local function PauseReason()
+  if db.pauseInCities and InMajorCity() then return L["Paused in a major city."], true end
+  if db.pauseInBG then
+    local instance = InInstanceNow()
+    if instance == "pvp" or instance == "arena" then return L["Paused in a battleground."], true end
   end
-  table_sort(order, function(a, b)
-    if a.count ~= b.count then return a.count > b.count end
-    return a.spell < b.spell
-  end)
-  for i = 1, #order do
-    local g = order[i]
-    g.name = g.count > 1 and (g.spell .. " x" .. g.count) or g.spell
-    g.sortName = g.spell
-    g.guid = "buff:" .. g.spell .. "#" .. g.count
-  end
-  return order, #order
-end
-
-X.IsMajorCity, X.CurrentInstance = InMajorCity, InInstanceNow
-
-function X.ApplyRowWheel()
-  if not frame or InCombatLockdown() then return end
-  local enabled = (X.rowViewCount or 0) > MAX_ROWS and not (db.clickThrough and db.locked)
-  if X.rowWheelEnabled == enabled then return end
-  X.rowWheelEnabled = enabled
-  frame:EnableMouseWheel(enabled)
-  for _, row in ipairs(rows) do row:EnableMouseWheel(enabled) end
-end
-
-function X.ClearRowViewport()
-  X.rowView, X.rowOffset, X.rowViewCount = nil, nil, nil
-  if frame and not InCombatLockdown() then
-    X.ApplyRowWheel()
-    SetShownIfChanged(overflowText, false)
-  end
-end
-
-function X.PaintRowViewport(cached)
-  local view, n = X.rowView, X.rowViewCount
-  X.rowOffset = math_min(X.rowOffset or 0, math_max(0, n - MAX_ROWS))
-  local shown = math_min(n, MAX_ROWS)
-  local wantCols = (db.twoCol and shown > 8) and 2 or 1
-  local rowsTall = wantCols == 2 and math_floor((shown + 1) / 2) or shown
-  if wantCols ~= (X.cols or 1) or rowsTall ~= (X.rowsTall or shown) then
-    X.cols, X.rowsTall = wantCols, rowsTall
-    X.rowsPerCol = wantCols == 2 and rowsTall or MAX_ROWS
-    X.ApplyRowLayout()
-    ApplyGeometry()
-  end
-  for i = 1, MAX_ROWS do
-    if i <= shown then RenderRow(rows[i], view[X.rowOffset + i], cached) else ClearRow(rows[i]) end
-  end
-  local overflow = n > MAX_ROWS
-  if overflow then
-    local y = -(X.topH or HEADER_H) - rowsTall * (X.rowH or ROW_H)
-      - math_max(0, rowsTall - 1) * (db.rowGap or 0) - 2
-    if overflowText.cY ~= y then
-      overflowText.cY = y
-      overflowText:ClearAllPoints()
-      overflowText:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, y)
-    end
-    SetTextIfChanged(overflowText, string_format(L["Rows %d–%d of %d"], X.rowOffset + 1, X.rowOffset + shown, n))
-  end
-  SetShownIfChanged(overflowText, overflow)
-  X.ApplyRowWheel()
-  return shown, rowsTall
-end
-
-function X.ScrollRows(step)
-  if not X.rowView or X.rowViewCount <= MAX_ROWS or db.hidden
-      or not frame:IsShown() or InCombatLockdown() or X.PlayerSuspended()
-      or (db.clickThrough and db.locked) or X.RowMouseHeld()
-      or X.ReadUnitBool(_G.IsMouseButtonDown, "LeftButton") == true
-      or X.ReadUnitBool(_G.IsMouseButtonDown, "RightButton") == true then return false end
-  if X.rowViewMode ~= db.viewMode or X.rowViewSearch ~= X.search
-      or X.rowViewRole ~= db.roleFilter or X.rowViewTwoCol ~= db.twoCol then return false end
-  local offset = math_max(0, math_min(X.rowOffset + step, X.rowViewCount - MAX_ROWS))
-  if offset == X.rowOffset then return false end
-  local owner = GameTooltip and GameTooltip.GetOwner and GameTooltip:GetOwner()
-  if owner == frame or (owner and owner.GetParent and owner:GetParent() == frame) then GameTooltip:Hide() end
-  X.rowOffset = offset
-  X.PaintRowViewport(true)
-  return true
-end
-
-local function Refresh()
-  if not built then return end
-  if X.PlayerSuspended() then
-    if not refreshIdle or not X.playerDead then X.UpdatePlayerLife() end
-    return
-  end
-  if InCombatLockdown() then return end
-  if (X.rowViewCount or 0) > MAX_ROWS and X.RowMouseHeld() then return end
-  X.assignmentGroupConflicts = X.AssignmentEnabled() and next(db.buffAssignments) and {} or nil
-  refreshIdle = false
-  X.applyFilter = true  -- the window honors the role filter; reports turn it off
-  local wasAfterCombat = X.afterCombat
-  X.afterCombat = nil
-  X.afterCombatScan = wasAfterCombat or nil
-  if X.flashPending then ApplyAppearance() end
-
-  if not hasAnyBuff then
-    X.ClearRowViewport()
-    refreshIdle = true
-    X.ClearNext()
-    X.ClearGroup()
-    for i = 1, MAX_ROWS do ClearRow(rows[i]) end
-    if sessionShow and not db.hidden then
-      ShowStatus(L["No supported buffs in your spellbook."])
-    else
-      SetShownIfChanged(frame, false)
-      if X.pill then SetShownIfChanged(X.pill, false) end
-    end
-    return
-  end
-
-  local groupHidden = db.groupOnly and not InGroup()
-
-  -- No scanning in major cities
-  if db.pauseInCities and X.IsMajorCity() then
-    X.ClearRowViewport()
-    refreshIdle = true
-    X.ClearNext()
-    X.ClearGroup()
-    wipe(X.listedBefore)
-    for i = 1, MAX_ROWS do ClearRow(rows[i]) end
-    if db.hidden or groupHidden or db.autoHide then
-      SetShownIfChanged(frame, false)
-    else
-      ShowStatus(L["Paused in a major city."])
-    end
-    return
-  end
-
-  -- No scanning in battlegrounds / arenas (optional; flag rules make lists noisy)
-  local instType = X.CurrentInstance()
-  if db.pauseInBG and (instType == "pvp" or instType == "arena") then
-    X.ClearRowViewport()
-    refreshIdle = true
-    X.ClearNext()
-    X.ClearGroup()
-    wipe(X.listedBefore)
-    for i = 1, MAX_ROWS do ClearRow(rows[i]) end
-    if db.hidden or groupHidden or db.autoHide then
-      SetShownIfChanged(frame, false)
-    else
-      ShowStatus(L["Paused in a battleground."])
-    end
-    return
-  end
-
-  -- No scanning on a flight path (optional): you can't cast mid-flight.
   if db.pauseTaxi and _G.UnitOnTaxi then
     local ok, onTaxi = pcall(_G.UnitOnTaxi, "player")
-    if ok and onTaxi then
-      X.ClearRowViewport()
-      refreshIdle = true
-      X.ClearNext()
-    X.ClearGroup()
-      wipe(X.listedBefore)
-      for i = 1, MAX_ROWS do ClearRow(rows[i]) end
-      if db.hidden or groupHidden or db.autoHide then
-        SetShownIfChanged(frame, false)
-      else
-        ShowStatus(L["Paused on a flight path."])
-      end
-      return
-    end
+    if ok and onTaxi then return L["Paused on a flight path."], true end
   end
+  if db.lowMana and db.lowMana > 0 and X.LowMana() then return L["Low mana -- buffing paused."] end
+end
 
-  -- Low-mana pause (optional): don't offer buffs you can't afford to cast.
-  if db.lowMana and db.lowMana > 0 and X.LowMana() then
-      X.ClearRowViewport()
-      X.ClearNext()
-      X.ClearGroup()
-      wipe(X.listedBefore)
-      for i = 1, MAX_ROWS do ClearRow(rows[i]) end
-      if db.hidden or groupHidden or db.autoHide then
-        SetShownIfChanged(frame, false)
-      else
-        ShowStatus(L["Low mana -- buffing paused."])
-      end
-      return
-  end
-
-  X.rowView, X.groupFallback, X.groupFallbackEntry, X.groupFallbackSummary = nil, nil, nil, nil
-  local n = CollectEntries()
-  X.CheckDrops()
-  X.CheckRange()
-  X.CheckFalls()
-  X.UpdateTitleMarks()
-  X.RefreshStrip()
-  X.RefreshChips()
-
+local function OfferGroupCast(n)
   -- Group-cast mode: if enough group members need the same group-castable
   -- buff, the first such row offers the group version instead (one cast
   -- covers the party). Only the first matching row is converted.
@@ -6224,268 +4469,91 @@ local function Refresh()
       if converted then break end
     end
   end
+end
 
-  -- Keybind / macro target: first player in the list, their next missing buff.
-  if n > 0 and nextBtn and not entries[1].outOfRange then
-    local first = entries[1]
-    nextBtn.entry = X.BindCached(nextBtn, first.unit, first.missing[1], first.guid) and first or nil
-    X.ArmGroupBtn(first)
-  else
-    X.ClearNext()
-    X.ClearGroup()
-  end
+-- Reuse the two listing sets instead of allocating one on every scan.
+local listA, listB, recentlyGone = {}, {}, {}
+local listedBefore = listA
 
-  if db.hidden or groupHidden then
-    X.ClearRowViewport()
-    for i = 1, MAX_ROWS do ClearRow(rows[i]) end
-    SetShownIfChanged(frame, false)
-    if X.pill then SetShownIfChanged(X.pill, false) end
-    wipe(X.listedBefore)
-    if X.UpdateNearbyTargetAfterScan then X.UpdateNearbyTargetAfterScan() end
-    return
-  end
-
+local function AlertOnNewEntries(n)
   -- Droplet sound when someone new appears on the board
   local now, newName = GetTime(), false
-  local listedNow = (X.listedBefore == X.listA) and X.listB or X.listA
+  local listedNow = (listedBefore == listA) and listB or listA
   wipe(listedNow)
   for i = 1, n do
     local guid = entries[i].guid
     listedNow[guid] = true
     -- (greyed out-of-range rows don't ding: they're not castable yet)
-    if not entries[i].outOfRange and not X.listedBefore[guid] then
-      local gone = X.recentlyGone[guid]
+    if not entries[i].outOfRange and not listedBefore[guid] then
+      local gone = recentlyGone[guid]
       if not gone or now - gone > 10 then newName = true end
     end
   end
-  for guid in pairs(X.listedBefore) do
-    if not listedNow[guid] then X.recentlyGone[guid] = now end
+  for guid in pairs(listedBefore) do
+    if not listedNow[guid] then recentlyGone[guid] = now end
   end
-  for guid, t in pairs(X.recentlyGone) do
-    if now - t > 60 then X.recentlyGone[guid] = nil end
+  for guid, t in pairs(recentlyGone) do
+    if now - t > 60 then recentlyGone[guid] = nil end
   end
-  X.listedBefore = listedNow
+  listedBefore = listedNow
   if newName and db.playSound and now - X.lastSoundAt > 1 then
     X.lastSoundAt = now
     PlayAlert("new")
   end
+end
 
-  -- group-by-buff view folds the render list; everything above this
-  -- point (coverage, sounds, counts) still works on people
-  local viewEntries, viewN = entries, n
-  if db.viewMode == "buffs" then viewEntries, viewN = X.BuildBuffView(entries, n) end
-  if X.rowViewMode ~= db.viewMode or X.rowViewSearch ~= X.search or X.rowViewRole ~= db.roleFilter then
-    X.rowOffset = nil
+local function Refresh()
+  if not X.WindowReady() or X.macroParked then return end
+  if X.PlayerSuspended() then
+    if not refreshIdle or not X.playerDead then X.UpdatePlayerLife() end
+    return
   end
-  X.rowViewMode, X.rowViewSearch, X.rowViewRole = db.viewMode, X.search, db.roleFilter
-  X.rowViewTwoCol = db.twoCol
-  X.rowView, X.rowViewCount = viewEntries, viewN
-  local shown, rowsTall = X.PaintRowViewport()
-  if X.UpdateNearbyTargetAfterScan then X.UpdateNearbyTargetAfterScan() end
-  -- Post-combat catch-up: one border pulse when the frozen list thaws with
-  -- work waiting, so a pull's-end rebuff round doesn't go unnoticed.
-  if wasAfterCombat and n > 0 and X.Flash then X.Flash() end
+  if InCombatLockdown() or X.HasHeldRow() then return end
+  X.assignmentGroupConflicts = X.AssignmentEnabled() and next(db.buffAssignments) and {} or nil
+  refreshIdle = false
+  X.applyFilter = true  -- the window honors the role filter; reports turn it off
+  local wasAfterCombat = X.afterCombat
+  X.afterCombat = nil
+  X.afterCombatScan = wasAfterCombat or nil
+  X.PrepareWindowScan()
 
-  SetTextIfChanged(countText, n > 0 and n or "")
-  if n == 0 then
-    local hint = X.EmptyStatusHint()
-    SetTextIfChanged(emptyText, X.EmptyStatus() .. (hint and "\n" .. hint or ""))
+  if not hasAnyBuff then
+    refreshIdle = true
+    ClearCastQueue()
+    X.ShowWindowStatus(sessionShow and not db.hidden and L["No supported buffs in your spellbook."])
+    return
   end
-  SetShownIfChanged(emptyText, n == 0)
 
-  -- Coverage / progress line: shown while grouped (even when the list is
-  -- empty -- "15/15 fully buffed" is the good-news form of the same line).
-  local coverShown = false
-  if X.tallyUnits > 1 or (X.tallyUnits > 0 and X.tallyUnknownUnits > 0) then
-    local parts = {}
-    if CoverOn("progress") then
-      parts[#parts + 1] = string_format("%d/%d fully buffed", X.tallyUnits - X.tallyMissingUnits, X.tallyUnits)
-    end
-    if CoverOn("buffs") then
-    for _, b in ipairs(myBuffs) do
-      local t = not b.self and X.tally[b.key] or nil
-      if t and t.total > 0 then
-        local nm = b.key:lower():gsub("_", " ")
-        local seg = string_format("%s %d/%d", nm:sub(1, 1):upper() .. nm:sub(2),
-          t.total - t.miss, t.total)
-        -- A buff on a real cooldown is never counted as missing (you can't
-        -- cast it anyway), so its count can look complete while people
-        -- still need it -- flag the cooldown so the number isn't trusted
-        -- blindly.
-        local left = CooldownLeft(b.name)
-        if left > 5 then
-          seg = seg .. (left >= 60 and string_format(" (~%dm cd)", math_floor(left / 60 + 0.5))
-                        or string_format(" (~%ds cd)", math_floor(left + 0.5)))
-        end
-        parts[#parts + 1] = seg
-      end
-    end
-    local tb = X.tally.BLESSINGS
-    if tb and tb.total > 0 then
-      parts[#parts + 1] = string_format("Blessings %d/%d", tb.total - tb.miss, tb.total)
-    end
-    end
-    if db.consumables then
-      for _, cd in ipairs(X.CONS_DEFS) do
-        local t = X.consTally[cd.key]
-        if t and t.total > 0 then
-          parts[#parts + 1] = string_format("%s %d/%d", cd.label, t.total - t.miss, t.total)
-        end
-      end
-    end
-    -- Coverage uptime (1.6.0): the share of grouped scans this run that
-    -- found nobody missing anything. A scan-based score, reset when a
-    -- Mythic+ run starts and when the group ends.
-    if X.tallyUnknownUnits == 0 then
-      X.upTotal = X.upTotal + 1
-      if X.tallyMissingUnits == 0 then X.upFull = X.upFull + 1 end
-    end
-    if X.upTotal >= 10 and CoverOn("uptime") then
-      parts[#parts + 1] = string_format("Uptime %d%%",
-        math_floor(100 * X.upFull / X.upTotal + 0.5))
-    end
-    -- Coverage roster (1.7.0): which BuffRadar users are on duty, how
-    -- many assignments each holds, and who is covered (dead/AFK) —
-    -- so a group can see the buffing is staffed at a glance.
-    if db.sync then
-      local nowC = GetTime()
-      -- Assignment counts keyed by short name: holders are recorded as
-      -- typed (often short), users are known by full name.
-      local held = {}
-      for _, who in pairs(X.assign) do
-        local wk = Ignore.Key(who:match("^[^%-]+") or who)
-        held[wk] = (held[wk] or 0) + 1
-      end
-      local duty = {}
-      local meF = Ignore.UnitNames("player")
-      if meF then
-        local mk = Ignore.Key(meF:match("^[^%-]+") or meF)
-        duty[#duty + 1] = (meF:match("^[^%-]+") or meF)
-          .. (held[mk] and (" (" .. held[mk] .. ")") or "")
-      end
-      local peerNames = {}
-      for k, p in pairs(X.peers) do
-        if nowC - p.t < 90 then peerNames[#peerNames + 1] = k end
-      end
-      table_sort(peerNames)
-      for _, k in ipairs(peerNames) do
-        local p = X.peers[k]
-        local short = (p.name:match("^[^%-]+") or p.name)
-        for cname, exp in pairs(X.cover) do
-          if exp > nowC and X.SameUser(p.name, cname) then
-            short = short .. " (away)" break
-          end
-        end
-        local hk = Ignore.Key(p.name:match("^[^%-]+") or p.name)
-        if held[hk] then short = short .. " (" .. held[hk] .. ")" end
-        duty[#duty + 1] = short
-      end
-      if #duty > 1 and CoverOn("roster") then
-        parts[#parts + 1] = "Radar: " .. table.concat(duty, ", ")
-      end
-    end
-    -- Group expiry warning (1.7.0): a group buff inside its last five
-    -- minutes on at least half its holders is about to become the
-    -- whole list — say so while there's time to refresh it calmly.
-    local worstKey, worstSoon, worstTotal = nil, 0, 0
-    for key, soon in pairs(X.expiryTally) do
-      local t = X.tally[key]
-      if t and soon >= 3 and soon * 2 >= t.total and soon > worstSoon then
-        worstKey, worstSoon, worstTotal = key, soon, t.total
-      end
-    end
-    if worstKey and CoverOn("expiry") then
-      local nm = worstKey == "BLESSINGS" and "Blessings" or worstKey
-      if worstKey ~= "BLESSINGS" then
-        for _, def in ipairs(myBuffs) do
-          if def.key == worstKey then nm = def.name break end
-        end
-      end
-      parts[#parts + 1] = string_format("%s <5m on %d/%d", nm, worstSoon, worstTotal)
-    end
-    -- Weapon watch (1.7.0): when your own row isn't on the list to
-    -- carry the tag, the coverage line carries the reminder instead.
-    if db.weaponWatch and X.WeaponEnchantMissing() then
-      local selfListed = false
-      for i = 1, nEntries do
-        if entries[i].isSelf then selfListed = true break end
-      end
-      if not selfListed then
-        parts[#parts + 1] = "your weapon has no enchant"
-      end
-    end
-    -- World-buff watch (1.8.0): your active world buffs, with time left.
-    if db.worldWatch and CoverOn("world") then
-      local wb = X.WorldBuffsText()
-      if wb then parts[#parts + 1] = wb end
-    end
-    -- Healer drinking (1.8.0): healers sitting down to drink between
-    -- pulls — the group waits for them, not the other way round.
-    if db.drinkWatch and CoverOn("drink") and (X.drinkHealers or 0) > 0 then
-      parts[#parts + 1] = X.drinkHealers == 1 and "Healer drinking"
-        or string_format("%d healers drinking", X.drinkHealers)
-    end
-    -- Pull countdown (1.15.0): while a pull timer runs (Extras tracks it
-    -- in X.pull), the coverage line itself counts down -- the part of the
-    -- pull-timer feature 1.14.0 trimmed. The steady ticker rebuilds this
-    -- line every 0.4s while the list is live, and Extras refreshes again
-    -- the moment the timer ends, so the number never goes stale.
-    if X.pull and X.pull.endsAt then
-      local left = math_ceil(X.pull.endsAt - GetTime())
-      if left > 0 then parts[#parts + 1] = string_format("Pull in %ds", left) end
-    end
-    SetTextIfChanged(coverText, table.concat(parts, "  ·  "))
-    X.coverFrac = string_format("%d/%d", X.tallyUnits - X.tallyMissingUnits, X.tallyUnits)
-    coverShown = #parts > 0
+  local groupHidden = db.groupOnly and not InGroup()
+  local reason, idle = PauseReason()
+  if reason then
+    refreshIdle = idle or false
+    ClearCastQueue()
+    wipe(listedBefore)
+    local showStatus = not (db.hidden or groupHidden or db.autoHide)
+    X.ShowWindowStatus(showStatus and reason, not showStatus)
+    return
   end
-  SetShownIfChanged(coverText, coverShown)
 
-  -- Focus watch (1.8.0): what your focus target still needs, on its own
-  -- line above the coverage line. Missing() runs with isGroup=false, so
-  -- the focus never touches the coverage tallies.
-  local focusShown = false
-  local focusValid, focusSelf
-  if db.focusWatch and X.focusText then focusValid, focusSelf = Valid("focus") end
-  if focusValid then
-    local fname = X.UnitNameOf("focus")
-    if fname then
-      local fn = Missing("focus", X.focusMiss, false, focusSelf)
-      if fn > 0 then
-        local fparts = {}
-        for i = 1, math_min(fn, 3) do fparts[#fparts + 1] = X.focusMiss[i] end
-        SetTextIfChanged(X.focusText, "Focus " .. fname .. ": needs "
-          .. table.concat(fparts, ", ") .. (fn > 3 and (" +" .. (fn - 3)) or ""))
-      elseif not X.auraUnknown then
-        SetTextIfChanged(X.focusText, "Focus " .. fname .. ": buffed")
-      end
-      focusShown = fn > 0 or not X.auraUnknown
-    end
+  X.groupFallback, X.groupFallbackEntry, X.groupFallbackSummary = nil, nil, nil
+  local n = CollectEntries()
+  X.CheckDrops()
+  X.CheckRange()
+  X.CheckFalls()
+  X.RefreshWindowHeader()
+  OfferGroupCast(n)
+
+  -- The native keys and bar macro follow the scan even when the list is hidden.
+  X.SetNextCast(n > 0 and entries[1] or nil)
+  X.SyncCastMacro()
+  if db.hidden or groupHidden then
+    X.ShowWindowStatus()
+    wipe(listedBefore)
+    if X.UpdateNearbyTargetAfterScan then X.UpdateNearbyTargetAfterScan() end
+    return
   end
-  if X.focusText then SetShownIfChanged(X.focusText, focusShown) end
-
-  local h = (X.topH or HEADER_H) + (shown > 0 and rowsTall * (X.rowH or ROW_H) + math_max(0, rowsTall - 1) * (db.rowGap or 0) or 18) + 8
-  if n == 0 and X.EmptyStatusHint() then h = h + 13 end
-  if coverShown then h = h + 13 end
-  if focusShown then h = h + 13 end
-  if viewN > MAX_ROWS then h = h + 14 end
-  h = h + FOOTER_H  -- bottom row: settings gear + cast counter
-  UpdateCounter()
-  SetHeightIfChanged(frame, h)
-
-  -- All-buffed pill (1.6.0): in a group with nobody missing anything, the
-  -- window can collapse to the pill until someone needs a buff again (or
-  -- the pill is clicked for a peek).
-  local pillMode = db.pill and n == 0 and InGroup() and not db.hidden
-    and not groupHidden and X.ScanConfirmsGroupBuffed() and GetTime() > (X.pillPeek or 0)
-  if pillMode and X.pill then
-    SetTextIfChanged(X.pill.text, "|cff33ccffBuff|rRadar · "
-      .. (X.coverFrac and (X.coverFrac .. " ") or "") .. L["All buffed"])
-    SetShownIfChanged(frame, false)
-    SetShownIfChanged(X.pill, true)
-  else
-    if X.pill then SetShownIfChanged(X.pill, false) end
-    SetShownIfChanged(frame, not (db.autoHide and n == 0 and not sessionShow))
-  end
+  AlertOnNewEntries(n)
+  X.RenderQueue(entries, n, sessionShow, wasAfterCombat)
 end
 
 ---------------------------------------------------------------------------
@@ -6612,9 +4680,11 @@ local function RebuildNow()
   local ok, err = pcall(BuildBuffList)
   if not ok then Print("|cffff4040error reading spellbook:|r " .. tostring(err)) end
   X.prioDirty = true
-  if built then InvalidateRows() end
-  if built then X.ApplyRowLayout() end
-  if RefreshConfig then RefreshConfig() end
+  if X.WindowReady() then
+    X.InvalidateRows()
+    X.ApplyRowLayout()
+  end
+  if X.RefreshConfig then X.RefreshConfig() end
   Soon()
 end
 local function ScheduleRebuild()
@@ -6661,7 +4731,8 @@ for _, ev in ipairs({
   "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "UNIT_AURA", "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
   "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED",
   "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED", "UI_ERROR_MESSAGE",
-  "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN", "CVAR_UPDATE", "UPDATE_BINDINGS",
+  "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN", "CVAR_UPDATE", "UPDATE_BINDINGS", "UPDATE_MACROS",
+  "PLAYER_LEAVING_WORLD", "PLAYER_LOGOUT",
   "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS",
   "SPELL_DATA_LOAD_RESULT", "UNIT_PORTRAIT_UPDATE", "BAG_UPDATE_DELAYED",
   "READY_CHECK", "READY_CHECK_CONFIRM", "READY_CHECK_FINISHED",
@@ -6684,7 +4755,19 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       wipe(X.auraIds)
     end
   end
-  -- The busiest events, filtered first. They only ever lead to a list refresh:
+  -- The flattened action-bar macro has no pre-cast GUID check. Park it
+  -- immediately if a tracked token changes, without rebuilding the list.
+  if event == "NAME_PLATE_UNIT_REMOVED" or event == "NAME_PLATE_UNIT_ADDED" then
+    if type(arg1) == "string" and Readable(arg1) then X.DisarmStaleCastMacro(arg1, event == "NAME_PLATE_UNIT_REMOVED") end
+  elseif event == "PLAYER_TARGET_CHANGED" then
+    X.DisarmStaleCastMacro("target")
+  elseif event == "UPDATE_MOUSEOVER_UNIT" then
+    X.DisarmStaleCastMacro("mouseover")
+  elseif event == "GROUP_ROSTER_UPDATE" or event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE"
+      or event == "GROUP_LEFT" then
+    X.DisarmStaleCastMacro()
+  end
+  -- The busiest events, filtered first. They queue a list refresh:
   --  * in combat the list is frozen and PLAYER_REGEN_ENABLED refreshes it
   --    afterwards, so they're dropped outright;
   --  * UNIT_AURA also fires for units BuffRadar never lists (enemy and NPC
@@ -6715,18 +4798,20 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     return
   end
   if event == "CVAR_UPDATE" then
-    if arg1 == "ActionButtonUseKeyDown" or arg1 == "ACTION_BUTTON_USE_KEY_DOWN" then
+    local name = type(arg1) == "string" and Readable(arg1) and arg1:lower()
+    if name == "actionbuttonusekeydown" or name == "action_button_use_key_down" then
       X.ApplyNextRegistration()
-      if db then pcall(MakeMacro, true) end -- keep an existing BuffRadar macro in sync
-    elseif type(arg1) == "string" then
-      local name = arg1:lower()
-      if name == "nameplateshowfriendlyplayers" or name == "nameplateshowfriends" or name == "nameplateshowall" then
-        Soon()
-      end
+      if db then X.SyncCastMacro() end
+    elseif name == "nameplateshowfriendlyplayers" or name == "nameplateshowfriends"
+        or name == "nameplateshowall" or name == "nameplateshowonlynameforfriendlyplayerunits" then
+      Soon()
     end
     return
+  elseif event == "UPDATE_MACROS" then
+    if X.InvalidateCastMacro() and db then Soon() end
+    return
   elseif event == "UPDATE_BINDINGS" then
-    if RefreshConfig then RefreshConfig() end
+    if X.RefreshConfig then X.RefreshConfig() end
     return
   elseif event == "PARTY_LEADER_CHANGED" then
     X.OnCoordinationRoster(true)
@@ -6779,9 +4864,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if db then X.SpecSwap(); Soon() end
     return
   elseif event == "UNIT_PORTRAIT_UPDATE" then
-    for i = 1, #rows do
-      if rows[i].cUnit == arg1 then rows[i].cGuid = nil end  -- redraw that portrait
-    end
+    X.InvalidatePortrait(arg1)
     Soon()
     return
   end
@@ -6805,7 +4888,14 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if db then X.SendCover() end
     return
   end
+  if event == "PLAYER_LEAVING_WORLD" or event == "PLAYER_LOGOUT" then
+    X.macroParked = true
+    ClearCastQueue()
+    return
+  end
   if event == "PLAYER_ENTERING_WORLD" then
+    X.macroParked = nil
+    ClearCastQueue()
     X.OnCoordinationRoster()
     X.ResetCastTracking()
     X.ClearReadyCheck()
@@ -6840,88 +4930,15 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       end
       return
     end
-    BuffRadarDB = SanitizeDB(BuffRadarDB)
-    db = BuffRadarDB
-    X.ShareDB()
-    db.showOutOfRange, db.hideInCombat = false, true
-    local preVersion = db.dbVersion or 0  -- the version the save came from (1.9.0 wizard gate)
+    X.Settings.Load(true)
     Ignore.Rebuild()
-    -- Settings shared with the Forever edition: Classic-only choices fall back
-    -- to the defaults here (their controls are hidden on this edition).
-    if not CLASSIC_FEATURES then
-      if db.castMethod == "id" or db.castMethod == "rank" then db.castMethod = "target" end
-      db.groupCast = false
-    end
-    if (db.dbVersion or 0) < 3 then
-      db.castMethod = "target"
-      db.clickReg = "both"
-    end
-    if (db.dbVersion or 0) < 4 then
-      db.includeSelf = true   -- yourself is always checked first now
-      db.dbVersion = 4
-    end
-    if (db.dbVersion or 0) < 5 then
-      db.dbVersion = 5        -- 1.2.0: new settings take their defaults; nothing to migrate
-    end
-    if (db.dbVersion or 0) < 6 then
-      db.dbVersion = 6        -- 1.4.0: specProfiles / lowMana added; nothing to migrate
-    end
-    if (db.dbVersion or 0) < 7 then
-      db.dbVersion = 7        -- 1.5.0: profiles / sync / role filter added; nothing to migrate
-    end
-    if (db.dbVersion or 0) < 9 then
-      db.dbVersion = 9        -- 1.7.0: readyPost / pinned / weaponWatch / enterFlash / scanThrottle / history added; nothing to migrate
-    end
-    if (db.dbVersion or 0) < 10 then
-      db.dbVersion = 10       -- 1.8.0: new watch/search settings take their defaults
-      -- Resistance context (#32): on Forever, shadow protection is a
-      -- pre-pull buff for instances by default, not an always-on need.
-      -- The player can change it any time with /br context SHADOW_PROT.
-      if CLASSIC_FEATURES and db.buffContext.SHADOW_PROT == nil then
-        db.buffContext.SHADOW_PROT = "instance"
-      end
-    end
-    if (db.dbVersion or 0) < 11 then
-      db.dbVersion = 11       -- 1.9.0: twoCol / deathRecap / wipeReport / wizardSeen added
-      -- Anyone with a real save history (1.2.0 or later) is not a new
-      -- user: don't nag them with the first-run wizard hint.
-      if preVersion >= 5 then db.wizardSeen = true end
-    end
-    if (db.dbVersion or 0) < 12 then
-      db.dbVersion = 12       -- 1.10.0: customization settings take their defaults
-    end
-    if (db.dbVersion or 0) < 13 then
-      db.dbVersion = 13       -- 1.12.0: scalePerSpec / specScales / gripSnap / tagSymbols / reduceMotion / rangeWatch take their defaults
-    end
-    if (db.dbVersion or 0) < 14 then
-      db.dbVersion = 14       -- 1.14.0: fastAura / modClick / pullFlash take their defaults (all off)
-    end
-    if (db.dbVersion or 0) < 15 then
-      db.dbVersion = 15       -- 1.15.0: fallSound / customGroup take their defaults (fallSound off)
-    end
-    if (db.dbVersion or 0) < 16 then
-      db.dbVersion = 16       -- Per-class blessing preferences start with the default priority.
-    end
-    if (db.dbVersion or 0) < 17 then
-      db.dbVersion = 17       -- assumeRange takes its default (off)
-    end
-    if db.dbVersion < 18 then
-      db.dbVersion = 18       -- Class and role assignments start disabled.
-    end
-    if db.dbVersion < 19 then
-      db.dbVersion = 19       -- Outdoor Thorns takes its default (off).
-    end
-    if db.dbVersion < 20 then
-      db.dbVersion = 20       -- Auto theme priority takes the built-in order by default.
-    end
     X.SpecSwap()
     X.ResolveAutoTheme()
   elseif event == "PLAYER_LOGIN" then
     driver:UnregisterEvent("PLAYER_LOGIN")  -- one-off
     if not db then
-      BuffRadarDB = SanitizeDB(BuffRadarDB)
-      db = BuffRadarDB
-      X.ShareDB()
+      -- Defensive fallback: normally ADDON_LOADED has already migrated the save.
+      X.Settings.Load(false)
       Ignore.Rebuild()
     end
     X.ResolveAutoTheme()
@@ -6936,6 +4953,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     ok, err = pcall(X.BuildUI)
     if not ok then Print("|cffff4040error building window:|r " .. tostring(err)) end
     X.ApplyClickThrough()
+    X.SyncCastMacro(true) -- migrate the built-in macro, but never arm a prior session's queue
     Print("loaded. Type /br to show the window.")
     if not db.wizardSeen then
       Print("New to BuffRadar? /br wizard runs a one-minute setup.")
@@ -6951,39 +4969,19 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   elseif event == "PLAYER_REGEN_DISABLED" then
     if X.CloseNearbyDiagnostics then X.CloseNearbyDiagnostics() end
     if X.CloseRaidPreparation then X.CloseRaidPreparation() end
-    wipe(X.rowMouseButtons)
-    if X.ReadUnitBool(_G.IsMouseButtonDown, "LeftButton") == false then X.rowLeftPress = nil end
     X.auraIds = nil
     X.ClearCastIntent()
     X.combatStart = GetTime()  -- the wipe report times the fight from here (1.9.0)
-    if combatText then combatText:Show() end
-    -- Drivers clear cast attributes in combat; protected drag and visibility
-    -- work can run here only if the client has not started lockdown.
-    if not InCombatLockdown() then
-      X.EndWindowDrags()
-      if frame and not frame.visibilityDriver then frame:Hide() end
-      if X.pill and not X.pill.visibilityDriver then X.pill:Hide() end
-    end
+    X.BeginWindowCombat()
   elseif event == "PLAYER_REGEN_ENABLED" then
     X.afterCombat = true  -- Refresh() pulses the border if work is waiting
     if InCombatLockdown() then return end
-    X.EndWindowDrags()
-    if combatText then combatText:Hide() end
-    X.BuildUI()
-    if X.PlayerSuspended() then
-      X.SuspendBuffUI()
+    X.SyncCastMacro(true)
+    if not X.EndWindowCombat() then
+      SuspendBuffing()
       if db and X.WipeCheck then X.WipeCheck() end
       return
     end
-    -- Secure snippets cleared the attributes behind the display cache.
-    for i = 1, #rows do rows[i].bGuid = nil end
-    if nextBtn then nextBtn.bGuid, nextBtn.isClear = nil, false end
-    if X.groupBtn then X.groupBtn.bGuid, X.groupBtn.isClear = nil, false end
-    ApplyGeometry()  -- a scale/width change made during combat lands now
-    if X.appearancePending or X.flashPending then ApplyAppearance() end
-    X.ApplyRowLayout()
-    X.ApplyClickThrough()
-    X.ApplyNextRegistration()
     if db and X.WipeCheck then X.WipeCheck() end  -- post-wipe report (1.9.0)
     Soon()
   elseif event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_TAB" or event == "LEARNED_SPELL_IN_SKILL_LINE" then
@@ -7006,25 +5004,11 @@ end)
 ---------------------------------------------------------------------------
 -- Keybind actions (Bindings.xml calls these)
 ---------------------------------------------------------------------------
-function BuffRadar_ToggleWindow()
-  if not db or X.PlayerSuspended() then return end
-  db.hidden = not db.hidden
-  sessionShow = not db.hidden
-  if InCombatLockdown() then
-    Print(db.hidden and "Window will hide when combat ends." or "Window will show when combat ends.")
-    return
-  end
-  if not db.hidden and db.groupOnly and not InGroup() then
-    Print("Window is set to show only in a party or raid.")
-  end
-  Refresh()
-end
-
 function BuffRadar_ToggleSound()
   if not db or X.PlayerSuspended() then return end
   db.playSound = not db.playSound
   Print(db.playSound and "Sound |cff00ff00on|r" or "Sound |cffff4040muted|r")
-  if RefreshConfig then RefreshConfig() end
+  if X.RefreshConfig then X.RefreshConfig() end
 end
 
 ---------------------------------------------------------------------------
@@ -7032,11 +5016,147 @@ end
 ---------------------------------------------------------------------------
 local KeybindText, OpenKeybinds
 do
-local function MacroBody()
-  if GetCVarBool and GetCVarBool("ActionButtonUseKeyDown") then
-    return "/click BuffRadarNextButton LeftButton 1"
+local MACRO_HEADER = "# BuffRadar\n/stopmacro [combat][@player,dead]"
+local MACRO_NOTE = "/click BuffRadarMacroButton"
+local LEGACY_CLICK = "/click BuffRadarNextButton"
+local macro = {}
+
+local function IsLegacyClick(body)
+  return body == LEGACY_CLICK or body == LEGACY_CLICK .. " LeftButton 1"
+end
+
+local function IsManagedMacro(body)
+  if IsLegacyClick(body) or body == MACRO_HEADER then return true end
+  if #body > 255 or body:sub(1, #MACRO_HEADER + 1) ~= MACRO_HEADER .. "\n" then return false end
+  local text = body:sub(#MACRO_HEADER + 2)
+  if IsLegacyClick(text) then return true end
+  if text:sub(1, #MACRO_NOTE + 1) ~= MACRO_NOTE .. "\n" then return false end
+  text = text:sub(#MACRO_NOTE + 2)
+  -- The marker alone does not claim a user's edited macro at the next login.
+  if text:match("^/cast %[[^\r\n]+$") then return true end
+  local handBack = text:match("^/cleartarget\n/targetexact [^\r\n]+\n/cast %[[^\r\n]+\n(/[^\r\n]+)$")
+  return handBack == "/targetlasttarget" or handBack == "/cleartarget"
+end
+
+local function ReadMacro()
+  if not (GetMacroIndexByName and GetMacroBody) then return end
+  local ok, id = pcall(GetMacroIndexByName, MACRO_NAME)
+  if ok and type(id) == "number" and Readable(id) and id > 0 then
+    local read, body = pcall(GetMacroBody, id)
+    return id, read and type(body) == "string" and Readable(body) and body or nil
   end
-  return "/click BuffRadarNextButton"
+end
+
+local function MacroBody(disarmed)
+  local nextBtn = X.GetNextButton()
+  local entry = nextBtn and nextBtn.entry
+  if disarmed or X.macroParked or X.PlayerSuspended() or not X.RowTargetMatches(entry) then return MACRO_HEADER end
+  local action = nextBtn:GetAttribute("type")
+  if action == "spell" then
+    local down = GetCVarBool and GetCVarBool("ActionButtonUseKeyDown")
+    return MACRO_HEADER .. "\n" .. LEGACY_CLICK .. (down and " LeftButton 1" or "")
+  end
+  if action ~= "macro" then return MACRO_HEADER end
+  -- WoW cannot /click a button that runs macrotext from an action-bar macro.
+  -- Write the already prepared action as top-level commands instead. The
+  -- only /click in this path is an ordinary button for cast bookkeeping.
+  local text, shifted = nextBtn:GetAttribute("macrotext"), nextBtn:GetAttribute("shift-macrotext1")
+  if db.castMethod ~= "target" and not entry.pet and X.NeedsExactTarget(entry.unit, entry.isSelf, "target") then
+    -- In other cast modes the button may carry a mutable nameplate or
+    -- mouseover token. Never embed that token in a stored macro.
+    text, shifted = X.ExactCastBody(entry.unit, nextBtn.bSpellText, shifted and nextBtn.bGroupText, X.UnitPresent("target"))
+    if nextBtn:GetAttribute("shift-type1") and not shifted then return MACRO_HEADER end
+  end
+  if not text then return MACRO_HEADER end
+  if shifted and shifted ~= text then
+    local a, condition, spell, b = text:match("^(.-)/cast (%b[]) ([^\r\n]+)(.*)$")
+    local sa, sc, ss, sb = shifted:match("^(.-)/cast (%b[]) ([^\r\n]+)(.*)$")
+    if not condition or not sc or sa ~= a or sb ~= b then return MACRO_HEADER end
+    text = a .. "/cast [mod:shift,nomod:ctrl,nomod:alt," .. sc:sub(2) .. " " .. ss
+      .. "; " .. condition .. " " .. spell .. b
+  end
+  local body = MACRO_HEADER .. "\n" .. MACRO_NOTE .. "\n" .. text
+  return #body <= 255 and body or MACRO_HEADER
+end
+
+function X.InvalidateCastMacro()
+  if macro.writing then return false end
+  macro.checked = false
+  return true
+end
+
+local function TrackMacro(index, body)
+  -- A macro can be renumbered. A changed body, not a new slot number,
+  -- is what makes us stop managing it for this session.
+  if macro.body and body then
+    macro.owned = macro.owned and macro.body == body
+  else
+    macro.owned = body and IsManagedMacro(body)
+  end
+  macro.index, macro.body, macro.checked = index, body, true
+end
+
+local function RunningMacro()
+  if not GetRunningMacro then return end
+  local ok, index = pcall(GetRunningMacro)
+  if ok and type(index) == "number" and Readable(index) and index > 0 then return index end
+end
+
+local function MacroEditorOpen()
+  local editor = _G.MacroFrame
+  if not (editor and editor:IsShown()) then return false end
+  -- UPDATE_MACROS makes the game reload the edit box from disk. Do not
+  -- discard unsaved text in the macro editor while following the queue.
+  if macro.editor ~= editor then
+    macro.editor = editor
+    editor:HookScript("OnHide", function()
+      if not X.InvalidateCastMacro() then return end
+      if X.PlayerSuspended() then X.SyncCastMacro(true) else Soon() end
+    end)
+  end
+  return true
+end
+
+function X.SyncCastMacro(disarmed)
+  if not db or InCombatLockdown() or macro.writing or not EditMacro then return end
+  if not macro.checked then
+    local index, body = ReadMacro()
+    if index and not body then return end
+    TrackMacro(index, body)
+  end
+  if not macro.owned then return end
+  local body = MacroBody(disarmed)
+  if body == macro.body or MacroEditorOpen() or RunningMacro() then return end
+  -- Recheck immediately before a write. Never write to an old index or
+  -- over a body edited since the last UPDATE_MACROS notification.
+  local index, current = ReadMacro()
+  if index and not current then return end
+  TrackMacro(index, current)
+  if not macro.owned or body == current then return end
+  macro.writing = true
+  pcall(EditMacro, index, nil, nil, body)
+  macro.writing = false
+  local id, saved = ReadMacro()
+  if id == index and saved == body then macro.body = body end
+end
+
+function X.DisarmStaleCastMacro(unit, removed)
+  local nextBtn = X.GetNextButton()
+  local entry = macro.owned and nextBtn and nextBtn.entry
+  if entry and (not unit or unit == entry.unit) and (removed or not X.RowTargetMatches(entry)) then
+    X.SyncCastMacro(true)
+  end
+end
+
+function X.RecordBarMacroClick()
+  local nextBtn = X.GetNextButton()
+  -- Observation only: this button cannot cancel the following /cast line.
+  if not (macro.checked and macro.owned and macro.body:find(MACRO_NOTE, 1, true)
+      and RunningMacro() == macro.index and macro.body == MacroBody()) then return end
+  local id, body = ReadMacro()
+  if id ~= macro.index or body ~= macro.body then return end
+  X.BeginCastClick(nextBtn, "LeftButton", false, "bar macro", body)
+  X.EndCastClick(nextBtn, "LeftButton", false, "bar macro")
 end
 
 function KeybindText(binding)
@@ -7067,163 +5187,85 @@ local function MacroIcon()
   return 134400 -- question mark
 end
 
--- Creates (or updates) an account-wide macro named "BuffRadar" and puts it on the cursor.
-MakeMacro = function(quiet)
+-- Create or update the owned macro and put it on the cursor. Background
+-- refreshes never create one or touch a custom macro of the same name.
+MakeMacro = function()
   if InCombatLockdown() then Print("Can't edit macros during combat."); return end
-  if not (GetMacroIndexByName and CreateMacro and EditMacro) then
-    Print("Macro API unavailable. Make a macro yourself containing: " .. MacroBody())
+  if not (GetMacroIndexByName and GetMacroBody and CreateMacro and EditMacro) then
+    Print(L["Macro controls are unavailable. Bind Cast next buff with /br key instead."])
     return
   end
+  if MacroEditorOpen() then
+    Print(L["Close the macro editor before creating the BuffRadar macro."])
+    return
+  end
+  local idx, current = ReadMacro()
+  if not idx or current then TrackMacro(idx, current) end
   local body = MacroBody()
-  local idx = GetMacroIndexByName(MACRO_NAME)
-  if idx and idx > 0 then
-    EditMacro(idx, MACRO_NAME, MacroIcon(), body)
-  else
-    if quiet then return end
-    local numGlobal = GetNumMacros and GetNumMacros() or 0
-    if numGlobal >= (MAX_ACCOUNT_MACROS or 120) then
-      Print("Your general macro slots are full. Make room, or add this line to any macro: " .. body)
+  if idx and (not current or not macro.owned) then
+    Print(L["Rename your custom BuffRadar macro first, or bind Cast next buff with /br key."])
+    return
+  end
+  if not idx and GetNumMacros then
+    local constants = _G.Constants and _G.Constants.MacroConsts
+    local cap = (constants and constants.MAX_ACCOUNT_MACROS) or MAX_ACCOUNT_MACROS or 120
+    if GetNumMacros() >= cap then
+      Print(L["Your general macro slots are full. Make room or bind Cast next buff with /br key."])
       return
     end
-    idx = CreateMacro(MACRO_NAME, MacroIcon(), body, nil)
   end
-  if quiet then return end
-  if idx and PickupMacro then pcall(PickupMacro, idx) end
-  Print("Macro |cffffd100BuffRadar|r is on your cursor; drop it on an action bar. It runs: " .. body)
+  macro.writing = true
+  if not idx then
+    pcall(CreateMacro, MACRO_NAME, MacroIcon(), body, nil)
+  elseif current ~= body then
+    pcall(EditMacro, idx, nil, nil, body)
+  end
+  macro.writing = false
+  local id, saved = ReadMacro()
+  if not id or saved ~= body then
+    Print(L["Couldn't save the BuffRadar macro. Bind Cast next buff with /br key instead."])
+    return
+  end
+  macro.index, macro.body, macro.owned, macro.checked = id, body, true, true
+  if PickupMacro then pcall(PickupMacro, id) end
+  Print(L["Place the BuffRadar macro on an action bar. It follows the next buff automatically."])
 end
 end -- keybind + macro block
 
----------------------------------------------------------------------------
--- Config window (tabbed: Window / Alerts / Buffs / Behavior / Ignore & Stats)
---
--- The whole settings window lives in Config.lua since 1.15.0 (file split
--- Slice B): the builders, the tabs, BuildConfig, RefreshConfig and
--- OpenConfig moved there verbatim from the do-block that used to sit
--- here, and reach this file's locals through X.cfgAPI (filled in at the
--- bottom of this file). These forward locals delegate to it.
----------------------------------------------------------------------------
-RefreshConfig = function() if X.RefreshConfig then X.RefreshConfig() end end
-OpenConfig = function(forceShow) if X.OpenConfig then X.OpenConfig(forceShow) end end
-
-
----------------------------------------------------------------------------
--- Slash commands: HandleSlash and its helpers (OnOff, ListBuffs,
--- X.Context, X.AutoProfileCheck, X.SelfTest) live in Slash.lua since
--- 1.15.0 (file split Slice C), reaching this file's locals through
--- X.slashAPI (filled in at the bottom of this file). Main keeps only
--- the hand-off and the SlashCmdList registration below.
----------------------------------------------------------------------------
--- Handed to Extras.lua (the optional second file): the few locals it needs.
--- (X.OnOff is published by Slash.lua, where OnOff lives since Slice C.)
-X.Print, X.L, X.Refresh, X.BUFF_DEFS = Print, L, Refresh, BUFF_DEFS
-
--- Handed to Config.lua (the settings window, file split Slice B): the
--- locals it needs, through one table so the bridge costs this file a
--- single main-chunk local. Every value has a stable identity (functions,
--- and tables that are mutated in place, never replaced).
-X.cfgAPI = {
-  L = L, Print = Print, Refresh = Refresh, PlayAlert = PlayAlert,
-  ApplyAppearance = ApplyAppearance, ApplyGeometry = ApplyGeometry,
-  BuildBuffList = BuildBuffList, InvalidateRows = InvalidateRows,
-  UpdateCounter = UpdateCounter, IsOn = IsOn, Esc = Esc,
-  KeybindText = KeybindText, OpenKeybinds = OpenKeybinds, MakeMacro = MakeMacro,
-  Missing = Missing, RefreshMinimapButton = RefreshMinimapButton,
-  myBuffs = myBuffs, myBlessing = myBlessing, Single = Single, Ignore = Ignore,
-  BLESSINGS = BLESSINGS, DEFAULTS = DEFAULTS, SCALE_PRESETS = SCALE_PRESETS,
-  CLASSIC_FEATURES = CLASSIC_FEATURES, NEXT_BINDING = NEXT_BINDING,
-}
-
--- Handed to Slash.lua (every /br command, file split Slice C): functions
--- and stable tables by value; state this file reassigns or fills after
--- load (window, grip, build/session flags) through the two accessors.
-X.slashAPI = {
-  Print = Print, Refresh = Refresh, RefreshConfig = RefreshConfig, OpenConfig = OpenConfig,
-  PlayAlert = PlayAlert, ApplyAppearance = ApplyAppearance, ApplyGeometry = ApplyGeometry,
-  BuildBuffList = BuildBuffList, BuildUI = function() return X.BuildUI() end, InvalidateRows = InvalidateRows,
-  IsOn = IsOn, FriendlyPlatesOn = X.FriendlyPlatesOn, InGroup = InGroup,
-  InInstanceNow = InInstanceNow, InMajorCity = InMajorCity, MakeMacro = MakeMacro,
-  OpenKeybinds = OpenKeybinds, RefreshMinimapButton = RefreshMinimapButton,
-  RestorePosition = RestorePosition, SpellName = SpellName, UpdateCounter = UpdateCounter,
+-- Addon-private entry points. Consumers read the current queue counts and
+-- session flags through accessors; the spell and entry tables are reused.
+X.Print, X.L, X.Refresh = Print, L, Refresh
+X.InGroup, X.InRaid = InGroup, InRaid
+X.Core = {
+  BuildBuffList = BuildBuffList,
+  PlayAlert = PlayAlert,
   QueueRefresh = QueueRefresh,
-  ALL = ALL, BLESSINGS = BLESSINGS, BUFF_DEFS = BUFF_DEFS, Ignore = Ignore, Single = Single,
-  myBuffs = myBuffs, myBlessing = myBlessing, entries = entries, seen = seen,
-  known = known, ranks = ranks, rows = rows,
-  CLASSIC_FEATURES = CLASSIC_FEATURES, MAX_WIDTH = MAX_WIDTH, MIN_WIDTH = MIN_WIDTH,
-  getState = function()
-    return { frame = frame, grip = grip, built = built, hasAnyBuff = hasAnyBuff,
-             sessionShow = sessionShow, lastError = lastError, bookCount = bookCount,
-             nextWrapped = (select(1, X.NextBindState())),
-             nextCombatDriver = (select(2, X.NextBindState())) }
-  end,
-  setSessionShow = function(v) sessionShow = v end,
+  IsOn = IsOn,
+  InInstance = InInstanceNow,
+  InMajorCity = InMajorCity,
+  KeybindText = KeybindText,
+  OpenKeybinds = OpenKeybinds,
+  MakeMacro = MakeMacro,
+  NextBinding = NEXT_BINDING,
+  Bind = Bind,
+  SafeString = SafeString,
+  SpellName = SpellName,
+  SpellIcon = SpellIcon,
+  CooldownLeft = CooldownLeft,
+  FocusLine = FocusLine,
+  ScanConfirmsGroupBuffed = ScanConfirmsGroupBuffed,
+  Missing = Missing,
+  Valid = Valid,
+  Single = Single,
+  Buffs = myBuffs,
+  BlessingsByClass = myBlessing,
+  Entries = entries,
+  Ranks = ranks,
+  RAID = RAID, PARTY = PARTY, PLATES = PLATES,
+  EntryCount = function() return nEntries end,
+  HasAnyBuff = function() return hasAnyBuff end,
+  BookCount = function() return bookCount end,
+  LastError = function() return lastError end,
+  SessionShow = function() return sessionShow end,
+  SetSessionShow = function(shown) sessionShow = shown end,
 }
-X.GetDB = function() return db end
--- Split files that keep their own `db` local (Coordination.lua, Wizard.lua)
--- register a setter in X.dbSinks; the settings table is handed to them
--- here the moment it exists.
-X.ShareDB = function()
-  for _, sink in ipairs(X.dbSinks or {}) do sink(db) end
-end
-
--- Handed to Coordination.lua (file split Slice E): stable values by
--- value; the two counters this file reassigns through accessors.
-X.coordAPI = {
-  L = L, Print = Print, PlayAlert = PlayAlert, QueueRefresh = QueueRefresh,
-  Ignore = Ignore, Readable = Readable, IsOn = IsOn,
-  InRaid = InRaid, InGroup = InGroup, InInstanceNow = InInstanceNow,
-  BLESSINGS = BLESSINGS, BUFF_DEFS = BUFF_DEFS, CLASSIC_FEATURES = CLASSIC_FEATURES,
-  RAID = RAID, PARTY = PARTY, myBuffs = myBuffs, entries = entries,
-  nEntries = function() return nEntries end,
-  hasAnyBuff = function() return hasAnyBuff end,
-}
-
--- Handed to Wizard.lua (file split Slice F): stable values by value;
--- the list length through an accessor, the window through X.GetFrame.
-X.wizAPI = {
-  L = L, Print = Print, PlayAlert = PlayAlert, QueueRefresh = QueueRefresh,
-  RefreshConfig = RefreshConfig, OpenConfig = OpenConfig,
-  ApplyAppearance = ApplyAppearance, ApplyGeometry = ApplyGeometry,
-  Ignore = Ignore, Readable = Readable, SafeString = SafeString,
-  Single = Single, Missing = Missing, Valid = Valid,
-  InGroup = InGroup, InRaid = InRaid, RAID = RAID, PARTY = PARTY, PLATES = PLATES,
-  myBuffs = myBuffs, entries = entries, rows = rows,
-  CLASSIC_FEATURES = CLASSIC_FEATURES, MAX_ROWS = MAX_ROWS,
-  nEntries = function() return nEntries end,
-}
-
--- Handed to Window.lua (file split Slice G): stable values by value; the
--- two counters this file reassigns through accessors; setUI takes the
--- window handles BuildUI creates there, setSessionShow the close button.
-X.winAPI = {
-  L = L, Print = Print, IsOn = IsOn, QueueRefresh = QueueRefresh,
-  OpenConfig = OpenConfig, RefreshConfig = RefreshConfig,
-  ApplyAppearance = ApplyAppearance, ApplyGeometry = ApplyGeometry,
-  RestorePosition = RestorePosition, SavePosition = SavePosition, UpdateCounter = UpdateCounter,
-  Bind = Bind, CreateRow = CreateRow, BuildMinimapButton = BuildMinimapButton,
-  SafeString = SafeString, SpellIcon = SpellIcon, myBuffs = myBuffs, myBlessing = myBlessing,
-  CLASSIC_FEATURES = CLASSIC_FEATURES, MAX_ROWS = MAX_ROWS, WIDTH = WIDTH,
-  HEADER_H = HEADER_H, FOOTER_H = FOOTER_H, MIN_WIDTH = MIN_WIDTH, MAX_WIDTH = MAX_WIDTH,
-  hasAnyBuff = function() return hasAnyBuff end,
-  bookCount = function() return bookCount end,
-  setSessionShow = function(v) sessionShow = v end,
-  setUI = function(f, t, ct, et, ot, cbt, nb, cv, ft, g, b)
-    frame, title, countText, emptyText, overflowText, combatText = f, t, ct, et, ot, cbt
-    nextBtn, coverText, footerText, grip, built = nb, cv, ft, g, b
-  end,
-}
-X.SanitizeDB, X.IsProfileName, X.PROFILE_MAX_BYTES = SanitizeDB, IsProfileName, PROFILE_MAX_BYTES
-X.Esc, X.Unesc, X.DEFAULTS = Esc, Unesc, DEFAULTS  -- for Profiles.lua
-X.InGroup, X.InRaid = InGroup, InRaid  -- for Recaps.lua
-X.CLASSIC = CLASSIC_FEATURES
-X.GetFrame = function() return frame end
-X.PositionSave = SavePosition
-X.ApplyAppearance = ApplyAppearance
-
-SlashCmdList.BUFFRADAR = function(msg)
-  if not X.HandleSlash then
-    Print("BuffRadar commands are unavailable (Slash.lua did not load).")
-    return
-  end
-  local ok, err = pcall(X.HandleSlash, msg)
-  if not ok then Print("|cffff4040error:|r " .. tostring(err)) end
-end

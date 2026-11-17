@@ -262,9 +262,10 @@ each needs in-game evidence or a sharper definition, recorded in
   Since 1.3.2, buffing a group member no longer changes your
   target; for anyone else, BuffRadar targets them by name, casts,
   then switches back to your previous target.
-- **One-key buffing.** Bind *Cast next buff*, or use the BuffRadar
-  macro (`/br macro`, or `/click BuffRadarNextButton LeftButton 1`
-  in any macro), to work through the list without clicking.
+- **One-key buffing.** Bind *Cast next buff* to a keyboard or controller
+  button (`/br key` or `/br gamepad`), or put the managed BuffRadar macro
+  (`/br macro`) on an action bar. A hand-written `/click` macro can't
+  chain another macro to reach an ungrouped target.
 - **Highest rank.** Buffs are cast by name, so your highest known
   rank is always used.
 - **Class-aware.** Arcane Intellect only goes to mana users, Thorns
@@ -272,7 +273,9 @@ each needs in-game evidence or a sharper definition, recorded in
   each class one fitting blessing: **Blessing of Kings leads every
   class list since 1.2.3** (it is learned after Might/Wisdom, so it
   was previously unreachable); Might (warriors, rogues) and Wisdom
-  (everyone else) are the fallbacks.
+  (everyone else) are the fallbacks. **Complement Nearby Blessings**
+  (`/br bless complement on`) can choose an alternative when a player
+  outside your group has someone else's copy of your preferred blessing.
 - **Group-cast offers.** When enough of your party or raid needs the
   same buff, BuffRadar offers the group version (Prayer of
   Fortitude, Gift of the Wild, Greater Blessings…) instead — one
@@ -307,7 +310,10 @@ stays hidden on those characters.
   instead of claiming everyone is buffed, BuffRadar warns once in
   chat at login, and `/br debug` reports the nameplate setting plus
   how many nameplate units/players the game is currently showing.
-  `/br plates` turns friendly nameplates on.
+  `/br plates` turns friendly nameplates on. Use `/br plates off` to turn
+  them off, `/br plates names` to keep discovery without health bars on
+  supported clients, or `/br plates restore` to undo recorded changes.
+  These controls are also in Nearby Player Diagnostics (`/br nearby`).
 - **Range can be unanswerable.** This client may accept a range query and
   return a value no addon is allowed to read. `C_Spell.IsSpellInRange` behaves
   that way, `UnitInRange` reports nothing usable for anyone outside your group,
@@ -373,6 +379,10 @@ stays hidden on those characters.
   nameplates — there is no API for a general nearby-player list.
 
 ## Verification status
+
+**1.15.35 candidate:** Macro migration, nearby cast targeting, blessing
+selection, and reversible nameplate controls pass the Lua smoke tests.
+Live casting, controller bindings, and nameplate appearance are **Unverified**.
 
 **Field test through 1.15.33:** on 2026-11-16 the maintainer reported that
 every release up to and including 1.15.31 passed in-game testing in WoW:

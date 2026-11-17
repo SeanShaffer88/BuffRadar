@@ -10,7 +10,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
   -- frames lack the template's members and the addon's fallback UI is used.
   local templateOnly = { SetTitle = true, Inset = true, CloseButton = true, SetPortraitToAsset = true }
   if withTimer then  -- modern client: C_Timer; callbacks queue until the test runs them
-    env.__timers = {}
+    env.__timers, env.__ticker = {}, false
     env.C_Timer = {
       After = function(_, f) env.__timers[#env.__timers + 1] = f end,
       NewTicker = function(_, f) env.__ticker = f; return {} end,
@@ -19,7 +19,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
   local noop = function() end
 
   local function newObject(kind, name)
-    local o = { kind = kind, name = name, scripts = {}, attrs = {}, shown = true, text = "" }
+    local o = { kind = kind, frameName = name, scripts = {}, attrs = {}, shown = true, text = "" }
     local methods = {}
     function methods.SetScript(self, ev, fn) self.scripts[ev] = fn end
     function methods.GetScript(self, ev) return self.scripts[ev] end
@@ -36,6 +36,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     function methods.IsVisible(self) return self.shown and (not self.parent or self.parent:IsVisible()) end
     function methods.SetAttribute(self, k, v) self.attrs[k] = v end
     function methods.GetAttribute(self, k) return self.attrs[k] end
+    function methods.RegisterForClicks(self, ...) self.clickRegistration = { ... } end
     function methods.SetText(self, t) self.text = t end
     function methods.GetText(self) return self.text end
     function methods.SetAlpha(self, a) self.alpha = a end
@@ -76,7 +77,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
       env.__editFocus = self
       if self.scripts.OnEditFocusGained then self.scripts.OnEditFocusGained(self) end
     end
-    function methods.GetName(self) return self.name end
+    function methods.GetName(self) return self.frameName end
     function methods.SetID(self, id) self.id = id end
     function methods.GetID(self) return self.id or 0 end
     function methods.CreateTexture() return newObject("Texture") end
@@ -173,7 +174,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     local f = env.__over.AuraList
     local list = f and f(unit)
     local a = list and list[i]
-    if a then return a.name, "", 0, 0, 0, 0, a.expirationTime end
+    if a then return a.name, "", 0, nil, 0, a.expirationTime, a.sourceUnit end
     return nil
   end
   env.GetBuildInfo = function() return "12.1.5", "99999", "Oct 2026", 120105 end
@@ -239,11 +240,31 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
   env.PlaySoundFile = noop
   env.GetBindingKey = function() return nil end
   env.GetBindingText = function(k) return k end
-  env.GetMacroIndexByName = function() return 0 end
-  env.GetNumMacros = function() return 3, 0 end
-  env.CreateMacro = function() return 4 end
-  env.EditMacro = noop
-  env.PickupMacro = noop
+  local macros = {}
+  env.__macros, env.__macroWrites = macros, 0
+  env.GetMacroIndexByName = function(name)
+    for i, macro in pairs(macros) do if macro.name == name then return i end end
+    return 0
+  end
+  env.GetMacroBody = function(i) return macros[i] and macros[i].body end
+  env.GetNumMacros = function() return #macros, 0 end
+  env.CreateMacro = function(name, icon, body)
+    assert(not env.__combat, "macro created during combat")
+    assert(#body <= 255, "macro body exceeds 255 bytes")
+    macros[#macros + 1] = { name = name, icon = icon, body = body }
+    env.__macroWrites = env.__macroWrites + 1
+    return #macros
+  end
+  env.EditMacro = function(i, name, icon, body)
+    assert(not env.__combat, "macro edited during combat")
+    assert(#body <= 255, "macro body exceeds 255 bytes")
+    local macro = assert(macros[i], "missing macro")
+    macro.name, macro.icon, macro.body = name or macro.name, icon or macro.icon, body
+    env.__macroWrites = env.__macroWrites + 1
+    return i
+  end
+  env.GetRunningMacro = function() return env.__runningMacro end
+  env.PickupMacro = function(i) env.__pickedMacro = i end
   env.GetCursorPosition = function() return 0, 0 end
   env.SetPortraitTexture = noop
   env.RegisterStateDriver = noop
@@ -264,6 +285,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
   }
   env.SettingsPanel = newObject("Frame", "SettingsPanel")
   env.HideUIPanel = function(f) f:Hide() end
+  env.__compartment = false
   env.AddonCompartmentFrame = { RegisterAddon = function(_, info) env.__compartment = info end }
   -- Forever client: interface 16001, a level-60 priest with ranked spells.
   if forever then

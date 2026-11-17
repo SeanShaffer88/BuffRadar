@@ -1,5 +1,5 @@
 #!/bin/sh
-# Static checks and the six-setup smoke run used by GitHub CI.
+# Static checks and the TOC-driven smoke run used by GitHub CI.
 # Usage: sh tools/gate.sh      (needs python3 or python, plus the lupa package)
 set -e
 cd "$(dirname "$0")/.."
@@ -12,12 +12,11 @@ for candidate in python3 python; do
   if "$candidate" -c "import sys" >/dev/null 2>&1; then PY=$candidate; break; fi
 done
 [ -n "$PY" ] || { echo "No working python3 or python found."; exit 1; }
-LUA="BuffRadar/Data.lua BuffRadar/BuffRadar.lua BuffRadar/Coordination.lua BuffRadar/Wizard.lua BuffRadar/Window.lua BuffRadar/Config.lua BuffRadar/Slash.lua BuffRadar/Extras.lua BuffRadar/Recaps.lua BuffRadar/Profiles.lua"
-LOC="$(ls BuffRadar/Locales/*.lua)"
-echo "== luacheck51";   "$PY" -I tools/luacheck51.py $LUA $LOC
-echo "== lualimits";    for f in $LUA; do "$PY" -I tools/lualimits.py "$f"; done
+# Check all shared modules, including files added to either edition.
+echo "== luacheck51";   "$PY" -I tools/luacheck51.py BuffRadar/*.lua BuffRadar/Locales/*.lua
+echo "== lualimits";    for f in BuffRadar/*.lua; do "$PY" -I tools/lualimits.py "$f"; done
 echo "== localecheck";  "$PY" -I tools/localecheck.py BuffRadar/BuffRadar.lua BuffRadar/Locales
-echo "== patterncheck"; "$PY" -I tools/patterncheck.py $LUA $LOC
+echo "== patterncheck"; "$PY" -I tools/patterncheck.py BuffRadar/*.lua BuffRadar/Locales/*.lua
 echo "== smoke";        "$PY" -I tools/smoke51.py tools/wowstub.lua BuffRadar/BuffRadar.lua
 echo "== coordination"; "$PY" -I tools/coordination51.py tools/wowstub.lua BuffRadar/BuffRadar.lua
 echo "Gate passed. Real luacheck 1.2.0: run tools/check.ps1 on Windows."

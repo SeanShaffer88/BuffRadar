@@ -1,28 +1,18 @@
--- BuffRadar - Coordination: cast sync between BuffRadar users (1.5.0),
--- caster coordination (1.15.26), chat buff requests, per-buff context
--- checks and the join digest.
--- Loaded after BuffRadar.lua through the .toc. This is file-split Slice E
--- (1.15.34): the code below moved verbatim from BuffRadar.lua and reaches
--- that file's locals through X.coordAPI, which BuffRadar.lua fills in
--- before this file loads. The settings table arrives through X.dbSinks
--- once it exists; the two counters the main file reassigns (list length,
--- whether any buff is known) are read through accessors.
+-- BuffRadar - cast sync, assignments, chat requests and group context.
 -- Copyright (C) 2026 Malikor. GPLv3 or later.
 
-local _, NS = ...
-local X = NS and NS.X
-if not X or not X.coordAPI then return end
-local A = X.coordAPI
+local _, ns = ...
+local X = ns.X
+local core = X.Core
 
-local db = X.GetDB and X.GetDB()  -- nil until ADDON_LOADED; X.dbSinks updates it
-X.dbSinks = X.dbSinks or {}
-X.dbSinks[#X.dbSinks + 1] = function(value) db = value end
+local db
+X.OnDBLoaded(function(value) db = value end)
 
-local L, Print, PlayAlert, QueueRefresh = A.L, A.Print, A.PlayAlert, A.QueueRefresh
-local Ignore, Readable, IsOn = A.Ignore, A.Readable, A.IsOn
-local InRaid, InGroup, InInstanceNow = A.InRaid, A.InGroup, A.InInstanceNow
-local BLESSINGS, BUFF_DEFS, CLASSIC_FEATURES = A.BLESSINGS, A.BUFF_DEFS, A.CLASSIC_FEATURES
-local RAID, PARTY, myBuffs, entries = A.RAID, A.PARTY, A.myBuffs, A.entries
+local L, Print, PlayAlert, QueueRefresh = X.L, X.Print, core.PlayAlert, core.QueueRefresh
+local Ignore, Readable, IsOn = X.Ignore, X.Readable, core.IsOn
+local InRaid, InGroup, InInstanceNow = X.InRaid, X.InGroup, core.InInstance
+local BLESSINGS, BUFF_DEFS, CLASSIC_FEATURES = X.BLESSINGS, X.BUFF_DEFS, X.classic
+local RAID, PARTY, myBuffs, entries = core.RAID, core.PARTY, core.Buffs, core.Entries
 local pairs, ipairs, next, type, pcall = pairs, ipairs, next, type, pcall
 local tonumber = tonumber
 local math_floor, math_max = math.floor, math.max
@@ -1042,7 +1032,7 @@ function X.OnChatAsk(text, author)
   if not text:lower():find("buff", 1, true) then return end
   local short = author:match("^[^%-]+") or author
   local ka, ks = Ignore.Key(author), Ignore.Key(short)
-  for i = 1, A.nEntries() do
+  for i = 1, core.EntryCount() do
     local e = entries[i]
     if e and (Ignore.Key(e.fullName or "") == ka or Ignore.Key(e.sortName or "") == ks) then
       if (not X.asked[e.guid] or GetTime() - X.asked[e.guid] > 30)
@@ -1096,7 +1086,7 @@ function X.InstanceCheck()
   if not db then return end
   local ctx = X.Context()
   local inside = ctx == "dungeon" or ctx == "raid" or ctx == "pvp"
-  if inside and not X.wasInside and db.enterFlash and InGroup() and A.hasAnyBuff()
+  if inside and not X.wasInside and db.enterFlash and InGroup() and core.HasAnyBuff()
      and not X.PlayerSuspended() then
     local report = X.GroupBuffReport()
     local people = #report.people
@@ -1131,7 +1121,7 @@ function X.OnRoster()
   X.PruneAssignmentRoleOverrides()
   X.PruneBlockerUndo()
   if db then X.SendCover() end  -- roster changes refresh a live cover (1.7.0)
-  if X.inGroupPrev == false and g and db and db.joinDigest and A.hasAnyBuff() then
+  if X.inGroupPrev == false and g and db and db.joinDigest and core.HasAnyBuff() then
     if C_Timer and C_Timer.After then
       C_Timer.After(1.5, function() X.JoinDigest("join") end)
     else

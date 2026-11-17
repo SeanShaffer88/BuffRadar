@@ -83,7 +83,12 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
   the Buffs tab, or use `/br bless prefer <CLASS> <BLESSING|DEFAULT>`. An active
   group blessing plan takes precedence. Use
   `/br bless player <target|name> <BLESSING|DEFAULT>` to set or clear a
-  normal blessing exception for a member of your current group.
+  normal blessing exception for a member of your current group. Enable
+  **Complement Nearby Blessings** in the same panel or with
+  `/br bless complement on` to pick a different known class-appropriate
+  blessing when an ungrouped player already has your preferred blessing
+  from another Paladin, including its Greater version. It starts off and
+  does not override group plans or explicit class/role assignments.
 - **Class & Role Assignments** (optional): from Settings → Buffs, open
   **Class & Role Assignments** or type `/br buffassign`. A known group role
   uses its class and role cell. Strangers and players whose role is
@@ -272,17 +277,25 @@ Hover over a name to see exactly what will be cast and what they still need.
 
 ### Keybind and macro
 
-- **Keybinds:** Settings > *Set keybind* opens Key Bindings at the BuffRadar section,
-  which has three: **Cast next buff**, **Show / hide window** and **Mute / unmute sound**.
-- **Macro:** Settings > *Create macro* (or `/br macro`) puts a ready-made macro on your
-  cursor. Drop it on an action bar. You can also add this line to any macro:
+- **Keybinds:** `/br key` opens the game's **Key Bindings → BuffRadar**. Bind
+  **Cast next buff** to a key or controller button. There are also bindings for
+  **Cast next group buff**, **Show / hide window**, and **Mute / unmute sound**.
+- **Macro:** Settings > *Create macro* (or `/br macro`) puts the managed
+  **BuffRadar** macro on your cursor. Drop it on an action bar and activate
+  the slot with your keyboard, controller, or mouse. The macro follows the
+  queue; don't copy its body into a custom macro. Existing auto-generated
+  macros update in place. A hand-written `/click BuffRadarNextButton` macro
+  cannot execute another macro, so replace it with the managed one. Use the
+  direct binding if a cast won't fit within the game's 255-byte macro limit,
+  and remove the bar macro if you disable or uninstall BuffRadar.
+- **Controllers:** `/br gamepad` opens the same binding menu and shows the two
+  ways to set up controller buffing. To put the macro on a gamepad action bar
+  without a mouse, select **BuffRadar** in the game's Macros window and use
+  the prompt to bind it to a gamepad action bar. Neither method needs the
+  cursor over a player row when casting.
 
-  ```
-  /click BuffRadarNextButton LeftButton 1
-  ```
-
-  Use `/click BuffRadarNextButton` instead if you've turned off *Cast action keybinds on
-  key down* in the game options. The BuffRadar macro updates itself if you change that.
+If only your own character appears, run `/br nearby` to check discovery. Test
+outside a capital, or turn off the default city pause with `/br cities`.
 
 ## Commands
 
@@ -292,7 +305,7 @@ Hover over a name to see exactly what will be cast and what they still need.
 | `/br config` | Open the settings window |
 | `/br config navigate` | Open settings in keyboard navigation mode |
 | `/br config narrate` | Open keyboard navigation with the game's text-to-speech voice |
-| `/br key` | Open Key Bindings at the BuffRadar section |
+| `/br key` · `/br gamepad` | Open the BuffRadar key bindings for a keyboard or controller |
 | `/br macro` | Create the BuffRadar macro |
 | `/br buffs` | List the buffs you can cast and whether each is on |
 | `/br toggle KEY` | Turn one buff on or off (keys come from `/br buffs`) |
@@ -313,6 +326,7 @@ Hover over a name to see exactly what will be cast and what they still need.
 | `/br profile save\|load\|delete\|list <name>` | Named settings profiles |
 | `/br watch` · `/br taxi` | Alert when your single-target buff drops · pause on flight paths |
 | `/br bless <CLASS> <BLESSING> [name]` | Plan which blessing each class gets |
+| `/br bless complement on\|off` | Offer a different blessing to ungrouped players who have your preferred one from another Paladin |
 | `/br bless player <target\|name> <BLESSING\|DEFAULT>` | Set or clear a normal blessing exception for a member of your current group |
 | `/br ready show\|hide\|next\|prev` | Show, hide, or scroll the local ready-check detail |
 | `/br assign <BUFF> <name\|none>` | Leader assigns a buff to one player (rows float/sink by owner) |
@@ -333,8 +347,10 @@ Hover over a name to see exactly what will be cast and what they still need.
 | `/br pvp` | Include or skip PvP-flagged players when you aren't flagged (skipped by default) |
 | `/br lock` · `/br scale <n>` · `/br reset` | Lock (moving and resizing), set any scale from 0.5 to 2, or reset the window's position |
 | `/br autohide` | Hide the window when nobody needs anything |
-| `/br plates` | Turn on friendly nameplates |
-| `/br nearby` | Open Nearby Player Diagnostics to check friendly nameplates, the last scan count, and your current target |
+| `/br plates` · `/br plates on\|off` | Enable or disable the game's friendly nameplates |
+| `/br plates names\|bars` | Hide or show friendly health bars without changing discovery (on supported clients) |
+| `/br plates restore` | Restore nameplate settings last changed through BuffRadar |
+| `/br nearby` | Open Nearby Player Diagnostics to change friendly nameplates and check the scan and your current target |
 | `/br clicks` · `/br debug` | Troubleshooting output |
 
 ## Good to know
@@ -353,6 +369,12 @@ Hover over a name to see exactly what will be cast and what they still need.
   players can appear. When nameplates are off the window says so instead of
   claiming everyone is buffed, and BuffRadar warns once at login. `/br debug`
   shows whether nameplates are on and how many the game is currently showing.
+  BuffRadar doesn't tint world nameplates. To hide their health bars while
+  still finding nearby players, use `/br plates names` or **Show Friendly
+  Names Only** in Nearby Player Diagnostics. Use `/br plates restore` to
+  undo recorded changes, including **Always Show Nameplates** if BuffRadar
+  turned it on. Changes made by older versions weren't recorded; if needed,
+  use `/br plates off` and adjust **Always Show Nameplates** in game options.
 - **Major cities:** Stormwind, Ironforge, Darnassus, Orgrimmar, Thunder Bluff, Undercity,
   The Exodar, Silvermoon and Shattrath. If a city isn't detected, `/br debug` shows the
   zone and map ID BuffRadar sees.

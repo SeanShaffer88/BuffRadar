@@ -1,32 +1,25 @@
--- BuffRadar - Config: the settings window (widget builders, the five
--- tabs, BuildConfig, RefreshConfig, OpenConfig).
--- Loaded after BuffRadar.lua through the .toc. This is file-split
--- Slice B (1.15.0): the code below is the settings do-block that used to
--- sit at the bottom of BuffRadar.lua, moved verbatim; it reaches the
--- main file's locals through X.cfgAPI, which BuffRadar.lua fills in
--- before this file loads. Settings state (the cfg table and every
--- widget) is local to this file, exactly as it was local to the block.
+-- BuffRadar - settings window, controls and keyboard navigation.
 -- Copyright (C) 2026 Malikor. GPLv3 or later.
 
-local _, NS = ...
-NS = NS or {}
-local X = NS.X or {}
-NS.X = X
-local A = X.cfgAPI or {}
+local _, ns = ...
+local X = ns.X
+local core = X.Core
+X.cfgReg = {}
 
 local db  -- the live settings table; read fresh at each entry point (X.GetDB)
-local L = A.L
-local Print, Refresh, PlayAlert = A.Print, A.Refresh, A.PlayAlert
-local ApplyAppearance, ApplyGeometry = A.ApplyAppearance, A.ApplyGeometry
-local BuildBuffList, InvalidateRows, UpdateCounter = A.BuildBuffList, A.InvalidateRows, A.UpdateCounter
-local IsOn = A.IsOn
-local KeybindText, OpenKeybinds, MakeMacro = A.KeybindText, A.OpenKeybinds, A.MakeMacro
-local RefreshMinimapButton = A.RefreshMinimapButton
-local myBuffs = A.myBuffs
-local Ignore = A.Ignore
-local DEFAULTS, SCALE_PRESETS = A.DEFAULTS, A.SCALE_PRESETS
-local CLASSIC_FEATURES = A.CLASSIC_FEATURES
-local NEXT_BINDING = A.NEXT_BINDING
+local L = X.L
+local Print, Refresh, PlayAlert = X.Print, X.Refresh, core.PlayAlert
+local ApplyAppearance, ApplyGeometry = X.ApplyAppearance, X.ApplyGeometry
+local BuildBuffList, InvalidateRows, UpdateCounter = core.BuildBuffList, X.InvalidateRows, X.UpdateCounter
+local IsOn = core.IsOn
+local KeybindText, OpenKeybinds, MakeMacro = core.KeybindText, core.OpenKeybinds, core.MakeMacro
+local RefreshMinimapButton = X.RefreshMinimapButton
+local myBuffs = core.Buffs
+local Ignore = X.Ignore
+local DEFAULTS = X.Settings.Defaults
+local SCALE_PRESETS = { 0.5, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2 }
+local CLASSIC_FEATURES = X.classic
+local NEXT_BINDING = core.NextBinding
 local pairs, ipairs, type, tonumber, tostring, pcall = pairs, ipairs, type, tonumber, tostring, pcall
 local math_floor, math_min = math.floor, math.min
 local table_sort = table.sort
@@ -700,7 +693,7 @@ local function OpenBlessingPanel()
                               BackdropTemplateMixin and "BackdropTemplate" or nil)
     cfg.blessingPanel, cfg.blessingSelectors = panel, {}
     panel:SetPoint("CENTER", cfg, "CENTER")
-    panel:SetSize(490, 372)
+    panel:SetSize(490, 392)
     panel:SetFrameStrata("DIALOG")
     panel:SetFrameLevel((cfg:GetFrameLevel() or 0) + 10)
     panel:EnableMouse(true)
@@ -730,8 +723,13 @@ local function OpenBlessingPanel()
       selector:SetPoint("TOPLEFT", 158, y)
       cfg.blessingSelectors[i] = selector
     end
+    panel.complement = MakeCheck(panel, L["Complement Nearby Blessings"],
+      function() return db.blessingComplement end, X.SetBlessingComplement)
+    panel.complement:SetPoint("TOPLEFT", 18, -321)
+    Tip(panel.complement, L["Complement Nearby Blessings"],
+      L["Offer a different known blessing outside your group if another Paladin already provides your preferred blessing. Explicit rules still take precedence."])
     local hint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    hint:SetPoint("TOPLEFT", 22, -330)
+    hint:SetPoint("TOPLEFT", 22, -355)
     hint:SetWidth(442)
     hint:SetJustifyH("LEFT")
     hint:SetText(L["An active group blessing plan takes precedence."])
@@ -2897,7 +2895,6 @@ local function BuildConfig()
     v = math.floor(v + 0.5)
     db.idleFade = v
     fadeValue:SetText(v .. "%")
-    X.curAlpha = nil
   end, L["Idle fade (mouse away)"], function() return cfg.fadeValue:GetText() end)
 
   local scaleLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -2944,7 +2941,7 @@ local function BuildConfig()
 
   cfg.twoColCheck = MakeCheck(look, L["Two columns when the list is long"],
     function() return db.twoCol end,
-    function(v) db.twoCol = v; X.cols = nil; Refresh() end)
+    function(v) db.twoCol = v; Refresh() end)
   cfg.twoColCheck:SetPoint("TOPLEFT", 10, -396)
 
   cfg.wizardBtn = MakeButton(look, "Run the setup wizard", 150, function()
@@ -3119,14 +3116,14 @@ local function BuildConfig()
     OpenKeybinds()
   end)
   setKey:SetPoint("TOPLEFT", 14, -288)
-  local makeMacro = MakeButton(alerts, "Create macro", 120, function() MakeMacro(false) end)
+  local makeMacro = MakeButton(alerts, "Create macro", 120, function() MakeMacro() end)
   makeMacro:SetPoint("LEFT", setKey, "RIGHT", 10, 0)
 
   local hint = alerts:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   hint:SetPoint("TOPLEFT", 14, -316)
   hint:SetWidth(420)
   hint:SetJustifyH("LEFT")
-  hint:SetText("Cast next buff targets the first player in the list. Doesn't fire in combat.")
+  hint:SetText(L["Cast next buff works with a keyboard or controller and does not fire in combat."])
 
   ------------------------------------------------------------------
   -- Tab: Buffs
@@ -3995,6 +3992,7 @@ RefreshConfig = function()
   if cfg.blessingPanel and cfg.blessingPanel:IsShown() then
     if X.HasKnownBlessings() then
       for _, selector in ipairs(cfg.blessingSelectors) do selector:Update() end
+      cfg.blessingPanel.complement:Update()
     else
       cfg.blessingPanel:Hide()
     end

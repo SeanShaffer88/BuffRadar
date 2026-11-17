@@ -48,9 +48,9 @@ then — just run `-Setup` again.
 | Check | Catches |
 |---|---|
 | **luacheck** | Accidental globals, unused or shadowed variables, unreachable code. Settings in `..\.luacheckrc`: reading the game's API is allowed, creating globals is reported unless listed there. |
-| **Lua 5.1 compile** (`luacheck51.py`) | Compiles every Lua file listed in the Forever TOC. A nonzero compiler exit stops the checker before the trial run. |
+| **Lua 5.1 compile** (`luacheck51.py`) | Compiles the addon and translations (the Forever TOC in PowerShell, all shared Lua files in CI). A compiler failure stops the gate before the trial run. |
 | **Lua 5.1 limits** (`lualimits.py`) | Estimates headroom against Lua 5.1's limits of 200 active locals and 60 upvalues per function. The checker warns from 195 locals or 55 upvalues. The estimates are advisory. |
-| **Trial run** (`smoke51.py` + `wowstub.lua`) | Errors while running: loads the addon into a fake game client, logs in, fires game events, runs every `/br` command, clicks every settings control, and checks the behavior added in 1.3.2, 1.4.0, 1.5.0, 1.6.0 and 1.7.0 (coverage, rezzed priority, session ignore, announce, ready check, expiry flag, low-mana pause, distance sort, spec profiles, export/import, compact rows, per-character position, post-combat flash, SavedVariables migration, cast sync, chat requests, join digest, role filter, toggle strip, need sort, phase skip, idle fade, named profiles, drop alert, coverage cooldown note, flight-path pause, resetpos, all-buffed pill, cast queue tag, shipped presets, consumables watch, custom watched spells, buff assignments, buddy split, blessing planner, coverage uptime, auto profiles, cover-me handoff, ready-check auto-post, coverage roster line, pin a player, tooltip remaining times, weapon enchant watch, instance-entry reminder, group expiry warning, cast history, scan throttle). Runs six setups: retail (modern client, older timer, no UI templates, German client) and Forever (two). |
+| **Trial run** (`smoke51.py` + `wowstub.lua`) | Loads each edition in its TOC order. Checks startup and save migrations, cast attributes and event bookkeeping, window layout and controls, profile round trips, slash commands, and scan performance. Runs seven setups: both declared TOCs, plus variations for Extras on Retail, timers, UI templates, and German. |
 | **Translations** (`localecheck.py`) | Each `Locales\*.lua` against BuffRadar's English text: keys BuffRadar doesn't use (typos, outdated text) and `%d` / `%s` / color codes that differ — both fail the check. Untranslated lines are only listed. |
 | **Lua pattern arguments** (`patterncheck.py`) | Every `find` / `match` / `gmatch` / `gsub` pattern must be a string literal, or the call must be a plain find (`:find(x, 1, true)`), so player names, chat and imports can never be read as patterns. One line at a time; a non-literal pattern fails the check. |
 | **Forever package** | If a ZIP for the current version exists in `dist\`, checks its bytes against the current source, TOC metadata, declared Lua load order, and XML bindings in a Forever mock. CI builds and checks the archive on every PR. |
@@ -59,9 +59,9 @@ then — just run `-Setup` again.
 ## Limits of the fake game client
 
 `wowstub.lua` imitates only the parts of the game BuffRadar uses, closely
-enough to run every code path. It doesn't model layout, secure-button rules,
-real casting, group play or combat restrictions, so a clean run still needs a
-test in the game. When you add a feature, add a step for it in `smoke51.py`.
+enough to exercise the addon's logic and record widget writes. It is not a
+renderer or a secure execution environment. A clean run still needs an in-game
+test of real casting, controller input, combat lockdown, and visual layout. When you add a feature, add a step for it in `smoke51.py`.
 
 The two-client harness controls message order and duplicates in memory.
 Its assertions cover the addon’s handling of those messages. The harness

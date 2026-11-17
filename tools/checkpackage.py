@@ -79,7 +79,7 @@ def check_package(archive, project=None):
         setfenv(chunk, env)
         chunk("BuffRadar", ns)
       end, function()
-        assert(ns.X and ns.X.OpenConfig and ns.X.HandleSlash and ns.X.Export
+        assert(ns.X and ns.X.OpenConfig and env.SlashCmdList.BUFFRADAR and ns.X.Export
           and ns.X.DeathRecap, "packaged modules did not initialize")
         for _, event in ipairs({"ADDON_LOADED", "PLAYER_LOGIN"}) do
           for _, frame in ipairs(env.__frames) do

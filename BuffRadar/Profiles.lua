@@ -1,19 +1,34 @@
--- BuffRadar - Profiles: export/import strings, buff plans, saved profiles and
--- presets (/br export, import, plan, profile, preset). Split out of
--- BuffRadar.lua (file split Slice E). Loaded after BuffRadar.lua; talks to it
--- only through the shared X table.
+-- BuffRadar - settings and plan strings, saved profiles and presets.
 -- Copyright (C) 2026 Malikor. GPLv3 or later.
 
-local _, NS = ...
-local X = NS and NS.X
-if not X then return end
+local _, ns = ...
+local X = ns.X
 
-local BLESSINGS, DEFAULTS, Ignore = X.BLESSINGS, X.DEFAULTS, X.Ignore
-local Esc, Unesc, SanitizeDB = X.Esc, X.Unesc, X.SanitizeDB
-local IsProfileName, PROFILE_MAX_BYTES = X.IsProfileName, X.PROFILE_MAX_BYTES
+local settings = X.Settings
+local BLESSINGS, DEFAULTS, Ignore = X.BLESSINGS, settings.Defaults, X.Ignore
+local IsProfileName, PROFILE_MAX_BYTES = settings.IsProfileName, settings.ProfileMaxBytes
 local math_floor, math_huge, math_max = math.floor, math.huge, math.max
 local string_format, table_sort = string.format, table.sort
 local CLIPBOARD_MAX_BYTES = 16384
+
+-- Settings export / import: one copyable string. Covers the window look,
+-- behavior toggles, buff toggles, rebuff timings and both ignore sets --
+-- not positions, cast counts or stats (those belong to one machine / char).
+local EXPORT_KEYS = { "locked", "includeSelf", "avoidPvP", "autoHide", "rebuff", "scale",
+  "width", "cfgScale", "castMethod", "clickReg", "bgAlpha", "showTitle", "showBorder",
+  "playSound", "showCounter", "groupOnly", "pauseInCities", "groupCast", "groupCastMin",
+  "sortMode", "alertSound", "alertSounds", "buffPrio", "clickThrough", "muteInInstance", "showMinimap", "lowMana",
+  "sync", "requests", "joinDigest", "roleFilter", "showStrip", "idleFade",
+  "pill", "queueTag", "consumables", "buddySplit", "readyPost", "weaponWatch", "enterFlash",
+  "scanThrottle", "growUp", "theme", "autoThemePriority", "findBox", "durationBars", "raidMarkers",
+  "focusWatch", "pets", "auraWatch", "worldWatch", "drinkWatch", "twoCol",
+  "deathRecap", "wipeReport", "rowGap", "iconSize",
+  "tooltipLevel", "viewMode", "classColors", "showRealm", "nameTrim",
+  "scalePerSpec", "gripSnap", "tagSymbols", "reduceMotion", "rangeWatch", "assumeRange",
+  "fastAura", "modClick", "pullFlash", "fallSound" }
+
+local function Esc(v) return (tostring(v):gsub("%%", "%%25"):gsub(";", "%%3B"):gsub("=", "%%3D")) end
+local function Unesc(v) return (v:gsub("%%3D", "="):gsub("%%3B", ";"):gsub("%%25", "%%")) end
 
 local function ClipboardText(text)
   if type(text) ~= "string" then return nil, "Nothing to import." end
@@ -37,7 +52,7 @@ end
 function X.Export()
   local db = X.GetDB()
   local parts = { "BR1", "complete=1" }
-  for _, k in ipairs(X.EXPORT_KEYS) do
+  for _, k in ipairs(EXPORT_KEYS) do
     local v = db[k]
     if type(v) == "boolean" then parts[#parts + 1] = k .. "=" .. (v and "1" or "0")
     elseif type(v) == "number" or type(v) == "string" then parts[#parts + 1] = k .. "=" .. Esc(v) end
@@ -85,7 +100,7 @@ do
   local retiredScalars = { strata = "string", showOutOfRange = "boolean",
     hideInCombat = "boolean", rangeText = "boolean" }
   local retiredLayers = { LOW = true, MEDIUM = true, HIGH = true, DIALOG = true }
-  for _, key in ipairs(X.EXPORT_KEYS) do
+  for _, key in ipairs(EXPORT_KEYS) do
     if type(DEFAULTS[key]) ~= "table" then
       scalarKeys[key], legacyScalars[key] = true, true
       scalarList[#scalarList + 1] = key
@@ -93,11 +108,13 @@ do
   end
   for _, key in ipairs({
     "compact", "textScale", "charPoint", "pauseInBG", "pauseTaxi", "watchDrop",
-    "minimapAngle", "rangeText", "pinned", "thornsAnyClassOutdoors",
+    "minimapAngle", "rangeText", "pinned", "thornsAnyClassOutdoors", "blessingComplement",
   }) do
     scalarKeys[key] = true
     scalarList[#scalarList + 1] = key
   end
+
+  local optionalFalse = { thornsAnyClassOutdoors = true, blessingComplement = true }
 
   local function Encode(value)
     if type(value) == "boolean" then return value and "1" or "0" end
@@ -109,7 +126,7 @@ do
     local db = X.GetDB()
     local parts = { "bgColor=" .. Encode(db.bgColor), "blessingPreferences=1" }
     for _, key in ipairs(scalarList) do
-      if key ~= "thornsAnyClassOutdoors" or db[key] then
+      if not optionalFalse[key] or db[key] then
         parts[#parts + 1] = key .. "=" .. Encode(db[key])
       end
     end
@@ -223,7 +240,7 @@ do
         scalarFields[key] = true
       elseif key == "bgColor" or (modern and scalarKeys[key]) or legacyScalars[key] then
         local value = Decode(key == "bgColor" and "color" or type(DEFAULTS[key]), key, raw)
-        if value == nil or scalarFields[key] or not X.ProfileScalarValid(key, value) then return nil end
+        if value == nil or scalarFields[key] or not settings.ProfileScalarValid(key, value) then return nil end
         patch[key], scalarFields[key] = value, true
         count = count + 1
       elseif (modern and key == "strata") or (not modern and retiredScalars[key]) then
@@ -252,7 +269,7 @@ do
       if not patch.bgColor then return nil end
       for _, key in ipairs(scalarList) do
         if not scalarFields[key] and key ~= "autoThemePriority" then
-          if key == "thornsAnyClassOutdoors" or (key == "assumeRange" and scalarFields.strata) then
+          if optionalFalse[key] or (key == "assumeRange" and scalarFields.strata) then
             patch[key] = false
           else
             return nil
@@ -300,7 +317,7 @@ do
     local candidate = {}
     for key, value in pairs(db) do candidate[key] = value end
     for key, value in pairs(patch) do candidate[key] = value end
-    SanitizeDB(candidate)
+    settings.Sanitize(candidate)
     for key in pairs(patch) do db[key] = candidate[key] end
     if syncWasEnabled and not db.sync then X.StopCoordination() end
     X.blockerProfileRevision = (X.blockerProfileRevision or 0) + 1

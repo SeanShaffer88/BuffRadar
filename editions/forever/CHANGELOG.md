@@ -2,6 +2,26 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.35 — WoW: Forever
+
+- Fix the action-bar macro for nearby players. It carries the prepared cast
+  directly when WoW would otherwise have to run a macro from inside another
+  macro. Existing BuffRadar-generated macros update in place. If an exact
+  name can no longer be targeted, BuffRadar won't cast on you or your old target.
+- Use `/br gamepad` to find the native **Cast next buff** controller binding,
+  or put the macro from `/br macro` on your controller's action bar.
+- Add **Complement Nearby Blessings** under **Buffs → Blessings by class**.
+  It offers a different known blessing outside your group when another Paladin
+  already provides your preferred one. It starts off and respects explicit rules.
+- In Nearby Player Diagnostics, show names instead of friendly health bars
+  without losing nearby-player discovery, disable friendly nameplates, or
+  restore the game settings BuffRadar changed. Use `/br nearby` or `/br plates`.
+- Internally, the buff queue, window, minimap, and saved settings now live in
+  separate addon files. The split retains existing saves and bindings.
+
+Automated checks passed; live casting, controller input, and nameplate
+appearance still need the Forever field test.
+
 ## 1.15.34 — WoW: Forever
 
 - Hovering a name now lights its row with a faint wash in your theme's

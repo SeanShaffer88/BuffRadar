@@ -19,9 +19,13 @@ macro to work through the list. Your character goes first by default.
 ## Quick Start
 
 - Run `/br plates` to enable friendly nameplates for nearby players outside
-  your group. BuffRadar also checks your group, target, and mouseover.
+  your group. BuffRadar also checks your group, target, and mouseover. Use
+  `/br plates names` to keep detection without friendly health bars, or
+  `/br plates restore` to undo recorded nameplate changes.
 - Click a row to buff its player. Use `/br key` to set keybinds or run
   `/br macro` outside combat to create a cast-next macro for your action bar.
+  On a controller, use `/br gamepad` to bind **Cast next buff** directly or
+  activate the macro from your action bar.
 - Open settings with `/br config`. Run `/br wizard` for guided setup or
   `/br why <name>` for a player's eligibility and assignment.
 - Click **?** on the buff window or run `/br nearby` to check friendly
@@ -97,6 +101,9 @@ aura and Hunter aspect reminders with `/br aura`.
   precedence over personal class preferences. Use
   `/br bless player <target|name> <blessing|DEFAULT>` for a normal blessing
   exception in your current group, subject to the plan's caster ownership.
+  Enable **Complement Nearby Blessings** with `/br bless complement on` to
+  offer a different known blessing outside your group when another Paladin
+  already provides your preferred one. Explicit rules take precedence.
 - **Class & Role Assignments.** Enable the table in **Settings → Buffs** or
   with `/br buffassign on`. It uses the class and known group role, or
   the class's **World** cell when the role is unavailable or the player is
@@ -220,10 +227,19 @@ BuffRadar has targeted Forever since 1.8.0. The last Retail release was
 
 ## Source and Contributions
 
-- [Runtime](BuffRadar/BuffRadar.lua), [coordination](BuffRadar/Coordination.lua),
-  [setup wizard and diagnostics](BuffRadar/Wizard.lua), [window](BuffRadar/Window.lua), [settings](BuffRadar/Config.lua),
-  [slash commands](BuffRadar/Slash.lua), [profiles](BuffRadar/Profiles.lua), and
-  [translations](BuffRadar/Locales).
+The [Forever TOC](editions/forever/BuffRadar.toc) and the historical
+[Retail TOC](BuffRadar/BuffRadar.toc) load a shared Lua 5.1 implementation:
+
+- [Data](BuffRadar/Data.lua) initializes the addon namespace. [SavedVariables](BuffRadar/SavedVariables.lua)
+  validates and migrates `BuffRadarDB` on load; [Profiles](BuffRadar/Profiles.lua)
+  handles settings and plan imports and exports.
+- [Core](BuffRadar/BuffRadar.lua) scans and builds the cast queue.
+  [Coordination](BuffRadar/Coordination.lua) handles group messages and plans.
+- [Window](BuffRadar/Window.lua) owns the main window and secure buttons.
+  [Minimap](BuffRadar/Minimap.lua) owns the minimap and addon menu.
+  [Config](BuffRadar/Config.lua), [Wizard](BuffRadar/Wizard.lua), and
+  [Slash](BuffRadar/Slash.lua) handle settings, setup, and commands.
+
 - [Report a bug or request a feature](https://github.com/SeanShaffer88/BuffRadar/issues/new/choose).
   Use the [security policy](SECURITY.md) for private reports.
 - [Contributing](CONTRIBUTING.md) and [local checks](tools/README.md).

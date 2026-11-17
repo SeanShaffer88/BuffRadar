@@ -10,10 +10,12 @@
 
 Locales\deDE.lua
 Data.lua
+SavedVariables.lua
 BuffRadar.lua
+Minimap.lua
 Coordination.lua
-Wizard.lua
 Window.lua
+Wizard.lua
 Config.lua
 Slash.lua
 Recaps.lua

@@ -90,8 +90,11 @@ CLIENT = r"""function(name, guid, withTimer)
     error("due timers did not settle")
   end
   local function rowFor(unit)
-    for _, row in ipairs(ns.X.slashAPI.rows) do
+    local index = 1
+    while env["BuffRadarRow" .. index] do
+      local row = env["BuffRadarRow" .. index]
       if row:IsShown() and row.entry and row.entry.unit == unit then return row end
+      index = index + 1
     end
   end
   return {
@@ -116,7 +119,7 @@ CLIENT = r"""function(name, guid, withTimer)
     buffers = function(fortitude, spirit)
       local db = env.BuffRadarDB
       db.enabled.FORTITUDE, db.enabled.DIVINE_SPIRIT = fortitude, spirit
-      ns.X.slashAPI.BuildBuffList()
+      ns.X.Core.BuildBuffList()
     end,
     slash = function(command) env.SlashCmdList.BUFFRADAR("coordinate " .. command) end,
     toggleSync = function() env.SlashCmdList.BUFFRADAR("sync") end,
