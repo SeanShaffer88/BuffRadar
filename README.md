@@ -26,8 +26,9 @@ macro to work through the list. Your character goes first by default.
   `/br macro` outside combat to create a cast-next macro for your action bar.
   On a controller, use `/br gamepad` to bind **Cast next buff** directly or
   activate the macro from your action bar.
-- Open settings with `/br config`. Run `/br wizard` for guided setup or
-  `/br why <name>` for a player's eligibility and assignment.
+- Open settings with `/br config`. Run `/br wizard` or Shift-right-click
+  the minimap button to choose your activity and role and review a starting
+  setup. Use `/br why <name>` for a player's eligibility and assignment.
 - Click **?** on the buff window or run `/br nearby` to check friendly
   nameplates, the last scan count, and your current target's eligibility.
 
@@ -49,7 +50,7 @@ macro to work through the list. Your character goes first by default.
 | Queue order | Check yourself first, prioritize recently resurrected players, and pin one player. Sort by name, tanks and leaders, distance, or most buffs needed. Filter by name or by group role when the client supplies roles. Use `/br self`, `/br pin`, `/br sort`, `/br find`, and `/br filter`. |
 | List views | Use `/br view people\|buffs` for a row per player or per needed buff. The buff view shows how many players need each buff. Scroll long lists with the wheel or `/br scroll up\|down`. The cast-next key still uses the head of the full queue. |
 | Ignore lists | Right-click a row to save an ignore or Shift-right-click to ignore for this session. Manage entries under **Ignore & Stats** or with `/br ignore`, `/br unignore`, `/br signore`, and `/br unsignore`. Export or import the list with `/br ignorelist export` or `/br ignorelist import`. |
-| Scan options | `/br throttle` reduces periodic scans in big groups. `/br fastaura` skips rescans when a readable aura change can be identified as unrelated to watched buffs. |
+| Scan options | `/br throttle on` adjusts periodic scans to movement, group size, and latency without delaying event refreshes. `/br fastaura` skips rescans when a readable aura change can be identified as unrelated to watched buffs. |
 
 ### Casting
 
@@ -57,7 +58,9 @@ macro to work through the list. Your character goes first by default.
   window, and mute or unmute alerts. Open them with `/br key`.
 - **Buff and rank selection.** Enable buffs individually, set priority with
   `/br prio`, and set a shared or per-buff rebuff threshold with `/br rebuff`.
-  Group equivalents satisfy the same underlying buff. BuffRadar skips spells
+  Group equivalents satisfy the same underlying buff. `/br smartprio on`
+  can promote eligible buffs for tank or healer roles, wipe recovery, and
+  saved instance rules. Manual priority breaks ties. BuffRadar skips spells
   on cooldown and can pick a recipient-eligible rank when the data is available.
 - **Cast preview.** Hover a row or the window footer to see the planned cast.
   The next-cast tooltip can show the target, spell rank, fallback reason,
@@ -127,11 +130,12 @@ aura and Hunter aspect reminders with `/br aura`.
 | Feature | Controls and behavior |
 |---|---|
 | Raid Coverage | `/br coverage` opens a read-only report of confirmed, missing, and unknown buffs by subgroup. Select a buff to drill down to the affected players. |
-| Raid Preparation | Open the read-only checklist from **Raid Coverage** or use `/br prep`. Expand a player for missing and expiring buffs, consumable checks, and unknown readings. **Reagents** compares carried quantities with estimated needs and flags shortfalls. Roster changes refresh the open checklist and preserve expansion for a player still present. Use **Refresh Preparation**, or `/br prep personal` for weapon and pet reminders. |
+| Raid Preparation | Open the read-only checklist from **Raid Coverage** or use `/br prep`. Expand a player for missing and expiring buffs, consumable checks, and unknown readings. **Reagents** compares carried quantities with estimated needs and flags shortfalls. Roster changes refresh the open checklist and preserve expansion for a player still present. Open **Personal** with `/br readiness`, even solo, for food, flask, an optional consumable aura, carried Healthstones, durability, and applicable weapon and pet checks. |
 | Subgroup Responsibilities | Open from **Raid Coverage** or `/br subgroup panel`. Restrict a buff to selected raid groups, preview the affected roster, and see why a group cast may fall back to a single-target cast. For example, `/br subgroup FORTITUDE 1,2` assigns groups 1 and 2. Set **All** or **None** as needed. Rules clear when you leave the raid or reload. |
 | Ready Checks | `/br ready show` lists player responses, missing and expiring buffs, unknowns, and estimated group reagents. `/br readypost` lets leaders and assistants enable automatic group-chat summaries. |
 | Recaps and sharing | Get a death recap or post-wipe rebuff report and reprint them with `/br death show` and `/br wipe show`. Use `/br summary` for needs by buff, `/br announce` for party or raid chat, and `/br discord` for copyable Markdown. |
 | Coverage line | Pick visible parts with `/br cover` including progress, buffs and cooldowns, the active or away BuffRadar roster, group expiry, world buffs, drinking healers, and session uptime. `/br uptime` reports the share of grouped scans that found every checked player buffed. |
+| Encounter debuffs | In Settings → **Readiness**, or with `/br debuff add <spell ID> [player\|focus] [encounter ID]` and `/br debuff on`, show readable auras and their stacks in a separate strip. An encounter ID restricts a rule to that fight. |
 | Extras to watch | Read flask and food counts for Forever, see your temporary weapon enchant, and track your focus target's buff needs, world buff timers, or drinking healers. Watch group pets for Fortitude, Mark of the Wild, and Arcane Intellect. Use `/br consumables`, `/br weapon`, `/br focus`, `/br worldbuff`, `/br drink`, or `/br pets`. |
 
 ### Group Coordination
@@ -161,6 +165,11 @@ aura and Hunter aspect reminders with `/br aura`.
   Test and silence alerts in instances from the **Alerts** tab. The
   window can flash after combat or for a supported pull countdown.
   See `/br soundfor`, `/br watch`, `/br fallsound`, and `/br pullflash`.
+- **Expiry forecasts.** `/br forecast 60` warns about confirmed expirations
+  within 60 seconds. A supported pull timer extends the window to include the
+  countdown plus the lead time; `/br forecast timer 30` sets a local deadline.
+  Use `/br forecast off` to disable notices. Forecasts do not infer boss
+  mechanics or arm casts earlier than `/br rebuff` allows.
 
 ### Display and Accessibility
 
@@ -184,7 +193,10 @@ aura and Hunter aspect reminders with `/br aura`.
 - **Quick controls.** Toggle known buffs from the icon strip, add a name
   finder to the list, and show or hide the cast counter. Open settings
   from the gear icon, the movable minimap button, the add-on menu
-  where available, or `/br config`.
+  where available, or `/br config`. The minimap marks confirmed coverage
+  green (`+`), ordinary needs yellow (`!`), critical needs red (`!!`), and
+  unknown coverage gray (`?`). A paused scan has no mark. `/br visual on`
+  adds quiet highlights independently of sound and respects Reduced Motion.
 - **Accessible settings.** Search the active tab with `/br config find`. Use
   `/br config navigate` for keyboard controls or `/br config narrate`
   for the game's configured text-to-speech voice. Tab or Shift+Tab moves,
@@ -199,11 +211,12 @@ aura and Hunter aspect reminders with `/br aura`.
 
 | Feature | Controls and behavior |
 |---|---|
-| Presets and specialization | The setup wizard includes Raid, Dungeon, and Solo presets, also available through `/br preset`. Buff toggles and rebuff overrides can follow the active specialization when the client identifies it. |
+| Presets and specialization | Quick Setup drafts a preset and alert preferences based on your activity and role. It applies them only on confirmation. Standalone presets are available through `/br preset`. Buff toggles and rebuff overrides can follow the active specialization when the client identifies it. |
 | Named profiles | Save, load, list, delete, and share profiles from **Ignore & Stats** or `/br profile`. Preview a saved profile's differences with `/br profile diff <name>`. `/br autoprofile` can switch profiles for raids, dungeons, battlegrounds, grouped world play, or solo play. |
 | Import and export | Use `/br export` and `/br import` for settings strings and `/br diff <string>` to preview them. Share the Class & Role Assignments table with `/br profile share` and `/br profile import`. A shared profile can replace a saved profile of the same name and is applied when loaded. Use `/br plan export` and `/br plan import` to transfer and merge group buff assignments, the blessing plan, and auto-profile mappings. |
 | Casts and history | Show session and all-time totals, reset counters, see per-spell stats or export them, and review the last 50 tracked casts. See `/br count`, `/br resetcount`, `/br stats`, and `/br history`. `/br offenders` tracks players seen unbuffed across group sessions. |
-| Troubleshooting | `/br why <name>` explains how a player is handled. `/br debug` reports client and window state, `/br clicks` logs cast attempts, `/br selftest` prints a report for bug reports, `/br apicheck export` produces a copyable API report, `/br buffcheck` checks spell IDs, and `/br perf` reports scan timings when the client provides a timer. |
+| Troubleshooting | `/br why <name>` explains how a player is handled. `/br debug` reports client and window state, `/br clicks` logs cast attempts, `/br selftest` prints a report for bug reports, `/br apicheck export` produces a copyable API report, `/br buffcheck` checks spell IDs, and `/br perf` reports scan timings when available. `/br stats memory` reports the game's addon total, not per-feature estimates. `/br lite on` pauses forecasts, readiness, debuffs, and optional watches without changing their saved settings. |
+| UI integration and feedback | Use the [read-only status API](docs/STATUS_API.md) or `/br status export`. Get a copyable feature-request link with `/br feedback` or see the [roadmap](docs/ROADMAP.md). |
 
 ## Player Guides
 
@@ -234,6 +247,10 @@ The [Forever TOC](editions/forever/BuffRadar.toc) and the historical
   validates and migrates `BuffRadarDB` on load; [Profiles](BuffRadar/Profiles.lua)
   handles settings and plan imports and exports.
 - [Core](BuffRadar/BuffRadar.lua) scans and builds the cast queue.
+  [Intelligence](BuffRadar/Intelligence.lua) owns scan cadence, forecasts and
+  contextual priority. [Status](BuffRadar/Status.lua) publishes copies;
+  [Debuffs](BuffRadar/Debuffs.lua) and [Readiness](BuffRadar/Readiness.lua)
+  own optional aura and inventory checks.
   [Coordination](BuffRadar/Coordination.lua) handles group messages and plans.
 - [Window](BuffRadar/Window.lua) owns the main window and secure buttons.
   [Minimap](BuffRadar/Minimap.lua) owns the minimap and addon menu.
@@ -255,7 +272,7 @@ The [Forever TOC](editions/forever/BuffRadar.toc) and the historical
 | `.luacheckrc` | luacheck settings used by the checks |
 | `AGENTS.md` | Project rule sheet (prompt in force, frozen foundation, gate) |
 | `QUALITY.md` | Quality scorecard, scored from evidence |
-| `docs/` | `PARITY.md` (capability matrix) and `DECISIONS.md` (decision log) |
+| `docs/` | Capability matrix, decision log, status API, and roadmap |
 | `SECURITY.md` | How to report a security problem, privately |
 
 ## Making a Release

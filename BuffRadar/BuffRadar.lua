@@ -553,6 +553,126 @@ local L = {
   ["Left-click: show / hide the window"] = "Left-click: show / hide the window",
   ["Right-click: settings"] = "Right-click: settings",
   ["Drag: move around the minimap"] = "Drag: move around the minimap",
+  -- Readiness, forecasts and Quick Setup.
+  ["%d broken · Lowest %d%%"] = "%d broken · Lowest %d%%",
+  ["%d cast targets · %d forecast buffs"] = "%d cast targets · %d forecast buffs",
+  ["%d ms"] = "%d ms",
+  ["Active pet"] = "Active pet",
+  ["Adaptive scan throttle"] = "Adaptive scan throttle",
+  ["Adaptive scan throttle: %s"] = "Adaptive scan throttle: %s",
+  ["An instance ID is required."] = "An instance ID is required.",
+  ["Apply here"] = "Apply here",
+  ["Briefly highlight the window or minimap without sound. Respects Reduced Motion."] = "Briefly highlight the window or minimap without sound. Respects Reduced Motion.",
+  ["Buff coverage could not be verified"] = "Buff coverage could not be verified",
+  ["Buff intelligence"] = "Buff intelligence",
+  ["Buff scan paused"] = "Buff scan paused",
+  ["Buff scan paused in combat"] = "Buff scan paused in combat",
+  ["Buff scan paused while dead"] = "Buff scan paused while dead",
+  ["BuffRadar memory: %.0f KB (game-reported total)."] = "BuffRadar memory: %.0f KB (game-reported total).",
+  ["BuffRadar memory: unavailable on this client."] = "BuffRadar memory: unavailable on this client.",
+  ["Buffs need attention"] = "Buffs need attention",
+  ["Checked buffs are covered"] = "Checked buffs are covered",
+  ["Choose your activity and role, then review the suggested settings. /br wizard"] = "Choose your activity and role, then review the suggested settings. /br wizard",
+  ["Consumable aura ID (0 = off)"] = "Consumable aura ID (0 = off)",
+  ["Copy buff status"] = "Copy buff status",
+  ["Copy the current buff status"] = "Copy the current buff status",
+  ["Copy the feedback link and open it in your browser."] = "Copy the feedback link and open it in your browser.",
+  ["Debuff rule saved."] = "Debuff rule saved.",
+  ["Debuff watch is paused in Lite mode."] = "Debuff watch is paused in Lite mode.",
+  ["Debuff watch limit reached."] = "Debuff watch limit reached.",
+  ["Debuff watch: %s"] = "Debuff watch: %s",
+  ["Dungeons / Mythic+"] = "Dungeons / Mythic+",
+  ["Enable forecasts before setting a timer."] = "Enable forecasts before setting a timer.",
+  ["Encounter %d"] = "Encounter %d",
+  ["Encounter ID (optional)"] = "Encounter ID (optional)",
+  ["Encounter debuffs"] = "Encounter debuffs",
+  ["Enter a consumable aura spell ID, or 0 to clear it."] = "Enter a consumable aura spell ID, or 0 to clear it.",
+  ["Enter a forecast time from 0 to 300 seconds (0 turns it off)."] = "Enter a forecast time from 0 to 300 seconds (0 turns it off).",
+  ["Equipment durability"] = "Equipment durability",
+  ["Feedback"] = "Feedback",
+  ["Focus"] = "Focus",
+  ["Forecast lead: %ds (0 = off)."] = "Forecast lead: %ds (0 = off).",
+  ["Forecast seconds (0 = off)"] = "Forecast seconds (0 = off)",
+  ["Forecast: %s on %s expires in %ds."] = "Forecast: %s on %s expires in %ds.",
+  ["Forecasts are paused in Lite mode."] = "Forecasts are paused in Lite mode.",
+  ["Healthstone in bags"] = "Healthstone in bags",
+  ["Important buff missing or expiring"] = "Important buff missing or expiring",
+  ["Instance %d: %s"] = "Instance %d: %s",
+  ["Instance rule limit reached."] = "Instance rule limit reached.",
+  ["Lite mode"] = "Lite mode",
+  ["Lite mode: %s"] = "Lite mode: %s",
+  ["Local preparation timer: %ds."] = "Local preparation timer: %ds.",
+  ["Lowest %d%%"] = "Lowest %d%%",
+  ["Memory usage"] = "Memory usage",
+  ["Minimap status: %s"] = "Minimap status: %s",
+  ["Missing"] = "Missing",
+  ["Most buffs needed"] = "Most buffs needed",
+  ["Name"] = "Name",
+  ["New to BuffRadar? Run /br wizard for Quick Setup."] = "New to BuffRadar? Run /br wizard for Quick Setup.",
+  ["No applicable buffs to check"] = "No applicable buffs to check",
+  ["No aura configured"] = "No aura configured",
+  ["No debuffs are being tracked."] = "No debuffs are being tracked.",
+  ["No durable equipment"] = "No durable equipment",
+  ["No instance priority rules saved."] = "No instance priority rules saved.",
+  ["No missing coating"] = "No missing coating",
+  ["Open personal checks"] = "Open personal checks",
+  ["Optional consumable"] = "Optional consumable",
+  ["Order: %s · Forecast: %ds (0 = off)"] = "Order: %s · Forecast: %ds (0 = off)",
+  ["Pause the checklist, forecasts, debuffs and optional aura watches without changing their settings."] = "Pause the checklist, forecasts, debuffs and optional aura watches without changing their settings.",
+  ["Performance & alerts"] = "Performance & alerts",
+  ["Periodic scan: %.1fs · Latency: %s"] = "Periodic scan: %.1fs · Latency: %s",
+  ["Personal"] = "Personal",
+  ["Personal consumable aura ID: %d (0 = off)."] = "Personal consumable aura ID: %d (0 = off).",
+  ["Player"] = "Player",
+  ["Present"] = "Present",
+  ["Press Enter to save."] = "Press Enter to save.",
+  ["Priority buff key for this instance"] = "Priority buff key for this instance",
+  ["Promote buffs for tanks, healers, recovery and your instance rules without changing eligibility."] = "Promote buffs for tanks, healers, recovery and your instance rules without changing eligibility.",
+  ["Queue rows: %d · Saved casts: %d · Debuff rules: %d"] = "Queue rows: %d · Saved casts: %d · Debuff rules: %d",
+  ["Quick Setup"] = "Quick Setup",
+  ["Quick Setup complete. Run /br wizard to make new choices."] = "Quick Setup complete. Run /br wizard to make new choices.",
+  ["Quick Setup is unavailable in combat."] = "Quick Setup is unavailable in combat.",
+  ["Quick Setup · Step %d of 3"] = "Quick Setup · Step %d of 3",
+  ["Quiet alerts and the minimap status are enabled. Buff selections and keybinds are kept."] = "Quiet alerts and the minimap status are enabled. Buff selections and keybinds are kept.",
+  ["Quiet visual alerts"] = "Quiet visual alerts",
+  ["Raid Preparation is available in WoW: Forever."] = "Raid Preparation is available in WoW: Forever.",
+  ["Raid Preparation is paused in Lite mode."] = "Raid Preparation is paused in Lite mode.",
+  ["Raids"] = "Raids",
+  ["Readiness"] = "Readiness",
+  ["Remove"] = "Remove",
+  ["Repair recommended"] = "Repair recommended",
+  ["Group only: %s · Group casts: %s · Pause in cities: %s"] = "Group only: %s · Group casts: %s · Pause in cities: %s",
+  ["Save watch"] = "Save watch",
+  ["Shift-right-click: Quick Setup"] = "Shift-right-click: Quick Setup",
+  ["Show watched debuffs"] = "Show watched debuffs",
+  ["Slow periodic scans at rest or with high latency. Event refreshes stay responsive."] = "Slow periodic scans at rest or with high latency. Event refreshes stay responsive.",
+  ["Smart buff priority"] = "Smart buff priority",
+  ["Smart priority: %s"] = "Smart priority: %s",
+  ["Solo play"] = "Solo play",
+  ["Some buff coverage could not be verified"] = "Some buff coverage could not be verified",
+  ["Some slots unknown"] = "Some slots unknown",
+  ["Soulwell availability cannot be checked."] = "Soulwell availability cannot be checked.",
+  ["Spell ID"] = "Spell ID",
+  ["Status on the minimap"] = "Status on the minimap",
+  ["Tanks first"] = "Tanks first",
+  ["Temporary weapon coating"] = "Temporary weapon coating",
+  ["That debuff is not on the watch list."] = "That debuff is not on the watch list.",
+  ["The game does not report memory by feature."] = "The game does not report memory by feature.",
+  ["Track up to eight harmful spell IDs on you or your focus, when the client exposes them."] = "Track up to eight harmful spell IDs on you or your focus, when the client exposes them.",
+  ["Use /br debuff on|off|list, add <spell ID> [player|focus] [encounter ID], or remove <spell ID> [player|focus]."] = "Use /br debuff on|off|list, add <spell ID> [player|focus] [encounter ID], or remove <spell ID> [player|focus].",
+  ["Use /br forecast timer <1-600|off>."] = "Use /br forecast timer <1-600|off>.",
+  ["Use /br readiness [personal|show|hide|next|prev] or aura <spell ID|off>."] = "Use /br readiness [personal|show|hide|next|prev] or aura <spell ID|off>.",
+  ["Use /br smartprio [on|off|list], here <KEY|clear>, or instance <ID> <KEY|clear>."] = "Use /br smartprio [on|off|list], here <KEY|clear>, or instance <ID> <KEY|clear>.",
+  ["Use a buff key from /br buffs."] = "Use a buff key from /br buffs.",
+  ["Use a key from /br buffs. Clear the field to remove the rule."] = "Use a key from /br buffs. Clear the field to remove the rule.",
+  ["Use a valid debuff spell ID, player or focus, and an optional encounter ID."] = "Use a valid debuff spell ID, player or focus, and an optional encounter ID.",
+  ["Visual alerts: %s"] = "Visual alerts: %s",
+  ["Waiting for a fresh buff scan"] = "Waiting for a fresh buff scan",
+  ["Watch unit"] = "Watch unit",
+  ["What do you play most often?"] = "What do you play most often?",
+  ["What is your primary role?"] = "What is your primary role?",
+  ["Your character only"] = "Your character only",
+  ["Your supported buffs: %s"] = "Your supported buffs: %s",
 }
 setmetatable(L, { __index = function(_, k) return k end })
 do
@@ -622,25 +742,15 @@ end
 end -- spellbook readers block
 
 local function InRaid()
-  if IsInRaid then return IsInRaid() end
-  return GetNumRaidMembers and GetNumRaidMembers() > 0
+  local inRaid = X.ReadUnitBool(IsInRaid)
+  if inRaid ~= nil then return inRaid end
+  return (X.ReadUnitNumber(GetNumRaidMembers) or 0) > 0
 end
 
 local function InGroup()
-  if IsInGroup then
-    local ok, v = pcall(IsInGroup)
-    if ok and v then return true end
-  end
-  if InRaid() then return true end
-  if GetNumGroupMembers then
-    local ok, n = pcall(GetNumGroupMembers)
-    if ok and type(n) == "number" and n > 0 then return true end
-  end
-  if GetNumPartyMembers then
-    local ok, n = pcall(GetNumPartyMembers)
-    if ok and type(n) == "number" and n > 0 then return true end
-  end
-  return false
+  if X.ReadUnitBool(IsInGroup) == true or InRaid() then return true end
+  return (X.ReadUnitNumber(GetNumGroupMembers) or 0) > 0
+    or (X.ReadUnitNumber(GetNumPartyMembers) or 0) > 0
 end
 
 -- Non-group players are only visible to addons through friendly nameplates,
@@ -1182,25 +1292,34 @@ do
   end
 end
 
-local function HasAny(unit, names, minLeft)
+local scanHorizon  -- coverage/forecast lookahead for the current list scan only
+local function HasAny(unit, names, minLeft, measure)
   minLeft = minLeft or db.rebuff or 0
-  local unknown = false
+  local ceiling = measure and math_max(minLeft, measure) or minLeft
+  local longest, unknown, untimed = 0, false, false
   for i = 1, #names do
     local rem, presence, uncertainTimer = X.Remaining(unit, names[i])
-    if rem and rem > minLeft then return true end
-    if presence == "present" and rem == nil and minLeft == 0 then return true end
+    if rem and rem > ceiling then return true end
+    if rem and rem > longest then longest = rem end
+    if presence == "present" and rem == nil then
+      if minLeft == 0 and not measure then return true end
+      untimed = true
+    end
     if presence == "unknown" or (presence == "present" and (rem == nil or uncertainTimer)) then
       unknown = true
     end
   end
-  if unknown then return nil end
-  return false
+  -- When measuring, an unreadable or later equivalent can outlast the
+  -- shorter aura. Only forecast loss of coverage when the whole family ends.
+  local has = longest > minLeft or (minLeft == 0 and untimed)
+  if unknown then return has and true or nil end
+  return has, longest
 end
 
 ---------------------------------------------------------------------------
 -- What can I cast?
 ---------------------------------------------------------------------------
-local known, myBuffs, myBlessing, blessKnown = {}, {}, {}, {}
+local known, myBuffs, myBlessing, blessKnown, blessKeys = {}, {}, {}, {}, {}
 local ranks = {}   -- ranks[name] = { {rank=n, sub="Rank n", id=spellID}, ... } ascending
 local hasAnyBuff = false
 local bookCount = 0
@@ -1277,6 +1396,7 @@ function BuildBuffList()
   end
 
   wipe(myBuffs)
+  X.nameKeyStamp = nil
   for _, d in ipairs(BUFF_DEFS) do
     local castName, names = nil, {}
     if d.choices then
@@ -1346,7 +1466,7 @@ function BuildBuffList()
       local b = BLESSINGS[k]
       local name = SpellName(b.id, b.name)
       if KnowsSpell(b.id, name) then
-        myBlessing[class] = { name = name,
+        myBlessing[class] = { name = name, priorityKey = "BLESS_" .. k,
                               names = { name, SpellName(b.greater[1], b.greater[2]) } }
         break
       end
@@ -1356,10 +1476,12 @@ function BuildBuffList()
   -- Every blessing you know, by key: the blessing planner (1.6.0) picks
   -- from this instead of the per-class priority list when a plan is set.
   wipe(blessKnown)
+  wipe(blessKeys)
   for k, b in pairs(BLESSINGS) do
     local name = SpellName(b.id, b.name)
     if KnowsSpell(b.id, name) then
-      blessKnown[k] = { name = name,
+      blessKeys[name] = "BLESS_" .. k
+      blessKnown[k] = { name = name, priorityKey = blessKeys[name],
                         names = { name, SpellName(b.greater[1], b.greater[2]) } }
     end
   end
@@ -1859,6 +1981,15 @@ function X.TrackDeaths(list, extra)
   if extra then X.Track(extra) end
 end
 
+local function MeasureExpiry(unit, key, name, has, left, observe, blessing)
+  if scanHorizon and left and observe and X.SubgroupAllows(key, unit, true) then
+    X.Intel.Observe(unit, key, name, left, blessing)
+  end
+  if has == true and left and left <= 300 then
+    X.expiryTally[key] = (X.expiryTally[key] or 0) + 1
+  end
+end
+
 local function Missing(unit, out, isGroup, isSelf, report, detail)
   wipe(out)
   if not report then X.remainTmp, X.auraUnknown, X.auraNeedsBuff = nil, nil, nil end
@@ -1873,7 +2004,7 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
     if report == "why" then detail.rule = L["Rule unavailable"] end
     return 0, true, false
   end
-  if not report and isGroup and db.consumables then
+  if not report and isGroup and db.consumables and not db.liteMode then
     for _, cd in ipairs(X.CONS_DEFS) do
       local t = X.consTally[cd.key]
       if not t then t = { total = 0, miss = 0 }; X.consTally[cd.key] = t end
@@ -1935,7 +2066,7 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
     elseif eligible then
       local thr = report and report ~= "why" and 0
         or (db.rebuffPer and db.rebuffPer[b.key]) or db.rebuff
-      local has = HasAny(unit, b.names, thr)
+      local has, left = HasAny(unit, b.names, thr, not report and isGroup and scanHorizon)
       if report then
         checked = true
         if has == nil then unknown = true end
@@ -1946,102 +2077,79 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
         end
         if report == "ready" then X.RecordReadyAura(detail, unit, b.name, b.names, has, b.key) end
       else
-          if has == nil then X.auraUnknown = true
-          elseif has == false then X.auraNeedsBuff = true end
-          local t
-          if isGroup and has ~= nil then
-            t = X.tally[b.key]
-            if not t then t = { total = 0, miss = 0 }; X.tally[b.key] = t end
-            t.total = t.total + 1
-          end
-          if not OnCooldown(b.name) then
-            if has == false then
-              n = n + 1
-              out[n] = b.name
-              if t then t.miss = t.miss + 1 end
-              if n == 1 then  -- still present but inside its rebuff window?
-                for _, nm2 in ipairs(b.names) do
-                  local r = X.Remaining(unit, nm2)
-                  if r and r > 0 and r < math_huge then X.remainTmp = r break end
-                end
-              end
-            elseif isGroup and has == true then
-              -- Group expiry watch (1.7.0): the buff is up, but inside its
-              -- last five minutes — count it toward the coverage warning.
-              local soonest = math_huge
-              for _, nm2 in ipairs(b.names) do
-                local r = X.Remaining(unit, nm2)
-                if r and r < soonest then soonest = r end
-              end
-              if soonest <= 300 then
-                X.expiryTally[b.key] = (X.expiryTally[b.key] or 0) + 1
-              end
-            end
-          end
+        if has == nil then X.auraUnknown = true
+        elseif has == false then X.auraNeedsBuff = true end
+        local t
+        if isGroup and has ~= nil then
+          t = X.tally[b.key]
+          if not t then t = { total = 0, miss = 0 }; X.tally[b.key] = t end
+          t.total = t.total + 1
+          MeasureExpiry(unit, b.key, b.name, has, left, not b.single)
+        end
+        if has == false and not OnCooldown(b.name) then
+          n = n + 1
+          out[n] = b.name
+          if t then t.miss = t.miss + 1 end
+          if n == 1 and left and left > 0 then X.remainTmp = left end
         end
       end
     end
-    local bl, blessingSource
-    if CLASSIC_FEATURES then
-      bl, blessingSource = X.BlessingForClass(class, (isGroup or isSelf) and unit, assignment, proposal, member)
+  end
+
+  local bl, blessingSource
+  if CLASSIC_FEATURES then
+    bl, blessingSource = X.BlessingForClass(class, (isGroup or isSelf) and unit, assignment, proposal, member)
+  end
+  if report == "why" then
+    if blessingSource == "exception" then detail.blessing = L["Blessing: player exception"]
+    elseif blessingSource == "plan" then detail.blessing = L["Blessing: group plan"]
+    elseif blessingSource == "other" then detail.blessing = L["Blessing assigned to another Paladin"] end
+  end
+  local blessingEligible = (not subgroupKey or subgroupKey == "BLESSINGS")
+    and bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf)
+    and X.ContextOK("BLESSINGS")
+  if report == "raidCoverage" then
+    if blessingEligible then
+      local has
+      if detail.observable then has = HasAny(unit, bl.names, 0) end
+      detail.record(bl.name, has)
     end
-    if report == "why" then
-      if blessingSource == "exception" then detail.blessing = L["Blessing: player exception"]
-      elseif blessingSource == "plan" then detail.blessing = L["Blessing: group plan"]
-      elseif blessingSource == "other" then detail.blessing = L["Blessing assigned to another Paladin"] end
+  elseif reviewing and blessingEligible then
+    out[#out + 1] = bl.name
+  elseif blessingEligible then
+    local covered
+    if db.blessingComplement and not isGroup and isSelf == false and assignment == nil and not blessingSource then
+      local preferred = bl
+      bl, covered = X.ComplementWorldBlessing(unit, class, preferred)
+      if report == "why" and bl ~= preferred then detail.blessing = L["Blessing: complement another Paladin"] end
     end
-    local blessingEligible = (not subgroupKey or subgroupKey == "BLESSINGS")
-      and bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf)
-      and X.ContextOK("BLESSINGS")
-    if report == "raidCoverage" then
-      if blessingEligible then
-        local has
-        if detail.observable then has = HasAny(unit, bl.names, 0) end
-        detail.record(bl.name, has)
-      end
-    elseif reviewing and blessingEligible then
-      out[#out + 1] = bl.name
-    elseif blessingEligible then
-      local covered
-      if db.blessingComplement and not isGroup and isSelf == false and assignment == nil and not blessingSource then
-        local preferred = bl
-        bl, covered = X.ComplementWorldBlessing(unit, class, preferred)
-        if report == "why" and bl ~= preferred then detail.blessing = L["Blessing: complement another Paladin"] end
-      end
-      local has = covered or HasAny(unit, bl.names)
-      if report then
-        checked = true
-        if has == nil then unknown = true end
-        if has == false then n = n + 1; out[n] = bl.name end
-        if report == "ready" then X.RecordReadyAura(detail, unit, bl.name, bl.names, has, "BLESSINGS") end
-      else
-      if has == nil then X.auraUnknown = true end
+    local has, left = covered, nil
+    if not has then
+      local thr = report and report ~= "why" and 0 or db.rebuff
+      has, left = HasAny(unit, bl.names, thr, not report and isGroup and scanHorizon)
+    end
+    if report then
+      checked = true
+      if has == nil then unknown = true end
+      if report == "why" and has == false and OnCooldown(bl.name, detail.cooldowns) then
+        detail.cooldown[#detail.cooldown + 1] = bl.name
+      elseif has == false then n = n + 1; out[n] = bl.name end
+      if report == "ready" then X.RecordReadyAura(detail, unit, bl.name, bl.names, has, "BLESSINGS") end
+    else
+      if has == nil then X.auraUnknown = true
+      elseif has == false then X.auraNeedsBuff = true end
       local t
       if isGroup and has ~= nil then
         t = X.tally.BLESSINGS
         if not t then t = { total = 0, miss = 0 }; X.tally.BLESSINGS = t end
         t.total = t.total + 1
+        MeasureExpiry(unit, "BLESSINGS", bl.name, has, left, true, bl.priorityKey)
       end
-      if has == false then
+      if has == false and not OnCooldown(bl.name) then
         n = n + 1
         out[n] = bl.name
         if t then t.miss = t.miss + 1 end
-        if n == 1 then
-          for _, nm2 in ipairs(bl.names) do
-            local r = X.Remaining(unit, nm2)
-            if r and r > 0 and r < math_huge then X.remainTmp = r break end
-          end
-        end
-      elseif isGroup and has == true then
-        -- Blessings count toward the group expiry watch too (1.7.0).
-        local soonest = math_huge
-        for _, nm2 in ipairs(bl.names) do
-          local r = X.Remaining(unit, nm2)
-          if r and r < soonest then soonest = r end
-        end
-        if soonest <= 300 then
-          X.expiryTally.BLESSINGS = (X.expiryTally.BLESSINGS or 0) + 1
-        end
+        if n == 1 and left and left > 0 then X.remainTmp = left end
       end
     end
   end
@@ -2110,6 +2218,9 @@ function X.RebuildPrio()
   for i, key in ipairs(db.buffPrio) do
     local nm = byKey[key]
     if nm and not X.prioIdx[nm] then X.prioIdx[nm] = i end
+    if key == "BLESSINGS" then
+      for name in pairs(blessKeys) do if not X.prioIdx[name] then X.prioIdx[name] = i end end
+    end
   end
 end
 
@@ -2126,6 +2237,7 @@ local function EntryOrder(a, b)
   if (a.buddy or false) ~= (b.buddy or false) then return not a.buddy end
   if (a.handled or false) ~= (b.handled or false) then return not a.handled end
   if (a.pet or false) ~= (b.pet or false) then return not a.pet end
+  if a.smartTier ~= b.smartTier then return a.smartTier < b.smartTier end
   if db.sortMode == "need" and (a.prio1 or 999) ~= (b.prio1 or 999) then
     return (a.prio1 or 999) < (b.prio1 or 999)
   end
@@ -2146,18 +2258,21 @@ end
 -- check / dungeon finder) or the raid MAINTANK/MAINASSIST flag — never a
 -- guess from class.
 local function RoleOf(unit, isSelf)
-  if isSelf then return 0 end
-  if AssignedRole(unit) == "TANK" then return 1 end
+  if isSelf then return 0, db.smartPriority and AssignedRole(unit) or nil end
+  local assigned = AssignedRole(unit)
+  if assigned == "TANK" then return 1, assigned end
   local idx = unit:match("^raid(%d+)$")
   if idx and GetRaidRosterInfo then
-    local ok, _, _, _, _, _, _, _, _, role = pcall(GetRaidRosterInfo, tonumber(idx))
-    if ok and (role == "MAINTANK" or role == "MAINASSIST") then return 1 end
+    local ok, _, _, _, _, _, _, _, _, _, role = pcall(GetRaidRosterInfo, tonumber(idx))
+    if ok and Readable(role) and (role == "MAINTANK" or role == "MAINASSIST") then
+      return 1, assigned or (role == "MAINTANK" and "TANK" or nil)
+    end
   end
   if UnitIsGroupLeader then
     local ok, leader = pcall(UnitIsGroupLeader, unit)
-    if ok and Readable(leader) and leader == true then return 2 end
+    if ok and Readable(leader) and leader == true then return 2, assigned end
   end
-  return 3
+  return 3, assigned
 end
 
 ---------------------------------------------------------------------------
@@ -2299,7 +2414,7 @@ local function Consider(unit, isGroup)
   -- Healer drinking (1.8.0, Forever): anyone in the group with a Drink
   -- aura is marked; healing classes also feed the coverage line count.
   X.scanUnit = nil
-  if isGroup and db.drinkWatch and CLASSIC_FEATURES
+  if isGroup and db.drinkWatch and not db.liteMode and CLASSIC_FEATURES
      and select(2, X.Remaining(unit, "Drink")) == "present" then
     X.drinkSet[guid] = true
     local dclass = X.UnitClassToken(unit)
@@ -2320,13 +2435,12 @@ local function Consider(unit, isGroup)
   local auraUnknown = X.auraUnknown
   if auraUnknown then X.scanHasUnknownBuffs = true end
   if allN > 0 or X.auraNeedsBuff then X.scanHasMissingBuffs = true end
-  e.remain1 = X.remainTmp
+  e.remain1, e.expiringSpell = X.remainTmp, e.allMissing[1]
   if isGroup and not auraUnknown and allN == 0 then X.missNow[guid] = {} end
   local queue = e.allMissing
   if X.subgroupDuties and next(X.subgroupDuties) and InRaid() then
     e.subgroupMissing = e.subgroupMissing or {}
     queue = X.FilterSubgroupDuties(unit, isGroup, e.allMissing, e.subgroupMissing)
-    if queue[1] ~= e.allMissing[1] then e.remain1 = nil end
   end
   local n, approximate = X.FilterInRange(unit, queue, e.missing, isSelf)
   if #queue > 0 and n == 0 and db.rangeWatch then X.farNow[guid] = nm or true end
@@ -2374,7 +2488,7 @@ local function Consider(unit, isGroup)
   e.rezzed = (rz and GetTime() - rz < 60) or nil
   e.outOfRange = false
   e.groupCast = false
-  e.role = RoleOf(unit, isSelf)
+  e.role, e.groupRole = RoleOf(unit, isSelf)
   e.pet = nil
 end
 
@@ -2441,7 +2555,7 @@ function X.ConsiderPet(petUnit, ownerUnit)
   e.rangeBucket = 0
   e.approximateRange = approximate
   e.marker = X.ReadRaidMarker(petUnit)
-  e.remain1 = nil
+  e.remain1, e.expiringSpell, e.groupRole = nil, nil, nil
   e.expired, e.rezzed = nil, nil
   e.outOfRange = false
   e.groupCast = false
@@ -2451,8 +2565,33 @@ end
 -- Last-scan diagnostics for /br debug: how many nameplate units the client
 -- handed us on the latest pass, and how many of them were players.
 
+local function MissingOrder(entry, spell)
+  local manual = X.prioIdx and X.prioIdx[spell] or 999
+  local tier = db.smartPriority and X.Intel.Tier(entry, X.KeyOfName(spell), blessKeys[spell]) or 3
+  return tier * 1000 + manual
+end
+
+local function OrderMissing(entry)
+  local m = entry.missing
+  if db.smartPriority or (X.prioIdx and next(X.prioIdx)) then
+    for i = 2, #m do
+      local v, order = m[i], MissingOrder(entry, m[i])
+      local j = i - 1
+      while j >= 1 and MissingOrder(entry, m[j]) > order do
+        m[j + 1] = m[j]
+        j = j - 1
+      end
+      m[j + 1] = v
+    end
+  end
+  entry.smartTier = math_floor(MissingOrder(entry, m[1]) / 1000)
+  entry.prio1 = X.prioIdx and X.prioIdx[m[1]] or nil
+  if entry.expiringSpell ~= m[1] then entry.remain1 = nil end
+end
+
 local function CollectEntries()
   local nowT = GetTime()
+  scanHorizon = X.Intel.BeginScan()
   for guid, untilTime in pairs(X.failedTargets) do
     if untilTime <= nowT then X.failedTargets[guid] = nil end
   end
@@ -2478,7 +2617,7 @@ local function CollectEntries()
   for i = 1, #list do Consider(list[i], true) end
   Consider("player", true)
   -- Group pets (1.8.0): your pet and your group members' pets, as rows.
-  if db and db.pets then
+  if db.pets and not db.liteMode then
     X.ConsiderPet("pet", "player")
     if InRaid() then
       for i = 1, 40 do X.ConsiderPet("raidpet" .. i, RAID[i]) end
@@ -2543,6 +2682,10 @@ local function CollectEntries()
     entryPool[#entryPool + 1] = entries[i]
     entries[i] = nil
   end
+  if X.prioDirty then X.RebuildPrio() end
+  -- Set the primary spell before classifying casts handled by another
+  -- player, assignments, and duration tags. All consume that same offer.
+  for i = 1, nEntries do OrderMissing(entries[i]) end
   -- Coordination marks (1.5.0): a player another BuffRadar user just buffed
   -- sinks in the order (see EntryOrder) and shows a tag; a player who asked
   -- for a buff in chat is tagged while the request is fresh.
@@ -2562,7 +2705,7 @@ local function CollectEntries()
     e.weapon = nil  -- set below, on your own row only (pooled entries)
   end
   -- Weapon watch (1.7.0): your own row carries the reminder tag.
-  if db and db.weaponWatch and X.WeaponEnchantMissing() then
+  if db.weaponWatch and not db.liteMode and X.WeaponEnchantMissing() then
     for i = 1, nEntries do
       if entries[i].isSelf then entries[i].weapon = true end
     end
@@ -2626,32 +2769,13 @@ local function CollectEntries()
       if s % #users ~= myIdx - 1 then e.buddy = true end
     end
   end
-  -- your buff priority: each row offers its buffs in your order (the
-  -- first one is the click target and the first icon), and each row
-  -- remembers its best position for the "need" sort tiebreak
-  if X.prioDirty then X.RebuildPrio() end
-  if X.prioIdx and next(X.prioIdx) then
-    for i = 1, nEntries do
-      local e = entries[i]
-      local m = e.missing
-      for a = 2, #m do
-        local v, av = m[a], X.prioIdx[m[a]] or 999
-        local bI = a - 1
-        while bI >= 1 and (X.prioIdx[m[bI]] or 999) > av do
-          m[bI + 1] = m[bI]
-          bI = bI - 1
-        end
-        m[bI + 1] = v
-      end
-      e.prio1 = X.prioIdx[m[1]] or 999
-    end
-  end
   if nEntries > 1 then table_sort(entries, EntryOrder) end
   -- Cast queue highlight (1.6.0): right after one of your casts lands, the
   -- new top row is where the next cast should go.
   if nEntries > 0 and db and db.queueTag and nowT - (X.queueAt or 0) < 3 then
     entries[1].queued = true
   end
+  scanHorizon = nil
   return nEntries
 end
 
@@ -3424,6 +3548,7 @@ function X.GroupOffer(spell, unit, preview)
   local pick = X.BindingRank(name, unit, X.ReadUnitNumber(UnitLevel, unit), db.castMethod)
   if pick == false or (baseID and not known[name] and not X.ReadUnitBool(_G.IsPlayerSpell, baseID)
       and not X.ReadUnitBool(_G.IsSpellKnown, baseID)) then return nil end
+  if not preview and OnCooldown(name) then return nil end
   local blocker, reason = X.GroupBlockersFor(spell, name, unit, greater, baseID, preview)
   if blocker then return nil, nil, nil, reason, nil, blocker end
   local exact = db.castMethod ~= "macro" and pick
@@ -4360,6 +4485,7 @@ end
 
 local function SuspendBuffing()
   refreshIdle = true
+  X.Status.Unavailable("dead")
   X.ResetCastTracking()
   X.SuspendWindow()
   X.SyncCastMacro(true)
@@ -4496,9 +4622,12 @@ local function AlertOnNewEntries(n)
     if now - t > 60 then recentlyGone[guid] = nil end
   end
   listedBefore = listedNow
-  if newName and db.playSound and now - X.lastSoundAt > 1 then
-    X.lastSoundAt = now
-    PlayAlert("new")
+  if newName then
+    X.VisualBuffAlert()
+    if db.playSound and now - X.lastSoundAt > 1 then
+      X.lastSoundAt = now
+      PlayAlert("new")
+    end
   end
 end
 
@@ -4508,7 +4637,8 @@ local function Refresh()
     if not refreshIdle or not X.playerDead then X.UpdatePlayerLife() end
     return
   end
-  if InCombatLockdown() or X.HasHeldRow() then return end
+  if InCombatLockdown() then X.Status.Unavailable("combat"); return end
+  if X.HasHeldRow() then return end
   X.assignmentGroupConflicts = X.AssignmentEnabled() and next(db.buffAssignments) and {} or nil
   refreshIdle = false
   X.applyFilter = true  -- the window honors the role filter; reports turn it off
@@ -4520,6 +4650,7 @@ local function Refresh()
   if not hasAnyBuff then
     refreshIdle = true
     ClearCastQueue()
+    X.Status.Unavailable("inactive")
     X.ShowWindowStatus(sessionShow and not db.hidden and L["No supported buffs in your spellbook."])
     return
   end
@@ -4529,6 +4660,7 @@ local function Refresh()
   if reason then
     refreshIdle = idle or false
     ClearCastQueue()
+    X.Status.Unavailable("paused")
     wipe(listedBefore)
     local showStatus = not (db.hidden or groupHidden or db.autoHide)
     X.ShowWindowStatus(showStatus and reason, not showStatus)
@@ -4550,10 +4682,11 @@ local function Refresh()
     X.ShowWindowStatus()
     wipe(listedBefore)
     if X.UpdateNearbyTargetAfterScan then X.UpdateNearbyTargetAfterScan() end
-    return
+  else
+    X.RenderQueue(entries, n, sessionShow, wasAfterCombat)
+    AlertOnNewEntries(n)
   end
-  AlertOnNewEntries(n)
-  X.RenderQueue(entries, n, sessionShow, wasAfterCombat)
+  X.Status.Publish(entries, n)
 end
 
 ---------------------------------------------------------------------------
@@ -4573,9 +4706,13 @@ local function SafeRefresh()
     pf.n, pf.total, pf.last = pf.n + 1, pf.total + dt, dt
     if dt > pf.max then pf.max = dt end
   end
-  if not ok and err ~= lastError then
-    lastError = err
-    Print("|cffff4040error:|r " .. tostring(err))
+  if not ok then
+    scanHorizon = nil
+    X.Status.Unavailable("updating")
+    if err ~= lastError then
+      lastError = err
+      Print("|cffff4040error:|r " .. tostring(err))
+    end
   end
 end
 
@@ -4584,26 +4721,18 @@ end
 -- How many players are in my group, me included (0 when solo)?
 local function GroupSize()
   if GetNumGroupMembers then
-    local ok, n = pcall(GetNumGroupMembers)
-    if ok and type(n) == "number" then return n end
+    local n = X.ReadUnitNumber(GetNumGroupMembers)
+    if n then return n end
   end
-  if GetNumRaidMembers then
-    local ok, n = pcall(GetNumRaidMembers)
-    if ok and type(n) == "number" and n > 0 then return n end
-  end
-  if GetNumPartyMembers then
-    local ok, n = pcall(GetNumPartyMembers)
-    if ok and type(n) == "number" then return n > 0 and n + 1 or 0 end
-  end
-  return 0
+  local raid = X.ReadUnitNumber(GetNumRaidMembers)
+  if raid and raid > 0 then return raid end
+  local party = X.ReadUnitNumber(GetNumPartyMembers)
+  return party and party > 0 and party + 1 or 0
 end
 
--- Scan throttle (1.7.0): in very large groups the steady rescan runs at
--- half rate. Event-driven refreshes are never throttled.
-local function ScanThrottled()
-  return db and db.scanThrottle and GroupSize() > 20
-end
-
+-- Movement events and combat exit wake the steady ticker without delaying
+-- event-driven refreshes. Scan policy is sampled at most once per cycle.
+local scanTicksRemaining = 0
 local Soon, StartTicker
 if C_Timer and C_Timer.NewTicker and C_Timer.After then
   -- Only the queued callback clears its own flag, so ticker refreshes can't spawn
@@ -4627,11 +4756,13 @@ if C_Timer and C_Timer.NewTicker and C_Timer.After then
     if X.playerDead then return end
     if X.ExpireReadyCheck then X.ExpireReadyCheck() end
     X.UpdateFade()
+    X.TickMinimapPulse()
     if refreshIdle or InCombatLockdown() then return end
-    if ScanThrottled() then
-      X.tickSkip = not X.tickSkip
-      if X.tickSkip then return end
+    if db.scanThrottle and scanTicksRemaining > 0 then
+      scanTicksRemaining = scanTicksRemaining - 1
+      return
     end
+    scanTicksRemaining = X.Intel.ScanTicks(GroupSize) - 1
     SafeRefresh()
   end
   StartTicker = function()
@@ -4650,8 +4781,11 @@ else
         if soonElapsed < SOON_DELAY then return end
       else
         if elapsed < UPDATE_INTERVAL then return end
-        interval = interval or (ScanThrottled() and UPDATE_INTERVAL * 2 or UPDATE_INTERVAL)
-        if elapsed < interval then return end
+        if not refreshIdle and not InCombatLockdown() then
+          if not db.scanThrottle then interval = UPDATE_INTERVAL end
+          interval = interval or UPDATE_INTERVAL * X.Intel.ScanTicks(GroupSize)
+          if elapsed < interval then return end
+        end
       end
       elapsed, soonElapsed, interval = 0, nil, nil
       X.RunDueSyncWarmupRetry()
@@ -4661,7 +4795,8 @@ else
       if X.playerDead then return end
       if X.ExpireReadyCheck then X.ExpireReadyCheck() end
       X.UpdateFade()
-      if eventPending or not refreshIdle then SafeRefresh() end
+      X.TickMinimapPulse()
+      if not InCombatLockdown() and (eventPending or not refreshIdle) then SafeRefresh() end
     end)
   end
   Soon = function()
@@ -4739,7 +4874,8 @@ for _, ev in ipairs({
   "PLAYER_TALENT_UPDATE", "ACTIVE_TALENT_GROUP_CHANGED",
   "CHAT_MSG_ADDON", "CHAT_MSG_WHISPER", "CHAT_MSG_SAY", "CHALLENGE_MODE_START",
   "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST", "PLAYER_FLAGS_CHANGED",
-  "PLAYER_FOCUS_CHANGED",
+  "PLAYER_FOCUS_CHANGED", "PLAYER_STARTED_MOVING", "PLAYER_STOPPED_MOVING",
+  "ENCOUNTER_START", "ENCOUNTER_END", "UPDATE_INVENTORY_DURABILITY", "PLAYER_EQUIPMENT_CHANGED", "UNIT_PET",
 }) do
   pcall(driver.RegisterEvent, driver, ev)
 end
@@ -4780,7 +4916,10 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       end
       return
     end
-    if event == "UNIT_AURA" and not X.AuraEventNeedsRefresh(arg1, ...) then return end
+    if event == "UNIT_AURA" then
+      if X.QueuePersonalReadiness and Readable(arg1) and arg1 == "player" then X.QueuePersonalReadiness() end
+      if not X.AuraEventNeedsRefresh(arg1, ...) then return end
+    end
     Soon()
     return
   end
@@ -4797,7 +4936,29 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if db and X.CastEvent(event, arg1, ...) then Soon() end
     return
   end
-  if event == "CVAR_UPDATE" then
+  if event == "PLAYER_STARTED_MOVING" or event == "PLAYER_STOPPED_MOVING" then
+    scanTicksRemaining = 0
+    if db and db.scanThrottle and not refreshIdle and not InCombatLockdown() then Soon() end
+    return
+  elseif event == "ENCOUNTER_START" then
+    X.Intel.ClearPreparation()
+    X.Debuffs.Encounter(arg1)
+    if db and db.forecastSeconds > 0 and not InCombatLockdown() then Soon() end
+    return
+  elseif event == "ENCOUNTER_END" then
+    X.Debuffs.Encounter(nil)
+    local success = select(4, ...)
+    if Readable(success) and (success == 0 or success == false) then
+      X.Intel.MarkWipe()
+      if db and db.smartPriority and not InCombatLockdown() then Soon() end
+    end
+    return
+  elseif event == "UPDATE_INVENTORY_DURABILITY" or event == "PLAYER_EQUIPMENT_CHANGED" or event == "UNIT_PET" then
+    if X.QueuePersonalReadiness and (event ~= "UNIT_PET" or Readable(arg1) and arg1 == "player") then
+      X.QueuePersonalReadiness()
+    end
+    return
+  elseif event == "CVAR_UPDATE" then
     local name = type(arg1) == "string" and Readable(arg1) and arg1:lower()
     if name == "actionbuttonusekeydown" or name == "action_button_use_key_down" then
       X.ApplyNextRegistration()
@@ -4819,15 +4980,18 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     return
   elseif event == "PLAYER_ROLES_ASSIGNED" then
     X.OnCoordinationRoster()
-    if X.AssignmentEnabled() then
-      X.assignmentGroupConflicts = nil
-      Soon()
-    end
+    local assignments = X.AssignmentEnabled()
+    if assignments then X.assignmentGroupConflicts = nil end
+    if db and (db.smartPriority or assignments) then Soon() end
     if X.QueueAssignmentPreviewRefresh then X.QueueAssignmentPreviewRefresh() end
     return
   elseif event == "GROUP_LEFT" then
     X.OnCoordinationRoster(true)
-    if not InGroup() and X.CloseRaidPreparation then X.CloseRaidPreparation() end
+    if not InGroup() then
+      X.Intel.ResetContext()
+      if X.CloseRaidPreparation then X.CloseRaidPreparation(true) end
+    end
+    X.Status.Unavailable("updating")
     if not InRaid() then X.subgroupDuties = nil end
     local size = X.ReadUnitNumber(GetNumGroupMembers)
     if (size and size <= 0) or (not size and not InGroup()) then
@@ -4878,7 +5042,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   end
   if event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST" then
     X.UpdatePlayerLife(event)
+    X.Debuffs.Refresh()
     if event == "PLAYER_DEAD" and db then
+      X.Intel.ClearPreparation()
       X.ClearReadyCheck()
       if X.DeathRecap then X.DeathRecap(db.deathRecap) end
     end
@@ -4891,6 +5057,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   if event == "PLAYER_LEAVING_WORLD" or event == "PLAYER_LOGOUT" then
     X.macroParked = true
     ClearCastQueue()
+    X.Status.Unavailable("updating")
+    X.Intel.ResetContext()
+    X.Debuffs.Clear()
     return
   end
   if event == "PLAYER_ENTERING_WORLD" then
@@ -4900,6 +5069,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     X.ResetCastTracking()
     X.ClearReadyCheck()
     X.UpdatePlayerLife(event)
+    X.Status.Unavailable(X.playerDead and "dead" or "updating")
+    X.Intel.ResetContext()
+    X.Debuffs.Encounter(nil)
     Soon()
     return
   end
@@ -4907,7 +5079,11 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     X.assignmentGroupConflicts = nil
     X.OnCoordinationRoster()
     if db then X.OnRoster() end
-    if not InGroup() then X.ClearReadyCheck() end
+    if not InGroup() then
+      X.ClearReadyCheck()
+      X.Intel.ResetContext()
+    end
+    if not InCombatLockdown() and not X.playerDead then X.Status.Unavailable("updating") end
     if db and X.AutoProfileCheck then X.AutoProfileCheck() end
     Soon()
     if X.QueueAssignmentPreviewRefresh then X.QueueAssignmentPreviewRefresh() end
@@ -4931,6 +5107,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       return
     end
     X.Settings.Load(true)
+    X.Status.Unavailable("updating")
     Ignore.Rebuild()
     X.SpecSwap()
     X.ResolveAutoTheme()
@@ -4953,10 +5130,11 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     ok, err = pcall(X.BuildUI)
     if not ok then Print("|cffff4040error building window:|r " .. tostring(err)) end
     X.ApplyClickThrough()
+    X.Debuffs.Apply()
     X.SyncCastMacro(true) -- migrate the built-in macro, but never arm a prior session's queue
     Print("loaded. Type /br to show the window.")
     if not db.wizardSeen then
-      Print("New to BuffRadar? /br wizard runs a one-minute setup.")
+      Print(L["New to BuffRadar? Run /br wizard for Quick Setup."])
     end
     if X.FriendlyPlatesOn() == false then
       Print("friendly nameplates are |cffff4040off|r - nearby players outside your group can't be listed until they're on. Type /br plates to turn them on (or press Shift+V).")
@@ -4973,9 +5151,16 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     X.ClearCastIntent()
     X.combatStart = GetTime()  -- the wipe report times the fight from here (1.9.0)
     X.BeginWindowCombat()
+    X.Intel.ClearPreparation()
+    X.Status.Unavailable(X.playerDead and "dead" or "combat")
+    X.TickMinimapPulse()
+    X.Debuffs.Refresh()
   elseif event == "PLAYER_REGEN_ENABLED" then
     X.afterCombat = true  -- Refresh() pulses the border if work is waiting
     if InCombatLockdown() then return end
+    scanTicksRemaining = 0
+    X.Intel.WakeAfterCombat()
+    X.Debuffs.Refresh()
     X.SyncCastMacro(true)
     if not X.EndWindowCombat() then
       SuspendBuffing()
@@ -4990,12 +5175,19 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if (event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE") and db then
       X.OnCoordinationRoster()
       X.OnRoster()
+      if not InGroup() then X.Intel.ResetContext() end
+      if not InCombatLockdown() and not X.playerDead then X.Status.Unavailable("updating") end
       if X.QueueAssignmentPreviewRefresh then X.QueueAssignmentPreviewRefresh() end
     end
     if (event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED"
         or event == "ZONE_CHANGED_INDOORS") and db then
       if X.AutoProfileCheck then X.AutoProfileCheck() end
-      if event == "ZONE_CHANGED_NEW_AREA" then X.InstanceCheck() end
+      if event == "ZONE_CHANGED_NEW_AREA" then
+        X.Intel.ResetContext()
+        X.Debuffs.Encounter(nil)
+        if not InCombatLockdown() and not X.playerDead then X.Status.Unavailable("updating") end
+        X.InstanceCheck()
+      end
     end
     Soon()
   end
@@ -5247,6 +5439,7 @@ X.Core = {
   OpenKeybinds = OpenKeybinds,
   MakeMacro = MakeMacro,
   NextBinding = NEXT_BINDING,
+  UpdateInterval = UPDATE_INTERVAL,
   Bind = Bind,
   SafeString = SafeString,
   SpellName = SpellName,

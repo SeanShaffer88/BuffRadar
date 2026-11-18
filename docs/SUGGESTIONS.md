@@ -88,3 +88,10 @@ built, gated and in 1.15.0; verified in game with every release through
 | 5 | Custom group-cast pairs for modifier clicks | Done — /br grouppair, consulted by GroupSpellFor |
 | 6 | Group-cast keybind | Done — BuffRadarGroupButton, falls back to the plain cast |
 | 7 | Workflow upkeep (actions off the deprecated Node 20 runtime) | Done — checkout v5, setup-python v6 in both workflows |
+
+## Readiness follow-up
+
+The current [roadmap](ROADMAP.md) tracks forecasts, contextual priority,
+readiness, debuff watches, setup, and the read-only status integration.
+Use the Feedback button in Settings → Readiness or `/br feedback` to copy
+the feature request link.

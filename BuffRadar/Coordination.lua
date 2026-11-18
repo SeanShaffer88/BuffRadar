@@ -1064,19 +1064,24 @@ function X.ContextOK(key)
   return true
 end
 
-function X.WeaponEnchantMissing()
+function X.WeaponEnchantMissing(strict)
   local fn = _G.GetWeaponEnchantInfo
-  if not fn then return false end
+  if not fn then return nil end
   local ok, hasMH, _, _, _, hasOH = pcall(fn)
-  if not ok or not Readable(hasMH) or not Readable(hasOH) then return false end
-  local function equipped(slot)
-    if not _G.GetInventoryItemID then return true end
+  if not ok then return nil end
+  local function missing(has, slot)
+    if not Readable(has) then return nil end
+    if has == true or has == 1 then return false end
+    if has ~= false and has ~= 0 then return nil end
+    if not _G.GetInventoryItemID then return not strict or nil end
     local okI, id = pcall(_G.GetInventoryItemID, "player", slot)
-    return okI and Readable(id) and id ~= nil
+    if not okI then return nil end
+    if type(id) == "nil" then return false end
+    if Readable(id) and type(id) == "number" then return id > 0 end
   end
-  if not hasMH and equipped(16) then return true end
-  if not hasOH and equipped(17) then return true end
-  return false
+  local mh, oh = missing(hasMH, 16), missing(hasOH, 17)
+  if mh or oh then return true end
+  if mh == false and oh == false then return false end
 end
 
 -- Instance-entry reminder (1.7.0): stepping into a dungeon, raid or

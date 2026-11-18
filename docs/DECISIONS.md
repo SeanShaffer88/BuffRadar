@@ -417,3 +417,14 @@ split, then Briefs 2, 3, 4 — nothing else built; file-split Slices B
 - The smoke harness follows both manifests and checks load order, replaced saves,
   secure driver refusal, and position-only resets. The Forever field test is
   still required on the candidate ZIP.
+
+## 2026-11-18 — Readiness signals do not drive secure actions
+
+Forecasts use the last confirmed coverage of an aura family, adjusted for a
+real pre-pull countdown or a user-entered deadline. They do not guess at
+upcoming encounter mechanics. Optional debuff checks listen for player/focus
+changes without scanning the cast queue in combat. The public API returns
+copies of the last completed scan, with no targets while the scan is paused.
+Readiness checks use only exposed local data; a carried Healthstone is not
+evidence about a placed Soulwell. These policies and the new UI still need
+Forever field verification.

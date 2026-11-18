@@ -4,7 +4,7 @@
 
 local _, ns = ...
 local X = ns.X
-local DB_VERSION = 21
+local DB_VERSION = 22
 local PROFILE_MAX_BYTES = 4000
 local MIN_WIDTH, MAX_WIDTH = 180, 400
 
@@ -100,7 +100,16 @@ local DEFAULTS = {
   modClick = false,    -- Shift-click a row casts the group version of its buff (1.14.0, Brief 3)
   pullFlash = false,   -- flash + countdown line when a pull timer starts (1.14.0, Brief 4)
   enterFlash = true,   -- print a reminder when entering an instance unbuffed (1.7.0)
-  scanThrottle = false, -- halve the steady rescan rate in groups over 20 (1.7.0)
+  scanThrottle = false, -- adapt only the periodic scan to movement, group size and latency
+  forecastSeconds = 0,  -- lead time for confirmed expiry notices; 0 = off
+  smartPriority = false,
+  instancePriority = {}, -- instance ID -> buff key; local rules, not shared profiles
+  statusMinimap = true,
+  visualAlerts = false,
+  liteMode = false,
+  debuffWatch = false,
+  debuffRules = {},     -- bounded list of { spellID, unit, encounterID }
+  readinessAura = 0,    -- optional personal consumable aura spell ID
   history = {},        -- last 50 casts through BuffRadar: { t, spell, who } (1.7.0)
   growUp = false,      -- the list grows upward from a fixed bottom edge (1.8.0)
   hideInCombat = true,  -- no buff targets are available while you are in combat
@@ -140,10 +149,57 @@ local RANGES = { bgAlpha = { 0, 1 }, scale = { 0.5, 2 }, cfgScale = { 0.5, 2 },
                  width = { MIN_WIDTH, MAX_WIDTH }, rebuff = { 0, 3600 }, castsTotal = { 0, 1e9 },
                  groupCastMin = { 2, 40 }, minimapAngle = { 0, 360 },
                  lowMana = { 0, 100 }, textScale = { 0.8, 1.5 }, idleFade = { 0, 90 },
-                 rowGap = { 0, 8 }, iconSize = { 0, 24 }, nameTrim = { 0, 24 } }
+                 rowGap = { 0, 8 }, iconSize = { 0, 24 }, nameTrim = { 0, 24 },
+                 forecastSeconds = { 0, 300 }, readinessAura = { 0, 2000000 } }
 
 local function IsNumber(v)
   return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
+end
+
+local function PositiveID(v)
+  return IsNumber(v) and v > 0 and v <= 2000000 and v == math.floor(v)
+end
+
+local MAX_DEBUFF_RULES, MAX_INSTANCE_RULES = 8, 24
+
+local function ValidDebuffRule(id, unit, encounter)
+  return PositiveID(id) and (unit == "player" or unit == "focus")
+    and (encounter == 0 or PositiveID(encounter))
+end
+
+local function PriorityKey(key)
+  if type(key) ~= "string" or #key > 32 then return false end
+  if key == "BLESSINGS" then return X.classic end
+  local blessing = key:match("^BLESS_(%u+)$")
+  if X.classic and blessing and X.BLESSINGS[blessing] then return true end
+  for _, def in ipairs(X.BUFF_DEFS) do if def.key == key then return true end end
+  for _, def in ipairs(X.AURA_DEFS or {}) do if def.key == key then return true end end
+  return PositiveID(tonumber(key:match("^CUSTOM(%d+)$")))
+end
+
+local function CopyInstancePriority(value)
+  local clean, count = {}, 0
+  for id, key in pairs(value) do
+    if PositiveID(id) and PriorityKey(key) then
+      clean[id], count = key, count + 1
+      if count >= MAX_INSTANCE_RULES then break end
+    end
+  end
+  return clean
+end
+
+local function CopyDebuffRules(value)
+  local clean, seen = {}, { player = {}, focus = {} }
+  for _, rule in ipairs(value) do
+    if type(rule) == "table" and ValidDebuffRule(rule.spellID, rule.unit, rule.encounterID)
+      and not seen[rule.unit][rule.spellID] then
+      local id = rule.spellID
+      clean[#clean + 1] = { spellID = id, unit = rule.unit, encounterID = rule.encounterID }
+      seen[rule.unit][id] = true
+      if #clean >= MAX_DEBUFF_RULES then break end
+    end
+  end
+  return clean
 end
 
 local function Clamp(v, lo, hi)
@@ -323,6 +379,8 @@ local TABLE_FIELDS = {
     return clean
   end,
   buffPrio = CopyBuffPriority,
+  instancePriority = CopyInstancePriority,
+  debuffRules = CopyDebuffRules,
   buffAssignments = X.CopyAssignments,
   plateRestore = CopyPlateRestore,
   blessingPreferences = function(value)
@@ -389,7 +447,7 @@ local function CleanSetting(key, value, default)
     if not IsNumber(value) then value = default end
     local range = RANGES[key]
     if range then value = Clamp(value, range[1], range[2]) end
-    if key == "castsTotal" then value = math.floor(value) end
+    if key == "castsTotal" or key == "forecastSeconds" or key == "readinessAura" then value = math.floor(value) end
   elseif type(value) ~= kind then
     return default
   elseif kind == "string" then
@@ -469,6 +527,11 @@ X.Settings = {
   MinWidth = MIN_WIDTH,
   MaxWidth = MAX_WIDTH,
   ProfileMaxBytes = PROFILE_MAX_BYTES,
+  MaxDebuffRules = MAX_DEBUFF_RULES,
+  MaxInstanceRules = MAX_INSTANCE_RULES,
+  PositiveID = PositiveID,
+  ValidDebuffRule = ValidDebuffRule,
+  PriorityKey = PriorityKey,
   IsProfileName = IsProfileName,
   ProfileScalarValid = ProfileScalarValid,
   AutoThemeOrder = OrderedAutoThemeAddons,

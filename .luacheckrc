@@ -8,6 +8,7 @@ max_line_length = false
 -- reported: that catches accidental globals, like the RefreshMinimapButton
 -- leak fixed in 1.3.2. These are the globals BuffRadar is meant to create:
 globals = {
+  "BuffRadarAPI",                                     -- versioned read-only integration
   "BuffRadarDB",                                     -- saved variables (.toc)
   "BuffRadar_ToggleWindow", "BuffRadar_ToggleSound", -- called by Bindings.xml
   "SLASH_BUFFRADAR1", "SLASH_BUFFRADAR2",            -- /br, /buffradar

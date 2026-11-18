@@ -46,6 +46,14 @@ come first.
   of the main window on German clients (settings are English for
   now).
 
+## In development: Readiness
+
+Choose your role and activity in Quick Setup, see what needs attention on the
+minimap, and review consumables, Healthstones in bags, and gear durability in
+Personal readiness. Optional forecasts warn about readable buff expirations.
+Watched debuffs show stacks separately from the cast queue. Lite mode pauses
+optional checks while keeping the main queue. This is not yet a live release.
+
 ## How to use it
 
 1. Move the `BuffRadar` folder into your Forever

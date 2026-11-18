@@ -14,8 +14,9 @@ module communication. `Data.lua` initializes the addon namespace, `SavedVariable
 owns the schema and publishes the live DB, `BuffRadar.lua` owns scanning and
 cast decisions, and `Window.lua` and `Minimap.lua` own their frames and caches.
 Keep implementation state local and share entry points through the addon table.
+`BuffRadarAPI` is a versioned, read-only external interface, not a module bridge.
 Every feature is reachable through `/br` as well as through its settings control
-where it has one. SavedVariables are versioned (`dbVersion`, currently 21) with
+where it has one. SavedVariables are versioned (`dbVersion`, currently 22) with
 migration smoke fixtures; keep those fixtures in sync with format changes.
 
 Build: none (interpreted Lua 5.1).

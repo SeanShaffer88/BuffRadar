@@ -2,6 +2,20 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## Unreleased — Readiness
+
+- Add confirmed expiry forecasts with pull-countdown and local deadline
+  support, and contextual priority for roles, wipe recovery and instance rules.
+- Show exact-ID player/focus debuff watches with optional encounter scope.
+  Provide a versioned read-only buff-status API and a copyable report.
+- Expand raid preparation with a solo-accessible Personal tab for Healthstones,
+  durability and an optional consumable aura.
+- Add role/activity Quick Setup, contextual minimap status and quiet visual
+  alerts, and a copyable feature-request link.
+- Add adaptive periodic scans, total memory reporting, and Lite mode. Upgrade
+  existing settings from schema v21 to v22 without a reset.
+- **Unverified in game.**
+
 ## 1.15.36 — WoW: Forever
 
 - Refresh the Forever README with the v1.15.35 in-game player list and all five settings screenshots.
