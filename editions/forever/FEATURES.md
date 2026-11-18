@@ -11,7 +11,7 @@ client — and the Forever buff set itself is unchanged from 1.2.4.
 **From 1.8.0 BuffRadar is Forever-only**: Retail support was dropped
 2026-10-25, and 1.7.0 is the last Retail release.
 
-## Unreleased: Readiness
+## 1.15.37: Readiness
 
 - Forecast confirmed expiry using real aura durations and a supported pull or
   local preparation timer, without changing cast eligibility.
@@ -399,7 +399,7 @@ stays hidden on those characters.
 
 ## Verification status
 
-**1.15.35 candidate:** Macro migration, nearby cast targeting, blessing
+**1.15.35:** Macro migration, nearby cast targeting, blessing
 selection, and reversible nameplate controls pass the Lua smoke tests.
 Live casting, controller bindings, and nameplate appearance are **Unverified**.
 
@@ -409,7 +409,7 @@ Forever, and later that day that 1.15.32 (Shadowguard watch) and 1.15.33
 (input hardening) passed their checklist steps too. 1.15.34 (source
 file split and the row hover highlight) is not yet verified in game.
 
-**Current stable release:** 1.15.16. The maintainer confirmed live verification
+**1.15.16:** The maintainer confirmed live verification
 in WoW: Forever on 2026-11-14 using field-test build `d05115bdb03d`.
 
 The maintainer verified scrollable rows for 1.15.11 using field-test build

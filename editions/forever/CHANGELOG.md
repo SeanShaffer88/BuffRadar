@@ -2,19 +2,26 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
-## Unreleased — Readiness
+## 1.15.37 — WoW: Forever
 
-- Add confirmed expiry forecasts with pull-countdown and local deadline
-  support, and contextual priority for roles, wipe recovery and instance rules.
-- Show exact-ID player/focus debuff watches with optional encounter scope.
-  Provide a versioned read-only buff-status API and a copyable report.
-- Expand raid preparation with a solo-accessible Personal tab for Healthstones,
-  durability and an optional consumable aura.
-- Add role/activity Quick Setup, contextual minimap status and quiet visual
-  alerts, and a copyable feature-request link.
-- Add adaptive periodic scans, total memory reporting, and Lite mode. Upgrade
-  existing settings from schema v21 to v22 without a reset.
-- **Unverified in game.**
+- Open **Settings → Readiness** for buff expiry forecasts and smart priority.
+  Forecasts use confirmed aura durations and supported pull countdowns or a
+  local deadline. Smart priority reorders eligible casts for roles, wipe
+  recovery, and saved instance rules.
+- Use `/br readiness` for a solo-accessible Personal tab that checks carried
+  Healthstones, gear durability, and an optional consumable aura alongside
+  food, flask, and weapon checks. Placed Soulwell availability is not reported.
+- Use `/br debuff` to watch specific spell IDs on yourself or your focus,
+  with stacks and optional encounter scope, separate from the cast queue.
+- Run `/br wizard` or Shift-right-click the minimap for role/activity Quick
+  Setup. The minimap shows coverage status, with optional quiet alerts.
+- Enable adaptive periodic scans with `/br throttle on`, report memory with
+  `/br stats memory`, or use `/br lite on` to pause optional checks.
+- Read queued buff status through the versioned read-only API or `/br status
+  export`. `/br feedback` copies the feature-request link.
+
+Forever only (Interface 16001). Existing settings upgrade to schema v22
+without a reset. **In-game behavior is Unverified** on this build.
 
 ## 1.15.36 — WoW: Forever
 

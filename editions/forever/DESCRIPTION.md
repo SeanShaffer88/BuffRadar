@@ -39,20 +39,20 @@ come first.
   sound or silence) when someone new needs a buff. Buffing your group
   doesn't even change your target.
 - **Yours to tune.** A tabbed settings window (Window / Alerts /
-  Buffs / Behavior / Ignore & Stats) with hover help on every
+  Buffs / Behavior / Ignore & Stats / Readiness) with hover help on every
   setting, per-buff toggles and rebuff thresholds, a resizable
   window, role ordering, a realm-aware right-click ignore list, cast
   statistics for the session and all-time — and a German translation
   of the main window on German clients (settings are English for
   now).
 
-## In development: Readiness
+## Readiness in 1.15.37
 
 Choose your role and activity in Quick Setup, see what needs attention on the
 minimap, and review consumables, Healthstones in bags, and gear durability in
 Personal readiness. Optional forecasts warn about readable buff expirations.
 Watched debuffs show stacks separately from the cast queue. Lite mode pauses
-optional checks while keeping the main queue. This is not yet a live release.
+optional checks while keeping the main queue.
 
 ## How to use it
 
@@ -73,6 +73,5 @@ were informed by BuffYou by datdata (MIT). Since 1.3.2 the Forever
 and Retail editions are built from the same source; **from 1.8.0
 BuffRadar is Forever-only** — Retail support ended at 1.7.0.
 
-**Status note:** 1.12.0 was verified in game on Forever 1.60.1.70862. 1.13.0 adds
-`/br summary`, ignore-list export/import and an API-report copy window; it passes the
-offline suite and is not yet run in game.
+**Verification:** Field-tested through 1.15.33. The 1.15.37 readiness update
+passes automated checks but is **Unverified in game**.

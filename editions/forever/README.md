@@ -52,9 +52,8 @@ as the situation calls for. When everyone is buffed, the list empties and
 gets out of your way. It costs nothing, asks for nothing, and never talks to
 anything outside the game.
 
-Version 1.15.36 · Interface 16001 · GPLv3. This is a docs-only release.
-Field-tested through v1.15.33; v1.15.34–v1.15.36 remain Unverified in game.
-The Readiness update below is unreleased and has not been tested in WoW.
+Version 1.15.37 · Interface 16001 · GPLv3.
+Field-tested through v1.15.33; v1.15.34–v1.15.37 remain Unverified in game.
 
 **Forever-only from 1.8.0:** the Retail edition ended at 1.7.0 (dropped
 2026-10-25). Both editions were built from the same source; this zip's `.toc`
@@ -64,7 +63,7 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
 
 **Docs:** [Features](FEATURES.md) · [Description](DESCRIPTION.md) · [Changelog](CHANGELOG.md)
 
-## Readiness update (unreleased)
+## Readiness in 1.15.37
 
 Open **Settings → Readiness** for the new controls. Combat restrictions on
 click-to-buff casts still apply.
