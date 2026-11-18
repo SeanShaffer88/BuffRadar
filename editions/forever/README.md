@@ -11,15 +11,36 @@ You always come first.
 
 ## Screenshots
 
-These real in-game captures are from v1.15.7. The repository does not yet have v1.15.35 screenshots.
+Captured in WoW: Forever with BuffRadar v1.15.35.
 
-**BuffRadar list (v1.15.7)**
+**BuffRadar list**
 
-![In-game BuffRadar list capture from v1.15.7.](https://raw.githubusercontent.com/SeanShaffer88/BuffRadar/v1.15.7/editions/forever/screenshots/buffradar-forever-list.png)
+![BuffRadar showing nearby players who need buffs.](screenshots/buffradar-forever-list-v1.15.35.jpg)
 
-**BuffRadar settings (v1.15.7)**
+<details>
+<summary>Settings tabs</summary>
 
-![In-game BuffRadar settings capture from v1.15.7.](https://raw.githubusercontent.com/SeanShaffer88/BuffRadar/v1.15.7/editions/forever/screenshots/buffradar-forever-settings.png)
+### Window
+
+![BuffRadar Window settings.](screenshots/buffradar-forever-settings-window-v1.15.35.jpg)
+
+### Alerts
+
+![BuffRadar Alerts settings.](screenshots/buffradar-forever-settings-alerts-v1.15.35.jpg)
+
+### Buffs
+
+![BuffRadar Buffs settings.](screenshots/buffradar-forever-settings-buffs-v1.15.35.jpg)
+
+### Behavior
+
+![BuffRadar Behavior settings.](screenshots/buffradar-forever-settings-behavior-v1.15.35.jpg)
+
+### Ignore & Stats
+
+![BuffRadar Ignore and Stats settings.](screenshots/buffradar-forever-settings-ignore-stats-v1.15.35.jpg)
+
+</details>
 
 ## TL;DR
 
