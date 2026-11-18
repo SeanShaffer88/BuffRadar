@@ -2,7 +2,9 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
-## Unreleased: Readiness
+## 1.15.37 Readiness
+
+Result: **Unverified in game**. Use the 1.15.37 Forever ZIP.
 
 - Open Quick Setup with `/br wizard` and Shift-right-click on the minimap.
   Select Raid and Tank. Go Back or close without applying; reopen and finish.
