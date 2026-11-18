@@ -7,7 +7,58 @@ local L = X.L
 local db
 X.OnDBLoaded(function(value) db = value end)
 
-local minimapBtn
+local minimapBtn, pulseEnd, lastPulse
+local badgeColors = {
+  covered = { 0.25, 1, 0.45, "+" }, attention = { 1, 0.82, 0.22, "!" },
+  critical = { 1, 0.32, 0.28, "!!" }, unknown = { 0.72, 0.76, 0.8, "?" },
+}
+
+function X.UpdateMinimapStatus()
+  if not minimapBtn then return end
+  local badge = minimapBtn.statusMark
+  local state = db and db.statusMinimap and X.Status.State()
+  if badge.state == state then return end
+  badge.state = state
+  local style = badgeColors[state]
+  if style then
+    badge:SetText(style[4])
+    badge:SetTextColor(style[1], style[2], style[3])
+  end
+  badge:SetShown(style ~= nil)
+end
+
+local function AddStatusTooltip()
+  if not db or not db.statusMinimap then return end
+  local summary = X.Status.Summary()
+  GameTooltip:AddLine(X.Status.Description(), 1, 1, 1)
+  if summary.partial and summary.state ~= "unknown" then
+    GameTooltip:AddLine(L["Some buff coverage could not be verified"], 0.75, 0.75, 0.75)
+  end
+  local expiry = summary.firstExpiry
+  if expiry and expiry.endsAt > GetTime() then
+    GameTooltip:AddLine(X.Intel.ForecastText(expiry.spell, expiry.name, expiry.endsAt), 1, 0.82, 0.35, true)
+  end
+end
+
+function X.TickMinimapPulse()
+  if pulseEnd and (GetTime() >= pulseEnd or db.reduceMotion or not db.visualAlerts or InCombatLockdown()) then
+    pulseEnd = nil
+    minimapBtn.pulse:Hide()
+  end
+end
+
+function X.VisualBuffAlert()
+  if not db.visualAlerts or db.reduceMotion or InCombatLockdown() or X.PlayerSuspended() then return end
+  local now = GetTime()
+  if lastPulse and now - lastPulse < 2 then return end
+  if db.showBorder and X.Flash(true) then
+    lastPulse = now
+  elseif minimapBtn and minimapBtn:IsVisible() then
+    lastPulse, pulseEnd = now, now + 0.65
+    minimapBtn.pulse:Show()
+    if C_Timer and C_Timer.After then C_Timer.After(0.65, X.TickMinimapPulse) end
+  end
+end
 
 local function MinimapRadii()
   local w = Minimap.GetWidth and Minimap:GetWidth()
@@ -28,7 +79,10 @@ local function RefreshMinimapButton()
   if db and db.showMinimap and not X.PlayerSuspended() then
     minimapBtn:Show()
     PositionMinimapButton()
+    X.UpdateMinimapStatus()
   else
+    pulseEnd = nil
+    minimapBtn.pulse:Hide()
     minimapBtn.dragging = false
     minimapBtn:Hide()
   end
@@ -36,7 +90,8 @@ end
 
 local function OnClick(_, button)
   if button == "RightButton" then
-    if X.OpenConfig then X.OpenConfig() end
+    if X.ReadUnitBool(IsShiftKeyDown) then X.OpenWizard()
+    elseif X.OpenConfig then X.OpenConfig() end
   else
     X.ToggleWindow()
   end
@@ -58,11 +113,20 @@ local function BuildMinimapButton()
   border:SetSize(52, 52)
   border:SetPoint("TOPLEFT")
   border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+  b.pulse = b:CreateTexture(nil, "ARTWORK")
+  b.pulse:SetAllPoints(icon)
+  b.pulse:SetColorTexture(1, 0.76, 0.28, 0.45)
+  b.pulse:Hide()
+  b.statusMark = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  b.statusMark:SetPoint("TOPRIGHT", 0, 0)
+  b.statusMark:Hide()
   b:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
     GameTooltip:AddLine("|cff33ccffBuff|rRadar")
+    AddStatusTooltip()
     GameTooltip:AddLine(L["Left-click: show / hide the window"], 0.8, 0.8, 0.8)
     GameTooltip:AddLine(L["Right-click: settings"], 0.8, 0.8, 0.8)
+    GameTooltip:AddLine(L["Shift-right-click: Quick Setup"], 0.8, 0.8, 0.8)
     GameTooltip:AddLine(L["Drag: move around the minimap"], 0.8, 0.8, 0.8)
     GameTooltip:Show()
   end)
@@ -107,8 +171,10 @@ local function BuildMinimapButton()
         if type(button) ~= "table" or X.PlayerSuspended() then return end
         GameTooltip:SetOwner(button, "ANCHOR_LEFT")
         GameTooltip:AddLine("|cff33ccffBuff|rRadar")
+        AddStatusTooltip()
         GameTooltip:AddLine(L["Left-click: show / hide the window"], 0.8, 0.8, 0.8)
         GameTooltip:AddLine(L["Right-click: settings"], 0.8, 0.8, 0.8)
+        GameTooltip:AddLine(L["Shift-right-click: Quick Setup"], 0.8, 0.8, 0.8)
         GameTooltip:Show()
       end,
       funcOnLeave = function() GameTooltip:Hide() end,

@@ -1067,14 +1067,17 @@ local function ApplyAppearance()
 end
 
 -- Briefly highlight the window when a pull ends or a countdown starts.
-function X.Flash()
+function X.Flash(soft)
   if not frame or not frame.SetBackdropBorderColor or InCombatLockdown() or db.reduceMotion then return end
-  frame:SetBackdropBorderColor(1, 0.35, 0.35, 1)
+  if soft and not frame:IsVisible() then return end
+  if soft then frame:SetBackdropBorderColor(1, 0.7, 0.28, 0.58)
+  else frame:SetBackdropBorderColor(1, 0.35, 0.35, 1) end
   if C_Timer and C_Timer.After then
     C_Timer.After(0.7, ApplyAppearance)
   else
     flashPending = true  -- no timer API: Refresh() restores it next pass
   end
+  return true
 end
 
 do
@@ -1109,10 +1112,6 @@ do
     X.autoThemeResolved, X.autoThemeAddon = resolved, selectedAddon
     ApplyAppearance()
     if X.RefreshConfig then X.RefreshConfig() end
-    local wizard = X.wizardFrame
-    if wizard and wizard:IsShown() and wizard.page == 2 then
-      wizard.choice[1]:SetText("Theme: " .. X.ThemeLabel(true))
-    end
     return true
   end
 end
@@ -1749,7 +1748,7 @@ local function RenderCoverage(entries, n)
   if CoverOn("expiry") then parts[#parts + 1] = ExpiringGroupBuffs() end
   -- Weapon watch (1.7.0): when your own row isn't on the list to
   -- carry the tag, the coverage line carries the reminder instead.
-  if db.weaponWatch and X.WeaponEnchantMissing() then
+  if db.weaponWatch and not db.liteMode and X.WeaponEnchantMissing() then
     local selfListed = false
     for i = 1, n do
       if entries[i].isSelf then selfListed = true break end
@@ -1759,13 +1758,13 @@ local function RenderCoverage(entries, n)
     end
   end
   -- World-buff watch (1.8.0): your active world buffs, with time left.
-  if db.worldWatch and CoverOn("world") then
+  if db.worldWatch and not db.liteMode and CoverOn("world") then
     local wb = X.WorldBuffsText()
     if wb then parts[#parts + 1] = wb end
   end
   -- Healer drinking (1.8.0): healers sitting down to drink between
   -- pulls — the group waits for them, not the other way round.
-  if db.drinkWatch and CoverOn("drink") and (X.drinkHealers or 0) > 0 then
+  if db.drinkWatch and not db.liteMode and CoverOn("drink") and (X.drinkHealers or 0) > 0 then
     parts[#parts + 1] = X.drinkHealers == 1 and "Healer drinking"
       or string_format("%d healers drinking", X.drinkHealers)
   end
@@ -1809,7 +1808,7 @@ function X.RenderQueue(entries, n, sessionShow, wasAfterCombat)
   SetShownIfChanged(emptyText, n == 0)
 
   local coverShown = RenderCoverage(entries, n)
-  local focusLine = db.focusWatch and focusText and core.FocusLine()
+  local focusLine = db.focusWatch and not db.liteMode and focusText and core.FocusLine()
   if focusText then
     if focusLine then SetTextIfChanged(focusText, focusLine) end
     SetShownIfChanged(focusText, focusLine and true or false)

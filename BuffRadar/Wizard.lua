@@ -17,7 +17,7 @@ local RAID, PARTY, PLATES = core.RAID, core.PARTY, core.PLATES
 local myBuffs, entries = core.Buffs, core.Entries
 local CLASSIC_FEATURES = X.classic
 local pairs, ipairs, type, pcall = pairs, ipairs, type, pcall
-local math_min, math_max, math_floor = math.min, math.max, math.floor
+local math_min, math_floor = math.min, math.floor
 local string_format = string.format
 local table_sort = table.sort
 local wipe = wipe or function(t) for k in pairs(t) do t[k] = nil end return t end
@@ -26,141 +26,135 @@ local UnitExists, UnitGUID, UnitClass = UnitExists, UnitGUID, UnitClass
 local UnitIsPlayer, UnitCanAssist = UnitIsPlayer, UnitCanAssist
 
 ---------------------------------------------------------------------------
--- Setup wizard (1.9.0): a three-page first-run walkthrough — play
--- style (a shipped preset), window look, and your buff list — so a
--- new user lands on sane settings without facing the full settings
--- window cold. /br wizard runs it again at any time. Defined here:
--- it needs ApplyGeometry / ApplyAppearance, which exist from here on.
+-- Quick Setup: stage both answers; only Finish changes live settings.
 ---------------------------------------------------------------------------
+local activities = { { "solo", "Solo play" }, { "dungeon", "Dungeons / Mythic+" }, { "raid", "Raids" } }
+local roles = { { "TANK", "Tank" }, { "HEALER", "Heal" }, { "DAMAGER", "DPS" } }
+
+local function DraftSettings(draft)
+  local group = draft.activity ~= "solo"
+  local support = draft.role ~= "DAMAGER"
+  return group and (support and "role" or "need") or "name", group and (support and 60 or 45) or 0, group
+end
+
 function X.WizardPage(n)
   local w = X.wizardFrame
-  if not w then return end
+  if not w or not w.draft then return end
   w.page = n
-  for i = 1, 3 do w.choice[i]:Hide() end
+  w.title:SetText(string.format(L["Quick Setup · Step %d of 3"], n))
   w.back:SetShown(n > 1)
-  if n == 1 then
-    w.title:SetText("BuffRadar setup — step 1 of 3")
-    w.body:SetText("How do you mostly play? Each answer applies a starting preset; every setting can be changed later in Settings.")
-    local styles = {
-      { "Mostly solo", "solo" }, { "In a party", "dungeon" }, { "In raids", "raid" },
-    }
-    for i, s in ipairs(styles) do
-      local b = w.choice[i]
-      b:SetText(s[1])
-      b:SetScript("OnClick", function()
-        if X.ApplyPreset(s[2]) then
-          ApplyGeometry()
-          ApplyAppearance()
-          X.ApplyRowLayout()
-          if X.RefreshConfig then X.RefreshConfig() end
-          if QueueRefresh then QueueRefresh() end
-          Print("Setup wizard: the " .. s[2] .. " preset is applied.")
-        end
-        X.WizardPage(2)
+  w.next:SetShown(n == 3)
+  for i = 1, 3 do w.choice[i]:Hide() end
+  if n < 3 then
+    w.body:SetText(L[n == 1 and "What do you play most often?" or "What is your primary role?"])
+    local field = n == 1 and "activity" or "role"
+    for i, option in ipairs(n == 1 and activities or roles) do
+      local button, id, label = w.choice[i], option[1], option[2]
+      button:SetText((w.draft[field] == id and "+ " or "") .. L[label])
+      button:SetScript("OnClick", function()
+        w.draft[field], w.draft[field .. "Label"] = id, label
+        X.WizardPage(n + 1)
       end)
-      b:Show()
+      button:Show()
     end
-    w.next:Hide()
-  elseif n == 2 then
-    w.title:SetText("BuffRadar setup — step 2 of 3")
-    w.body:SetText("The window's look. Click the theme button to cycle the color schemes; scale, width and more live in Settings > Window.")
-    local b = w.choice[1]
-    local function themeLabel()
-      return "Theme: " .. X.ThemeLabel(true)
-    end
-    b:SetText(themeLabel())
-    b:SetScript("OnClick", function()
-      local order = X.ThemeOrder()
-      local cur = 1
-      for i, k in ipairs(order) do if k:lower() == (db.theme or ""):lower() then cur = i end end
-      X.ApplyTheme(order[cur % #order + 1])
-      if X.RefreshConfig then X.RefreshConfig() end
-      b:SetText(themeLabel())
-    end)
-    b:Show()
-    w.next:SetText("Next")
-    w.next:Show()
   else
-    w.title:SetText("BuffRadar setup — step 3 of 3")
+    local sort, lead, group = DraftSettings(w.draft)
+    local preset = X.PRESETS[w.draft.activity]
     local names = {}
-    for _, bf in ipairs(myBuffs) do names[#names + 1] = bf.name end
-    w.body:SetText(#names > 0
-      and ("You can cast: " .. table.concat(names, ", ")
-        .. ". Toggle any of them in Settings > Buffs, or with /br toggle <KEY>."
-        .. " Press Finish — then just click a name on the list to buff them.")
-      or "You don't know any buffs BuffRadar handles yet; the list appears once you learn one. Press Finish to close.")
-    local b = w.choice[1]
-    b:SetText("Open settings")
-    b:SetScript("OnClick", function() X.OpenConfig() end)
-    b:Show()
-    w.next:SetText("Finish")
-    w.next:Show()
+    for i = 1, math_min(3, #myBuffs) do names[#names + 1] = myBuffs[i].name end
+    if X.HasKnownBlessings() then names[#names + 1] = L["Blessings"] end
+    if #myBuffs > 3 then names[#names + 1] = "…" end
+    local sortLabels = { role = "Tanks first", need = "Most buffs needed", name = "Name" }
+    local lines = { L[w.draft.activityLabel] .. " · " .. L[w.draft.roleLabel],
+      string.format(L["Order: %s · Forecast: %ds (0 = off)"], L[sortLabels[sort]], lead),
+      string.format(L["Smart priority: %s"], L[group and "On" or "Off"]) .. " · "
+        .. string.format(L["Adaptive scan throttle: %s"], L[w.draft.activity == "raid" and "On" or "Off"]),
+      string.format(L["Group only: %s · Group casts: %s · Pause in cities: %s"],
+        L[preset.groupOnly and "On" or "Off"], L[CLASSIC_FEATURES and preset.groupCast and "On" or "Off"],
+        L[preset.pauseInCities and "On" or "Off"]),
+      L["Quiet alerts and the minimap status are enabled. Buff selections and keybinds are kept."],
+      #names > 0 and string.format(L["Your supported buffs: %s"], table.concat(names, ", "))
+        or L["No supported buffs in your spellbook."],
+    }
+    if db.liteMode and lead > 0 then lines[#lines + 1] = L["Forecasts are paused in Lite mode."] end
+    w.body:SetText(table.concat(lines, "\n\n"))
   end
-  w.pageText:SetText("Step " .. n .. " of 3")
+end
+
+local function FinishSetup(w)
+  if InCombatLockdown() or X.PlayerSuspended() or not w.draft or w.page ~= 3 then return end
+  X.ApplyPreset(w.draft.activity)
+  if not CLASSIC_FEATURES then db.groupCast = false end
+  db.sortMode, db.forecastSeconds, db.smartPriority = DraftSettings(w.draft)
+  db.scanThrottle = w.draft.activity == "raid"
+  db.visualAlerts, db.statusMinimap, db.wizardSeen = true, true, true
+  w:Hide()
+  ApplyGeometry()
+  ApplyAppearance()
+  X.ApplyRowLayout()
+  X.Intel.ForgetAlerts()
+  X.Intel.SettingsChanged()
+  if X.RefreshConfig then X.RefreshConfig() end
+  Print(L["Quick Setup complete. Run /br wizard to make new choices."])
 end
 
 function X.OpenWizard()
   if not db or X.PlayerSuspended() then return end
   if InCombatLockdown() then
-    Print("The setup wizard can't open during combat — try again when it ends.")
+    Print(L["Quick Setup is unavailable in combat."])
     return
   end
   local w = X.wizardFrame
   if not w then
-    w = CreateFrame("Frame", "BuffRadarWizard", UIParent, "BackdropTemplate")
+    w = CreateFrame("Frame", "BuffRadarWizard", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
     X.wizardFrame = w
-    w:SetSize(370, 260)
+    w:SetSize(422, 334)
     w:SetPoint("CENTER")
+    w:SetClampedToScreen(true)
     w:SetFrameStrata("DIALOG")
+    w:EnableMouse(true)
     if w.SetBackdrop then
       w:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
         edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
         tile = true, tileSize = 32, edgeSize = 24,
         insets = { left = 8, right = 8, top = 8, bottom = 8 } })
     end
-    if w.SetBackdropColor then w:SetBackdropColor(0, 0, 0, 0.9) end
+    if w.SetBackdropColor then w:SetBackdropColor(0, 0, 0, 0.92) end
     w.title = w:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    w.title:SetPoint("TOP", 0, -16)
+    w.title:SetPoint("TOP", 0, -17)
     w.body = w:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    w.body:SetPoint("TOPLEFT", 20, -48)
-    w.body:SetPoint("TOPRIGHT", -20, -48)
+    w.body:SetPoint("TOPLEFT", 20, -54)
+    w.body:SetPoint("TOPRIGHT", -20, -54)
     w.body:SetJustifyH("LEFT")
     w.body:SetWordWrap(true)
-    w.pageText = w:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    w.pageText:SetPoint("BOTTOM", 0, 16)
     w.choice = {}
     for i = 1, 3 do
       local b = CreateFrame("Button", nil, w, "UIPanelButtonTemplate")
-      b:SetSize(210, 24)
-      b:SetPoint("TOP", w, "TOP", 0, -104 - (i - 1) * 32)
+      b:SetSize(252, 28)
+      b:SetPoint("TOP", w, "TOP", 0, -100 - (i - 1) * 38)
       w.choice[i] = b
     end
     w.back = CreateFrame("Button", nil, w, "UIPanelButtonTemplate")
-    w.back:SetSize(90, 22)
-    w.back:SetPoint("BOTTOMLEFT", 16, 12)
-    w.back:SetText("Back")
-    w.back:SetScript("OnClick", function() X.WizardPage(math_max(1, (w.page or 1) - 1)) end)
+    w.back:SetSize(94, 24)
+    w.back:SetPoint("BOTTOMLEFT", 16, 14)
+    w.back:SetText(L["Back"])
+    w.back:SetScript("OnClick", function() X.WizardPage(w.page - 1) end)
     w.next = CreateFrame("Button", nil, w, "UIPanelButtonTemplate")
-    w.next:SetSize(110, 22)
-    w.next:SetPoint("BOTTOMRIGHT", -16, 12)
-    w.next:SetScript("OnClick", function()
-      if (w.page or 1) >= 3 then
-        db.wizardSeen = true
-        w:Hide()
-        Print("Setup done — /br wizard runs it again, /br config opens all settings.")
-      else
-        X.WizardPage((w.page or 1) + 1)
-      end
-    end)
-    local close = CreateFrame("Button", nil, w, "UIPanelButtonTemplate")
-    close:SetSize(24, 24)
-    close:SetText("X")
-    close:SetPoint("TOPRIGHT", -10, -10)
+    w.next:SetSize(112, 24)
+    w.next:SetPoint("BOTTOMRIGHT", -16, 14)
+    w.next:SetText(L["Apply"])
+    w.next:SetScript("OnClick", function() FinishSetup(w) end)
+    local close = CreateFrame("Button", nil, w, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", -5, -5)
     close:SetScript("OnClick", function()
       db.wizardSeen = true
       w:Hide()
     end)
+    w.close = close
+    w:SetScript("OnHide", function() w.draft = nil end)
+    if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarWizard") end
   end
+  w.draft = {}
   X.WizardPage(1)
   w:Show()
 end

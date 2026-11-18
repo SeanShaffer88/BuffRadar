@@ -108,6 +108,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     function methods.SetBackdropBorderColor(self, r, g, b, a) self.borderColor = { r, g, b, a } end
     function methods.RegisterEvent(self, ev) self.events[ev] = true end
     function methods.UnregisterEvent(self, ev) self.events[ev] = nil end
+    function methods.RegisterUnitEvent(self, ev, ...) self.events[ev] = { ... } end
     -- DropdownButton (modern menu) API
     function methods.SetupMenu(self, gen) self.menuGen = gen end
     function methods.GenerateMenu(self)

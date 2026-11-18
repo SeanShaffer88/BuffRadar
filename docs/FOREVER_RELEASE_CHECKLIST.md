@@ -2,6 +2,32 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## Unreleased: Readiness
+
+- Open Quick Setup with `/br wizard` and Shift-right-click on the minimap.
+  Select Raid and Tank. Go Back or close without applying; reopen and finish.
+  Only Apply should change settings, and buff toggles and bindings must survive.
+- Set a forecast lead longer than the rebuff window. Watch a readable timed
+  buff with no cast offer. Start, replace and cancel a native pull countdown
+  while coverage is still active; test a longer equivalent aura and a local
+  timer. No forecast should create a cast or persist into combat as current.
+- Enable smart priority with assigned tank/healer roles. Try a real wipe and an
+  instance rule in two different zones. Confirm priorities respect assignments,
+  range, spell knowledge and cooldowns and that off restores manual behavior.
+- Watch a known player/focus debuff. Test stacks, focus replacement, scoped
+  encounters, unreadable combat auras, death, and Lite mode. Check that the
+  separate strip never interrupts Cast Next Buff.
+- Open `/br readiness` solo and in a group. Move a Healthstone in or out of
+  bags; try damaged equipment, a temporary coating and a configured consumable
+  aura. Confirm event updates, unknown labels, and the existing group and
+  reagent tabs. Enable Lite and turn it back off without losing settings.
+- Verify minimap symbols, a pulse with sound muted, and suppression with Reduced
+  Motion. Verify Readiness keyboard navigation and German labels. Copy Feedback;
+  it must not open a browser or submit data by itself.
+- Read status from an integration after a scan, entering combat, and changing
+  a nameplate token's target. Record `/br perf` and `/br stats memory` at rest
+  and moving in a raid; an aura event must still refresh promptly.
+
 ## 1.15.35 Nearby casting, controller input, blessings, and nameplates
 
 Result: **Unverified in game**. Run against the candidate ZIP, not a loose copy.

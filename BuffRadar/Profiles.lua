@@ -114,6 +114,14 @@ do
     scalarList[#scalarList + 1] = key
   end
 
+  -- Older BR2 profiles leave these controls unchanged. New snapshots carry
+  -- them explicitly. Instance/debuff/consumable IDs remain local settings.
+  local featureScalars = { forecastSeconds = true, smartPriority = true, statusMinimap = true,
+    visualAlerts = true, liteMode = true }
+  for key in pairs(featureScalars) do
+    scalarKeys[key] = true
+    scalarList[#scalarList + 1] = key
+  end
   local optionalFalse = { thornsAnyClassOutdoors = true, blessingComplement = true }
 
   local function Encode(value)
@@ -268,7 +276,7 @@ do
       end
       if not patch.bgColor then return nil end
       for _, key in ipairs(scalarList) do
-        if not scalarFields[key] and key ~= "autoThemePriority" then
+        if not scalarFields[key] and key ~= "autoThemePriority" and not featureScalars[key] then
           if optionalFalse[key] or (key == "assumeRange" and scalarFields.strata) then
             patch[key] = false
           else
@@ -290,7 +298,7 @@ do
       if (directImport or scalarFields.complete) and not complete then return nil end
       if scalarFields.complete then
         for key in pairs(legacyScalars) do
-          if not scalarFields[key] and key ~= "autoThemePriority" then return nil end
+          if not scalarFields[key] and key ~= "autoThemePriority" and not featureScalars[key] then return nil end
         end
       end
       if complete then
@@ -312,13 +320,17 @@ do
 
   function X.ApplyProfile(patch)
     local db = X.GetDB()
-    local syncWasEnabled = db.sync
+    local syncWasEnabled, featuresChanged = db.sync, false
     -- Normalize the complete proposed state before changing the live settings.
     local candidate = {}
     for key, value in pairs(db) do candidate[key] = value end
     for key, value in pairs(patch) do candidate[key] = value end
     settings.Sanitize(candidate)
-    for key in pairs(patch) do db[key] = candidate[key] end
+    for key in pairs(patch) do
+      if featureScalars[key] and db[key] ~= candidate[key] then featuresChanged = true end
+      db[key] = candidate[key]
+    end
+    if featuresChanged then X.Intel.SettingsChanged() end
     if syncWasEnabled and not db.sync then X.StopCoordination() end
     X.blockerProfileRevision = (X.blockerProfileRevision or 0) + 1
     X.assignmentGroupConflicts = nil

@@ -145,7 +145,10 @@ local function BuildReadyView()
 end
 
 function X.RaidPreparationSnapshot(personal)
-  if not X.classic or not X.InGroup() or InCombatLockdown() or X.PlayerSuspended() then return end
+  local db = X.GetDB()
+  if not X.classic or not db or db.liteMode or InCombatLockdown() or X.PlayerSuspended() then return end
+  if personal then return X.Readiness.Personal() end
+  if not X.InGroup() then return end
   local report = X.GroupBuffReport(false, true, true)
   local reagents, incomplete = X.ReagentEstimate(report)
   local snapshot = { members = {}, reagents = reagents, incomplete = incomplete }
@@ -177,27 +180,20 @@ function X.RaidPreparationSnapshot(personal)
         status = attention and "attention" or (unknown and "unknown" or "clear"), unknown = not not unknown }
     end
   end
-  if personal then
-    local notices = {}
-    if X.WeaponEnchantMissing() then notices[#notices + 1] = L["Temporary weapon coating missing"] end
-    local ok, _, class = pcall(UnitClass, "player")
-    if ok and X.Readable(class) and (class == "HUNTER" or class == "WARLOCK")
-      and X.ReadUnitBool(UnitExists, "pet") == false then notices[#notices + 1] = L["No active pet"] end
-    snapshot.personal = #notices > 0 and table.concat(notices, " · ") or L["No personal reminders"]
-  end
   return snapshot
 end
 
 function X.RaidPreparationCommand(mode)
-  if not X.classic then return end
+  if not X.classic then Print(L["Raid Preparation is available in WoW: Forever."]); return end
   if mode == "hide" then X.CloseRaidPreparation(); return end
+  if X.GetDB().liteMode then Print(L["Raid Preparation is paused in Lite mode."]); return end
   if InCombatLockdown() or X.PlayerSuspended() then return end
   if mode == "next" or mode == "prev" then X.MoveRaidPreparation(mode == "next" and 1 or -1); return end
   if mode ~= "" and mode ~= "show" and mode ~= "personal" then
     Print(L["Use /br prep show, personal, hide, next, or prev."])
     return
   end
-  if not X.InGroup() then Print(L["Join a party or raid to use Raid Preparation."]); return end
+  if mode ~= "personal" and not X.InGroup() then Print(L["Join a party or raid to use Raid Preparation."]); return end
   X.OpenRaidPreparation(mode == "personal")
 end
 
@@ -331,7 +327,7 @@ function X.WipeCheck()
   X.combatStart = nil
   if not combatStart or GetTime() - combatStart < 8 then return end
   local db = X.GetDB()
-  if not db or not db.wipeReport or not X.InGroup() then return end
+  if not db or not (db.wipeReport or db.smartPriority) or not X.InGroup() then return end
   local total, dead = 0, 0
   local unavailable = 0
   X.ForReportRoster(function(unit, exists)
@@ -341,6 +337,8 @@ function X.WipeCheck()
     elseif state == nil then unavailable = unavailable + 1 end
   end)
   if not (dead >= 3 or (total <= 5 and dead >= 2)) then return end
+  X.Intel.MarkWipe()
+  if not db.wipeReport then return end
   local report = X.GroupBuffReport(true)
   local lines, people = X.SnapshotMissing(report), #report.people
   local note = X.GroupCoverageNote(report)

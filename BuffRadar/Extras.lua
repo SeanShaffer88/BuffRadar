@@ -441,13 +441,9 @@ function X.PerfReport()
     Print(string.format("Perf: UNIT_AURA payloads %d · skipped by fast aura %d",
       probe.seen, probe.skipped or 0))
   end
-  local getMem = (C_AddOns and C_AddOns.GetAddOnMemoryUsage) or _G.GetAddOnMemoryUsage
-  local upd = (C_AddOns and C_AddOns.UpdateAddOnMemoryUsage) or _G.UpdateAddOnMemoryUsage
-  if getMem then
-    if upd then pcall(upd) end
-    local ok, kb = pcall(getMem, "BuffRadar")
-    if ok and type(kb) == "number" then Print(string.format("Perf: addon memory %.0f KB", kb)) end
-  end
+  local kb = X.Intel.MemoryKB()
+  if kb then Print(string.format("Perf: addon memory %.0f KB", kb)) end
+  Print(X.Intel.PaceText())
 end
 
 ---------------------------------------------------------------------------
@@ -559,28 +555,41 @@ X.pullProbe = { stSeen = 0, stTypes = {}, d5 = 0 }
 X.pull = nil
 
 function X.PullStart(secs, source)
-  if secs <= 0 then X.pull = nil; return end  -- a zero timer is a cancel
-  local db = X.GetDB and X.GetDB()
-  if not db or not db.pullFlash then return end
-  if InCombatLockdown and InCombatLockdown() then return end
+  if not X.Readable(secs) or type(secs) ~= "number" or not (secs >= 0 and secs <= 600) then return end
+  if secs == 0 then
+    if X.pull and X.pull.source == source then
+      X.pull = nil
+      X.Core.QueueRefresh()
+    end
+    return
+  end
+  local db = X.GetDB()
+  if not db or (not db.pullFlash and not X.Intel.ForecastEnabled()) then return end
+  if InCombatLockdown() or X.PlayerSuspended() then return end
   local casts = 0
-  for _, tt in pairs(X.tally or {}) do casts = casts + (tt.miss or 0) end
-  if casts <= 0 then return end
-  local pull = { endsAt = GetTime() + secs, source = source }
+  if db.pullFlash then
+    for _, tt in pairs(X.tally or {}) do casts = casts + (tt.miss or 0) end
+  end
+  local flash = casts > 0
+  if not flash and not X.Intel.ForecastEnabled() then return end
+  local pull = { endsAt = GetTime() + secs, source = source, forecastOnly = not flash }
   X.pull = pull
-  Print(string.format("Pull in %ds (%s) -- %d casts still needed.", secs, source, casts))
-  if X.Flash then X.Flash() end
+  if flash then
+    Print(string.format("Pull in %ds (%s) -- %d casts still needed.", secs, source, casts))
+    if X.Flash then X.Flash() end
+  end
+  if X.Intel.ForecastEnabled() then X.Core.QueueRefresh() end
   if C_Timer and C_Timer.After then
-    if secs > 3 then
+    if flash and secs > 3 then
       C_Timer.After(secs - 3, function()
-        if X.pull == pull and X.Flash then X.Flash() end
+        if X.pull == pull and db.pullFlash and X.Flash then X.Flash() end
       end)
     end
     C_Timer.After(secs, function()
       if X.pull == pull then
         X.pull = nil
-        if X.Flash then X.Flash() end
-        if X.Refresh then X.Refresh() end
+        if flash and db.pullFlash and X.Flash then X.Flash() end
+        X.Core.QueueRefresh()
       end
     end)
   end
@@ -590,9 +599,12 @@ do
   local pf = CreateFrame("Frame")
   X.pullFrame = pf
   pf:RegisterEvent("ADDON_LOADED")
-  pf:RegisterEvent("START_TIMER")
+  local playerCountdown = Enum and Enum.StartTimerType and Enum.StartTimerType.PlayerCountdown or 2
+  for _, event in ipairs({ "START_TIMER", "START_PLAYER_COUNTDOWN", "CANCEL_PLAYER_COUNTDOWN", "STOP_TIMER_OF_TYPE" }) do
+    pcall(pf.RegisterEvent, pf, event)
+  end
   pf:RegisterEvent("CHAT_MSG_ADDON")
-  pf:SetScript("OnEvent", function(_, ev, a1, a2, a3, a4)
+  pf:SetScript("OnEvent", function(_, ev, a1, a2, _, a4)
     local probe = X.pullProbe
     if ev == "ADDON_LOADED" then
       if a1 == "BuffRadar" then
@@ -605,17 +617,19 @@ do
     end
     if ev == "START_TIMER" then
       probe.stSeen = probe.stSeen + 1
-      if a1 ~= nil then probe.stTypes[a1] = true end
-      local secs = (type(a2) == "number" and a2) or (type(a3) == "number" and a3) or 0
-      X.PullStart(secs, "countdown")
-      return
-    end
-    if ev == "CHAT_MSG_ADDON" and X.Readable(a1) and a1 == "D5"
+      if X.Readable(a1) and type(a1) == "number" and a1 >= 0 and a1 <= 10 then probe.stTypes[a1] = true end
+      if X.Readable(a1) and a1 == playerCountdown then X.PullStart(a2, "countdown") end
+    elseif ev == "START_PLAYER_COUNTDOWN" then
+      -- Unlike START_TIMER, the first argument is the initiator's GUID.
+      X.PullStart(a2, "countdown")
+    elseif ev == "CANCEL_PLAYER_COUNTDOWN" or (ev == "STOP_TIMER_OF_TYPE" and X.Readable(a1) and a1 == playerCountdown) then
+      X.PullStart(0, "countdown")
+    elseif ev == "CHAT_MSG_ADDON" and X.Readable(a1) and a1 == "D5"
       and type(a2) == "string" and X.Readable(a2) then
       local sub, rest = a2:match("^(%u+)%s+(.+)$")
       if sub == "PT" then
         probe.d5 = probe.d5 + 1
-        local secs = tonumber((rest or ""):match("(%d+)"))
+        local secs = tonumber(rest:match("^(%d+)%f[%s%z]"))
         if secs and X.SenderTrusted and X.SenderTrusted(a4) then
           X.PullStart(secs, "boss mod")
         end

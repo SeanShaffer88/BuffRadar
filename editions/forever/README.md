@@ -54,6 +54,7 @@ anything outside the game.
 
 Version 1.15.36 · Interface 16001 · GPLv3. This is a docs-only release.
 Field-tested through v1.15.33; v1.15.34–v1.15.36 remain Unverified in game.
+The Readiness update below is unreleased and has not been tested in WoW.
 
 **Forever-only from 1.8.0:** the Retail edition ended at 1.7.0 (dropped
 2026-10-25). Both editions were built from the same source; this zip's `.toc`
@@ -62,6 +63,30 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
 ---
 
 **Docs:** [Features](FEATURES.md) · [Description](DESCRIPTION.md) · [Changelog](CHANGELOG.md)
+
+## Readiness update (unreleased)
+
+Open **Settings → Readiness** for the new controls. Combat restrictions on
+click-to-buff casts still apply.
+
+| Command | What it does |
+| --- | --- |
+| `/br wizard` or `/br quicksetup` | Pick your activity and primary role, then review and apply the setup. You can also Shift-right-click the minimap button. |
+| `/br forecast 60` | Warn about confirmed expiry within 60 seconds. A supported pull countdown adds to the lead time. `/br forecast timer 30` uses a local deadline; `/br forecast off` stops warnings. Forecasts don't change cast eligibility. |
+| `/br smartprio on` | Promote defensive buffs for tanks and wipe recovery, and mana buffs for healers. `/br smartprio here <KEY>` gives one eligible buff priority in this instance; use `clear` to remove the rule. `/br smartprio instance <ID> <KEY>` sets a rule from outside it. Off restores manual priority. |
+| `/br debuff add <spell ID> [player\|focus] [encounter ID]` | Save a watch, then use `/br debuff on` to show readable icons and stacks. Omit the unit for yourself and the encounter ID to watch anywhere. Use `/br debuff list` or `/br debuff remove <spell ID> [player\|focus]` to manage watches. |
+| `/br readiness` | Open **Personal** checks, including carried Healthstones and gear durability, even when solo. `/br readiness aura <spell ID\|off>` watches a consumable aura such as an augment-rune equivalent. `/br prep` opens the group checklist. |
+| `/br minimapstatus` and `/br visual on` | Toggle coverage symbols or enable brief highlights independent of sound. Visual alerts respect Reduced Motion. |
+| `/br throttle on` and `/br stats memory` | Adjust periodic scans to movement, group size and latency, and see the game's reported total addon memory. Event refreshes stay responsive. |
+| `/br lite on` | Pause forecasts, preparation, debuffs, and optional watches without losing their settings. The main cast queue still works. |
+| `/br status export` and `/br feedback` | Copy a local status report or the feature-request link. No player data is attached to feedback. |
+
+The **Personal** tab checks Healthstones in bags, not in the bank. It can't
+confirm a placed Soulwell. Durability shows the lowest readable gear slot
+and recommends repairs at 30% or below. Forever has no assumed augment-rune
+aura; enter the spell ID of an equivalent you use. See the
+[status API](https://github.com/SeanShaffer88/BuffRadar/blob/main/docs/STATUS_API.md)
+and [roadmap](https://github.com/SeanShaffer88/BuffRadar/blob/main/docs/ROADMAP.md).
 
 ## Features
 
@@ -354,7 +379,7 @@ outside a capital, or turn off the default city pause with `/br cities`.
 | `/br assign <BUFF> <name\|none>` | Leader assigns a buff to one player (rows float/sink by owner) |
 | `/br buddy` · `/br pill` | Split the list with other BuffRadar users · all-buffed pill |
 | `/br pin <name\|none>` · `/br readypost` | Pin a player to the top · post ready-check summaries |
-| `/br weapon` · `/br enterflash` · `/br throttle` | Weapon enchant watch · instance-entry reminder · big-group scan throttle |
+| `/br weapon` · `/br enterflash` · `/br throttle` | Weapon enchant watch · instance-entry reminder · adaptive periodic scan throttle |
 | `/br history` | Your last 50 casts through BuffRadar |
 | `/br consumables` · `/br uptime` | Flask/food counts on the coverage line · coverage uptime % |
 | `/br custom add\|remove\|list <spell ID>` | Watch any buff spell you know |

@@ -75,7 +75,7 @@ local NS = {}
 local initialGlobals = {}
 for key in pairs(env) do initialGlobals[key] = true end
 local addonGlobals = {
-  BuffRadarDB = true,
+  BuffRadarDB = true, BuffRadarAPI = true,
   BuffRadar_ToggleWindow = true, BuffRadar_ToggleSound = true,
   SLASH_BUFFRADAR1 = true, SLASH_BUFFRADAR2 = true,
   BINDING_HEADER_BUFFRADAR = true, BINDING_CATEGORY_BUFFRADAR = true,
@@ -165,7 +165,7 @@ step("login fallback sanitizes without migrating and later loads replace the liv
   local replacement = { dbVersion = 9, scale = 1.5, showMinimap = true }
   client.BuffRadarDB = replacement
   onEvent(startup, "ADDON_LOADED", "BuffRadar")
-  assert(X.GetDB() == replacement and replacement.dbVersion == 21 and replacement.wizardSeen,
+  assert(X.GetDB() == replacement and replacement.dbVersion == 22 and replacement.wizardSeen,
     "normal load did not migrate and publish the replacement")
   assert(not X.Ignore.Has("BeforeLogin", "BeforeLogin"), "ignore index retained a replaced save")
   X.ApplyGeometry()
@@ -186,7 +186,7 @@ local fire = function(ev, ...)
 end
 step("ADDON_LOADED", function()
   fire("ADDON_LOADED", "BuffRadar")
-  assert(NS.X.GetDB() == env.BuffRadarDB and env.BuffRadarDB.dbVersion == 21, "live settings were not published")
+  assert(NS.X.GetDB() == env.BuffRadarDB and env.BuffRadarDB.dbVersion == 22, "live settings were not published")
   local pullFrame = NS.X.pullFrame
   if not NS.X.ApiCheck then return end -- not in the Retail TOC
   assert(pullFrame and pullFrame.events.ADDON_LOADED, "pull listener missing at startup")
@@ -412,7 +412,7 @@ step("settings window: fallback look when templates are missing", function()
   local cfg = env.BuffRadarConfig
   assert(not cfg.nativeTabs, "bottom tabs used without PanelTemplates")
   assert(cfg.template ~= "ButtonFrameTemplate", "template window kept without its members")
-  for _, key in ipairs({ "look", "alerts", "buffs", "behavior", "data" }) do
+  for _, key in ipairs({ "look", "alerts", "buffs", "behavior", "data", "readiness" }) do
     local btn = cfg.tabBtns[key]
     btn.scripts.OnClick(btn, "LeftButton")
     assert(cfg.panels[key].shown, "fallback tab " .. key .. " didn't show its panel")
@@ -423,9 +423,9 @@ step("settings window uses the standard template and bottom tabs", function()
   local cfg = env.BuffRadarConfig
   assert(cfg.template == "ButtonFrameTemplate", "template: " .. tostring(cfg.template))
   assert(cfg.nativeTabs, "bottom tabs not used")
-  assert(cfg.numTabs == 5, "PanelTemplates_SetNumTabs not called with 5")
-  local keys = { "look", "alerts", "buffs", "behavior", "data" }
-  for i = 1, 5 do
+  assert(cfg.numTabs == 6, "PanelTemplates_SetNumTabs not called with 6")
+  local keys = { "look", "alerts", "buffs", "behavior", "data", "readiness" }
+  for i = 1, #keys do
     local tab = assert(env["BuffRadarConfigTab" .. i], "BuffRadarConfigTab" .. i .. " missing")
     assert(tab.template == "PanelTabButtonTemplate", "tab template")
     tab.scripts.OnClick(tab, "LeftButton")
@@ -537,16 +537,16 @@ step("pull timer: probe counts sightings; flash fires with casts outstanding (1.
   assert(diagnostic:find("START_TIMER seen 0", 1, true) and diagnostic:find("DBM PT seen 1", 1, true),
     "D5-only pull activity was missing from diagnostics")
   NS.X.tally = { FORTITUDE = { total = 5, miss = 2 } }
-  firePull("START_TIMER", 3, 10, 10)
+  firePull("START_TIMER", 2, 10, 10)
   assert(NS.X.pullProbe.stSeen == 1, "START_TIMER not counted by the probe")
   assert(NS.X.pull == nil, "flash state set while pullflash is off")
   env.SlashCmdList.BUFFRADAR("pullflash on")
-  firePull("START_TIMER", 3, 10, 10)
+  firePull("START_TIMER", 2, 10, 10)
   assert(NS.X.pull ~= nil, "pull state not set with pullflash on and casts outstanding")
   local found
   for _, line in ipairs(chat) do if line:find("Pull in 10s", 1, true) then found = line end end
   assert(found, "no countdown line printed: " .. table.concat(chat, " | "))
-  firePull("START_TIMER", 3, 0, 0)
+  firePull("START_TIMER", 2, 0, 0)
   assert(NS.X.pull == nil, "zero timer did not cancel the pull state")
   firePull("CHAT_MSG_ADDON", "D5", "PT\t10", "RAID", "Nobody-Elsewhere")
   assert(NS.X.pullProbe.d5 == 2, "second DBM PT message not counted by the probe")
@@ -567,10 +567,12 @@ step("changing a pull timer keeps its replacement until the replacement expires"
   X.SenderTrusted = function(sender) return sender == "Leader-TestRealm" end
   X.tally, db.pullFlash = { FORTITUDE = { miss = 1 } }, true
   local pf = X.pullFrame
-  pf.scripts.OnEvent(pf, "START_TIMER", 3, 8, 8)
+  pf.scripts.OnEvent(pf, "START_TIMER", 2, 8, 8)
   local timerA = X.pull
   pf.scripts.OnEvent(pf, "CHAT_MSG_ADDON", "D5", "PT\t12", "RAID", "Leader-TestRealm")
   local timerB = X.pull
+  pf.scripts.OnEvent(pf, "CANCEL_PLAYER_COUNTDOWN", "Player-Leader")
+  assert(X.pull == timerB, "an older native cancellation cleared the replacement provider")
   local q = env.__timers
   env.__timers = {}
   local scheduled = timerA and timerB and timerA ~= timerB and timerB.source == "boss mod" and #q == 4
@@ -1740,7 +1742,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 21, "dbVersion not migrated to 21: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 22, "dbVersion not migrated to 21: " .. tostring(d.dbVersion))
   assert(d.assignmentEnabled == false and next(d.buffAssignments) == nil, "migration activated assignments")
   assert(next(d.blessingPreferences) == nil, "existing character got a blessing override")
   assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
@@ -1764,7 +1766,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 21 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 22 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
   -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
@@ -1772,22 +1774,22 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = { dbVersion = 9 }
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 21 and d.wizardSeen == true,
+  assert(d.dbVersion == 22 and d.wizardSeen == true,
     "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
   d.dbVersion, d.assignmentEnabled, d.thornsAnyClassOutdoors = 18, true, nil
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 21 and d.thornsAnyClassOutdoors == false and d.assignmentEnabled,
+  assert(d.dbVersion == 22 and d.thornsAnyClassOutdoors == false and d.assignmentEnabled,
     "v18 settings did not gain an opt-in Thorns default while preserving assignments")
   d.dbVersion, d.autoThemePriority, d.theme = 19, nil, "ui.auto"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 21 and d.theme == "ui.auto" and d.autoThemePriority == "",
+  assert(d.dbVersion == 22 and d.theme == "ui.auto" and d.autoThemePriority == "",
     "v19 migration changed Auto opt-in or failed to default the priority order")
   d.dbVersion, d.blessingComplement, d.plateRestore = 20, nil, nil
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 21 and d.blessingComplement == false and not next(d.plateRestore) and d.assignmentEnabled,
+  assert(d.dbVersion == 22 and d.blessingComplement == false and not next(d.plateRestore) and d.assignmentEnabled,
     "v20 migration turned on a new feature or lost an existing preference")
   d.blessingComplement = true
   d.plateRestore = { nameplateShowFriends = false, nameplateShowAll = true,
@@ -2859,7 +2861,7 @@ step("consumables tracked on the coverage line (1.6.0)", function()
   refresh()
   local cover
   for _, fs in ipairs(env.__fontstrings) do
-    if type(fs.text) == "string" and fs.text:find("Flask", 1, true) then cover = fs.text end
+    if type(fs.text) == "string" and fs.text:find("Flask ", 1, true) then cover = fs.text end
   end
   assert(cover, "no consumables on the coverage line")
   assert(cover:find("Flask 1/3", 1, true), "flask count wrong: " .. cover)
@@ -3233,6 +3235,8 @@ step("fallback event refresh coalesces within 100 ms in a throttled raid", funct
   local onUpdate = driver.scripts.OnUpdate
   local db = env.BuffRadarDB
   local oldCount, oldThrottle, oldCity = env.GetNumGroupMembers, db.scanThrottle, db.pauseInCities
+  local oldTime = env.__over.GetTime
+  env.__over.GetTime = function() return 100000 end -- no recent combat recovery
   local calls = 0
   env.GetNumGroupMembers = function() calls = calls + 1; return 25 end
   db.scanThrottle, db.pauseInCities = true, true
@@ -3252,7 +3256,7 @@ step("fallback event refresh coalesces within 100 ms in a throttled raid", funct
   local readsAtEvent = calls
   for _ = 1, 40 do onUpdate(driver, 0.01) end
   local nextHalfReads, noExtraRefresh = calls, env.__zoneCalls == refreshes + 1
-  env.GetNumGroupMembers, db.scanThrottle, db.pauseInCities = oldCount, oldThrottle, oldCity
+  env.GetNumGroupMembers, db.scanThrottle, db.pauseInCities, env.__over.GetTime = oldCount, oldThrottle, oldCity, oldTime
   timerTick()
   assert(early and steps >= 10 and steps <= 11,
     ("fallback event took %d ms after 40 frames; group API calls %d/%d/%d")
@@ -5854,32 +5858,41 @@ step("group-by-buff view (1.10.0)", function()
   cleanup()
 end)
 
-step("setup wizard walks a new user through (1.9.0)", function()
+step("Quick Setup stages activity and role, supports Back and cancel, and applies only on Finish", function()
   local db = env.BuffRadarDB
   assert(db.wizardSeen == false, "wizard should start unseen on a fresh save")
-  env.SlashCmdList.BUFFRADAR("theme parchment")
+  local old = {}
+  for _, key in ipairs({ "sortMode", "groupOnly", "groupCast", "pauseInCities", "forecastSeconds",
+      "smartPriority", "scanThrottle", "visualAlerts", "statusMinimap" }) do old[key] = db[key] end
+  local theme, enabled = db.theme, db.enabled
   env.SlashCmdList.BUFFRADAR("wizard")
   local w = env.BuffRadarWizard
-  assert(w and w.shown, "wizard did not open")
-  -- Page 1: dirty the sort mode, then pick "In a party" (dungeon preset).
-  db.sortMode = "role"
-  w.choice[2].scripts.OnClick(w.choice[2])
-  assert(db.sortMode == "need", "party preset not applied by the wizard: " .. tostring(db.sortMode))
-  assert(db.groupOnly == true, "party preset did not set groupOnly")
-  assert(w.page == 2, "wizard did not advance to page 2")
-  -- Page 2: the theme button cycles the theme.
-  for _, label in ipairs({ "ElvUI", "EllesmereUI", "AnoUI+", "Wick's UI", "Ultimate Forever UI", "ForeverForge UI",
-      "DaylightUI", "MeredanUI", "NazgrelUI", "Reforged UI", "Auto (Midnight)" }) do
-    w.choice[1].scripts.OnClick(w.choice[1])
-    assert(w.choice[1]:GetText() == "Theme: " .. label, "wizard skipped or mislabeled " .. label)
-  end
-  env.SlashCmdList.BUFFRADAR("theme midnight")
-  w.next.scripts.OnClick(w.next)
-  assert(w.page == 3, "wizard did not advance to page 3")
-  -- Page 3: Finish closes it and marks it seen.
-  w.next.scripts.OnClick(w.next)
-  assert(db.wizardSeen == true, "finishing did not mark the wizard seen")
-  assert(not w.shown, "wizard did not close on Finish")
+  assert(w and w.shown and w.page == 1, "wizard did not open")
+  w.choice[2]:Click()
+  assert(w.page == 2 and db.sortMode == old.sortMode and db.groupOnly == old.groupOnly,
+    "choosing an activity applied a preset before review")
+  w.choice[3]:Click()
+  assert(w.page == 3 and w.draft.role == "DAMAGER" and db.forecastSeconds == old.forecastSeconds,
+    "choosing a role modified the save before review")
+  w.back:Click()
+  assert(w.page == 2 and w.choice[3]:GetText():find("+ ", 1, true) == 1, "Back lost the selected role")
+  w.close:Click()
+  assert(not w.shown and not w.draft and db.sortMode == old.sortMode, "cancel applied drafted settings")
+  local shift = env.IsShiftKeyDown
+  env.IsShiftKeyDown = function() return true end
+  local button = env.BuffRadarMinimapButton
+  button.scripts.OnClick(button, "RightButton")
+  env.IsShiftKeyDown = shift
+  assert(w.shown and w.page == 1 and not w.draft.activity, "shift-right-click did not start a fresh wizard")
+  w.choice[3]:Click()
+  w.choice[1]:Click()
+  w.next:Click()
+  assert(db.wizardSeen and not w.shown and db.sortMode == "role" and db.smartPriority
+    and db.forecastSeconds == 60 and db.scanThrottle and db.visualAlerts and db.statusMinimap,
+    "Tank + Raid did not apply the reviewed setup")
+  assert(db.theme == theme and db.enabled == enabled, "Quick Setup changed the theme or selected buffs")
+  for key, value in pairs(old) do db[key] = value end
+  NS.X.Intel.SettingsChanged()
 end)
 
 step("two-column layout splits a long list (1.9.0)", function()
@@ -6663,7 +6676,7 @@ step("pull countdown shows on the coverage line (1.15.0)", function()
   assert(pf, "no frame registered START_TIMER")
   env.SlashCmdList.BUFFRADAR("pullflash on")
   refresh()  -- a real scan, so the tally holds casts still needed
-  pf.scripts.OnEvent(pf, "START_TIMER", 3, 10, 10)
+  pf.scripts.OnEvent(pf, "START_TIMER", 2, 10, 10)
   assert(NS.X.pull ~= nil, "pull state not set")
   NS.X.Refresh()  -- not refresh(): that drains queued timers, ending the pull
   local found
@@ -6671,7 +6684,7 @@ step("pull countdown shows on the coverage line (1.15.0)", function()
     if type(fs.text) == "string" and fs.text:find("Pull in ", 1, true) then found = fs.text end
   end
   assert(found, "no pull countdown on the coverage line")
-  pf.scripts.OnEvent(pf, "START_TIMER", 3, 0, 0)  -- zero cancels
+  pf.scripts.OnEvent(pf, "START_TIMER", 2, 0, 0)  -- zero cancels
   assert(NS.X.pull == nil, "pull state not cleared by the cancel")
   NS.X.Refresh()
   local gone = true
@@ -7200,7 +7213,7 @@ step("Forever Raid Preparation checklist keeps live detail identity and pages re
     for index = 3, 8 do model.reagents[index] = { name = "Reagent" .. index, carried = 4, needed = 1 } end
     X.RaidPreparationSnapshot = function(personal)
       calls = calls + 1
-      model.personal = personal and "Personal reminder" or nil
+      if personal then return { members = {}, reagents = {}, personal = { { text = "Personal reminder" } } } end
       return model
     end
     slash("coverage")
@@ -7247,7 +7260,8 @@ step("Forever Raid Preparation checklist keeps live detail identity and pages re
     view.back:Click()
     assert(coverage:IsVisible() and not view:IsVisible(), "Back did not restore Raid Coverage")
     slash("prep personal")
-    assert(view:IsVisible() and view.personalNote:GetText() == "Personal reminder", "personal mode stopped working")
+    assert(view:IsVisible() and view.tab == "personal" and view.rows[1].heading:GetText() == "Personal reminder",
+      "personal mode stopped working")
     X.QueueAssignmentPreviewRefresh()
     slash("prep hide")
     local scanned = calls
@@ -7353,8 +7367,8 @@ step("Forever subgroup duties constrain casts and preparation reports the whole 
     assert(unrestricted ~= "subgroup", "clearing the filter left broad casting blocked")
     slash("subgroup FORTITUDE 1")
     slash("prep personal")
-    local prep = X.RaidPreparationSnapshot(true)
-    assert(prep and #prep.members == 2 and prep.personal, "preparation required a ready check or dropped a subgroup")
+    local prep = X.RaidPreparationSnapshot()
+    assert(prep and #prep.members == 2, "preparation required a ready check or dropped a subgroup")
     assert(prep.members[2].name == "Zed-TestRealm" and prep.members[2].guid == env.UnitGUID("raid2")
       and prep.members[2].status == "attention"
       and table.concat(prep.members[2].details, ","):find("Food missing", 1, true),
@@ -7967,7 +7981,7 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 21"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 22"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
   assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
   assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")
@@ -8461,7 +8475,7 @@ step("robustness fuzz: untrusted input, corrupt saves, failing game APIs", funct
   env.GetNumGroupMembers = nil
   X.assign, X.blessPlan, X.cover = {}, {}, {}
   local cmds = {}
-  for w in ("nearby coordinate buffassign undo coverage show hide group cities sync requests digest sound soundfor prio view scroll clickthrough counts macro keybind clicks mode clickreg debug lock self pvp autohide rebuff groupcast sort filter strip fade mana selftest compact text charpoint export import profile plan summary discord offenders preset fastaura modclick grouppair pullflash ready prep subgroup fallsound consumables custom assign pin history throttle growup cover rowcolor tooltip rowgap iconsize twocol find findbox bars markers focus pets aura thornsoutdoors worldbuff drink context theme weapon enterflash readypost death wipe buddy bless uptime autoprofile ignore unignore ignores bg taxi watch alertsound minimap stats specscale tagsymbols motion rangewatch assumerange snap scale width buffs toggle announce signore unsignore plates why apicheck buffcheck perf diff practice config"):gmatch("%S+") do
+  for w in ("nearby coordinate buffassign undo coverage show hide group cities sync requests digest sound soundfor prio view scroll clickthrough counts macro keybind clicks mode clickreg debug lock self pvp autohide rebuff groupcast sort filter strip fade mana selftest compact text charpoint export import profile plan summary discord offenders preset fastaura modclick grouppair pullflash ready prep subgroup fallsound consumables custom assign pin history throttle growup cover rowcolor tooltip rowgap iconsize twocol find findbox bars markers focus pets aura thornsoutdoors worldbuff drink context theme weapon enterflash readypost death wipe buddy bless uptime autoprofile ignore unignore ignores bg taxi watch alertsound minimap stats specscale tagsymbols motion rangewatch assumerange snap scale width buffs toggle announce signore unsignore plates why apicheck buffcheck perf diff practice config forecast smartprio status minimapstatus readiness debuff lite visual feedback"):gmatch("%S+") do
     cmds[#cmds + 1] = w
   end
   local args = { "", "on", "off", "toggle", "list", "add", "remove", "clear", "set", "save", "load", "delete", "export",
@@ -8623,6 +8637,423 @@ step("robustness fuzz: untrusted input, corrupt saves, failing game APIs", funct
     error(#fails .. " finding(s) [" .. table.concat(st, " ") .. "]:\n    " .. table.concat(fails, "\n    "))
   end
 end)
+-- Fresh, clock-controlled clients for the intelligence and readiness features.
+do
+  local function FeatureClient(saved, roster)
+    local client, messages = TestClient()
+    local O = client.__over
+    local now, due = 100, {}
+    O.GetTime = function() return now end
+    if client.C_Timer then
+      client.C_Timer.After = function(delay, callback) due[#due + 1] = { now + delay, callback } end
+    end
+    local units = { player = { "Me", "PRIEST" } }
+    if roster then units.party1, units.party2 = { "Alia", "PALADIN" }, { "Bren", "PRIEST" } end
+    O.UnitExists = function(unit) return units[unit] ~= nil end
+    O.UnitIsPlayer = O.UnitExists
+    O.UnitGUID = function(unit) return units[unit] and ("Player-1-" .. units[unit][1]) end
+    O.UnitName = function(unit) return units[unit] and units[unit][1] end
+    O.UnitFullName = function(unit) return O.UnitName(unit), "Realm" end
+    O.UnitClass = function(unit) local u = units[unit]; if u then return u[2], u[2] end end
+    client.IsInGroup = function() return roster == true end
+    client.GetNumGroupMembers = function() return roster and 3 or 0 end
+    client.IsSpellInRange = function() return 1 end
+    client.UnitGroupRolesAssigned = function(unit)
+      return unit == "party1" and "TANK" or unit == "party2" and "HEALER" or "NONE"
+    end
+    local mana = forever and "Divine Spirit" or "Arcane Intellect"
+    local manaKey = forever and "DIVINE_SPIRIT" or "ARCANE_INTELLECT"
+    client.IsPlayerSpell = function(id) return id == 1243 or id == (forever and 14752 or 1459) end
+    if not forever then client.GetSpellBookItemName = function() end end
+    saved.dbVersion, saved.wizardSeen, saved.playSound = saved.dbVersion or 22, true, false
+    saved.enabled = { INNER_FIRE = false, SHADOWGUARD = false }
+    client.BuffRadarDB = saved
+    local X, startup = LoadClient(client)
+    local function event(name, ...)
+      for i = 1, #client.__frames do
+        local frame = client.__frames[i]
+        local registered = frame.events and frame.events[name]
+        if registered and (type(registered) ~= "table" or registered[1] == (...) or registered[2] == (...)) then
+          frame.scripts.OnEvent(frame, name, ...)
+        end
+      end
+    end
+    local function advance(dt, tick)
+      now = now + dt
+      if client.C_Timer then
+        for _ = 1, 80 do
+          local index
+          for i, job in ipairs(due) do
+            if job[1] <= now and (not index or job[1] < due[index][1]) then index = i end
+          end
+          if not index then break end
+          table.remove(due, index)[2]()
+        end
+        if tick then client.__ticker() end
+      else
+        startup.scripts.OnUpdate(startup, dt)
+      end
+    end
+    event("ADDON_LOADED", "BuffRadar")
+    event("PLAYER_LOGIN")
+    return { client = client, X = X, api = client.BuffRadarAPI, db = X.GetDB(), event = event, advance = advance,
+      O = O, units = units, mana = mana, manaKey = manaKey, slash = client.SlashCmdList.BUFFRADAR, messages = messages }
+  end
+
+  step("v21 upgrades to validated bounded readiness settings; named profiles leave local rules alone", function()
+    local f = FeatureClient({ dbVersion = 21, forecastSeconds = 900, smartPriority = "true", readinessAura = -12,
+      instancePriority = { [12] = "FORTITUDE", [11] = "NOT_A_BUFF", [0] = "FORTITUDE" },
+      debuffRules = { { spellID = 700, unit = "focus", encounterID = 21 },
+        { spellID = 700, unit = "focus", encounterID = 99 }, { spellID = 701, unit = "target", encounterID = 0 },
+        { spellID = math.huge, unit = "player", encounterID = 0 } } })
+    local db, X = f.db, f.X
+    assert(db.dbVersion == 22 and db.forecastSeconds == 300 and not db.smartPriority
+      and db.readinessAura == 0 and db.statusMinimap, "new scalar defaults or validation were wrong")
+    assert(db.instancePriority[12] == "FORTITUDE" and not db.instancePriority[0] and not db.instancePriority[11]
+      and #db.debuffRules == 1 and db.debuffRules[1].encounterID == 21, "invalid or duplicate rule survived sanitation")
+    for i = 1, 7 do assert(X.Debuffs.SetRule(i, "player", 0)) end
+    assert(not X.Debuffs.SetRule(12, "player", 0) and #db.debuffRules == 8, "watch limit was not enforced")
+    db.forecastSeconds, db.visualAlerts = 45, true
+    assert(X.SaveProfile("ReadinessTest"), "could not save a profile with new controls")
+    db.forecastSeconds, db.visualAlerts = 0, false
+    db.debuffRules[1].encounterID, db.instancePriority[12] = 45, f.manaKey
+    assert(X.LoadProfile("ReadinessTest") and db.forecastSeconds == 45 and db.visualAlerts
+      and db.debuffRules[1].encounterID == 45 and db.instancePriority[12] == f.manaKey, "profile lost settings or copied local rules")
+    local oldProfile = db.profiles.ReadinessTest
+    for _, key in ipairs({ "forecastSeconds", "smartPriority", "statusMinimap", "visualAlerts", "liteMode" }) do
+      oldProfile = oldProfile:gsub(";" .. key .. "=%d+", "")
+    end
+    db.forecastSeconds, db.visualAlerts, db.liteMode = 81, false, true
+    X.ApplyProfile(assert(X.ParseProfile(oldProfile)))
+    assert(db.forecastSeconds == 81 and not db.visualAlerts and db.liteMode, "an older BR2 profile changed new settings")
+  end)
+
+  step("Forecasts use the last covering aura, real pull timers and a local deadline without adding casts", function()
+    local f = FeatureClient({ forecastSeconds = 35 }, true)
+    local c, X, A = f.client, f.X, f.api
+    local expiry, other, unreadable = 148, nil, {}
+    c.issecretvalue = function(v) return v == unreadable end
+    f.O.Aura = function(unit, spell)
+      if spell == "Power Word: Fortitude" then return { expirationTime = expiry } end
+      if spell == f.mana then return { expirationTime = 0 } end
+      if spell == "Prayer of Fortitude" and other then return { expirationTime = other } end
+      return nil
+    end
+    X.Refresh()
+    assert(A.GetSummary().state == "covered" and A.GetSummary().expiring == 0, "an aura outside the lead time warned")
+    f.slash("forecast timer 20")
+    f.advance(0.11)
+    local status = A.GetStatus()
+    assert(status.expiring == 3 and status.firstExpiry.spell == "Power Word: Fortitude" and status.firstExpiry.endsAt == 148
+      and status.actionable == 0 and not c.BuffRadarNextButton:GetAttribute("type"), "forecast changed the cast queue or missed a deadline")
+    local notices = #f.messages
+    X.Refresh(); X.Refresh()
+    assert(#f.messages == notices, "the same forecast repeatedly alerted")
+    f.slash("forecast timer off")
+    f.advance(0.11)
+    assert(A.GetSummary().expiring == 0, "cancelled local deadline still affected forecasts")
+    if X.pullFrame then
+      f.event("START_TIMER", 0, 20, 20)
+      X.Refresh()
+      assert(not X.pull and A.GetSummary().expiring == 0, "a PvP countdown was mistaken for a pull")
+      f.event("START_TIMER", 2, unreadable, 20)
+      assert(not X.pull, "unreadable countdown fell back to an unrelated total timer length")
+      f.event("START_PLAYER_COUNTDOWN", "Player-1-Alia", 20, 20)
+      f.advance(0.11)
+      assert(X.pull and A.GetSummary().expiring == 3 and A.GetSummary().actionable == 0,
+        "native pull needed missing buffs or the flash setting to forecast")
+      f.event("STOP_TIMER_OF_TYPE", 1)
+      assert(X.pull, "challenge countdown stop cancelled a player countdown")
+      f.event("CANCEL_PLAYER_COUNTDOWN", "Player-1-Alia")
+      f.advance(0.11)
+      assert(not X.pull and A.GetSummary().expiring == 0, "cancelled pull stayed in the forecast")
+      f.event("START_TIMER", 2, 20, 20)
+      f.event("STOP_TIMER_OF_TYPE", 2)
+      assert(not X.pull, "stop-by-type did not cancel the player timer")
+      f.event("START_PLAYER_COUNTDOWN", "Player-1-Alia", 20, 20)
+      f.event("ENCOUNTER_START", 88)
+      assert(not X.pull, "encounter start left the preparation timer active")
+    end
+    expiry = 120
+    if forever then
+      other = 0
+      X.Refresh()
+      assert(A.GetSummary().expiring == 0, "permanent alternate coverage was ignored")
+      other = unreadable
+      X.Refresh()
+      assert(A.GetSummary().expiring == 0 and A.GetSummary().state == "unknown",
+        "a hidden alternate timer produced a false renew warning")
+      other = nil
+    end
+    f.db.rebuff = 0
+    X.Refresh()
+    assert(A.GetSummary().expiring == 3 and A.GetSummary().actionable == 0, "a short known duration was not forecast without a cast")
+    expiry = unreadable
+    f.db.rebuff = 30
+    X.Refresh()
+    assert(A.GetSummary().expiring == 0 and A.GetSummary().partial, "protected timer became a known expiry")
+  end)
+
+  step("Smart priority promotes eligible role, instance and wipe-recovery buffs without rewriting manual priority", function()
+    local f = FeatureClient({ includeSelf = false, wipeReport = false }, true)
+    local c, X, A = f.client, f.X, f.api
+    f.db.buffPrio = { f.manaKey, "FORTITUDE" }
+    X.prioDirty = true
+    local function first(unit)
+      local row = A.GetUnit(unit)
+      return row and row.missing[1]
+    end
+    X.Refresh()
+    assert(first("party1") == f.mana and first("party2") == f.mana, "manual order was not applied")
+    f.slash("smartprio on"); X.Refresh()
+    assert(first("party1") == "Power Word: Fortitude" and first("party2") == f.mana, "tank/healer roles were not distinguished")
+    local instance = 71
+    c.GetInstanceInfo = function() return "Dungeon", "party", 1, "Normal", 5, nil, false, instance end
+    f.slash("smartprio here " .. f.manaKey); X.Refresh()
+    assert(f.db.instancePriority[71] == f.manaKey and first("party1") == f.mana, "configured instance did not promote its buff")
+    instance = 72
+    X.Refresh()
+    assert(first("party1") == "Power Word: Fortitude", "a rule leaked to another instance")
+    f.event("ENCOUNTER_END", 123, "Boss", 1, 3, 0)
+    X.Refresh()
+    assert(first("party2") == "Power Word: Fortitude", "failed encounter did not promote recovery buffs with wipe reports off")
+    f.advance(91); X.Refresh()
+    assert(first("party2") == f.mana, "wipe priority never expired")
+    f.db.enabled.FORTITUDE = false
+    X.Refresh()
+    assert(first("party1") == f.mana, "smart priority bypassed a disabled buff")
+    f.db.enabled.FORTITUDE = true
+    c.GetSpellCooldown = function(spell)
+      if spell == "Power Word: Fortitude" then return c.GetTime() - 1, 30 end
+      return 0, 0
+    end
+    X.Refresh()
+    assert(first("party1") == f.mana, "smart priority offered a buff on cooldown")
+    c.GetSpellCooldown = nil
+    c.IsSpellInRange = function(spell) return spell == "Power Word: Fortitude" and 0 or 1 end
+    X.Refresh()
+    assert(first("party1") == f.mana, "smart priority offered an out-of-range buff")
+    c.IsSpellInRange = function() return 1 end
+    c.UnitGroupRolesAssigned = function(unit) return unit == "party2" and "TANK" or "HEALER" end
+    f.event("PLAYER_ROLES_ASSIGNED"); f.advance(0.11)
+    assert(first("party1") == f.mana and first("party2") == "Power Word: Fortitude", "role change did not refresh smart order")
+    f.slash("smartprio off"); X.Refresh()
+    assert(first("party1") == f.mana and f.db.buffPrio[1] == f.manaKey, "turning smart priority off did not restore manual behavior")
+  end)
+
+  step("Read-only status exports queue copies, uses contextual symbols and quiet alerts, and invalidates in combat", function()
+    local f = FeatureClient({ hidden = true, visualAlerts = true, rebuff = 0 }, true)
+    local c, X, A = f.client, f.X, f.api
+    local button, events, hasMana, duration = c.BuffRadarMinimapButton, 0, true, 0
+    c.WeakAuras = { ScanEvents = function(event)
+      assert(event == "BUFFRADAR_STATUS_CHANGED" and A.version == 1, "wrong integration event")
+      events = events + 1
+    end }
+    f.O.Aura = function(unit, spell)
+      if spell == "Power Word: Fortitude" then return duration and { expirationTime = duration } or nil end
+      if spell == f.mana and (hasMana or unit ~= "party1") then return { expirationTime = 0 } end
+      return nil
+    end
+    X.Refresh()
+    assert(A.GetSummary().state == "covered" and button.statusMark:GetText() == "+", "covered minimap state was wrong")
+    local revision, notices = A.GetSummary().revision, events
+    X.Refresh()
+    assert(A.GetSummary().revision == revision and events == notices, "unchanged scan emitted duplicate event")
+    hasMana = false
+    X.Refresh()
+    assert(A.GetSummary().state == "attention" and button.statusMark:GetText() == "!", "ordinary missing buff was not yellow")
+    local snapshot = A.GetStatus()
+    local row = assert(A.GetUnit("party1"))
+    assert(snapshot.targets[1].guid == row.guid and row.missing[1] == f.mana, "API did not return the queued buff")
+    snapshot.targets[1].missing[1], row.name = "modified", "changed"
+    f.units.nameplate1 = f.units.party1
+    assert(A.GetUnit("nameplate1").missing[1] == f.mana and A.GetUnit("party1").name == "Alia",
+      "integration could mutate live state or could not map a nameplate alias")
+    f.units.nameplate1 = { "Different", "PALADIN" }
+    assert(not A.GetUnit("nameplate1"), "reassigned token inherited someone else's queue status")
+    duration = c.GetTime() + 12
+    X.Refresh()
+    assert(A.GetSummary().state == "critical" and button.statusMark:GetText() == "!!" and button.pulse:IsShown(),
+      "important short buff did not pulse with sound off, even though it was outside the rebuff window")
+    f.advance(0.7, true)
+    assert(not button.pulse:IsShown(), "short minimap pulse did not clear")
+    c.WeakAuras.ScanEvents = function() error("consumer failed") end
+    f.db.reduceMotion = true
+    duration = 0; X.Refresh(); f.advance(2.1)
+    duration = nil; X.Refresh()
+    assert(not button.pulse:IsShown(), "Reduced Motion did not suppress visual alerts")
+    c.__combat = true
+    f.event("PLAYER_REGEN_DISABLED")
+    assert(A.GetSummary().reason == "combat" and #A.GetStatus().targets == 0 and not A.GetUnit("party1")
+      and not button.statusMark:IsShown(), "stale status survived combat lockdown")
+    c.__combat = false
+    f.event("PLAYER_REGEN_ENABLED"); f.advance(0.11)
+    assert(A.GetSummary().state == "critical", "completed scan did not recover after combat")
+    f.slash("minimapstatus off")
+    assert(not button.statusMark:IsShown() and A.GetSummary().state == "critical", "minimap preference disabled the API")
+  end)
+
+  step("Debuff strip is scoped to spell, unit and encounter; restricted or old focus auras never persist", function()
+    local f = FeatureClient({ fastAura = true }, true)
+    local c = f.client
+    local hidden, reads = {}, 0
+    local auras = { player = { spellId = 700, name = "Test Debuff", icon = 14000, applications = 3 },
+      focus = { spellId = 701, name = "Boss Debuff", icon = 14001, applications = 5 } }
+    f.units.focus = { "Focus", "WARRIOR" }
+    c.issecretvalue = function(value) return value == hidden end
+    c.C_UnitAuras.GetDebuffDataByIndex = function(unit, i)
+      assert(unit == "player" or unit == "focus", "debuff scan read another unit")
+      reads = reads + 1
+      if i == 1 then return auras[unit] end
+      return nil
+    end
+    f.slash("debuff add 700")
+    f.slash("debuff add 701 focus 501")
+    assert(not c.BuffRadarDebuffWatch, "disabled debuffs built a frame")
+    f.slash("debuff on")
+    local strip = assert(c.BuffRadarDebuffWatch)
+    assert(strip:IsShown() and tonumber(strip.icons[1].stacks:GetText()) == 3 and not strip.icons[2],
+      "encounter rule was displayed outside its encounter or player stacks were wrong")
+    f.event("ENCOUNTER_START", 501)
+    assert(strip.icons[2].unit == "focus" and tonumber(strip.icons[2].stacks:GetText()) == 5, "scoped focus aura was not displayed")
+    c.__combat = true
+    f.event("PLAYER_REGEN_DISABLED")
+    local scans = c.__zoneCalls
+    auras.player.applications = 4
+    f.event("UNIT_AURA", "player", { addedAuras = {} })
+    f.advance(0.11, true)
+    assert(tonumber(strip.icons[1].stacks:GetText()) == 4 and c.__zoneCalls == scans,
+      "debuff updates depended on buff refreshes or scanned the combat queue")
+    auras.focus = { spellId = hidden, name = "Unreadable", applications = hidden }
+    f.event("PLAYER_FOCUS_CHANGED")
+    assert(not strip.icons[2]:IsShown(), "changed focus kept the previous aura or treated a secret ID as usable")
+    c.C_UnitAuras.GetDebuffDataByIndex = nil
+    c.UnitDebuff = function(unit, i)
+      reads = reads + 1
+      if unit == "focus" and i == 1 then return "Legacy", 14001, 2, nil, nil, nil, nil, nil, nil, 701 end
+      return nil
+    end
+    f.event("PLAYER_FOCUS_CHANGED")
+    assert(strip.icons[2]:IsShown() and tonumber(strip.icons[2].stacks:GetText()) == 2, "legacy harmful-aura layout did not work")
+    f.event("ENCOUNTER_END", 501, "Boss", 1, 3, 1)
+    assert(not strip:IsShown(), "encounter ending did not clear the scoped icon")
+    c.__combat = false
+    f.event("PLAYER_REGEN_ENABLED")
+    f.slash("lite on")
+    assert(not strip.events.UNIT_AURA and not strip:IsShown() and #f.db.debuffRules == 2, "Lite mode dropped watch settings or kept a live listener")
+    local before = reads
+    f.event("UNIT_AURA", "focus"); f.advance(0.11)
+    assert(reads == before, "disabled watch still queried auras")
+    f.slash("lite off")
+    assert(strip.events.UNIT_AURA, "watch did not resume after leaving Lite mode")
+    f.slash("debuff remove 701 focus")
+    assert(#f.db.debuffRules == 1, "watch could not be removed")
+  end)
+
+  step("Adaptive cadence follows movement, latency and combat recovery without delaying unit events", function()
+    local f = FeatureClient({ scanThrottle = true }, true)
+    local c, X = f.client, f.X
+    local speed, ping, samples = 0, 85, 0
+    c.GetUnitSpeed = function() return speed end
+    c.GetNetStats = function() samples = samples + 1; return 0, 0, 21, ping end
+    local function group() return 30 end
+    f.advance(0.11)
+    assert(X.Intel.ScanTicks(group) == 3 and samples == 1, "stationary raid did not slow steady scans")
+    speed = 7
+    f.event("PLAYER_STARTED_MOVING")
+    local before = c.__zoneCalls
+    f.advance(0.11)
+    assert(c.__zoneCalls == before + 1 and X.Intel.ScanTicks(group) == 1 and samples == 1, "moving event waited for periodic scan or resampled latency")
+    ping, speed = 300, 0
+    f.advance(5.1)
+    assert(X.Intel.ScanTicks(group) == 4 and samples == 2, "high latency was not sampled or backed off")
+    before = c.__zoneCalls
+    f.event("UNIT_AURA", "player"); f.advance(0.11)
+    assert(c.__zoneCalls == before + 1, "aura event was delayed by adaptive backoff")
+    c.__combat = true
+    f.event("PLAYER_REGEN_DISABLED")
+    before = c.__zoneCalls
+    f.advance(0.41, true)
+    assert(c.__zoneCalls == before, "steady cast scan ran in combat")
+    c.__combat = false
+    f.event("PLAYER_REGEN_ENABLED"); f.advance(0.11)
+    assert(c.__zoneCalls == before + 1 and X.Intel.ScanTicks(group) == 1, "combat exit did not wake the scan or shorten cadence")
+  end)
+
+  step("Personal readiness shows bag-only stones, durability, and the configured consumable aura", function()
+    if not forever then return end
+    local f = FeatureClient({}, false)
+    local c, X = f.client, f.X
+    local equipped, healthstone, unknown, auraState = 20, 1, {}, 171
+    c.issecretvalue = function(v) return v == unknown end
+    c.C_Item.GetItemCount = function(id, bank, uses, reagents, account)
+      assert(bank == false and uses == false and reagents == false and account == false, "healthstone lookup included bank or uses")
+      return id == 19012 and healthstone or 0
+    end
+    c.GetInventoryItemDurability = function(slot)
+      if slot == 1 then return equipped, 80 end
+      if slot == 17 then return unknown, 50 end
+      return nil, nil
+    end
+    c.GetWeaponEnchantInfo = function() return true, 15, 0, 1, false end
+    c.GetInventoryItemID = function(_, slot) return slot == 16 and 15 or nil end
+    f.O.AuraList = function(unit) if unit == "player" then return {
+      { spellId = auraState, name = "Ready Aura", expirationTime = 0 },
+    } end end
+    c.GetSpellInfo = function(id) if id == 171 then return "Ready Aura" end end
+    X.GroupBuffReport = function() error("personal view scanned the group") end
+    f.slash("readiness aura 171")
+    f.slash("readiness")
+    local view = assert(c.BuffRadarRaidPreparation)
+    assert(view:IsVisible() and view.tab == "personal" and not view.players:IsShown(), "solo readiness required a roster")
+    assert(view.rows[3].heading:GetText():find("Ready Aura", 1, true) and view.rows[3].hint:GetText() == X.L["Present"],
+      "the configured consumable aura was not identified")
+    assert(view.rows[4].hint:GetText() == X.L["Present"] and view.rows[5].hint:GetText():find(X.L["Repair recommended"], 1, true)
+      and view.rows[5].hint:GetText():find(X.L["Some slots unknown"], 1, true), "healthstone or durability status was wrong")
+    equipped, healthstone = 0, unknown
+    f.event("BAG_UPDATE_DELAYED"); f.event("UPDATE_INVENTORY_DURABILITY"); f.advance(0.11)
+    assert(view.rows[4].hint:GetText() == X.L["Unknown"] and view.rows[5].hint:GetText():find("1 broken", 1, true),
+      "personal panel did not refresh or treated restricted bag data as zero")
+    auraState = unknown
+    f.event("UNIT_AURA", "player", { addedAuras = {}, removedAuraInstanceIDs = {} }); f.advance(0.11)
+    assert(view.rows[3].hint:GetText() == X.L["Unknown"], "restricted consumable was counted as absent or did not refresh")
+    f.slash("lite on")
+    assert(not view:IsShown() and not X.RaidPreparationSnapshot(true) and f.db.readinessAura == 171,
+      "Lite mode did not close readiness or erased a configured aura")
+    f.slash("lite off")
+    f.slash("prep personal")
+    assert(view:IsVisible(), "personal readiness did not resume")
+  end)
+
+  step("Readiness settings expose feedback, reports, and validated watch controls without sending data", function()
+    local f = FeatureClient({})
+    local c, X = f.client, f.X
+    local reads = 0
+    c.GetAddOnMemoryUsage = function(addon) assert(addon == "BuffRadar"); return 420 end
+    c.UpdateAddOnMemoryUsage = function() reads = reads + 1 end
+    f.slash("stats memory")
+    local output = table.concat(f.messages, "\n")
+    assert(reads == 1 and output:find("420 KB", 1, true) and output:find(X.L["The game does not report memory by feature."], 1, true),
+      "memory report did not use addon-only data or implied per-feature estimates")
+    f.slash("config")
+    local cfg = assert(c.BuffRadarConfig)
+    cfg.tabBtns.readiness:Click()
+    local r = cfg.readiness
+    r.forecast:SetText("66")
+    r.forecast.scripts.OnEnterPressed(r.forecast)
+    assert(f.db.forecastSeconds == 66, "readiness tab did not save forecast lead")
+    r.memory:Click()
+    assert(reads == 2, "memory button did not share command behavior")
+    r.feedback:Click()
+    local export = assert(c.BuffRadarExportFrame)
+    assert(export:IsShown() and not export.accept:IsShown()
+      and export.editBox:GetText():find("issues/new?template=feature_request.md", 1, true), "feedback did not open a copy-only issue link")
+    f.slash("status export")
+    assert(export.editBox:GetText():find("BuffRadar/issues", 1, true) == nil, "status did not get its own export")
+    assert(#c.__sent == 0, "a read-only tool sent chat")
+  end)
+end
+
 step("German client uses the translation", function()
   if not env.__german then return end
   local found

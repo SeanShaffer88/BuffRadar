@@ -11,6 +11,25 @@ client — and the Forever buff set itself is unchanged from 1.2.4.
 **From 1.8.0 BuffRadar is Forever-only**: Retail support was dropped
 2026-10-25, and 1.7.0 is the last Retail release.
 
+## Unreleased: Readiness
+
+- Forecast confirmed expiry using real aura durations and a supported pull or
+  local preparation timer, without changing cast eligibility.
+- Reorder already eligible buffs with smart priority for tanks, healers, wipe
+  recovery and instance rules. The saved manual order still breaks ties.
+- Keep player/focus debuff icons and stack counts separate from the cast queue.
+  An optional encounter ID restricts a watch to that boss fight.
+- Open personal raid preparation even solo. See Healthstones in bags, gear
+  durability and an optional consumable aura alongside food, flask and weapon
+  checks. The client does not report placed Soulwell availability.
+- Choose role and activity in Quick Setup. Enable contextual minimap symbols
+  and quiet visuals, with Reduced Motion support.
+- Read or export buff status, adjust periodic scans, report total memory and
+  pause optional work with Lite mode. Feedback copies a feature-request link.
+
+**Verification:** fake-client Lua 5.1 and package checks. Live behavior remains
+**Unverified** pending the Forever release checklist.
+
 ## 1.15.16
 
 - Diagnose why nearby players are absent from the buff list.

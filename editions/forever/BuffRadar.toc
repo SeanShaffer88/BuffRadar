@@ -16,6 +16,10 @@ Locales\zhCN.lua
 Data.lua
 SavedVariables.lua
 BuffRadar.lua
+Intelligence.lua
+Status.lua
+Debuffs.lua
+Readiness.lua
 Minimap.lua
 Coordination.lua
 Window.lua

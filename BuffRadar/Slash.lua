@@ -345,6 +345,10 @@ local function HandleSlash(msg)
         byKey[b.key] = b.name
         if not seenK[b.key] then order[#order + 1] = b.key; seenK[b.key] = true end
       end
+      if X.HasKnownBlessings() then
+        byKey.BLESSINGS = L["Blessings"]
+        if not seenK.BLESSINGS then order[#order + 1] = "BLESSINGS" end
+      end
       if key then
         key = key:upper()
         local at
@@ -704,8 +708,9 @@ local function HandleSlash(msg)
     else
       Print("Usage: /br preset raid|dungeon|solo")
     end
-  elseif cmd == "wizard" then
+  elseif cmd == "wizard" or cmd == "quicksetup" then
     X.OpenWizard()
+    return
   elseif cmd == "pill" then
     db.pill = not db.pill
     Print("All-buffed pill " .. OnOff(db.pill))
@@ -753,7 +758,8 @@ local function HandleSlash(msg)
   elseif cmd == "ready" then
     X.ReadyViewCommand(rest:match("^%s*(.-)%s*$"):lower())
   elseif cmd == "prep" then
-    X.RaidPreparationCommand(rest:match("^%s*(.-)%s*$"):lower())
+    X.RaidPreparationCommand(rest:lower())
+    return
   elseif cmd == "subgroup" then
     if rest:match("^%s*(.-)%s*$"):lower() == "panel" and CLASSIC_FEATURES then
       X.OpenSubgroupResponsibilities()
@@ -856,9 +862,13 @@ local function HandleSlash(msg)
       X.ShowExport(X.HistoryText(), false, "BuffRadar -- your recent casts (newest first)")
     end
   elseif cmd == "throttle" then
-    db.scanThrottle = not db.scanThrottle
-    Print("Scan throttle " .. OnOff(db.scanThrottle)
-      .. " — in groups over 20, the steady rescan runs half as often (event refreshes stay instant).")
+    local mode = rest:lower()
+    if mode ~= "" and mode ~= "on" and mode ~= "off" then Print("/br throttle [on|off]"); return end
+    db.scanThrottle = mode == "on" or (mode == "" and not db.scanThrottle)
+    Print(string.format(L["Adaptive scan throttle: %s"], L[db.scanThrottle and "On" or "Off"]))
+    X.Intel.SettingsChanged()
+    if RefreshConfig then RefreshConfig() end
+    return
   elseif cmd == "growup" then
     db.growUp = not db.growUp
     X.ApplyAnchor()
@@ -1303,6 +1313,7 @@ local function HandleSlash(msg)
     RefreshMinimapButton()
     Print("Minimap button " .. OnOff(db.showMinimap))
   elseif cmd == "stats" then
+    if rest:lower() == "memory" then X.Intel.MemoryReport(); return end
     if rest:lower() == "export" then
       X.ShowExport(X.StatsText(), false, "BuffRadar — cast statistics")
       return
@@ -1402,7 +1413,7 @@ local function HandleSlash(msg)
     X.ChangeFriendlyNameplates(rest == "" and "on" or rest:lower(), Print)
     return
   elseif X.ext[cmd] then
-    X.ext[cmd](rest)
+    if X.ext[cmd](rest) then return end
   else
     Print("Commands:")
     Print("  /br  - show/hide the window   (/br debug if it won't appear)")
@@ -1460,7 +1471,9 @@ local function HandleSlash(msg)
     Print("  /br wipe [show]  - rebuff report after a wipe")
     Print("  /br pin <name>  - keep a player at the top   /br pin none  - clear the pin")
     Print("  /br weapon  - watch your weapon enchant   /br enterflash  - instance-entry reminder")
-    Print("  /br history  - your recent casts   /br throttle  - halve the rescan rate in big groups")
+    Print("  /br history  - your recent casts   /br throttle [on|off]  - adaptive periodic scans")
+    Print("  /br forecast [seconds|off|timer] · /br smartprio · /br debuff · /br readiness")
+    Print("  /br minimapstatus · /br visual · /br lite · /br stats memory · /br status [export] · /br feedback")
     Print("  /br growup  - list grows upward   /br theme <name>  - color theme")
     Print("  Combat safety: the list hides and buff buttons are disabled until combat ends.")
     Print("  /br find <text> | findbox  - name finder   /br bars  - duration bars   /br markers  - raid markers")
@@ -1474,7 +1487,7 @@ local function HandleSlash(msg)
     Print("  /br pill  - all-buffed pill   /br consumables  - flask/food counts")
     Print("  /br custom add|remove|list <id>  - watch any buff spell you know")
     Print("  /br uptime  - coverage uptime %   /br preset raid|dungeon|solo")
-    Print("  /br wizard  - run the one-minute setup wizard")
+    Print("  /br wizard (or /br quicksetup) - choose an activity and role")
     Print("  /br theme save <name>  - save your current colors as a theme")
     Print(L["Usage: /br theme priority [panel|list|up <id>|down <id>|reset]"])
     Print("  /br rowgap <0-8> | iconsize <0|10-24>")

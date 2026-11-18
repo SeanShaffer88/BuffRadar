@@ -1795,8 +1795,21 @@ function AssignmentUI.OpenCoverage(panel)
   AssignmentUI.RefreshCoverage(view)
 end
 
+function X.QueuePersonalReadiness()
+  local view = cfg and cfg.assignmentPanel and cfg.assignmentPanel.preparation
+  if view and view.tab == "personal" then X.QueueAssignmentPreviewRefresh(true) end
+end
+
+function AssignmentUI.PreparationAvailable(tab)
+  local settings = X.GetDB()
+  return settings and not settings.liteMode and not InCombatLockdown() and not X.PlayerSuspended()
+    and (tab == "personal" or X.InGroup())
+end
+
 function AssignmentUI.DrawPreparation(view, rosterRefresh)
-  local report, lines = view.report, {}
+  local report = view.report
+  local personal = view.tab == "personal"
+  local lines = personal and report.personal or {}
   local attention, unknown = 0, 0
   local oldExpandedIndex = view.expandedIndex
   local expandedIndex, expandedEnd
@@ -1845,11 +1858,21 @@ function AssignmentUI.DrawPreparation(view, rosterRefresh)
       or (report.incomplete and L["Reagent needs could not be confirmed."]
         or L["No reagents required for the current checklist."]) }
   end
-  view.summary:SetText(string.format(L["%d Players · %d Need Attention · %d With Unknowns"], #report.members, attention, unknown))
-  view.notice:SetText(report.incomplete and L["Some roster information could not be checked."] or "")
-  view.personalNote:SetText(report.personal or "")
-  if view.tab == "players" then view.players:Disable(); view.reagents:Enable()
-  else view.players:Enable(); view.reagents:Disable() end
+  view.summary:SetText(personal and L["Your character only"]
+    or string.format(L["%d Players · %d Need Attention · %d With Unknowns"], #report.members, attention, unknown))
+  view.notice:SetText(personal and L["Soulwell availability cannot be checked."]
+    or report.incomplete and L["Some roster information could not be checked."] or "")
+  local grouped = X.InGroup()
+  view.players:SetShown(grouped)
+  view.reagents:SetShown(grouped)
+  view.back:SetShown(grouped)
+  view.personalTab:ClearAllPoints()
+  if grouped then view.personalTab:SetPoint("LEFT", view.reagents, "RIGHT", 8, 0)
+  else view.personalTab:SetPoint("TOPLEFT", 16, -75) end
+  for _, tab in ipairs({ "players", "reagents", "personal" }) do
+    local button = tab == "personal" and view.personalTab or view[tab]
+    if view.tab == tab then button:Disable() else button:Enable() end
+  end
   local pages = math.max(1, math.ceil(#lines / #view.rows))
   view.page = math.max(1, math_min(view.page, pages))
   view.pageLabel:SetText(string.format(L["Page %d of %d"], view.page, pages))
@@ -1886,21 +1909,20 @@ end
 function AssignmentUI.RefreshPreparation(view, rosterRefresh)
   if not view:IsVisible() then return end
   view.pendingRefresh = nil
-  if InCombatLockdown() or X.PlayerSuspended() or not X.InGroup() then view:Hide(); return end
-  view.report = X.RaidPreparationSnapshot(view.personal)
+  if not AssignmentUI.PreparationAvailable(view.tab) then view:Hide(); return end
+  view.report = X.RaidPreparationSnapshot(view.tab == "personal")
   if not view.report then view:Hide(); return end
   AssignmentUI.DrawPreparation(view, rosterRefresh)
 end
 
-function X.CloseRaidPreparation()
+function X.CloseRaidPreparation(groupOnly)
   local view = cfg and cfg.assignmentPanel and cfg.assignmentPanel.preparation
-  if view then view:Hide() end
+  if view and (not groupOnly or view.tab ~= "personal") then view:Hide() end
 end
 
 function X.MoveRaidPreparation(delta)
   local view = cfg and cfg.assignmentPanel and cfg.assignmentPanel.preparation
-  if not view or not view.report or not view:IsVisible()
-    or InCombatLockdown() or X.PlayerSuspended() or not X.InGroup() then return end
+  if not view or not view.report or not view:IsVisible() or not AssignmentUI.PreparationAvailable(view.tab) then return end
   view.page = view.page + delta
   AssignmentUI.DrawPreparation(view)
 end
@@ -1919,18 +1941,18 @@ function AssignmentUI.BuildPreparation(panel)
   view.summary = text("GameFontHighlightSmall", 16, -44, 210)
   view.refresh = MakeButton(view, L["Refresh Preparation"], 182, function() AssignmentUI.RefreshPreparation(view, true) end)
   view.refresh:SetPoint("TOPRIGHT", -16, -37)
-  view.notice = text("GameFontHighlightSmall", 237, -82, 16)
-  view.personalNote = text("GameFontHighlightSmall", 16, -106, 16)
+  view.notice = text("GameFontHighlightSmall", 16, -104, 16)
   local function selectTab(tab)
-    if not view.report or view.tab == tab or not view:IsVisible()
-      or InCombatLockdown() or X.PlayerSuspended() or not X.InGroup() then return end
+    if not view.report or view.tab == tab or not view:IsVisible() or not AssignmentUI.PreparationAvailable(tab) then return end
+    local personalChanged = (view.tab == "personal") ~= (tab == "personal")
     view.tab, view.page, view.expanded, view.expandedIndex, view.expandedEnd = tab, 1, nil, nil, nil
-    AssignmentUI.DrawPreparation(view)
+    if personalChanged then AssignmentUI.RefreshPreparation(view) else AssignmentUI.DrawPreparation(view) end
   end
   view.players = MakeButton(view, L["Players"], 102, function() selectTab("players") end)
   view.players:SetPoint("TOPLEFT", 16, -75)
   view.reagents = MakeButton(view, L["Reagents"], 102, function() selectTab("reagents") end)
   view.reagents:SetPoint("LEFT", view.players, "RIGHT", 8, 0)
+  view.personalTab = MakeButton(view, L["Personal"], 120, function() selectTab("personal") end)
   view.rows = {}
   local function wheel(_, delta) X.MoveRaidPreparation(delta > 0 and -1 or 1) end
   view:EnableMouseWheel(true)
@@ -1983,7 +2005,8 @@ function AssignmentUI.BuildPreparation(panel)
 end
 
 function X.OpenRaidPreparation(personal)
-  if not CLASSIC_FEATURES or not X.InGroup() or X.PlayerSuspended() or InCombatLockdown() then return end
+  local tab = personal and "personal" or "players"
+  if not CLASSIC_FEATURES or not AssignmentUI.PreparationAvailable(tab) then return end
   if not cfg or not cfg.assignmentPanel or not cfg.assignmentPanel:IsVisible() then X.OpenAssignments() end
   local panel = cfg.assignmentPanel
   panel.picker:Hide()
@@ -1994,7 +2017,7 @@ function X.OpenRaidPreparation(personal)
   if panel.practice then panel.practice:Hide() end
   panel.preparation = panel.preparation or AssignmentUI.BuildPreparation(panel)
   local view = panel.preparation
-  view.personal, view.tab, view.page = personal, "players", 1
+  view.tab, view.page = tab, 1
   view.expanded, view.expandedIndex, view.expandedEnd = nil, nil, nil
   view:Show()
   AssignmentUI.RefreshPreparation(view)
@@ -2677,6 +2700,147 @@ do
   end
 end
 
+function AssignmentUI.BuildReadinessSettings(panel)
+  local r = { checks = {}, rules = {} }
+  local I, D = X.Intel, X.Debuffs
+  local function label(text, x, y, font)
+    local fs = panel:CreateFontString(nil, "OVERLAY", font or "GameFontHighlightSmall")
+    fs:SetPoint("TOPLEFT", x, y)
+    fs:SetText(text)
+    return fs
+  end
+  local function section(text, x, y) return label(L[text], x, y, "GameFontNormal") end
+  local function field(text, x, y, width, length, numeric, commit)
+    local box = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
+    box:SetSize(width, 20)
+    box:SetPoint("TOPLEFT", x, y)
+    box:SetAutoFocus(false)
+    box:SetMaxLetters(length)
+    if numeric then box:SetNumeric(true) end
+    box:SetScript("OnEnterPressed", function(self)
+      if commit then commit(self:GetText()) end
+      self:ClearFocus()
+      if commit then r.Update() end
+    end)
+    box:SetScript("OnEscapePressed", function(self) self:ClearFocus(); r.Update() end)
+    K.RegisterEdit(box, panel, L[text])
+    RegisterSearch(box, panel, L[text])
+    Tip(box, L[text], commit and L["Press Enter to save."] or nil)
+    return box
+  end
+  local function check(key, text, x, y, tip)
+    local cb = MakeCheck(panel, L[text], function() return db[key] end, function(value)
+      db[key] = value
+      I.SettingsChanged()
+      RefreshConfig()
+    end)
+    cb:SetPoint("TOPLEFT", x, y)
+    WrapCheckLabel(cb)
+    if tip then Tip(cb, L[text], L[tip]) end
+    r.checks[#r.checks + 1] = cb
+  end
+
+  section("Buff intelligence", 14, -10)
+  label(L["Forecast seconds (0 = off)"], 15, -45)
+  r.forecast = field("Forecast seconds (0 = off)", 214, -40, 50, 3, true,
+    function(input) I.SetForecast(tonumber(input)) end)
+  check("smartPriority", "Smart buff priority", 10, -68,
+    "Promote buffs for tanks, healers, recovery and your instance rules without changing eligibility.")
+  label(L["Priority buff key for this instance"], 15, -104)
+  r.instance = field("Priority buff key for this instance", 18, -122, 152, 32, false)
+  local instance = MakeButton(panel, L["Apply here"], 98, function()
+    local key = r.instance:GetText():match("^%s*(.-)%s*$")
+    I.SetInstancePriority(I.InstanceID(), key == "" and "clear" or key)
+    r.instance:ClearFocus()
+    r.Update()
+  end)
+  instance:SetPoint("TOPLEFT", 174, -121)
+  Tip(instance, L["Apply here"], L["Use a key from /br buffs. Clear the field to remove the rule."])
+
+  section("Performance & alerts", 303, -10)
+  check("scanThrottle", "Adaptive scan throttle", 299, -35,
+    "Slow periodic scans at rest or with high latency. Event refreshes stay responsive.")
+  check("liteMode", "Lite mode", 299, -63,
+    "Pause the checklist, forecasts, debuffs and optional aura watches without changing their settings.")
+  check("statusMinimap", "Status on the minimap", 299, -91)
+  check("visualAlerts", "Quiet visual alerts", 299, -119,
+    "Briefly highlight the window or minimap without sound. Respects Reduced Motion.")
+
+  section("Encounter debuffs", 14, -164)
+  check("debuffWatch", "Show watched debuffs", 10, -184,
+    "Track up to eight harmful spell IDs on you or your focus, when the client exposes them.")
+  label(L["Spell ID"], 16, -220)
+  label(L["Watch unit"], 111, -220)
+  label(L["Encounter ID (optional)"], 252, -220)
+  r.spell = field("Spell ID", 18, -238, 78, 7, true)
+  r.boss = field("Encounter ID (optional)", 254, -238, 121, 7, true)
+  r.unit = "player"
+  r.unitButton = MakeButton(panel, L["Player"], 123, function()
+    r.unit = r.unit == "player" and "focus" or "player"
+    r.unitButton:SetText(L[r.unit == "player" and "Player" or "Focus"])
+  end)
+  r.unitButton:SetPoint("TOPLEFT", 111, -237)
+  r.unitButton.navigation.label = L["Watch unit"]
+  r.unitButton.navigation.value = function() return r.unitButton:GetText() end
+  local add = MakeButton(panel, L["Save watch"], 151, function()
+    local boss = r.boss:GetText()
+    if D.SetRule(tonumber(r.spell:GetText()), r.unit, boss == "" and 0 or tonumber(boss)) then
+      r.spell:SetText("")
+      r.boss:SetText("")
+      RefreshConfig()
+    end
+  end)
+  add:SetPoint("TOPLEFT", 402, -237)
+  r.noRules = label(L["No debuffs are being tracked."], 15, -276)
+  for i = 1, X.Settings.MaxDebuffRules do
+    local x, y = 16 + ((i - 1) % 2) * 278, -277 - math_floor((i - 1) / 2) * 30
+    local row = { text = label("", x, y) }
+    row.text:SetWidth(186)
+    row.text:SetJustifyH("LEFT")
+    row.text:SetWordWrap(false)
+    row.remove = MakeButton(panel, L["Remove"], 79, function()
+      local rule = db.debuffRules[i]
+      if rule then D.Remove(rule.spellID, rule.unit); RefreshConfig() end
+    end)
+    row.remove:SetPoint("TOPLEFT", x + 188, y + 3)
+    row.remove.navigation.value = function() return row.full end
+    Tip(row.remove, L["Remove"], function() return row.full end)
+    r.rules[i] = row
+  end
+
+  if CLASSIC_FEATURES then
+    label(L["Consumable aura ID (0 = off)"], 15, -424)
+    r.aura = field("Consumable aura ID (0 = off)", 232, -420, 80, 7, true,
+      function(input) X.Readiness.SetAura(tonumber(input)) end)
+    local personal = MakeButton(panel, L["Open personal checks"], 214, function() X.RaidPreparationCommand("personal") end)
+    personal:SetPoint("TOPLEFT", 339, -420)
+  end
+  r.memory = MakeButton(panel, L["Memory usage"], 152, I.MemoryReport)
+  r.memory:SetPoint("TOPLEFT", 14, -469)
+  local status = MakeButton(panel, L["Copy buff status"], 152, function() K.Stop(); X.ext.status("export") end)
+  status:SetPoint("LEFT", r.memory, "RIGHT", 10, 0)
+  r.feedback = MakeButton(panel, L["Feedback"], 152, function() K.Stop(); X.ShowFeedback() end)
+  r.feedback:SetPoint("LEFT", status, "RIGHT", 10, 0)
+
+  function r.Update()
+    for _, cb in ipairs(r.checks) do cb:Update() end
+    if not r.forecast:HasFocus() then r.forecast:SetText(tostring(db.forecastSeconds)) end
+    if r.aura and not r.aura:HasFocus() then r.aura:SetText(tostring(db.readinessAura)) end
+    if not r.instance:HasFocus() then
+      local id = I.InstanceID()
+      r.instance:SetText(id and db.instancePriority[id] or "")
+    end
+    r.noRules:SetShown(#db.debuffRules == 0)
+    for i, row in ipairs(r.rules) do
+      local rule = db.debuffRules[i]
+      row.full = rule and D.RuleLabel(rule)
+      row.text:SetText(row.full or "")
+      row.remove:SetShown(rule ~= nil)
+    end
+  end
+  return r
+end
+
 local function BuildConfig()
   db = X.GetDB()
   -- Blizzard's standard window (title bar, BuffRadar icon in the portrait
@@ -2735,15 +2899,15 @@ local function BuildConfig()
   K.Register(cfg.closeButton, cfg, L["Close settings"], "button")
 
   -- Tabs: Blizzard's bottom tabs on the standard window (named
-  -- BuffRadarConfigTab1..5, as PanelTemplates expects), otherwise the
+  -- BuffRadarConfigTab1..6, as PanelTemplates expects), otherwise the
   -- original row of buttons along the top.
   cfg.panels, cfg.tabBtns = {}, {}
   cfg.nativeTabs = native and PanelTemplates_SetNumTabs and PanelTemplates_SetTab and true or false
   local tabDefs = {
-    { "look", L["Window"] }, { "alerts", L["Alerts"] }, { "buffs", L["Buffs"] },
-    { "behavior", L["Behavior"] }, { "data", L["Ignore & Stats"] },
+    { "look", L["Window"], 75 }, { "alerts", L["Alerts"], 75 }, { "buffs", L["Buffs"], 70 },
+    { "behavior", L["Behavior"], 98 }, { "data", L["Ignore & Stats"], 126 }, { "readiness", L["Readiness"], 106 },
   }
-  local tabList, prevTab = {}, nil
+  local tabList, prevTab, fallbackX = {}, nil, 14
   for i, td in ipairs(tabDefs) do
     local key, label = td[1], td[2]
     local function onClick() SelectTab(key); RefreshConfig() end
@@ -2762,9 +2926,10 @@ local function BuildConfig()
       prevTab = btn
       tabList[i] = btn
     else
-      btn = MakeButton(cfg, "", 106, onClick)
+      btn = MakeButton(cfg, "", td[3], onClick)
       btn:SetText(label)
-      btn:SetPoint("TOPLEFT", 16 + (i - 1) * 112, -40)
+      btn:SetPoint("TOPLEFT", fallbackX, -40)
+      fallbackX = fallbackX + td[3] + 4
     end
     K.Register(btn, cfg, label, "tab").key = key
     cfg.tabBtns[key] = btn
@@ -2783,6 +2948,8 @@ local function BuildConfig()
     PanelTemplates_SetNumTabs(cfg, #tabList)
     cfg:SetClampRectInsets(0, 0, 0, -NATIVE_TAB_DEPTH)
   end
+
+  cfg.readiness = AssignmentUI.BuildReadinessSettings(cfg.panels.readiness)
 
   local function section(panel, text, x, y)
     local fs = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -2944,7 +3111,7 @@ local function BuildConfig()
     function(v) db.twoCol = v; Refresh() end)
   cfg.twoColCheck:SetPoint("TOPLEFT", 10, -396)
 
-  cfg.wizardBtn = MakeButton(look, "Run the setup wizard", 150, function()
+  cfg.wizardBtn = MakeButton(look, L["Quick Setup"], 150, function()
     K.Stop()
     X.OpenWizard()
   end)
@@ -3379,9 +3546,9 @@ local function BuildConfig()
   Tip(cfg.clickThroughCheck, "Click-through while locked",
     "While the window is locked, it and its rows stop catching mouse clicks, so clicks land on the game world behind them. Unlock with /br lock to move or use the window again.")
 
-  cfg.throttleCheck = MakeCheck(beh, L["Halve the rescan rate in big groups"],
+  cfg.throttleCheck = MakeCheck(beh, L["Adaptive scan throttle"],
     function() return db.scanThrottle end,
-    function(v) db.scanThrottle = v end)
+    function(v) db.scanThrottle = v; X.Intel.SettingsChanged(); RefreshConfig() end)
   cfg.throttleCheck:SetPoint("TOPLEFT", 10, -215)
   cfg.fastAuraCheck = MakeCheck(beh, L["Skip rescans for aura changes that touch no watched buff"],
     function() return db.fastAura end,
@@ -3608,7 +3775,7 @@ local function BuildConfig()
   Tip(cfg.gapSlider, "Row spacing", "Extra empty space between the rows, 0 to 8. The window grows to fit. Same as /br rowgap <0-8>.")
   Tip(cfg.iconSlider, "Buff icon size", "How big the missing-buff icons on each row are, 10 to 24. At 0 the size is automatic (16, or 12 in compact rows). Same as /br iconsize <0|10-24>.")
   Tip(cfg.displayBtn, "More display options", "Opens a panel with the finer display choices: which parts the coverage line shows, colored edge marks on rows (your assignments, tanks, expiring soon, your buddy's rows), how much detail row tooltips carry, class-colored names, realm names and shortened names.")
-  Tip(cfg.wizardBtn, "Setup wizard", "Runs the three-page first-run setup again: how you play, the window theme, and your buffs. Same as /br wizard.")
+  Tip(cfg.wizardBtn, L["Quick Setup"], L["Choose your activity and role, then review the suggested settings. /br wizard"])
   Tip(cfg.findCheck, "Name finder", "A small Find box on the window: while it holds text, only players whose name matches are listed. Same as /br findbox; /br find <text> sets the text without the box.")
   Tip(cfg.cfgScaleDrop, "Settings window scale", "Makes this settings window bigger or smaller.")
   -- Alerts
@@ -3637,7 +3804,7 @@ local function BuildConfig()
   Tip(cfg.enterCheck, "Instance-entry reminder", "One chat line when you step into a dungeon, raid or battleground while buffs are still missing: how many people still need buffs, and how many casts that is.")
   Tip(cfg.pullFlashCheck, "Pull-timer flash", "When a group pull timer starts (the game's /countdown, or a boss-mod pull timer from a trusted sender), the border flashes and chat shows the seconds and how many casts are still needed. Same as /br pullflash.")
   Tip(cfg.fastAuraCheck, "Fast aura updates", "Aura changes that touch no buff you can cast skip the rescan; the steady refresh still runs, and any doubtful payload rescans as before. Same as /br fastaura.")
-  Tip(cfg.throttleCheck, "Scan throttle", "In groups of more than 20 players, the steady background rescan runs half as often. Refreshes caused by events — a buff landing, someone joining — always happen immediately. For very large raids on slower machines.")
+  Tip(cfg.throttleCheck, L["Adaptive scan throttle"], L["Slow periodic scans at rest or with high latency. Event refreshes stay responsive."])
   Tip(cfg.petsCheck, "Group pets", "Pets in your group get their own rows when they miss Fortitude, Mark of the Wild or Arcane Intellect — click the row to buff the pet. Pets never count in the coverage numbers. Same as /br pets.")
   Tip(cfg.auraCheck, "Aura / aspect watch", "Forever only: your own row flags it when no hunter aspect or paladin aura is up. Same as /br aura.")
   Tip(cfg.worldCheck, "World-buff watch", "Forever only: the coverage line lists your active world buffs (Dragonslayer, Warchief's Blessing, Songflower, ...) with the time left. Same as /br worldbuff.")
@@ -3913,6 +4080,7 @@ RefreshConfig = function()
   if cfg.weaponCheck then cfg.weaponCheck:Update() end
   if cfg.enterCheck then cfg.enterCheck:Update() end
   if cfg.throttleCheck then cfg.throttleCheck:Update() end
+  if cfg.readiness and cfg.panels.readiness:IsShown() then cfg.readiness.Update() end
   if cfg.growCheck then cfg.growCheck:Update() end
   if cfg.twoColCheck then cfg.twoColCheck:Update() end
   if cfg.themeBtn then
