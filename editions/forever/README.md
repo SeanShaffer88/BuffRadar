@@ -52,9 +52,8 @@ as the situation calls for. When everyone is buffed, the list empties and
 gets out of your way. It costs nothing, asks for nothing, and never talks to
 anything outside the game.
 
-Version 1.15.35 · Interface 16001 · GPLv3. The maintainer reported that
-releases through 1.15.33 passed in WoW: Forever; 1.15.34–1.15.35 remain
-unverified in game.
+Version 1.15.36 · Interface 16001 · GPLv3. This is a docs-only release.
+Field-tested through v1.15.33; v1.15.34–v1.15.36 remain Unverified in game.
 
 **Forever-only from 1.8.0:** the Retail edition ended at 1.7.0 (dropped
 2026-10-25). Both editions were built from the same source; this zip's `.toc`

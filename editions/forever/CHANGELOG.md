@@ -2,6 +2,14 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.36 — WoW: Forever
+
+- Refresh the Forever README with the v1.15.35 in-game player list and all five settings screenshots.
+- Update release and field-test information.
+
+Documentation-only release; no addon runtime code changed. In-game behavior
+remains Unverified for v1.15.34–v1.15.36.
+
 ## 1.15.35 — WoW: Forever
 
 - Fix the action-bar macro for nearby players. It carries the prepared cast
