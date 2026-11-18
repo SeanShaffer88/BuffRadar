@@ -11,13 +11,36 @@ You always come first.
 
 ## Screenshots
 
+Captured in WoW: Forever with BuffRadar v1.15.35.
+
 **BuffRadar list**
 
-![BuffRadar showing nearby players who still need buffs.](https://raw.githubusercontent.com/SeanShaffer88/BuffRadar/v1.15.7/editions/forever/screenshots/buffradar-forever-list.png)
+![BuffRadar showing nearby players who need buffs.](screenshots/buffradar-forever-list-v1.15.35.jpg)
 
-**BuffRadar settings**
+<details>
+<summary>Settings tabs</summary>
 
-![BuffRadar settings for appearance and behavior options.](https://raw.githubusercontent.com/SeanShaffer88/BuffRadar/v1.15.7/editions/forever/screenshots/buffradar-forever-settings.png)
+### Window
+
+![BuffRadar Window settings.](screenshots/buffradar-forever-settings-window-v1.15.35.jpg)
+
+### Alerts
+
+![BuffRadar Alerts settings.](screenshots/buffradar-forever-settings-alerts-v1.15.35.jpg)
+
+### Buffs
+
+![BuffRadar Buffs settings.](screenshots/buffradar-forever-settings-buffs-v1.15.35.jpg)
+
+### Behavior
+
+![BuffRadar Behavior settings.](screenshots/buffradar-forever-settings-behavior-v1.15.35.jpg)
+
+### Ignore & Stats
+
+![BuffRadar Ignore and Stats settings.](screenshots/buffradar-forever-settings-ignore-stats-v1.15.35.jpg)
+
+</details>
 
 ## TL;DR
 
@@ -29,9 +52,8 @@ as the situation calls for. When everyone is buffed, the list empties and
 gets out of your way. It costs nothing, asks for nothing, and never talks to
 anything outside the game.
 
-Version 1.15.11 · Interface 16001 · GPLv3. The maintainer confirmed live
-verification of scrollable rows using field-test build `650f5c603781` in
-WoW: Forever on 2026-11-14.
+Version 1.15.36 · Interface 16001 · GPLv3. This is a docs-only release.
+Field-tested through v1.15.33; v1.15.34–v1.15.36 remain Unverified in game.
 
 **Forever-only from 1.8.0:** the Retail edition ended at 1.7.0 (dropped
 2026-10-25). Both editions were built from the same source; this zip's `.toc`
