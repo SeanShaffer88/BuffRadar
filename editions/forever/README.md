@@ -11,13 +11,15 @@ You always come first.
 
 ## Screenshots
 
-**BuffRadar list**
+These real in-game captures are from v1.15.7. The repository does not yet have v1.15.35 screenshots.
 
-![BuffRadar showing nearby players who still need buffs.](https://raw.githubusercontent.com/SeanShaffer88/BuffRadar/v1.15.7/editions/forever/screenshots/buffradar-forever-list.png)
+**BuffRadar list (v1.15.7)**
 
-**BuffRadar settings**
+![In-game BuffRadar list capture from v1.15.7.](https://raw.githubusercontent.com/SeanShaffer88/BuffRadar/v1.15.7/editions/forever/screenshots/buffradar-forever-list.png)
 
-![BuffRadar settings for appearance and behavior options.](https://raw.githubusercontent.com/SeanShaffer88/BuffRadar/v1.15.7/editions/forever/screenshots/buffradar-forever-settings.png)
+**BuffRadar settings (v1.15.7)**
+
+![In-game BuffRadar settings capture from v1.15.7.](https://raw.githubusercontent.com/SeanShaffer88/BuffRadar/v1.15.7/editions/forever/screenshots/buffradar-forever-settings.png)
 
 ## TL;DR
 
@@ -29,9 +31,9 @@ as the situation calls for. When everyone is buffed, the list empties and
 gets out of your way. It costs nothing, asks for nothing, and never talks to
 anything outside the game.
 
-Version 1.15.11 · Interface 16001 · GPLv3. The maintainer confirmed live
-verification of scrollable rows using field-test build `650f5c603781` in
-WoW: Forever on 2026-11-14.
+Version 1.15.35 · Interface 16001 · GPLv3. The maintainer reported that
+releases through 1.15.33 passed in WoW: Forever; 1.15.34–1.15.35 remain
+unverified in game.
 
 **Forever-only from 1.8.0:** the Retail edition ended at 1.7.0 (dropped
 2026-10-25). Both editions were built from the same source; this zip's `.toc`
