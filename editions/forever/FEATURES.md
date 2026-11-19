@@ -7,6 +7,14 @@ WoW: Forever (Interface 16001). For the short version see
 The shipping Forever TOC requires Interface 16001. The historical Retail
 TOC remains a test fixture; 1.7.0 was the last Retail release.
 
+## 1.16.1: accurate cast history
+
+- Preserve cast counts and history when Forever reports a successful cast
+  after rapid retries on the same target and spell. Different-target overlaps
+  remain uncredited if their origin is unclear.
+
+**Verification:** automated checks; live behavior remains **Unverified**.
+
 ## 1.16.0: safer casts, saves and sharing
 
 - A scan or viewport paint failure clears cast actions until a successful

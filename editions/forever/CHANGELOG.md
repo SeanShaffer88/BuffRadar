@@ -2,6 +2,15 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.16.1 — WoW: Forever
+
+- Keep confirmed casts in the counter and history when Forever reports a
+  successful cast after rapid retries on the same player and spell.
+- Keep overlapping attempts on different targets uncredited when their origin
+  is ambiguous.
+
+Automated checks cover the retry case; live behavior remains **Unverified**.
+
 ## 1.16.0 — WoW: Forever
 
 This release ships the hardening changes from the unpublished 1.15.38

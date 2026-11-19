@@ -44,13 +44,11 @@ come first.
   of the main window on German clients (settings are English for
   now).
 
-## What's new in 1.16.0
+## What's new in 1.16.1
 
-Review a paste before applying settings or plans. Plans stay local unless
-an authorised player chooses to share them, and importing a named profile
-no longer risks replacing a save without showing the collision. The list
-fits shorter viewports; Settings and Ready Check positions can be remembered
-separately with `/br positions on`.
+Rapid retries of the same macro target now keep successful casts in the
+counter and history. An early press can still receive the game's cooldown
+message; the addon does not bypass the global cooldown.
 
 ## Readiness
 
@@ -79,6 +77,5 @@ were informed by BuffYou by datdata (MIT). Since 1.3.2 the Forever
 and Retail editions are built from the same source; **from 1.8.0
 BuffRadar is Forever-only** — Retail support ended at 1.7.0.
 
-**Verification:** Field-tested through 1.15.33. The 1.16.0 release passes
-automated checks; live casting, layout and chat behavior are **Unverified**
-on this build.
+**Verification:** Field-tested through 1.15.33. The 1.16.1 release passes
+automated checks; live behavior remains **Unverified** on this build.
