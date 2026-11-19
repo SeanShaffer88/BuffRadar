@@ -68,7 +68,7 @@ local function BuildReadyView()
   f:SetMovable(true)
   f:RegisterForDrag("LeftButton")
   f:SetScript("OnDragStart", function(self) self:StartMoving() end)
-  f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+  X.BindPanelPosition(f, "ready", 85)
   f:EnableMouseWheel(true)
   f:SetScript("OnMouseWheel", function(_, delta) ScrollReady(delta > 0 and -1 or 1) end)
   local bg = f:CreateTexture(nil, "BACKGROUND")
@@ -79,7 +79,7 @@ local function BuildReadyView()
   title:SetPoint("TOPRIGHT", -34, -12)
   title:SetJustifyH("LEFT")
   title:SetText(L["BuffRadar Ready Check"])
-  local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+  local close = X.PanelWidget("Button", nil, f, "UIPanelCloseButton")
   close:SetPoint("TOPRIGHT", -2, -2)
   close:SetScript("OnClick", function() X.ReadyViewCommand("hide") end)
   f.summary = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -152,6 +152,7 @@ function X.RaidPreparationSnapshot(personal)
   local report = X.GroupBuffReport(false, true, true)
   local reagents, incomplete = X.ReagentEstimate(report)
   local snapshot = { members = {}, reagents = reagents, incomplete = incomplete }
+  local observed = {}
   local size = X.ReadUnitNumber(GetNumGroupMembers)
   if not size or #report.members ~= size then snapshot.incomplete = true end
   for _, member in ipairs(report.members) do
@@ -162,9 +163,10 @@ function X.RaidPreparationSnapshot(personal)
       local parts = BuffDetails(member)
       local attention = #member.missing > 0 or #member.expiring > 0
       local unknown = member.unknown or #member.unavailable > 0
+      if member.observable then X.ObserveConsumables(member.unit, observed, true) end
       for _, def in ipairs(X.CONS_DEFS) do
         local has
-        if member.observable then has = X.ConsHas(member.unit, def) end
+        if member.observable then has = observed[def.key] end
         if has == false then
           parts[#parts + 1] = string.format(L["%s missing"], L[def.label])
           attention = true
@@ -356,9 +358,10 @@ function X.WipeCheck()
   for i = first, math_min(#lines, 12) do Print(lines[i]) end
   if #lines > 12 then Print(string.format("  +%d more", #lines - 12)) end
   if people > 0 and X.AmLead() then
-    X.SendGroupReport(string.format(
+    local sent, failure = X.SendGroupReport(string.format(
       "BuffRadar wipe report: %d of %d died. %d %s missing buffs (%d buffs needed).%s",
       dead, total, people, people == 1 and "person is" or "people are", report.buffs,
       note and (" " .. note) or ""))
+    if not sent then Print(string.format(L["Local only — not sent: %s"], failure)) end
   end
 end

@@ -52,8 +52,8 @@ as the situation calls for. When everyone is buffed, the list empties and
 gets out of your way. It costs nothing, asks for nothing, and never talks to
 anything outside the game.
 
-Version 1.15.37 · Interface 16001 · GPLv3.
-Field-tested through v1.15.33; v1.15.34–v1.15.37 remain Unverified in game.
+Version 1.15.38 · Interface 16001 · GPLv3.
+Field-tested through v1.15.33; v1.15.34–v1.15.38 remain Unverified in game.
 
 **Forever-only from 1.8.0:** the Retail edition ended at 1.7.0 (dropped
 2026-10-25). Both editions were built from the same source; this zip's `.toc`
@@ -63,7 +63,21 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
 
 **Docs:** [Features](FEATURES.md) · [Description](DESCRIPTION.md) · [Changelog](CHANGELOG.md)
 
-## Readiness in 1.15.37
+## Upgrading to 1.15.38
+
+Back up `BuffRadarDB`'s SavedVariables file before upgrading. Existing valid
+settings upgrade to schema 23. A newer schema is left untouched; your
+changes in this session don't save. The same temporary mode applies if an
+older save has more than 32 profiles or 192 permanent ignores (or a profile
+body over 4,000 bytes). After backing up or exporting what you want to keep,
+use `/br storage delete profile <name>` or `/br storage delete ignore <name>`
+to remove an entry from an over-limit save, then reload. Those commands
+can't edit a newer-schema save.
+
+`/br selftest` should report **1.15.38 · Forever edition · interface 16001**.
+An incompatible client won't start the cast UI or change your saved settings.
+
+## Readiness (introduced in 1.15.37)
 
 Open **Settings → Readiness** for the new controls. Combat restrictions on
 click-to-buff casts still apply.
@@ -94,10 +108,10 @@ and [roadmap](https://github.com/SeanShaffer88/BuffRadar/blob/main/docs/ROADMAP.
 - **The list grows downward.** The window is anchored by its top-left corner, so
   its top edge stays exactly where you put it as names come and go — only the
   bottom edge moves.
-- **Scroll long lists.** When more than 15 rows are available, use the mouse
-  wheel over the list or `/br scroll up|down`. The range under the list shows
-  which rows are visible. Cast Next Buff still starts at the head of the
-  full queue.
+- **Scroll long lists.** The list shows up to 15 rows, fewer when your screen
+  or UI scale leaves less room. Use the wheel or `/br scroll up|down`. The
+  footer shows the visible row span. Cast Next Buff still uses the head of
+  the full queue.
 - **You first.** Your own character is always checked first and sits at the top of the
   list whenever you're missing something.
 - **Class-aware.** Arcane Intellect only goes to mana users, Thorns to melee classes,
@@ -119,11 +133,15 @@ and [roadmap](https://github.com/SeanShaffer88/BuffRadar/blob/main/docs/ROADMAP.
   instances).
 - **Group-cast offers:** when enough of your party or raid needs the same buff,
   BuffRadar offers the group version (Prayer of Fortitude, Gift of the Wild…)
-  instead. If the group spell's reagent is missing, it offers the
-  single-target spell. The ready-check view shows estimated reagent needs.
+  instead. It falls back to the single-target spell when group range,
+  recipient eligibility, cooldown or required reagents block the group
+  version. Supported pets get single-target buffs only. Ready Check estimates
+  reagent needs.
 - **Only eligible players appear:** your character must know a useful buff, and
-  both characters must be out of combat. When Forever cannot report spell-specific
-  range, BuffRadar uses the client's proximity estimate. **Right-click a row**
+  both characters must be out of combat. An explicitly out-of-range player
+  stays off the cast list. When spell range cannot be checked, BuffRadar may
+  use readable proximity information. `/br assumerange` opts into estimated
+  range for otherwise eligible single-target offers. **Right-click a row**
   to ignore a player who doesn't want buffs.
 - **Paladin blessings by class:** choose a known blessing for each class from
   the Buffs tab, or use `/br bless prefer <CLASS> <BLESSING|DEFAULT>`. An active
@@ -201,16 +219,22 @@ and [roadmap](https://github.com/SeanShaffer88/BuffRadar/blob/main/docs/ROADMAP.
   per-buff coverage — also your progress while buffing a fresh group.
 - **Session-only ignore:** Shift-right-click a row to ignore someone until
   you log out (nothing saved).
-- **`/br announce`** posts the group's missing buffs to party/raid chat, and
-  a ready check prints you a local summary. Use `/br ready show` to see
-  individual responses and buff status locally.
+- **`/br announce`** requests a party/raid post and prints a local report on
+  refusal. A submitted send is not proof of delivery. Ready checks give a
+  local summary; `/br ready show` displays individual responses and buff status.
 - **Low-mana pause** (optional): listing pauses while your mana is under a
   percentage you set.
 - **Distance ordering** option: nearest first.
-- **Settings export/import:** copy nearly all settings between characters
-  as one string (`/br export`, `/br import`).
+- **Settings and profile imports:** `/br import` reviews a BR1 copy before
+  applying settings locally. `/br profile import` lets you rename or replace
+  a saved profile without loading it. `/br plan import` reviews assignments,
+  blessings and auto-profile mappings before merging. Choose **Apply locally**
+  to send nothing, or **Apply and share** when offered to send only assignment
+  and blessing changes to the current group.
 - **Compact rows** without portraits, a separate list text size, and a
-  per-character window position option.
+  per-character window position option. `/br positions on` remembers where
+  you drag Settings and Ready Check; `/br positions off` or `reset` clears
+  those panel positions.
 - **Post-combat flash:** the border pulses once when combat ends with
   buffs still missing.
 - **Cast sync between BuffRadar users:** when anyone running BuffRadar in
@@ -247,14 +271,14 @@ and [roadmap](https://github.com/SeanShaffer88/BuffRadar/blob/main/docs/ROADMAP.
 - **Cover-me handoff:** when a BuffRadar user dies or goes AFK, their
   duties pass to the others automatically (sync channel, no setting).
 - **Pin, weapon watch, cast history:** keep one player on top
-  (`/br pin`), get flagged when your weapon has no enchant, and review
-  your last 50 casts (`/br history`).
+  (`/br pin`), check applicable melee weapons for temporary coatings, and
+  review your last 50 casts (`/br history`).
 - **All-buffed pill:** when everyone is fully buffed the window
   collapses to a small pill with the coverage count; click to peek.
 - **Cast queue tag:** the next row is tagged *up next* for a few
   seconds after one of your casts lands.
-- **Consumables watch:** the coverage line also counts flasks and food
-  across the group (read-only — no rows).
+- **Consumables watch:** the coverage line counts recognised flask and food
+  auras (read-only — no rows). An unreadable aura check is unknown, not missing.
 - **Custom watched spells:** watch any buff spell you know
   (`/br custom add <spell ID>`), offered to everyone it suits.
 - **Coverage uptime:** the share of grouped scans this session that
@@ -386,7 +410,9 @@ outside a capital, or turn off the default city pause with `/br cities`.
 | `/br resetpos` | Reset the window position (also clears the per-character spot) |
 | `/br signore <name>` · `/br unsignore <name>` | Ignore a player for this session only (or Shift-right-click a row) |
 | `/br mana <0-100>` | Pause listing below this mana % (0 = off) |
-| `/br export` · `/br import` | Copy settings between characters as one string |
+| `/br export` · `/br import` | Copy settings between characters; review before applying locally |
+| `/br profile import` · `/br plan import` | Review a named profile or plan before saving or applying it |
+| `/br positions on\|off\|reset` | Remember or recenter Settings and Ready Check panel positions |
 | `/br compact` · `/br text <0.8-1.5>` · `/br charpoint` | Half-height rows · list text size · per-character window position |
 | `/br selftest` | Print a paste-able block for bug reports |
 | `/br bg` · `/br minimap` · `/br stats` | Pause in battlegrounds · toggle minimap button · casts by spell |
@@ -426,8 +452,9 @@ outside a capital, or turn off the default city pause with `/br cities`.
   zone and map ID BuffRadar sees.
 - **Cast counter:** the session count resets on login or `/reload`. The all-time count
   is shared by all your characters.
-- **Languages:** the main window, its tooltips and the minimap tooltips are in German
-  on German clients (`Locales\deDE.lua`); the settings window is English for now.
+- **Languages:** the main list, tooltips, minimap, and new review and safety
+  messages are translated in `Locales\deDE.lua`. Some Settings controls and
+  diagnostics remain English.
   To add a language, copy that file — it explains how at the top.
 
 ## Credits

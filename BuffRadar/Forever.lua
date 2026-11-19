@@ -1,0 +1,3 @@
+-- Loaded only by the shipped Forever TOC, before the shared data and settings.
+local _, ns = ...
+ns.ForeverInterface = 16001

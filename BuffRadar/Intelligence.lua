@@ -176,16 +176,34 @@ function I.MemoryReport()
   Print(I.PaceText())
 end
 
-function I.SettingsChanged()
-  if not I.ForecastEnabled() then
-    manualDeadline, noticedSpell, noticedEnd, notifyAfter = nil, nil, nil, 0
-    if X.pull and X.pull.forecastOnly then X.pull = nil end
+function X.SettingsChanged(changed)
+  local lite = changed.liteMode
+  if changed.forecastSeconds or lite then
+    I.ForgetAlerts()
+    if not I.ForecastEnabled() then
+      manualDeadline, noticedSpell, noticedEnd, notifyAfter = nil, nil, nil, 0
+    end
   end
-  if db.liteMode and X.CloseRaidPreparation then X.CloseRaidPreparation() end
-  if X.Debuffs then X.Debuffs.Apply() end
-  if X.UpdateMinimapStatus then X.UpdateMinimapStatus() end
-  if X.TickMinimapPulse then X.TickMinimapPulse() end
-  X.Core.QueueRefresh()
+  if X.pull and (changed.pullFlash or changed.forecastSeconds or lite) and not I.ForecastEnabled()
+    and (not db.pullFlash or X.pull.forecastOnly) then X.pull = nil end
+  if changed.smartPriority and not db.smartPriority then wipeUntil = 0 end
+  if lite and db.liteMode and X.CloseRaidPreparation then X.CloseRaidPreparation() end
+  if lite or changed.debuffWatch or changed.debuffRules then X.Debuffs.Apply() end
+  if (lite or changed.statusMinimap) and X.UpdateMinimapStatus then X.UpdateMinimapStatus() end
+  if (lite or changed.visualAlerts) and X.TickMinimapPulse then X.TickMinimapPulse() end
+  if changed.readinessAura and X.QueuePersonalReadiness then X.QueuePersonalReadiness() end
+  if changed.sync then
+    X.CheckLegacyAuthority(not db.sync)
+    if not db.sync then X.StopCoordination() end
+  end
+  if changed.forecastSeconds or changed.pullFlash or lite or changed.smartPriority or changed.scanThrottle
+    or changed.profile then X.Core.QueueRefresh() end
+end
+
+function X.SetPreference(key, value)
+  if db[key] == value then return end
+  db[key] = value
+  X.SettingsChanged({ [key] = true })
 end
 
 function I.SetForecast(seconds)
@@ -193,9 +211,7 @@ function I.SetForecast(seconds)
     Print(L["Enter a forecast time from 0 to 300 seconds (0 turns it off)."])
     return false
   end
-  I.ForgetAlerts()
-  db.forecastSeconds = seconds
-  I.SettingsChanged()
+  X.SetPreference("forecastSeconds", seconds)
   return true
 end
 
@@ -255,10 +271,8 @@ X.ext.smartprio = function(rest)
   local here = input:match("^here%s+(%S+)$")
   local id, key = input:match("^instance%s+(%d+)%s+(%S+)$")
   if input == "" or input == "on" or input == "off" then
-    db.smartPriority = input == "on" or (input == "" and not db.smartPriority)
-    if not db.smartPriority then wipeUntil = 0 end
+    X.SetPreference("smartPriority", input == "on" or (input == "" and not db.smartPriority))
     Print(string.format(L["Smart priority: %s"], L[db.smartPriority and "On" or "Off"]))
-    X.Core.QueueRefresh()
   elseif here or id then
     local instance = here and I.InstanceID() or tonumber(id)
     if I.SetInstancePriority(instance, here or key) then
@@ -281,9 +295,8 @@ local function Toggle(setting, label, usage)
   return function(rest)
     local value = rest:lower()
     if value ~= "" and value ~= "on" and value ~= "off" then Print(usage); return true end
-    db[setting] = value == "on" or (value == "" and not db[setting])
+    X.SetPreference(setting, value == "on" or (value == "" and not db[setting]))
     Print(string.format(label, L[db[setting] and "On" or "Off"]))
-    I.SettingsChanged()
     if X.RefreshConfig then X.RefreshConfig() end
     return true
   end

@@ -1,6 +1,11 @@
 # Store text files with LF line endings; check them out as the platform prefers.
 * text=auto
+# Artifact source text is identical on Windows and POSIX checkouts.
+BuffRadar/** text=auto eol=lf
+editions/forever/** text=auto eol=lf
 # Media files are binary: never touch their bytes.
 *.png binary
+*.jpg binary
+*.jpeg binary
 *.ogg binary
 *.zip binary

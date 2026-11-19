@@ -74,6 +74,10 @@ local function PositionMinimapButton()
   minimapBtn:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * rx, math.sin(angle) * ry)
 end
 
+local function StopMinimapDrag(self)
+  self:SetScript("OnUpdate", nil)
+end
+
 local function RefreshMinimapButton()
   if not minimapBtn then return end
   if db and db.showMinimap and not X.PlayerSuspended() then
@@ -83,7 +87,7 @@ local function RefreshMinimapButton()
   else
     pulseEnd = nil
     minimapBtn.pulse:Hide()
-    minimapBtn.dragging = false
+    StopMinimapDrag(minimapBtn)
     minimapBtn:Hide()
   end
 end
@@ -135,10 +139,8 @@ local function BuildMinimapButton()
   -- right-click-for-settings in the tooltip never fired.
   b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   b:SetScript("OnClick", OnClick)
-  b:SetScript("OnDragStart", function(self) self.dragging = true end)
-  b:SetScript("OnDragStop", function(self) self.dragging = false end)
-  b:SetScript("OnUpdate", function(self)
-    if not self.dragging or not db then return end
+  local function DragUpdate(self)
+    if X.PlayerSuspended() or not db then StopMinimapDrag(self); return end
     local mx, my = Minimap:GetCenter()
     if not mx or not my then return end
     local cx, cy = GetCursorPosition()
@@ -148,7 +150,12 @@ local function BuildMinimapButton()
     local atan2 = math.atan2 or math.atan
     db.minimapAngle = math.deg(atan2((cy - my) / ry, (cx - mx) / rx)) % 360
     PositionMinimapButton()
+  end
+  b:SetScript("OnDragStart", function(self)
+    if db and not X.PlayerSuspended() and self:IsVisible() then self:SetScript("OnUpdate", DragUpdate) end
   end)
+  b:SetScript("OnDragStop", StopMinimapDrag)
+  b:SetScript("OnHide", StopMinimapDrag)
   minimapBtn = b
   if Minimap.HookScript then Minimap:HookScript("OnSizeChanged", PositionMinimapButton) end
   RefreshMinimapButton()

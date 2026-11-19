@@ -3,6 +3,8 @@
 
 local _, ns = ...
 local X = ns.X
+local L = X.L
+local wipe = wipe or function(t) for k in pairs(t) do t[k] = nil end end
 
 local settings = X.Settings
 local BLESSINGS, DEFAULTS, Ignore = X.BLESSINGS, settings.Defaults, X.Ignore
@@ -31,10 +33,10 @@ local function Esc(v) return (tostring(v):gsub("%%", "%%25"):gsub(";", "%%3B"):g
 local function Unesc(v) return (v:gsub("%%3D", "="):gsub("%%3B", ";"):gsub("%%25", "%%")) end
 
 local function ClipboardText(text)
-  if type(text) ~= "string" then return nil, "Nothing to import." end
-  if #text > CLIPBOARD_MAX_BYTES then return nil, "That import exceeds 16 KiB." end
+  if type(text) ~= "string" then return nil, L["Nothing to import."] end
+  if #text > CLIPBOARD_MAX_BYTES then return nil, L["That import exceeds 16 KiB."] end
   text = text:match("^%s*(.-)%s*$")
-  if text == "" then return nil, "Nothing to import." end
+  if text == "" then return nil, L["Nothing to import."] end
   return text
 end
 
@@ -108,7 +110,7 @@ do
   end
   for _, key in ipairs({
     "compact", "textScale", "charPoint", "pauseInBG", "pauseTaxi", "watchDrop",
-    "minimapAngle", "rangeText", "pinned", "thornsAnyClassOutdoors", "blessingComplement",
+    "minimapAngle", "pinned", "thornsAnyClassOutdoors", "blessingComplement",
   }) do
     scalarKeys[key] = true
     scalarList[#scalarList + 1] = key
@@ -194,13 +196,23 @@ do
     end
   end
 
+  local function BoundedMapMember(map, member)
+    if map == "ignored" then return settings.ValidIgnore(member) end
+    if map == "enabled" or map == "rebuffPer" or map == "buffContext" then
+      return #member <= 40 and member:match("^[A-Z0-9_]+$")
+    end
+    if map == "specScales" then return member:match("^s[1-4]$") end
+    if map == "coverParts" then return settings.PlainString(member, 24) end
+    return true
+  end
+
   local function ParseProfile(body, directImport)
     if type(body) ~= "string" or #body > (directImport and CLIPBOARD_MAX_BYTES or PROFILE_MAX_BYTES) then return nil end
     local version, payload = body:match("^(BR[12]);(.+)$")
     if not version or (directImport and version ~= "BR1") then return nil end
     local modern = version == "BR2"
     local patch, count, scalarFields, priorityKeys = {}, 0, {}, {}
-    local assignments = {}
+    local assignments, sizes = {}, {}
     if modern then
       for map in pairs(profileMaps) do patch[map] = {} end
     end
@@ -225,7 +237,12 @@ do
         patch.assignmentEnabled, scalarFields[key] = raw == "1", true
       elseif kind and (modern or legacyMaps[map]) then
         member = DecodeString(member)
-        if not member or member == "" then return nil end
+        if not member or member == "" or not BoundedMapMember(map, member) then return nil end
+        local limit = settings.Limits[map]
+        if limit then
+          sizes[map] = (sizes[map] or 0) + 1
+          if sizes[map] > limit then return nil end
+        end
         patch[map] = patch[map] or {}
         if map == "buffPrio" then
           member = Number(member)
@@ -305,6 +322,9 @@ do
         for map in pairs(legacyMaps) do patch[map] = patch[map] or {} end
       end
     end
+    for _, key in ipairs({ "enabled", "rebuffPer", "ignored", "specScales", "buffContext", "coverParts" }) do
+      if patch[key] and settings.Count(patch[key]) > settings.Limits[key] then return nil end
+    end
     return patch
   end
 
@@ -314,28 +334,47 @@ do
     local body, err = ClipboardText(text)
     if not body then return nil, err end
     local patch = ParseProfile(body, true)
-    if not patch then return nil, "Paste a complete, valid BuffRadar settings export." end
+    if not patch then return nil, L["Paste a complete, valid BuffRadar settings export."] end
     return patch, body
+  end
+
+  local function Changes(dst, path, before, after)
+    if before == after then return end
+    if type(before) == "table" or type(after) == "table" then
+      before = type(before) == "table" and before or {}
+      after = type(after) == "table" and after or {}
+      for k, v in pairs(before) do Changes(dst, path .. "." .. k, v, after[k]) end
+      for k, v in pairs(after) do if before[k] == nil then Changes(dst, path .. "." .. k, nil, v) end end
+    else
+      dst[#dst + 1] = string_format("%s: %s → %s", path, tostring(before), tostring(after))
+    end
+  end
+
+  function X.ReviewSettings(patch)
+    local db, lines = X.GetDB(), {}
+    local candidate = settings.PreparePatch(db, patch)
+    for key in pairs(patch) do Changes(lines, key, db[key], candidate[key]) end
+    table_sort(lines)
+    return lines
   end
 
   function X.ApplyProfile(patch)
     local db = X.GetDB()
-    local syncWasEnabled, featuresChanged = db.sync, false
-    -- Normalize the complete proposed state before changing the live settings.
-    local candidate = {}
-    for key, value in pairs(db) do candidate[key] = value end
-    for key, value in pairs(patch) do candidate[key] = value end
-    settings.Sanitize(candidate)
+    local candidate = settings.PreparePatch(db, patch)
+    local changed, delta = {}, {}
     for key in pairs(patch) do
-      if featureScalars[key] and db[key] ~= candidate[key] then featuresChanged = true end
-      db[key] = candidate[key]
+      Changes(delta, key, db[key], candidate[key])
+      if #delta > 0 then changed[key] = true end
+      wipe(delta)
     end
-    if featuresChanged then X.Intel.SettingsChanged() end
-    if syncWasEnabled and not db.sync then X.StopCoordination() end
     X.blockerProfileRevision = (X.blockerProfileRevision or 0) + 1
     X.assignmentGroupConflicts = nil
-    X.prioDirty = true
-    Ignore.Rebuild()
+    if not next(changed) then return end
+    for key in pairs(changed) do db[key] = candidate[key] end
+    changed.profile = true
+    if changed.buffPrio then X.prioDirty = true end
+    if changed.ignored then Ignore.Rebuild() end
+    X.SettingsChanged(changed)
     X.ResolveAutoTheme()
   end
 end
@@ -344,7 +383,7 @@ function X.Import(text)
   local patch, result = X.ParseSettingsImport(text)
   if not patch then return false, result end
   X.ApplyProfile(patch)
-  return true, "Settings imported."
+  return true, L["Settings applied locally."]
 end
 
 -- Buff plan strings (1.8.0): the group's plan — assignments, the
@@ -400,7 +439,8 @@ local function ParsePlan(text)
       i = i + 3
     elseif tag == "B" then
       local holder = fields[i + 3] and DecodeString(fields[i + 3])
-      if not X.BLESSING_CLASSES[key] or not BLESSINGS[value] or not PlanHolder(holder) or blessings[key] then return nil end
+      if not X.BLESSING_CLASSES[key] or not BLESSINGS[value] or not PlanHolder(holder)
+        or holder:lower() == "none" or blessings[key] then return nil end
       blessings[key] = { key = value, name = holder }
       i = i + 4
     elseif tag == "P" then
@@ -414,47 +454,80 @@ local function ParsePlan(text)
   return assignments, blessings, auto
 end
 
-function X.PlanImport(text)
+function X.ParsePlanImport(text)
   local body, err = ClipboardText(text)
-  if not body then return false, err end
+  if not body then return nil, err end
   local assignments, blessings, auto = ParsePlan(body)
-  if not assignments then return false, "Paste a complete, valid BuffRadar plan export." end
-  if not (next(assignments) or next(blessings) or next(auto)) then
-    return true, "The imported plan has no entries. Nothing changed."
-  end
+  if not assignments then return nil, L["Paste a complete, valid BuffRadar plan export."] end
+  return { assignments = assignments, blessings = blessings, auto = auto }
+end
 
+function X.ReviewPlan(draft)
+  local lines, outbound = {}, {}
+  local db = X.GetDB()
+  for key, value in pairs(draft.assignments) do
+    local nextHolder = value:lower() ~= "none" and value or nil
+    if X.assign[key] ~= nextHolder then
+      lines[#lines + 1] = string_format("%s: %s → %s", key, X.assign[key] or "—", nextHolder or "—")
+      outbound[#outbound + 1] = "ASSIGN;" .. key .. ";" .. value
+    end
+  end
+  for class, plan in pairs(draft.blessings) do
+    local before = X.blessPlan[class]
+    if not before or before.key ~= plan.key or before.name ~= plan.name then
+      lines[#lines + 1] = string_format("%s: %s → %s (%s)", class,
+        before and (before.key .. " (" .. before.name .. ")") or "—", plan.key, plan.name)
+      outbound[#outbound + 1] = "BLESS;" .. class .. ";" .. plan.key .. ";" .. plan.name
+    end
+  end
+  for context, name in pairs(draft.auto) do
+    if db.autoProfile[context] ~= name then
+      lines[#lines + 1] = string_format("%s: %s → %s", context, db.autoProfile[context] or "—", name)
+    end
+    if not db.profiles[name] then
+      lines[#lines + 1] = string_format(L["Missing profile for %s: %s"], context, name)
+    end
+  end
+  table_sort(lines)
+  table_sort(outbound)
+  local scope = db.sync and #outbound > 0 and X.GroupShareScope(outbound) or nil
+  return lines, outbound, scope
+end
+
+function X.ApplyPlan(draft, shareScope)
+  local _, outbound, scope = X.ReviewPlan(draft)
+  if shareScope and shareScope ~= scope then return false, L["Group or sharing permission changed. Review the plan again."] end
   local db = X.GetDB()
   local myName = Ignore.UnitNames("player")
   local nA, nB, nP = 0, 0, 0
-  local outbound = {}
-  local inGroup = X.InGroup()
-  local share = inGroup and X.AmLead()
-  local _, myClass = UnitClass("player")
-  local shareBlessing = share or (inGroup and myClass == "PALADIN")
-  for key, value in pairs(assignments) do
-    if X.assign[key] ~= value and share then
-      outbound[#outbound + 1] = "ASSIGN;" .. key .. ";" .. value
-    end
-    X.assign[key] = value
+  for key, value in pairs(draft.assignments) do
+    X.SetLocalPlan("ASSIGN", key, value:lower() ~= "none" and value or nil)
     nA = nA + 1
   end
-  for class, plan in pairs(blessings) do
-    local previous = X.blessPlan[class]
-    if shareBlessing and (not previous or previous.key ~= plan.key or previous.name ~= plan.name) then
-      outbound[#outbound + 1] = "BLESS;" .. class .. ";" .. plan.key .. ";" .. plan.name
-    end
-    plan.mine = myName ~= nil and X.SameUser(plan.name, myName)
-    X.blessPlan[class] = plan
+  for class, plan in pairs(draft.blessings) do
+    X.SetLocalPlan("BLESS", class, { key = plan.key, name = plan.name,
+      mine = myName ~= nil and X.SameUser(plan.name, myName) })
     nB = nB + 1
   end
-  for context, name in pairs(auto) do
+  for context, name in pairs(draft.auto) do
     db.autoProfile[context] = name
     nP = nP + 1
   end
-  for _, message in ipairs(outbound) do X.Broadcast(message) end
-  -- The import window repaints after successful commits.
-  return true, string_format("Plan imported: %d assignments, %d blessings, %d auto profiles.",
-    nA, nB, nP)
+  local sent = 0
+  if shareScope then
+    for _, message in ipairs(outbound) do if X.Broadcast(message) then sent = sent + 1 end end
+  end
+  local outcome = string_format(L["Plan applied locally: %d assignments, %d blessings, %d auto profiles."], nA, nB, nP)
+  if shareScope then
+    outcome = outcome .. " " .. string_format(L["Game accepted %d of %d sends; delivery is not confirmed."], sent, #outbound)
+  end
+  return true, outcome
+end
+
+function X.PlanImport(text)
+  local draft, err = X.ParsePlanImport(text)
+  if not draft then return false, err end
+  return X.ApplyPlan(draft)
 end
 
 -- Share a single profile (1.8.0): one named profile (not all your
@@ -467,35 +540,56 @@ function X.ProfileShareText(name)
   return "BuffRadar profile: " .. name .. "\n" .. s
 end
 
-function X.ProfileImport(text)
-  local db = X.GetDB()
-  if type(text) ~= "string" then return false, "Nothing to import." end
+function X.ParseSharedProfile(text)
+  if type(text) ~= "string" then return nil, L["Nothing to import."] end
   if #text > PROFILE_MAX_BYTES + #"BuffRadar profile: " + 42 then
-    return false, "That shared profile is too large."
+    return nil, L["That shared profile is too large."]
   end
   local name, body = text:match("^BuffRadar profile: ([%w_%-]+)\r?\n(.+)$")
   if not IsProfileName(name) then
-    return false, "That doesn't look like a shared BuffRadar profile."
+    return nil, L["That doesn't look like a shared BuffRadar profile."]
   end
   body = body:match("^%s*(.-)%s*$")
-  if not X.ParseProfile(body) then
-    return false, "The profile's settings string is damaged."
-  end
-  db.profiles[name] = body
-  return true, "Profile imported: " .. name
-    .. " — /br profile load " .. name .. " applies it."
+  local patch = X.ParseProfile(body)
+  if not patch then return nil, L["The profile's settings string is damaged."] end
+  return { name = name, body = body, patch = patch }
 end
 
-function X.SaveProfile(name)
+function X.ProfileMappings(name)
+  local used = {}
+  for context, mapped in pairs(X.GetDB().autoProfile) do
+    if mapped == name then used[#used + 1] = context end
+  end
+  table_sort(used)
+  return used
+end
+
+function X.StoreProfile(name, body, reviewedBody)
   local db = X.GetDB()
   if not IsProfileName(name) then
-    return false, "Profile names use letters, numbers, - and _ (max 40)."
+    return false, L["Profile names use letters, numbers, - and _ (max 40)."]
   end
-  local body = X.ProfileSnapshot()
-  if not body then return false, "These settings are too large to save as a profile." end
-  if not X.ParseProfile(body) then return false, "The current settings cannot be saved as a profile." end
+  if not X.ParseProfile(body) then return false, L["The profile's settings string is damaged."] end
+  if db.profiles[name] ~= reviewedBody then
+    return false, L["That profile already exists or changed. Review it, rename, or explicitly replace it."]
+  end
+  if not settings.CanAdd(db.profiles, "profiles", name) then
+    return false, L["Profile storage is full. Delete a profile first."]
+  end
   db.profiles[name] = body
-  return true
+  return true, string_format(L["Profile stored: %s (not loaded)."], name)
+end
+
+function X.ProfileImport(text, reviewedBody)
+  local draft, err = X.ParseSharedProfile(text)
+  if not draft then return false, err end
+  return X.StoreProfile(draft.name, draft.body, reviewedBody)
+end
+
+function X.SaveProfile(name, reviewedBody)
+  local body = X.ProfileSnapshot()
+  if not body then return false, L["These settings are too large to save as a profile."] end
+  return X.StoreProfile(name, body, reviewedBody)
 end
 
 function X.LoadProfile(name)
@@ -529,11 +623,8 @@ end
 -- so they compose with spec profiles and named profiles.
 
 function X.ApplyPreset(name)
-  local db = X.GetDB()
   local p = X.PRESETS[name]
   if not p then return false end
-  for k, v in pairs(p) do
-    if DEFAULTS[k] ~= nil and type(v) == type(DEFAULTS[k]) then db[k] = v end
-  end
+  X.ApplyProfile(p)
   return true
 end

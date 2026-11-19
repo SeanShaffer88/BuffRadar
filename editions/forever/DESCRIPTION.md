@@ -2,8 +2,7 @@
 
 **A click-to-buff list for World of Warcraft: Forever.**
 
-Store-listing copy prepared 2026-10-24 from the shipped 1.3.2
-Forever README.
+Forever package · Interface 16001
 
 ---
 
@@ -18,16 +17,15 @@ come first.
 
 - **One list, no hunting.** Players stay listed until every buff you
   can cast that suits their class is on them, then drop off. The
-  window is anchored by its top-left corner, so it grows downward
-  without ever jumping around your screen.
+  list scrolls when more targets are available than fit on your screen.
 - **It knows your class.** Arcane Intellect only goes to mana users,
   Thorns to melee, Fear Ward to warriors. Paladins lead with Blessing
   of Kings when they know it, with Might and Wisdom as fallbacks.
   Group versions count as buffed, expiring buffs are re-offered, and
   spells on cooldown are skipped.
 - **Group casts, offered.** When enough of your party or raid needs
-  the same buff, BuffRadar offers the group version instead — one
-  cast for everyone.
+  the same buff and the group spell is eligible, BuffRadar offers the
+  group version. Otherwise it offers the eligible single-target spell.
 - **Honest about what it can see.** Addons get no list of nearby
   players, so BuffRadar finds people through your group, your target,
   your mouseover and friendly nameplates. If nameplates are off, it
@@ -46,7 +44,15 @@ come first.
   of the main window on German clients (settings are English for
   now).
 
-## Readiness in 1.15.37
+## What's new in 1.15.38
+
+Review a paste before applying settings or plans. Plans stay local unless
+an authorised player chooses to share them, and importing a named profile
+no longer risks replacing a save without showing the collision. The list
+fits shorter viewports; Settings and Ready Check positions can be remembered
+separately with `/br positions on`.
+
+## Readiness
 
 Choose your role and activity in Quick Setup, see what needs attention on the
 minimap, and review consumables, Healthstones in bags, and gear durability in
@@ -73,5 +79,6 @@ were informed by BuffYou by datdata (MIT). Since 1.3.2 the Forever
 and Retail editions are built from the same source; **from 1.8.0
 BuffRadar is Forever-only** — Retail support ended at 1.7.0.
 
-**Verification:** Field-tested through 1.15.33. The 1.15.37 readiness update
-passes automated checks but is **Unverified in game**.
+**Verification:** Field-tested through 1.15.33. The 1.15.38 candidate passes
+automated checks; live casting, layout and chat behavior are **Unverified**
+on this build.

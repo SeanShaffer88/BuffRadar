@@ -99,9 +99,12 @@ end
 
 function X.SelfTest()
   local ver, build, _, iface = GetBuildInfo()
+  local metadata = (_G.C_AddOns and _G.C_AddOns.GetAddOnMetadata) or _G.GetAddOnMetadata
+  local ok, version = pcall(metadata, "BuffRadar", "Version")
+  version = ok and X.Readable(version) and type(version) == "string" and version or "unknown"
   Print("BuffRadar self-test -- paste this whole block into a bug report:")
   Print(string.format("  version %s · %s edition · interface %s · client %s build %s",
-    "1.13.0", CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
+    version, CLASSIC_FEATURES and "Forever" or "Retail", tostring(iface), tostring(ver), tostring(build)))
   Print(string.format("  settings dbVersion %s · sort %s · cast mode %s · scale %s",
     tostring(db.dbVersion), tostring(db.sortMode), tostring(db.castMethod), tostring(db.scale)))
   Print(string.format("  sync %s · requests %s · role filter %s · profiles %d · idle fade %s",
@@ -181,6 +184,7 @@ local function HandleSlash(msg)
   syncState()
   local cmd, rest = (msg or ""):match("^%s*(%S*)%s*(.-)%s*$")
   cmd = (cmd or ""):lower()
+  if not X.supported then Print(L["BuffRadar requires the Forever package on Interface 16001. Casting is disabled."]); return end
   if not db then Print("Settings not loaded yet."); return end
   if (cmd == "" or cmd == "show" or cmd == "hide" or cmd == "announce"
       or cmd == "summary" or cmd == "discord" or cmd == "why") and X.PlayerSuspended() then
@@ -297,8 +301,7 @@ local function HandleSlash(msg)
     db.pauseInCities = not db.pauseInCities
     Print("Pause in major cities " .. OnOff(db.pauseInCities))
   elseif cmd == "sync" then
-    db.sync = not db.sync
-    if not db.sync then X.StopCoordination() end
+    X.SetPreference("sync", not db.sync)
     Print("BuffRadar cast sync " .. OnOff(db.sync))
   elseif cmd == "requests" then
     db.requests = not db.requests
@@ -600,23 +603,21 @@ local function HandleSlash(msg)
     db.charPoint = not db.charPoint
     if db.charPoint then
       local k = X.CharKey()
-      if k and db.point then db.pointByChar[k] = db.point end
+      if db.point then X.SaveCharacterPoint(k) end
     end
     Print("Per-character window position " .. OnOff(db.charPoint))
   elseif cmd == "export" then
     local text, err = X.Export()
     if not text then Print(err); return end
     X.ShowExport(text, false)
-    Print("Settings string shown -- copy it, then use /br import on the other character.")
+    Print(L["Use a named BR2 profile to share newer preferences."])
   elseif cmd == "import" then
     X.ShowExport("", true)
   elseif cmd == "profile" then
     local sub, pname = rest:match("^(%S*)%s*(.-)%s*$")
     sub = (sub or ""):lower()
     if sub == "save" then
-      local ok, err = X.SaveProfile(pname)
-      if ok then Print("Profile saved: " .. pname) else Print(err) end
-      if RefreshConfig then RefreshConfig() end
+      X.RequestProfileSave(pname)
     elseif sub == "load" then
       local ok, err = X.LoadProfile(pname)
       if ok then
@@ -640,7 +641,7 @@ local function HandleSlash(msg)
         Print("No profile named '" .. pname .. "'. /br profile list shows them.")
       end
     elseif sub == "import" then
-      X.ShowExport("", true, "BuffRadar — paste a shared profile, then Import", "profile")
+      X.ShowExport("", true, L["Paste a shared profile, then review."], "profile")
     elseif sub == "diff" then
       local str = db.profiles[pname]
       if type(str) ~= "string" then Print("No profile named '" .. pname .. "'. /br profile list shows them.")
@@ -658,10 +659,10 @@ local function HandleSlash(msg)
     if sub == "export" then
       local text, err = X.PlanExport()
       if not text then Print(err); return end
-      X.ShowExport(text, false, "BuffRadar — your group buff plan (copy it)")
+      X.ShowExport(text, false, L["Group plan copy (select all, copy)"])
       Print("Plan string shown — it carries assignments, the blessing plan and auto profiles, not your settings.")
     elseif sub == "import" then
-      X.ShowExport("", true, "BuffRadar — paste a plan string, then Import", "plan")
+      X.ShowExport("", true, L["Paste a group plan, then review."], "plan")
     else
       local acount, bcount = 0, 0
       for _ in pairs(X.assign) do acount = acount + 1 end
@@ -679,14 +680,25 @@ local function HandleSlash(msg)
   elseif cmd == "discord" then
     X.ShowExport(X.DiscordText(), false, "BuffRadar — copy into Discord")
     Print("Discord summary shown — copy it into your Discord message.")
+  elseif cmd == "storage" then
+    local kind, name = rest:match("^delete%s+(%a+)%s+(.+)$")
+    if kind == "profile" or kind == "ignore" then
+      if X.Settings.RemovePreservedEntry(kind == "profile" and "profiles" or "ignored", name) then
+        Print(L["Removed from the preserved save. Reload to try normal saving again."])
+      else Print(L["No matching entry in an oversized save."]) end
+    else
+      X.ShowSaveState(X.Settings.SaveState())
+      Print(string.format(L["Profiles: %d/%d · Ignores: %d/%d"], X.Settings.Count(db.profiles), X.Settings.Limits.profiles,
+        X.Settings.Count(db.ignored), X.Settings.Limits.ignored))
+    end
   elseif cmd == "offenders" then
     if rest:lower() == "clear" then
       wipe(db.offenders)
       Print("Repeat-offender history cleared.")
     else
       local orows = {}
-      for nm, c in pairs(db.offenders) do orows[#orows + 1] = { nm = nm, c = c } end
-      table_sort(orows, function(a, b) return a.c > b.c end)
+      for guid, item in pairs(db.offenders) do orows[#orows + 1] = { nm = item.name, c = item.count, guid = guid } end
+      table_sort(orows, function(a, b) return a.c > b.c or (a.c == b.c and a.guid < b.guid) end)
       if #orows == 0 then
         Print("No repeat offenders yet — a player lands here after a group session where they were seen unbuffed.")
       else
@@ -732,8 +744,15 @@ local function HandleSlash(msg)
     Refresh()
   elseif cmd == "grouppair" then
     local cg = db.customGroup
-    local single, group = rest:match('^"([^"]+)"%s*"([^"]+)"$')
+    local single, group = rest:match('^"([^"]+)"%s+"([^"]+)"$')
     if single then
+      if not X.Settings.ValidGroupPair(single, group) then Print(L["Invalid group-cast pair; nothing changed."]); return end
+      local count = 0
+      for _ in pairs(cg) do count = count + 1 end
+      if not cg[single] and count >= X.Settings.MaxGroupPairs then
+        Print(L["Group-cast pair limit reached. Remove a pair first."])
+        return
+      end
       cg[single] = group
       Print("Group-cast pair set: Shift-click " .. single .. " casts " .. group .. " (needs /br modclick on).")
     elseif rest:lower():sub(1, 6) == "clear " then
@@ -750,9 +769,7 @@ local function HandleSlash(msg)
     Refresh()
   elseif cmd == "pullflash" then
     local m = rest:lower()
-    if m == "on" then db.pullFlash = true
-    elseif m == "off" then db.pullFlash = false
-    else db.pullFlash = not db.pullFlash end
+    X.SetPreference("pullFlash", m == "on" or (m ~= "off" and not db.pullFlash))
     Print("Pull-timer flash " .. OnOff(db.pullFlash) ..
       " -- border flash and a countdown line when a group pull timer starts (the game's /countdown or a boss-mod pull).")
   elseif cmd == "ready" then
@@ -781,8 +798,7 @@ local function HandleSlash(msg)
     local sub, arg = rest:match("^(%S*)%s*(.-)%s*$")
     sub = (sub or ""):lower()
     local id = tonumber(arg)
-    if sub == "add" and id then
-      id = math.floor(id)
+    if sub == "add" and X.Settings.PositiveID(id) then
       local have = false
       for _, x in ipairs(db.customSpells) do if x == id then have = true break end end
       if have then Print("That spell is already on the custom list.")
@@ -800,6 +816,8 @@ local function HandleSlash(msg)
         if db.customSpells[i] == id then table.remove(db.customSpells, i); gone = true end
       end
       if gone then
+        local key = "CUSTOM" .. id
+        db.enabled[key], db.rebuffPer[key] = nil, nil
         pcall(BuildBuffList)
         Print("Custom spell removed.")
         Refresh()
@@ -827,7 +845,7 @@ local function HandleSlash(msg)
       Print(#parts > 0 and ("Assignments: " .. table.concat(parts, ", "))
         or "No buff assignments. /br assign <BUFF> <name> sets one (leader or assistant).")
     elseif akey == "CLEAR" then
-      wipe(X.assign)
+      X.ClearLocalPlans("ASSIGN")
       Print("Assignments cleared.")
       Refresh()
     elseif not InGroup() then
@@ -837,7 +855,7 @@ local function HandleSlash(msg)
     elseif aname == "" then
       Print("Usage: /br assign <BUFF> <name>, or /br assign <BUFF> none to clear one.")
     else
-      if aname:lower() == "none" then X.assign[akey] = nil else X.assign[akey] = aname end
+      X.SetLocalPlan("ASSIGN", akey, aname:lower() ~= "none" and aname or nil)
       X.Broadcast("ASSIGN;" .. akey .. ";" .. aname)
       Print("Assignment: " .. akey .. " -> " .. aname)
       Refresh()
@@ -864,9 +882,8 @@ local function HandleSlash(msg)
   elseif cmd == "throttle" then
     local mode = rest:lower()
     if mode ~= "" and mode ~= "on" and mode ~= "off" then Print("/br throttle [on|off]"); return end
-    db.scanThrottle = mode == "on" or (mode == "" and not db.scanThrottle)
+    X.SetPreference("scanThrottle", mode == "on" or (mode == "" and not db.scanThrottle))
     Print(string.format(L["Adaptive scan throttle: %s"], L[db.scanThrottle and "On" or "Off"]))
-    X.Intel.SettingsChanged()
     if RefreshConfig then RefreshConfig() end
     return
   elseif cmd == "growup" then
@@ -1199,7 +1216,7 @@ local function HandleSlash(msg)
         if not X.AmLead() and myClass ~= "PALADIN" then
           Print("Only the group leader, an assistant or a paladin can set the blessing plan.")
         elseif bkey == "NONE" then
-          X.blessPlan[cls] = nil
+          X.SetLocalPlan("BLESS", cls, nil)
           X.Broadcast("BLESS;" .. cls .. ";NONE;none")
           Print("Blessing plan cleared for " .. cls .. ".")
           Refresh()
@@ -1211,8 +1228,8 @@ local function HandleSlash(msg)
         else
           local holder = (bname ~= "") and bname or (Ignore.UnitNames("player") or "me")
           local me = Ignore.UnitNames("player")
-          X.blessPlan[cls] = { key = bkey, name = holder,
-                               mine = me ~= nil and Ignore.Key(holder) == Ignore.Key(me) }
+          X.SetLocalPlan("BLESS", cls, { key = bkey, name = holder,
+            mine = me ~= nil and Ignore.Key(holder) == Ignore.Key(me) })
           X.Broadcast("BLESS;" .. cls .. ";" .. bkey .. ";" .. holder)
           Print("Blessing plan: " .. cls .. " gets " .. bkey .. " from " .. holder .. ".")
           Refresh()
@@ -1262,7 +1279,9 @@ local function HandleSlash(msg)
   elseif cmd == "ignore" then
     if rest == "" then Print("Usage: /br ignore <name> or <name-realm>  (or right-click a row)"); return end
     if not Ignore.Valid(rest) then Print("That is not a player name (64 characters at most, no | or ;)."); return end
-    if Ignore.Add(rest) then
+    local added, err = Ignore.Add(rest)
+    if err then Print(err); return end
+    if added then
       Print("Ignoring " .. rest .. (rest:find("-", 1, true) and "." or " on every realm."))
     else
       Print(rest .. " is already ignored.")
@@ -1371,9 +1390,17 @@ local function HandleSlash(msg)
     else
       Print(string.format("Usage: /br width <%d - %d>", MIN_WIDTH, MAX_WIDTH))
     end
+  elseif cmd == "positions" then
+    if not X.PanelPositions(rest:lower()) then Print(L["Use /br positions on|off|reset."]); return end
+    Print(string.format(L["Remember panel positions: %s"], L[db.rememberPanelPositions and "On" or "Off"]))
+    if RefreshConfig then RefreshConfig() end
+    return
   elseif cmd == "reset" or cmd == "resetpos" then
-    X.ResetWindowPosition()
-    Print(cmd == "reset" and "Position reset." or "Window position reset to the default spot.")
+    if X.ResetWindowPosition() then
+      Print(cmd == "reset" and "Position reset." or "Window position reset to the default spot.")
+    else
+      Print(L["Can't move the buff window during combat."])
+    end
   elseif cmd == "buffs" then
     ListBuffs()
   elseif cmd == "toggle" then

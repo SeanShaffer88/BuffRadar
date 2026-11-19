@@ -55,7 +55,7 @@ function X.Broadcast(msg)
     local success = _G.Enum and _G.Enum.SendAddonMessageResult and _G.Enum.SendAddonMessageResult.Success
     return result == (success or 0)
   end
-  return result ~= false
+  return result == true
 end
 
 -- Tell the other BuffRadar users in the group "I just cast KEY on GUID",
@@ -192,6 +192,104 @@ do
       end
     end
     return false
+  end
+
+  local function Authority()
+    local channel = SyncChannel()
+    if not channel then return end
+    local raid, leader = InRaid(), nil
+    local roster = raid and RAID or PARTY
+    for i = raid and 1 or 0, #roster do
+      local unit = roster[i] or "player"
+      local present = X.ReadUnitBool(UnitExists, unit)
+      if present == true and PlanRank(unit) == 2 then
+        local guid = X.UnitGUIDOf(unit)
+        if not guid or leader then return end
+        leader = guid
+      end
+    end
+    if leader then return channel .. ":" .. leader end
+  end
+
+  local function MemberGUID(unit)
+    local guid = X.UnitGUIDOf(unit)
+    if guid and #guid <= 85 and guid:match("^[%w%-]+$") then return guid end
+  end
+
+  function X.GroupIdentity()
+    local channel = SyncChannel()
+    local size = X.ReadUnitNumber(GetNumGroupMembers)
+    if not channel or not size or size < 2 or size > 40 then return end
+    local members, seen, incomplete = {}, {}, false
+    X.ForReportRoster(function(unit, present)
+      local guid = present and MemberGUID(unit)
+      if not guid or seen[guid] then incomplete = true; return end
+      seen[guid] = true
+      members[#members + 1] = guid
+    end)
+    if incomplete or #members ~= size then return end
+    table_sort(members)
+    return channel .. ":" .. table.concat(members, ";")
+  end
+
+  local rosterEpoch, lastMembership = 0, nil
+  function X.GroupRosterEpoch() return rosterEpoch end
+
+  function X.GroupShareScope(messages)
+    local authority, membership = Authority(), X.GroupIdentity()
+    if not authority or not membership then return end
+    local lead = X.AmLead()
+    for _, message in ipairs(messages) do
+      if not lead and (message:sub(1, 6) ~= "BLESS;" or X.UnitClassToken("player") ~= "PALADIN") then return end
+    end
+    return table.concat({ authority, X.joinGeneration or 0, X.authorityEpoch or 0, rosterEpoch, membership }, ":")
+  end
+
+  local remote = { ASSIGN = {}, BLESS = {} }
+  local function PlanMap(kind) return kind == "ASSIGN" and X.assign or X.blessPlan end
+
+  function X.SetLocalPlan(kind, key, value)
+    remote[kind][key] = nil
+    PlanMap(kind)[key] = value
+  end
+
+  function X.ClearLocalPlans(kind)
+    wipe(remote[kind])
+    wipe(PlanMap(kind))
+  end
+
+  function X.CheckLegacyAuthority(left)
+    local membership = not left and X.GroupIdentity() or nil
+    if membership ~= lastMembership then
+      lastMembership, rosterEpoch = membership, rosterEpoch + 1
+    end
+    local scope = not left and db and db.sync and Authority() or nil
+    if scope ~= X.lastLegacyAuthority then
+      X.lastLegacyAuthority, X.authorityEpoch = scope, (X.authorityEpoch or 0) + 1
+    end
+    if not next(remote.ASSIGN) and not next(remote.BLESS) then return end
+    for kind, owners in pairs(remote) do
+      local map = PlanMap(kind)
+      for k, owner in pairs(owners) do
+        local unit = membership and scope and owner.scope == scope and owner.epoch == rosterEpoch and X.SenderUnit(owner.sender)
+        if not unit or MemberGUID(unit) ~= owner.guid or not HasPlanRole(unit, kind == "BLESS") then
+          if map[k] == owner.value then map[k] = owner.prior end
+          owners[k] = nil
+        end
+      end
+    end
+  end
+
+  local function SetRemotePlan(kind, key, value, unit, sender)
+    X.CheckLegacyAuthority()
+    local scope, guid = X.lastLegacyAuthority, MemberGUID(unit)
+    if not scope or not guid or not lastMembership then return end
+    local map, owners = PlanMap(kind), remote[kind]
+    local prior = map[key]
+    if owners[key] then prior = owners[key].prior end
+    owners[key] = { scope = scope, epoch = rosterEpoch, sender = sender, guid = guid, prior = prior, value = value }
+    map[key] = value
+    return true
   end
 
   function X.PruneSyncRoster()
@@ -994,16 +1092,14 @@ do
     elseif kind == "ASSIGN" then
       local holder = rest:match("^;([^;]+)$")
       if not ValidBuffKey(first) or not ValidName(holder) or not HasPlanRole(unit) then return end
-      if holder:lower() == "none" then X.assign[first] = nil else X.assign[first] = holder end
+      if not SetRemotePlan(kind, first, holder:lower() ~= "none" and holder or nil, unit, name) then return end
     elseif kind == "BLESS" then
       local key, holder = rest:match("^;([%w_]+);([^;]+)$")
       if not key or not X.BLESSING_CLASSES[first] or not ValidName(holder)
         or (key ~= "NONE" and not BLESSINGS[key]) or not HasPlanRole(unit, true) then return end
-      if key == "NONE" or holder == "none" then
-        X.blessPlan[first] = nil
-      else
-        X.blessPlan[first] = { key = key, name = holder, mine = me ~= nil and X.SameUser(holder, me) }
-      end
+      local value = key ~= "NONE" and holder:lower() ~= "none"
+        and { key = key, name = holder, mine = me ~= nil and X.SameUser(holder, me) } or nil
+      if not SetRemotePlan(kind, first, value, unit, name) then return end
     elseif kind == "COVER" or kind == "BACK" or kind == "HELLO" or kind == "HERE" then
       if rest ~= "" or not ValidName(first) or not X.SameUser(first, name) then return end
       if kind == "COVER" then X.cover[name] = now + 300 end
@@ -1064,24 +1160,44 @@ function X.ContextOK(key)
   return true
 end
 
-function X.WeaponEnchantMissing(strict)
-  local fn = _G.GetWeaponEnchantInfo
-  if not fn then return nil end
-  local ok, hasMH, _, _, _, hasOH = pcall(fn)
-  if not ok then return nil end
-  local function missing(has, slot)
-    if not Readable(has) then return nil end
-    if has == true or has == 1 then return false end
-    if has ~= false and has ~= 0 then return nil end
-    if not _G.GetInventoryItemID then return not strict or nil end
-    local okI, id = pcall(_G.GetInventoryItemID, "player", slot)
-    if not okI then return nil end
-    if type(id) == "nil" then return false end
-    if Readable(id) and type(id) == "number" then return id > 0 end
+local meleeTypes = { INVTYPE_WEAPON = true, INVTYPE_2HWEAPON = true,
+  INVTYPE_WEAPONMAINHAND = true, INVTYPE_WEAPONOFFHAND = true }
+
+function X.WeaponCoatingState()
+  local enchants = _G.GetWeaponEnchantInfo
+  if type(enchants) ~= "function" then return "unknown" end
+  local ok, main, _, _, _, off = pcall(enchants)
+  if not ok then return "unknown" end
+  local inventory = _G.GetInventoryItemID
+  local itemInfo = (_G.C_Item and _G.C_Item.GetItemInfoInstant) or _G.GetItemInfoInstant
+  local function Hand(has, slot)
+    if type(inventory) ~= "function" then return "unknown" end
+    local read, id = pcall(inventory, "player", slot)
+    if not read then return "unknown" end
+    if type(id) == "nil" then return "na" end -- successful read of an empty slot
+    if not Readable(id) then return "unknown" end
+    if id == 0 then return "na" end
+    if not X.Settings.PositiveID(id) or type(itemInfo) ~= "function" then return "unknown" end
+    local info, _, _, _, equipLoc, _, classID = pcall(itemInfo, id)
+    if not info or not Readable(classID) or type(classID) ~= "number" then return "unknown" end
+    if classID ~= 2 then return "na" end -- Enum.ItemClass.Weapon (also on legacy clients)
+    if not Readable(equipLoc) or type(equipLoc) ~= "string" or equipLoc == "" then return "unknown" end
+    if not meleeTypes[equipLoc] then return "na" end
+    if Readable(has) then
+      if has == true or has == 1 then return "present" end
+      if has == false or has == 0 then return "missing" end
+    end
+    return "unknown"
   end
-  local mh, oh = missing(hasMH, 16), missing(hasOH, 17)
-  if mh or oh then return true end
-  if mh == false and oh == false then return false end
+  local mh, oh = Hand(main, 16), Hand(off, 17)
+  if mh == "missing" or oh == "missing" then return "missing" end
+  if mh == "unknown" or oh == "unknown" then return "unknown" end
+  if mh == "present" or oh == "present" then return "present" end
+  return "na"
+end
+
+function X.WeaponEnchantMissing()
+  return X.WeaponCoatingState() == "missing"
 end
 
 -- Instance-entry reminder (1.7.0): stepping into a dungeon, raid or
@@ -1118,9 +1234,24 @@ end
 
 -- Roster events: only the step from solo to grouped triggers the join
 -- summary, not every roster shuffle afterwards.
+local offCount = 0
+function X.TrackOffender(guid, name)
+  if not X.Settings.PlainString(guid, 85) or not X.Settings.PlainString(name, 128) then return end
+  if X.offNow[guid] then
+    X.offNow[guid] = name
+  elseif offCount < 128 then
+    X.offNow[guid], offCount = name, offCount + 1
+  end
+end
+
 function X.OnRoster()
   local g = InGroup()
-  if not g and X.CloseRaidPreparation then X.CloseRaidPreparation() end
+  if not g and X.CloseRaidPreparation then X.CloseRaidPreparation(true) end
+  if X.CheckPullRoster then X.CheckPullRoster() end
+  X.CheckLegacyAuthority(not g)
+  X.TrackDeaths(InRaid() and RAID or PARTY)
+  if not g and X.QueuePersonalReadiness then X.QueuePersonalReadiness() end
+  if g ~= X.inGroupPrev then X.joinGeneration = (X.joinGeneration or 0) + 1 end
   if not InRaid() then X.subgroupDuties = nil end
   X.PruneBlessingExceptions()
   X.PruneAssignmentRoleOverrides()
@@ -1128,8 +1259,14 @@ function X.OnRoster()
   if db then X.SendCover() end  -- roster changes refresh a live cover (1.7.0)
   if X.inGroupPrev == false and g and db and db.joinDigest and core.HasAnyBuff() then
     if C_Timer and C_Timer.After then
-      C_Timer.After(1.5, function() X.JoinDigest("join") end)
-    else
+      local generation, membership, epoch = X.joinGeneration, X.GroupIdentity(), X.GroupRosterEpoch()
+      if membership then
+        C_Timer.After(1.5, function()
+          if generation == X.joinGeneration and epoch == X.GroupRosterEpoch() and membership == X.GroupIdentity() and db.joinDigest
+            and not InCombatLockdown() then X.JoinDigest("join") end
+        end)
+      end
+    elseif X.GroupIdentity() and not InCombatLockdown() then
       X.JoinDigest("join")
     end
   end
@@ -1143,25 +1280,18 @@ function X.OnRoster()
   if g then
     X.PruneSyncRoster()
   else
-    wipe(X.assign)
-    wipe(X.blessPlan)
+    if X.inGroupPrev then
+      X.ClearLocalPlans("ASSIGN")
+      X.ClearLocalPlans("BLESS")
+    end
     wipe(X.peers)
     wipe(X.cover)
     wipe(X.handled)
     X.upTotal, X.upFull = 0, 0  -- the run is over (1.6.0)
     -- Repeat-offender history (1.8.0): the session that just ended
     -- counts once for everyone who was seen unbuffed during it.
-    if db then
-      for name in pairs(X.offNow) do
-        db.offenders[name] = (db.offenders[name] or 0) + 1
-      end
-      local orows = {}
-      for nm, c in pairs(db.offenders) do orows[#orows + 1] = { nm = nm, c = c } end
-      if #orows > 50 then  -- keep the worst 50 only
-        table_sort(orows, function(a, b) return a.c > b.c end)
-        for i = 51, #orows do db.offenders[orows[i].nm] = nil end
-      end
-    end
+    if db and next(X.offNow) then X.Settings.RecordOffenders(X.offNow) end
+    offCount = 0
     wipe(X.offNow)
   end
   X.inGroupPrev = g

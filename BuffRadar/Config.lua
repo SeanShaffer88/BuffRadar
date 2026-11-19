@@ -278,7 +278,7 @@ function K.Start(narrate)
 end
 
 function K.Build()
-  local button = CreateFrame("Button", nil, cfg, "UIPanelButtonTemplate")
+  local button = X.PanelWidget("Button", nil, cfg, "UIPanelButtonTemplate")
   button:SetSize(166, 22)
   button:SetPoint("BOTTOMRIGHT", cfg, "BOTTOMRIGHT", -16, 9)
   button:SetText(L["Keyboard Navigation"])
@@ -293,7 +293,7 @@ function K.Build()
   status:SetWordWrap(false)
   status:Hide()
   cfg.navStatus = status
-  local border = CreateFrame("Frame", nil, cfg, BackdropTemplateMixin and "BackdropTemplate" or nil)
+  local border = X.PanelWidget("Frame", nil, cfg, BackdropTemplateMixin and "BackdropTemplate" or nil)
   if border.SetBackdrop then
     border:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 2 })
     border:SetBackdropBorderColor(1, 0.82, 0.24, 1)
@@ -460,7 +460,7 @@ end
 -- Seconds entry box (0-3600). Enter or clicking away saves, Esc cancels;
 -- onCommit gets the number, or nil for an empty box. Shows getText() otherwise.
 local function MakeSecondsBox(parent, getText, onCommit)
-  local eb = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+  local eb = X.PanelWidget("EditBox", nil, parent, "InputBoxTemplate")
   eb:SetSize(40, 20)
   eb:SetAutoFocus(false)
   eb:SetNumeric(true)
@@ -485,7 +485,7 @@ local function MakeSecondsBox(parent, getText, onCommit)
 end
 
 local function MakeButton(parent, text, width, onClick)
-  local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+  local b = X.PanelWidget("Button", nil, parent, "UIPanelButtonTemplate")
   b:SetSize(width, 22)
   b:SetText(text)
   b:SetScript("OnClick", onClick)
@@ -497,7 +497,7 @@ local function MakeButton(parent, text, width, onClick)
 end
 
 local function MakeSlider(parent, x, y, width, minV, maxV, step, onChange, label, valueText)
-  local slider = CreateFrame("Slider", nil, parent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+  local slider = X.PanelWidget("Slider", nil, parent, BackdropTemplateMixin and "BackdropTemplate" or nil)
   slider:SetOrientation("HORIZONTAL")
   slider:SetSize(width, 17)
   slider:SetPoint("TOPLEFT", x, y)
@@ -689,7 +689,7 @@ end
 
 local function OpenBlessingPanel()
   if not cfg.blessingPanel then
-    local panel = CreateFrame("Frame", "BuffRadarBlessingPreferences", cfg,
+    local panel = X.PanelWidget("Frame", "BuffRadarBlessingPreferences", cfg,
                               BackdropTemplateMixin and "BackdropTemplate" or nil)
     cfg.blessingPanel, cfg.blessingSelectors = panel, {}
     panel:SetPoint("CENTER", cfg, "CENTER")
@@ -709,7 +709,7 @@ local function OpenBlessingPanel()
     local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 20, -18)
     title:SetText(L["Blessings by class"])
-    local close = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
+    local close = X.PanelWidget("Button", nil, panel, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -5, -5)
     close:SetScript("OnClick", function() panel:Hide() end)
     K.Register(close, panel, L["Close"], "button")
@@ -849,7 +849,7 @@ function AssignmentUI.CreatePanel(parent, name, width, height, level)
 end
 
 function AssignmentUI.CloseButton(panel, onClose)
-  local close = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
+  local close = X.PanelWidget("Button", nil, panel, "UIPanelCloseButton")
   close:SetPoint("TOPRIGHT", -4, -4)
   close:SetScript("OnClick", onClose)
   K.Register(close, panel, L["Close"], "button")
@@ -1910,7 +1910,7 @@ function AssignmentUI.RefreshPreparation(view, rosterRefresh)
   if not view:IsVisible() then return end
   view.pendingRefresh = nil
   if not AssignmentUI.PreparationAvailable(view.tab) then view:Hide(); return end
-  view.report = X.RaidPreparationSnapshot(view.tab == "personal")
+  view.report = X.Measure("prepare", X.RaidPreparationSnapshot, view.tab == "personal")
   if not view.report then view:Hide(); return end
   AssignmentUI.DrawPreparation(view, rosterRefresh)
 end
@@ -2453,7 +2453,7 @@ function AssignmentUI.BuildCoordination(panel)
   view.needLabel = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   view.needLabel:SetPoint("BOTTOMLEFT", 260, 65)
   view.needLabel:SetText(L["Buff Key"])
-  view.need = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
+  view.need = X.PanelWidget("EditBox", nil, view, "InputBoxTemplate")
   view.need:SetSize(122, 20)
   view.need:SetPoint("BOTTOMLEFT", 265, 42)
   view.need:SetAutoFocus(false)
@@ -2711,7 +2711,7 @@ function AssignmentUI.BuildReadinessSettings(panel)
   end
   local function section(text, x, y) return label(L[text], x, y, "GameFontNormal") end
   local function field(text, x, y, width, length, numeric, commit)
-    local box = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
+    local box = X.PanelWidget("EditBox", nil, panel, "InputBoxTemplate")
     box:SetSize(width, 20)
     box:SetPoint("TOPLEFT", x, y)
     box:SetAutoFocus(false)
@@ -2730,8 +2730,7 @@ function AssignmentUI.BuildReadinessSettings(panel)
   end
   local function check(key, text, x, y, tip)
     local cb = MakeCheck(panel, L[text], function() return db[key] end, function(value)
-      db[key] = value
-      I.SettingsChanged()
+      X.SetPreference(key, value)
       RefreshConfig()
     end)
     cb:SetPoint("TOPLEFT", x, y)
@@ -2846,11 +2845,13 @@ local function BuildConfig()
   -- Blizzard's standard window (title bar, BuffRadar icon in the portrait
   -- corner, close button, inset content area) so it matches the retail UI.
   -- A client without that template gets the original hand-drawn window.
-  cfg = CreateFrame("Frame", "BuffRadarConfig", UIParent, "ButtonFrameTemplate")
-  local native = cfg.SetTitle and cfg.Inset and cfg.CloseButton and true or false
-  if not native then
-    cfg:Hide()
-    cfg = CreateFrame("Frame", "BuffRadarConfig", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+  local templateOK, built = pcall(CreateFrame, "Frame", "BuffRadarConfig", UIParent, "ButtonFrameTemplate")
+  local native = templateOK and built and built.SetTitle and built.Inset and built.CloseButton
+  if native then
+    cfg = built
+  else
+    if templateOK and built then built:Hide() end
+    cfg = X.PanelWidget("Frame", "BuffRadarConfig", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
   end
   cfg:SetSize(CONFIG_WIDTH, CONFIG_HEIGHT)
   cfg.navControls = {}
@@ -2865,7 +2866,6 @@ local function BuildConfig()
     K.Stop()
     self:StartMoving()
   end)
-  cfg:SetScript("OnDragStop", cfg.StopMovingOrSizing)
   if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarConfig") end -- Esc closes it
 
   if native then
@@ -2891,7 +2891,7 @@ local function BuildConfig()
     local head = cfg:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     head:SetPoint("TOP", 0, -12)
     head:SetText("|cff33ccffBuff|rRadar Settings")
-    local close = CreateFrame("Button", nil, cfg, "UIPanelCloseButton")
+    local close = X.PanelWidget("Button", nil, cfg, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -2, -2)
     close:SetScript("OnClick", function() cfg:Hide() end)
     cfg.closeButton = close
@@ -2908,12 +2908,23 @@ local function BuildConfig()
     { "behavior", L["Behavior"], 98 }, { "data", L["Ignore & Stats"], 126 }, { "readiness", L["Readiness"], 106 },
   }
   local tabList, prevTab, fallbackX = {}, nil, 14
+  if cfg.nativeTabs then
+    for i = 1, #tabDefs do
+      local ok, tab = pcall(CreateFrame, "Button", "BuffRadarConfigTab" .. i, cfg, "PanelTabButtonTemplate")
+      if not ok or not tab then
+        cfg.nativeTabs = false
+        for _, item in ipairs(tabList) do item:Hide() end
+        break
+      end
+      tabList[i] = tab
+    end
+  end
   for i, td in ipairs(tabDefs) do
     local key, label = td[1], td[2]
     local function onClick() SelectTab(key); RefreshConfig() end
     local btn
     if cfg.nativeTabs then
-      btn = CreateFrame("Button", "BuffRadarConfigTab" .. i, cfg, "PanelTabButtonTemplate")
+      btn = tabList[i]
       btn:SetID(i)
       btn:SetText(label)
       btn:SetScript("OnClick", onClick)
@@ -2924,7 +2935,6 @@ local function BuildConfig()
         btn:SetPoint("TOPLEFT", cfg, "BOTTOMLEFT", 11, 2)
       end
       prevTab = btn
-      tabList[i] = btn
     else
       btn = MakeButton(cfg, "", td[3], onClick)
       btn:SetText(label)
@@ -2934,7 +2944,7 @@ local function BuildConfig()
     K.Register(btn, cfg, label, "tab").key = key
     cfg.tabBtns[key] = btn
     local panel = CreateFrame("Frame", nil, cfg)
-    if native then  -- inside the template's inset area, below the title bar
+    if cfg.nativeTabs then  -- inside the template's inset area, below the title bar
       panel:SetPoint("TOPLEFT", cfg.Inset, "TOPLEFT", 4, -4)
     else
       panel:SetPoint("TOPLEFT", 8, -70)
@@ -2967,7 +2977,7 @@ local function BuildConfig()
   local colorLabel = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   colorLabel:SetPoint("TOPLEFT", 14, -34)
   colorLabel:SetText("Background color")
-  local swatch = CreateFrame("Button", nil, look, BackdropTemplateMixin and "BackdropTemplate" or nil)
+  local swatch = X.PanelWidget("Button", nil, look, BackdropTemplateMixin and "BackdropTemplate" or nil)
   swatch:SetSize(40, 18)
   swatch:SetPoint("LEFT", colorLabel, "RIGHT", 10, 0)
   if swatch.SetBackdrop then
@@ -3013,7 +3023,7 @@ local function BuildConfig()
       db.charPoint = v
       if v then
         local k = X.CharKey()
-        if k and db.point then db.pointByChar[k] = db.point end
+        if db.point then X.SaveCharacterPoint(k) end
       end
     end)
   cfg.charPointCheck:SetPoint("TOPLEFT", 250, -150)
@@ -3176,6 +3186,14 @@ local function BuildConfig()
   end)
   cfg.displayBtn:SetPoint("TOPLEFT", 300, -428)
 
+  cfg.panelPointCheck = MakeCheck(look, L["Remember Settings and Ready Check positions"],
+    function() return db.rememberPanelPositions end,
+    function(v) X.PanelPositions(v and "on" or "off") end)
+  cfg.panelPointCheck:SetPoint("TOPLEFT", 10, -428)
+  WrapCheckLabel(cfg.panelPointCheck)
+  local resetPanels = MakeButton(look, L["Reset panel positions"], 170, function() X.PanelPositions("reset") end)
+  resetPanels:SetPoint("TOPLEFT", 14, -465)
+
   cfg.minimapCheck = MakeCheck(look, L["Minimap button (drag it around the minimap)"],
     function() return db.showMinimap end,
     function(v) db.showMinimap = v; if RefreshMinimapButton then RefreshMinimapButton() end end)
@@ -3271,19 +3289,19 @@ local function BuildConfig()
   end)
   resetCount:SetPoint("TOPLEFT", 34, -190)
 
-  section(alerts, "Keybinds", 10, -230)
+  section(alerts, L["Keybinds"], 10, -230)
   local keyText = alerts:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   keyText:SetPoint("TOPLEFT", 14, -254)
   local keyText2 = alerts:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   keyText2:SetPoint("TOPLEFT", 14, -270)
   cfg.keyText, cfg.keyText2 = keyText, keyText2
 
-  local setKey = MakeButton(alerts, "Set keybind", 120, function()
+  local setKey = MakeButton(alerts, L["Set keybind"], 120, function()
     K.Stop()
     OpenKeybinds()
   end)
   setKey:SetPoint("TOPLEFT", 14, -288)
-  local makeMacro = MakeButton(alerts, "Create macro", 120, function() MakeMacro() end)
+  local makeMacro = MakeButton(alerts, L["Create macro"], 120, function() MakeMacro() end)
   makeMacro:SetPoint("LEFT", setKey, "RIGHT", 10, 0)
 
   local hint = alerts:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -3486,10 +3504,7 @@ local function BuildConfig()
 
   cfg.syncCheck = MakeCheck(beh, L["Sync casts with other BuffRadar users"],
     function() return db.sync end,
-    function(v)
-      db.sync = v
-      if not v then X.StopCoordination() end
-    end)
+    function(v) X.SetPreference("sync", v) end)
   cfg.syncCheck:SetPoint("TOPLEFT", 296, -200 + castY)
   WrapCheckLabel(cfg.syncCheck)
 
@@ -3548,7 +3563,7 @@ local function BuildConfig()
 
   cfg.throttleCheck = MakeCheck(beh, L["Adaptive scan throttle"],
     function() return db.scanThrottle end,
-    function(v) db.scanThrottle = v; X.Intel.SettingsChanged(); RefreshConfig() end)
+    function(v) X.SetPreference("scanThrottle", v); RefreshConfig() end)
   cfg.throttleCheck:SetPoint("TOPLEFT", 10, -215)
   cfg.fastAuraCheck = MakeCheck(beh, L["Skip rescans for aura changes that touch no watched buff"],
     function() return db.fastAura end,
@@ -3557,7 +3572,7 @@ local function BuildConfig()
   WrapCheckLabel(cfg.fastAuraCheck)
   cfg.pullFlashCheck = MakeCheck(beh, L["Flash when a pull timer starts"],
     function() return db.pullFlash end,
-    function(v) db.pullFlash = v end)
+    function(v) X.SetPreference("pullFlash", v) end)
   cfg.pullFlashCheck:SetPoint("TOPLEFT", 10, -270)
 
   section(beh, "More watches", 10, -298)
@@ -3675,11 +3690,11 @@ local function BuildConfig()
   end)
   resetStats:SetPoint("TOPLEFT", 14, -290)
 
-  section(data, "Settings profiles", 10, -330)
+  section(data, L["Settings profiles"], 10, -330)
   local profHint = data:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   profHint:SetPoint("TOPLEFT", 14, -352)
-  profHint:SetText("Save window, alert and buff preferences to load here or with /br profile.")
-  cfg.profileBox = CreateFrame("EditBox", nil, data, "InputBoxTemplate")
+  profHint:SetText(L["Save window, alert and buff preferences to load here or with /br profile."])
+  cfg.profileBox = X.PanelWidget("EditBox", nil, data, "InputBoxTemplate")
   cfg.profileBox:SetSize(170, 20)
   cfg.profileBox:SetPoint("TOPLEFT", 18, -374)
   cfg.profileBox:SetAutoFocus(false)
@@ -3690,14 +3705,12 @@ local function BuildConfig()
   local function profName()
     return (cfg.profileBox:GetText() or ""):match("^%s*(.-)%s*$")
   end
-  local profSave = MakeButton(data, "Save", 62, function()
-    local name = profName()
-    local ok, err = X.SaveProfile(name)
-    if ok then Print("Profile saved: " .. name) else Print(err) end
-    RefreshConfig()
+  local profSave = MakeButton(data, L["Save"], 62, function()
+    K.Stop()
+    X.RequestProfileSave(profName())
   end)
   profSave:SetPoint("LEFT", cfg.profileBox, "RIGHT", 10, 0)
-  local profLoad = MakeButton(data, "Load", 62, function()
+  local profLoad = MakeButton(data, L["Load"], 62, function()
     local name = profName()
     local ok, err = X.LoadProfile(name)
     if ok then
@@ -3710,14 +3723,14 @@ local function BuildConfig()
     else Print(err or "No profile named '" .. name .. "'.") end
   end)
   profLoad:SetPoint("LEFT", profSave, "RIGHT", 6, 0)
-  local profDel = MakeButton(data, "Delete", 62, function()
+  local profDel = MakeButton(data, L["Delete"], 62, function()
     local name = profName()
     if X.DeleteProfile(name) then Print("Profile deleted: " .. name)
     else Print("No profile named '" .. name .. "'.") end
     RefreshConfig()
   end)
   profDel:SetPoint("LEFT", profLoad, "RIGHT", 6, 0)
-  local profShare = MakeButton(data, "Share", 62, function()
+  local profShare = MakeButton(data, L["Share BR2"], 86, function()
     local name = profName()
     local text = X.ProfileShareText(name)
     if text then
@@ -3728,7 +3741,12 @@ local function BuildConfig()
     end
   end)
   profShare:SetPoint("LEFT", profDel, "RIGHT", 6, 0)
-  Tip(profShare, "Share this profile", "Shows the named profile as one copyable text you can send to another player; they bring it in with /br profile import. Only that one profile is shared, not your other settings.")
+  Tip(profShare, L["Share BR2"], L["Use a named BR2 profile to share newer preferences."])
+  local profImport = MakeButton(data, L["Import"], 112, function()
+    K.Stop()
+    X.ShowExport("", true, L["Paste a shared profile, then review."], "profile")
+  end)
+  profImport:SetPoint("TOPRIGHT", -14, -422)
   cfg.profileText = data:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   cfg.profileText:SetPoint("TOPLEFT", 14, -402)
   cfg.profileText:SetWidth(540)
@@ -3786,7 +3804,7 @@ local function BuildConfig()
   Tip(cfg.watchCheck, "Buff drop alert", "When a single-target buff of yours (like Earth Shield) disappears from the player who had it -- expired, dispelled or used up -- you get a message, the alert sound and a border flash, so you know to recast it. Moving it to another player doesn't trigger this. Same as /br watch.")
   Tip(cfg.counterCheck, "Cast counter", "Shows casts made through BuffRadar this session and all-time at the bottom of the window.")
   Tip(resetCount, "Reset counts", "Sets this session's and the all-time cast counts to zero. Per-spell stats (Ignore & Stats tab) are kept.")
-  Tip(setKey, "Set keybind", "Opens Key Bindings at the BuffRadar section: Cast next buff, Show / hide window, Mute / unmute sound.")
+  Tip(setKey, L["Set keybind"], L["Open the BuffRadar section of the game's key bindings."])
   Tip(makeMacro, "Create macro", "Puts a BuffRadar macro on your cursor. Drop it on an action bar; pressing it casts the next buff.")
   -- Behavior
   Tip(cfg.groupCheck, "Only show in a party or raid", "Hide the window while you're solo. The Cast next buff key still works.")
@@ -3818,7 +3836,7 @@ local function BuildConfig()
   -- More display options (1.10.0): a small panel of its own — the tabs
   -- are full. Coverage-line parts, row color marks, tooltip detail and
   -- the row-name options live here.
-  local dpanel = CreateFrame("Frame", nil, cfg, BackdropTemplateMixin and "BackdropTemplate" or nil)
+  local dpanel = X.PanelWidget("Frame", nil, cfg, BackdropTemplateMixin and "BackdropTemplate" or nil)
   dpanel:SetSize(470, 484)
   dpanel:SetPoint("CENTER", cfg, "CENTER", 0, 0)
   if dpanel.SetBackdrop then
@@ -3950,7 +3968,7 @@ local function BuildConfig()
   footer:SetSize(360, 20)
   footer:SetPoint("BOTTOMLEFT", cfg, "BOTTOMLEFT", 16, 10)
   cfg.searchFooter = footer
-  local searchBox = CreateFrame("EditBox", nil, footer, "InputBoxTemplate")
+  local searchBox = X.PanelWidget("EditBox", nil, footer, "InputBoxTemplate")
   searchBox:SetSize(180, 20)
   searchBox:SetPoint("LEFT")
   searchBox:SetAutoFocus(false)
@@ -3965,7 +3983,7 @@ local function BuildConfig()
     return cfg.searchHint:GetText()
   end)
   cfg.searchBox = searchBox
-  local searchToggle = CreateFrame("Button", nil, cfg, "UIPanelButtonTemplate")
+  local searchToggle = X.PanelWidget("Button", nil, cfg, "UIPanelButtonTemplate")
   searchToggle:SetSize(70, 22)
   searchToggle:SetText(L["Find"])
   searchToggle:SetScript("OnClick", function()
@@ -3989,6 +4007,7 @@ local function BuildConfig()
     if cfg.searchToggle then cfg.searchToggle:Show() end
     RefreshConfig()
   end)
+  X.BindPanelPosition(cfg, "settings", 0)
   K.Build()
   Tip(cfg.navButton, L["Keyboard Navigation"], navigationHelp)
   cfg:HookScript("OnHide", function()
@@ -4025,6 +4044,7 @@ RefreshConfig = function()
   cfg.borderCheck:Update()
   if cfg.compactCheck then cfg.compactCheck:Update() end
   if cfg.charPointCheck then cfg.charPointCheck:Update() end
+  cfg.panelPointCheck:Update()
   if cfg.stripCheck then cfg.stripCheck:Update() end
   if cfg.clickThroughCheck then cfg.clickThroughCheck:Update() end
   for _, chk in pairs(cfg.coverChecks or {}) do chk:Update() end
@@ -4057,10 +4077,10 @@ RefreshConfig = function()
   cfg.muteInstCheck:Update()
   if cfg.watchCheck then cfg.watchCheck:Update() end
   cfg.counterCheck:Update()
-  cfg.keyText:SetText("Cast next buff: " .. KeybindText(NEXT_BINDING) ..
-    "    Cast next group buff: " .. KeybindText("CLICK BuffRadarGroupButton:LeftButton"))
-  cfg.keyText2:SetText("Show / hide: " .. KeybindText("BUFFRADAR_TOGGLE") ..
-    "    Mute: " .. KeybindText("BUFFRADAR_MUTE"))
+  cfg.keyText:SetText(L["Cast next buff"] .. ": " .. KeybindText(NEXT_BINDING) ..
+    "    " .. L["Cast next group buff"] .. ": " .. KeybindText("CLICK BuffRadarGroupButton:LeftButton"))
+  cfg.keyText2:SetText(L["Show / hide window"] .. ": " .. KeybindText("BUFFRADAR_TOGGLE") ..
+    "    " .. L["Mute / unmute sound"] .. ": " .. KeybindText("BUFFRADAR_MUTE"))
   cfg.groupCheck:Update()
   cfg.cityCheck:Update()
   cfg.bgCheck:Update()
@@ -4233,7 +4253,7 @@ end
 
 -- Esc > Options > AddOns > BuffRadar: a short page with a button that opens
 -- the full settings window (which has more room than the options page).
-if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
+if X.supported and Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
   local page = CreateFrame("Frame")
   local head = page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   head:SetPoint("TOPLEFT", 16, -16)

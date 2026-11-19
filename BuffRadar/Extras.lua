@@ -87,7 +87,7 @@ local function BuildNearby()
   local title = Label("GameFontNormalLarge", -12)
   title:SetPoint("TOPRIGHT", -32, -12)
   title:SetText(L["Nearby Player Diagnostics"])
-  local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+  local close = X.PanelWidget("Button", nil, f, "UIPanelCloseButton")
   close:SetPoint("TOPRIGHT", -3, -3)
   close:SetScript("OnClick", function() f:Hide() end)
   f.nameplates = Label("GameFontHighlight", -45)
@@ -95,7 +95,7 @@ local function BuildNearby()
   local targetTitle = Label("GameFontNormal", -92)
   targetTitle:SetText(L["Current Target"])
 
-  local scroll = CreateFrame("ScrollFrame", "BuffRadarNearbyScroll", f, "UIPanelScrollFrameTemplate")
+  local scroll = X.PanelWidget("ScrollFrame", "BuffRadarNearbyScroll", f, "UIPanelScrollFrameTemplate")
   scroll:SetPoint("TOPLEFT", 14, -112)
   scroll:SetPoint("BOTTOMRIGHT", -30, 108)
   local child = CreateFrame("Frame", nil, scroll)
@@ -113,7 +113,7 @@ local function BuildNearby()
   f.message:SetJustifyV("TOP")
 
   local function PlateButton(width, point, x, y, chooseMode)
-    local btn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    local btn = X.PanelWidget("Button", nil, f, "UIPanelButtonTemplate")
     btn:SetSize(width, 22)
     btn:SetPoint(point, x, y)
     btn:SetScript("OnClick", function()
@@ -137,7 +137,7 @@ local function BuildNearby()
   f.restorePlates = PlateButton(176, "BOTTOMRIGHT", -14, 42, function() return "restore" end)
   f.restorePlates:SetText(L["Restore Nameplates"])
 
-  local refresh = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  local refresh = X.PanelWidget("Button", nil, f, "UIPanelButtonTemplate")
   refresh:SetSize(110, 22)
   refresh:SetPoint("BOTTOMRIGHT", -14, 12)
   refresh:SetText(L["Refresh"])
@@ -381,10 +381,8 @@ function X.IgnoreImport(text)
     name = name:gsub("^%s+", ""):gsub("%s+$", "")
     if X.Ignore.Valid(name) then names[#names + 1] = name end
   end
-  local added = 0
-  for _, name in ipairs(names) do
-    if X.Ignore.Add(name) then added = added + 1 end
-  end
+  local added, err = X.Ignore.AddMany(names)
+  if not added then return false, err end
   local seen = #names
   if X.Refresh then X.Refresh() end
   return true, string.format("Ignore list: %d added, %d already there.", added, seen - added)
@@ -432,10 +430,14 @@ end
 -- /br perf: scan cost and memory, so the budgets have in-game evidence.
 ---------------------------------------------------------------------------
 function X.PerfReport()
-  local pf = X.perf
-  if not pf or pf.n == 0 then Print("Perf: no scans timed yet (needs debugprofilestop)."); return end
-  Print(string.format("Perf: %d scans · average %.2f ms · last %.2f ms · worst %.2f ms",
-    pf.n, pf.total / pf.n, pf.last, pf.max))
+  for _, key in ipairs({ "scan", "prepare", "import", "debuff", "combatDebuff" }) do
+    local t = X.timings[key]
+    if t.n > 0 then
+      Print(string.format("Perf: %s · %d samples · CPU average %.2f ms · last %.2f ms · worst %.2f ms",
+        key, t.n, t.total / t.n, t.last, t.max))
+    end
+  end
+  if not debugprofilestop then Print("Perf: CPU timing unavailable (needs debugprofilestop).") end
   local probe = X.auraProbe
   if probe and probe.seen then
     Print(string.format("Perf: UNIT_AURA payloads %d · skipped by fast aura %d",
@@ -449,53 +451,12 @@ end
 ---------------------------------------------------------------------------
 -- Settings diff: what applying a settings string would change.
 ---------------------------------------------------------------------------
-local function Parse(text)
-  local out = {}
-  if type(text) ~= "string" then return out end
-  for part in (text .. ";"):gmatch("(.-);") do
-    local k, v = part:match("^(.-)=(.*)$")
-    if k then out[k] = v end
-  end
-  return out
-end
-
 function X.SettingsDiff(text, named)
-  if type(text) ~= "string" then return nil, "Not a BuffRadar settings string." end
-  local profile = text:match("^BR2;") ~= nil
-  local patch, body
-  if profile or named then
-    patch, body = X.ParseProfile(text), text
-  else
-    patch, body = X.ParseSettingsImport(text)
-  end
-  if not patch then return nil, "Not a complete, valid BuffRadar settings string." end
-  local current, err
-  if profile then
-    current = X.ProfileSnapshot()
-    if not current then return nil, "Current settings exceed the profile size limit." end
-  else
-    current, err = X.Export()
-    if not current then return nil, err end
-  end
-  local want, have = Parse(body), Parse(current)
-  if patch.assumeRange == false and want.assumeRange == nil then want.assumeRange = "0" end
-  local lines = {}
-  local keys = {}
-  for k in pairs(want) do keys[k] = true end
-  for k in pairs(have) do keys[k] = true end
-  local names = {}
-  for k in pairs(keys) do names[#names + 1] = k end
-  table.sort(names)
-  for _, k in ipairs(names) do
-    local map = k:match("^(%a+)%.")
-    if (map and patch[map] ~= nil) or patch[k] ~= nil then
-      local a, b = have[k], want[k]
-      if a ~= b then
-        lines[#lines + 1] = string.format("%s: %s -> %s", k, tostring(a), tostring(b))
-      end
-    end
-  end
-  return lines
+  if type(text) ~= "string" then return nil, L["Paste a complete, valid BuffRadar settings export."] end
+  local patch
+  if named or text:match("^BR2;") then patch = X.ParseProfile(text) else patch = X.ParseSettingsImport(text) end
+  if not patch then return nil, L["Paste a complete, valid BuffRadar settings export."] end
+  return X.ReviewSettings(patch)
 end
 
 function X.PrintDiff(text, label, named)
@@ -554,25 +515,88 @@ end
 X.pullProbe = { stSeen = 0, stTypes = {}, d5 = 0 }
 X.pull = nil
 
-function X.PullStart(secs, source)
-  if not X.Readable(secs) or type(secs) ~= "number" or not (secs >= 0 and secs <= 600) then return end
-  if secs == 0 then
-    if X.pull and X.pull.source == source then
-      X.pull = nil
-      X.Core.QueueRefresh()
-    end
-    return
+local function PullScope()
+  return X.InRaid() and "RAID" or X.InGroup() and "PARTY" or "solo"
+end
+
+local function PullOwnerPresent(owner)
+  if not owner or X.UnitGUIDOf("player") == owner then return true end
+  local present = false
+  X.ForReportRoster(function(unit, exists)
+    if exists and X.UnitGUIDOf(unit) == owner then present = true end
+  end)
+  return present
+end
+
+local function StopPull(source, owner, timerID)
+  local active = X.pull
+  if active and active.source == source and active.owner == owner and active.scope == PullScope()
+    and not active.ambiguousStop and active.timerID == timerID and PullOwnerPresent(owner)
+    and (source ~= "boss mod" or timerID ~= nil)
+    and (owner or active.scope == "solo" or active.membership == X.GroupIdentity()) then
+    X.pull = nil
+    X.Core.QueueRefresh()
   end
+end
+
+local function FinishPull(pull)
+  if X.pull ~= pull then return end
+  X.pull = nil
+  if not pull.forecastOnly and X.GetDB().pullFlash and X.Flash then X.Flash() end
+  X.Core.QueueRefresh()
+end
+
+-- The existing throttled ticker owns expiry on clients without C_Timer.
+function X.TickPull()
+  local pull = X.pull
+  if not pull or (C_Timer and C_Timer.After) then return end
+  local left = pull.endsAt - GetTime()
+  if left <= 0 then FinishPull(pull)
+  elseif left <= 3 and not pull.warned and not pull.forecastOnly then
+    pull.warned = true
+    if X.GetDB().pullFlash and X.Flash then X.Flash() end
+  end
+end
+
+function X.CheckPullRoster()
+  local pull = X.pull
+  if not pull then return end
+  local trusted = not pull.sender or X.SenderTrusted(pull.sender)
+  local membership = not pull.owner and X.GroupIdentity() or nil
+  if pull.scope ~= PullScope() or not trusted or not PullOwnerPresent(pull.owner)
+    or (not pull.owner and pull.membership ~= membership) then
+    X.pull = nil
+    X.Core.QueueRefresh()
+  end
+end
+
+function X.PullStart(secs, source, owner, timerID, sender)
+  if not X.Readable(secs) or type(secs) ~= "number" or not (secs >= 0 and secs <= 600) then return end
+  if secs == 0 then StopPull(source, owner, timerID); return end
   local db = X.GetDB()
   if not db or (not db.pullFlash and not X.Intel.ForecastEnabled()) then return end
-  if InCombatLockdown() or X.PlayerSuspended() then return end
+  if InCombatLockdown() or X.PlayerSuspended() or not PullOwnerPresent(owner) then return end
   local casts = 0
   if db.pullFlash then
     for _, tt in pairs(X.tally or {}) do casts = casts + (tt.miss or 0) end
   end
   local flash = casts > 0
   if not flash and not X.Intel.ForecastEnabled() then return end
-  local pull = { endsAt = GetTime() + secs, source = source, forecastOnly = not flash }
+  local now, scope, previous = GetTime(), PullScope(), X.pull
+  local membership = not owner and X.GroupIdentity() or nil
+  if not owner and scope ~= "solo" and not membership then return end
+  local ends = now + secs
+  local sameSource = previous and previous.source == source and previous.scope == scope and previous.endsAt > now
+  if sameSource and math.abs(previous.endsAt - ends) < 0.75 and (not previous.owner or not owner or previous.owner == owner)
+    and previous.timerID == timerID then
+    if owner then previous.owner, previous.sender = owner, sender end
+    return -- paired native notifications or repeat of an already running timer
+  end
+  local ambiguous = sameSource and previous.owner == owner
+    and (not previous.timerID or not timerID or previous.timerID == timerID)
+  local pull = { endsAt = ends, source = source, forecastOnly = not flash, owner = owner,
+    timerID = timerID, sender = sender, scope = scope, ambiguousStop = ambiguous,
+    membership = membership }
   X.pull = pull
   if flash then
     Print(string.format("Pull in %ds (%s) -- %d casts still needed.", secs, source, casts))
@@ -585,17 +609,11 @@ function X.PullStart(secs, source)
         if X.pull == pull and db.pullFlash and X.Flash then X.Flash() end
       end)
     end
-    C_Timer.After(secs, function()
-      if X.pull == pull then
-        X.pull = nil
-        if flash and db.pullFlash and X.Flash then X.Flash() end
-        X.Core.QueueRefresh()
-      end
-    end)
+    C_Timer.After(secs, function() FinishPull(pull) end)
   end
 end
 
-do
+if X.supported then
   local pf = CreateFrame("Frame")
   X.pullFrame = pf
   pf:RegisterEvent("ADDON_LOADED")
@@ -604,7 +622,7 @@ do
     pcall(pf.RegisterEvent, pf, event)
   end
   pf:RegisterEvent("CHAT_MSG_ADDON")
-  pf:SetScript("OnEvent", function(_, ev, a1, a2, _, a4)
+  pf:SetScript("OnEvent", function(_, ev, a1, a2, a3, a4)
     local probe = X.pullProbe
     if ev == "ADDON_LOADED" then
       if a1 == "BuffRadar" then
@@ -620,19 +638,26 @@ do
       if X.Readable(a1) and type(a1) == "number" and a1 >= 0 and a1 <= 10 then probe.stTypes[a1] = true end
       if X.Readable(a1) and a1 == playerCountdown then X.PullStart(a2, "countdown") end
     elseif ev == "START_PLAYER_COUNTDOWN" then
-      -- Unlike START_TIMER, the first argument is the initiator's GUID.
-      X.PullStart(a2, "countdown")
-    elseif ev == "CANCEL_PLAYER_COUNTDOWN" or (ev == "STOP_TIMER_OF_TYPE" and X.Readable(a1) and a1 == playerCountdown) then
-      X.PullStart(0, "countdown")
+      -- Native IDful stops carry the initiator's GUID, not a timer number.
+      local guid = X.Core.SafeString(a1)
+      if guid and guid ~= "" and #guid <= 85 then X.PullStart(a2, "countdown", guid) end
+    elseif ev == "CANCEL_PLAYER_COUNTDOWN" then
+      local guid = X.Core.SafeString(a1)
+      if guid and guid ~= "" then StopPull("countdown", guid) end
+    elseif ev == "STOP_TIMER_OF_TYPE" and X.Readable(a1) and a1 == playerCountdown then
+      StopPull("countdown")
     elseif ev == "CHAT_MSG_ADDON" and X.Readable(a1) and a1 == "D5"
-      and type(a2) == "string" and X.Readable(a2) then
+      and type(a2) == "string" and X.Readable(a2) and #a2 <= 255 then
       local sub, rest = a2:match("^(%u+)%s+(.+)$")
       if sub == "PT" then
         probe.d5 = probe.d5 + 1
-        local secs = tonumber(rest:match("^(%d+)%f[%s%z]"))
-        if secs and X.SenderTrusted and X.SenderTrusted(a4) then
-          X.PullStart(secs, "boss mod")
-        end
+        if not X.Readable(a3) or a3 == "solo" or a3 ~= PullScope() then return end
+        local secs, map = rest:match("^(%d+)\t(%d+)$")
+        secs = secs or rest:match("^(%d+)$")
+        if not secs then return end
+        local unit, sender = X.SenderUnit(a4)
+        local owner = unit and X.SenderTrusted(a4) and X.UnitGUIDOf(unit)
+        if owner then X.PullStart(tonumber(secs), "boss mod", owner, map ~= "" and map or nil, sender) end
       end
       return
     end
@@ -654,4 +679,4 @@ X.ext.diff = function(rest)
   X.PrintDiff(rest, "That string")
 end
 
-X.InitEditMode()
+if X.supported then X.InitEditMode() end
