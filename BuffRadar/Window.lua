@@ -33,6 +33,7 @@ local grip, leftGrip, widthHandle, groupBtn, pill
 local rows, built = {}, false
 local rowMouseButtons, rowLeftPress = {}, nil
 local viewport, viewportCount, rowOffset
+local visibleLimit = MAX_ROWS
 local viewportMode, viewportSearch, viewportRole, viewportTwoCol, rowWheelEnabled
 local columns, rowsPerColumn, previousRowsTall = 1, MAX_ROWS, nil
 local rowHeight, topHeight = ROW_H, HEADER_H
@@ -155,7 +156,7 @@ local function SavePosition()
       db.point = { "BOTTOMLEFT", "BOTTOMLEFT", left, bottom }
       if db.charPoint then
         local k = X.CharKey()
-        if k then db.pointByChar[k] = db.point end
+        X.SaveCharacterPoint(k)
       end
       return
     end
@@ -179,7 +180,7 @@ local function SavePosition()
   end
   if db.charPoint then
     local k = X.CharKey()
-    if k and db.point then db.pointByChar[k] = db.point end
+    if db.point then X.SaveCharacterPoint(k) end
   end
 end
 
@@ -191,6 +192,20 @@ local POINT_FRACTION = {
   BOTTOMLEFT = { 0, 0 },  BOTTOM = { 0.5, 0 },   BOTTOMRIGHT = { 1, 0 },
 }
 
+local function UsablePoint(point, widget)
+  if not X.Settings.CopyPoint(point) then return false end
+  local to, from = POINT_FRACTION[point[1]], POINT_FRACTION[point[2]]
+  local width = X.ReadUnitNumber(UIParent.GetWidth, UIParent)
+  local height = X.ReadUnitNumber(UIParent.GetHeight, UIParent)
+  if not width or width <= 0 or not height or height <= 0 then return true end
+  local scale = X.ReadUnitNumber(widget.GetScale, widget) or 1
+  local w, h = X.ReadUnitNumber(widget.GetWidth, widget), X.ReadUnitNumber(widget.GetHeight, widget)
+  if not w or not h or w <= 0 or h <= 0 then return true end
+  local left = from[1] * width + (point[3] - to[1] * w) * scale
+  local bottom = from[2] * height + (point[4] - to[2] * h) * scale
+  return left < width and bottom < height and left + w * scale > 0 and bottom + h * scale > 0
+end
+
 -- Forget the saved window spot (shared and per-character), so the next
 -- RestorePosition lands on the default anchor.
 local function ClearSavedPoint()
@@ -201,27 +216,13 @@ local function ClearSavedPoint()
   end
 end
 
-local function RestorePosition()
+local function PlaceSavedPosition()
   if db.charPoint then
     local k = X.CharKey()
     if k and db.pointByChar[k] then db.point = db.pointByChar[k] end
   end
   frame:ClearAllPoints()
-  -- Rescue (1.5.0): a saved spot can end up off-screen after a monitor or
-  -- resolution change. Saved points anchor TOPLEFT to the screen's
-  -- BOTTOMLEFT, so x is the left edge and y the top edge from the bottom;
-  -- if the window would be (mostly) unreachable, forget the spot instead
-  -- of restoring it blind.
-  if db.point and db.point[1] == "TOPLEFT" and db.point[2] == "BOTTOMLEFT"
-     and _G.GetScreenWidth and _G.GetScreenHeight then
-    local okW, sw = pcall(_G.GetScreenWidth)
-    local okH, sh = pcall(_G.GetScreenHeight)
-    local x, y = db.point[3], db.point[4]
-    if okW and okH and type(sw) == "number" and type(sh) == "number"
-       and (x < 30 - frame:GetWidth() or x > sw - 50 or y < 50 or y > sh) then
-      ClearSavedPoint()
-    end
-  end
+  if db.point and not UsablePoint(db.point, frame) then ClearSavedPoint() end
   if db.growUp and db.point and db.point[1] == "BOTTOMLEFT" then
     -- Grow-up form (1.8.0): restore the bottom anchor as saved.
     frame:SetPoint("BOTTOMLEFT", UIParent, db.point[2], db.point[3], db.point[4])
@@ -254,9 +255,25 @@ local function RestorePosition()
   frame:SetPoint("TOPLEFT", UIParent, rp, db.point[3], db.point[4])
 end
 
+local function RestorePosition()
+  if InCombatLockdown() then return end
+  if not pcall(PlaceSavedPosition) then
+    ClearSavedPoint()
+    PlaceSavedPosition()
+  end
+end
+
+function X.SaveCharacterPoint(key)
+  if key and X.Settings.PlainString(key, 128) and X.Settings.CanAdd(db.pointByChar, "pointByChar", key) then
+    db.pointByChar[key] = X.Settings.CopyPoint(db.point)
+  end
+end
+
 function X.ResetWindowPosition()
+  if InCombatLockdown() then return false end
   ClearSavedPoint()
   if frame then RestorePosition() end
+  return true
 end
 
 local function InstallCombatDriver(button, snippet)
@@ -530,7 +547,7 @@ local function BuildGroupButton()
 end
 
 function X.SetNextCast(entry)
-  if nextBtn and entry and not entry.outOfRange then
+  if nextBtn and entry then
     nextBtn.entry = BindCached(nextBtn, entry.unit, entry.missing[1], entry.guid) and entry or nil
     ArmGroupButton(entry)
   else
@@ -561,18 +578,13 @@ local function Row_OnEnter(self)
     GameTooltip:AddLine(e.name)
   end
   GameTooltip:AddLine(" ")
-  if e.outOfRange then
-    GameTooltip:AddLine(L["Out of range — move closer to cast:"], 1, 0.5, 0.3)
-    GameTooltip:AddLine("|cff00ff00" .. e.missing[1] .. "|r")
-  else
-    GameTooltip:AddLine(string_format(L["Click to cast: %s"], "|cff00ff00" .. (self.bSpellText or e.missing[1]) .. "|r"))
-    if db.modClick and CLASSIC_FEATURES then
-      local gs = self.bGroupText or self.bGroupSpell
-      if gs then
-        GameTooltip:AddLine(string_format(L["Shift-click to cast: %s"], "|cff00ff00" .. gs .. "|r"))
-      end
-      if self.bOfferReason then GameTooltip:AddLine(self.bOfferReason, 1, 0.7, 0.3, true) end
+  GameTooltip:AddLine(string_format(L["Click to cast: %s"], "|cff00ff00" .. (self.bSpellText or e.missing[1]) .. "|r"))
+  if db.modClick and CLASSIC_FEATURES then
+    local gs = self.bGroupText or self.bGroupSpell
+    if gs then
+      GameTooltip:AddLine(string_format(L["Shift-click to cast: %s"], "|cff00ff00" .. gs .. "|r"))
     end
+    if self.bOfferReason then GameTooltip:AddLine(self.bOfferReason, 1, 0.7, 0.3, true) end
   end
   if e.groupCast then
     GameTooltip:AddLine(L["Group version — one cast buffs the whole party."], 0.4, 0.8, 1)
@@ -617,9 +629,7 @@ local function Row_OnEnter(self)
     local bits = {}
     if e.class then bits[#bits + 1] = e.class:sub(1, 1) .. e.class:sub(2):lower() end
     bits[#bits + 1] = e.group and "In your group" or "Nearby, not in your group"
-    if not e.outOfRange then bits[#bits + 1] = "in cast range"
-    elseif e.approximateRange then bits[#bits + 1] = L["Estimated range"]
-    elseif e.rangeBucket == 1 then bits[#bits + 1] = "near — just out of range" end
+    bits[#bits + 1] = e.approximateRange and L["Estimated range"] or "in cast range"
     GameTooltip:AddLine(table.concat(bits, " · "), 0.7, 0.7, 0.7)
     -- Which other classes could cast the first missing buff: scanned
     -- from the definitions on the spot (a hover is rare; no state kept).
@@ -717,14 +727,15 @@ local function IgnoreRowPlayer(self, button, down)
     if #removed == 0 and short then removed = Ignore.Remove(short) end
     Print("No longer ignoring " .. table.concat(removed, ", ") .. ".")
   else
-    Ignore.Add(who)
-    Print("Ignoring " .. who .. ". Undo with /br unignore " .. who .. " or on the Ignore & Stats tab.")
+    local ok, err = Ignore.Add(who)
+    if ok then Print("Ignoring " .. who .. ". Undo with /br unignore " .. who .. " or on the Ignore & Stats tab.")
+    elseif err then Print(err) end
   end
   if QueueRefresh then QueueRefresh() end
 end
 
 local function ValidateRowClick(self, button, down)
-  if button == "LeftButton" and not InCombatLockdown() and self.bGuid then
+  if button == "LeftButton" and not InCombatLockdown() and self:GetAttribute("type") then
     local press = not down and rowLeftPress
     local changed = press and (press.row ~= self or press.guid ~= self.bGuid
       or press.unit ~= self.bUnit or press.spell ~= self.bSpell)
@@ -789,11 +800,6 @@ local function BuildRowVisuals(b)
   if b.name.SetWordWrap then b.name:SetWordWrap(false) end
   -- "out of range" under the name of a greyed row, so the state doesn't rest
   -- on color alone (RenderRow moves the name up to make room).
-  b.far = b:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  b.far:SetPoint("TOPLEFT", b.name, "BOTTOMLEFT", 0, -1)
-  b.far:SetText(L["out of range"])
-  b.far:Hide()
-
   -- Duration bar (1.8.0): a thin bar along the row's bottom edge showing
   -- how much of a 30-minute span the expiring buff has left.
   b.tint = b:CreateTexture(nil, "OVERLAY")
@@ -997,7 +1003,7 @@ function X.ApplyAnchor()
   end
   if db.charPoint then
     local k = X.CharKey()
-    if k then db.pointByChar[k] = db.point end
+    X.SaveCharacterPoint(k)
   end
 end
 
@@ -1018,6 +1024,61 @@ end
 
 -- Width and scale. The window holds secure row buttons, so its size can't
 -- change in combat; callers retry after combat (PLAYER_REGEN_ENABLED).
+function X.PanelWidget(kind, name, parent, template)
+  local ok, widget = pcall(CreateFrame, kind, name, parent, template)
+  if ok and widget then return widget end
+  widget = CreateFrame(kind, name, parent)
+  if kind == "Button" then
+    widget:SetNormalFontObject(GameFontNormal)
+    widget:SetHighlightFontObject(GameFontHighlight)
+    local texture = widget:CreateTexture(nil, "BACKGROUND")
+    texture:SetAllPoints()
+    texture:SetColorTexture(0.12, 0.16, 0.21, 0.95)
+    if template == "UIPanelCloseButton" then widget:SetSize(22, 22); widget:SetText("×") end
+  elseif kind == "EditBox" then
+    widget:SetFontObject(GameFontHighlight)
+  elseif template == "BackdropTemplate" and kind == "Frame" and not widget.SetBackdrop then
+    local texture = widget:CreateTexture(nil, "BACKGROUND")
+    texture:SetAllPoints()
+    texture:SetColorTexture(0.04, 0.06, 0.10, 0.95)
+  end
+  return widget
+end
+
+do
+  local panels = {}
+  local function RestorePanel(widget, key, offset)
+    local point = db.rememberPanelPositions and db.panelPoints[key]
+    widget:ClearAllPoints()
+    if point and UsablePoint(point, widget) and pcall(widget.SetPoint, widget, point[1], UIParent, point[2], point[3], point[4]) then return end
+    db.panelPoints[key] = nil
+    widget:SetPoint("CENTER", UIParent, "CENTER", 0, offset)
+  end
+
+  function X.BindPanelPosition(widget, key, offset)
+    panels[key] = { frame = widget, offset = offset }
+    RestorePanel(widget, key, offset)
+    widget:HookScript("OnShow", function(self) RestorePanel(self, key, offset) end)
+    widget:SetScript("OnDragStop", function(self)
+      self:StopMovingOrSizing()
+      if db.rememberPanelPositions then
+        local p, relative, rp, x, y = self:GetPoint(1)
+        if relative == UIParent then db.panelPoints[key] = X.Settings.CopyPoint({ p, rp, x, y }) end
+      end
+    end)
+  end
+
+  function X.PanelPositions(mode)
+    if mode == "on" then db.rememberPanelPositions = true
+    elseif mode == "off" or mode == "reset" then
+      if mode == "off" then db.rememberPanelPositions = false end
+      wipe(db.panelPoints)
+      for key, info in pairs(panels) do RestorePanel(info.frame, key, info.offset) end
+    else return false end
+    return true
+  end
+end
+
 local function ApplyGeometry()
   if not frame then return end
   if InCombatLockdown() then
@@ -1118,7 +1179,7 @@ end
 
 local function ApplyRowWheel()
   if not frame or InCombatLockdown() then return end
-  local enabled = (viewportCount or 0) > MAX_ROWS and not (db.clickThrough and db.locked)
+  local enabled = (viewportCount or 0) > visibleLimit and not (db.clickThrough and db.locked)
   if rowWheelEnabled == enabled then return end
   rowWheelEnabled = enabled
   frame:EnableMouseWheel(enabled)
@@ -1212,7 +1273,6 @@ function X.ApplyRowLayout()
     if row.portrait then row.portrait:SetShown(not db.compact) end
     for j = 1, MAX_ICONS do if row.icons[j] then row.icons[j]:SetSize(isz, isz) end end
     if row.name then row.name:SetScale(ts) end
-    if row.far then row.far:SetScale(ts) end
     if row.tag then row.tag:SetScale(ts) end
   end
 end
@@ -1246,8 +1306,10 @@ end
 local function InvalidateRows()
   for i = 1, #rows do
     local row = rows[i]
-    row.cGuid, row.cUnit, row.bGuid, row.cFar, row.cTag = nil, nil, nil, nil, nil
-    row.cBar, row.cMarker, row.cFarTxt = nil, nil, nil
+    row.cGuid, row.cUnit, row.cTag = nil, nil, nil
+    -- false means rebuild (or clear if this row is retired), not disarmed.
+    if row.bGuid ~= nil then row.bGuid = false end
+    row.cBar, row.cMarker = nil, nil
     row.cTint = nil
     wipe(row.cMissing)
   end
@@ -1295,13 +1357,9 @@ local ROW_TAGS = {
   { "pet", "pet", "p" },
 }
 
-local function RowTag(entry, far, symbols)
-  if not far then
-    for _, tag in ipairs(ROW_TAGS) do
-      if entry[tag[1]] then
-        return symbols and (tag[3] .. " " .. L[tag[2]]) or L[tag[2]]
-      end
-    end
+local function RowTag(entry, symbols)
+  for _, tag in ipairs(ROW_TAGS) do
+    if entry[tag[1]] then return symbols and (tag[3] .. " " .. L[tag[2]]) or L[tag[2]] end
   end
   local left = entry.remain1
   if left then
@@ -1316,30 +1374,17 @@ local function SetNameOffset(row, y)
   row.name:SetPoint("RIGHT", row, "RIGHT", -IconInset(), y)
 end
 
-local function RenderRowName(row, e, far)
-  if row.cGuid ~= e.guid or row.cUnit ~= e.unit then
-    -- 3D portrait render: only for a new player/token. Guarded like the rest of
-    -- this file: if a build renames or restricts it, the row still renders.
-    if SetPortraitTexture then pcall(SetPortraitTexture, row.portrait, e.unit) end
-    row.name:SetText(DispName(e))
-    row.cGuid, row.cUnit = e.guid, e.unit
-    row.cFar = nil  -- new player on this row: set color and layout below
-  end
-  -- In range: class-colored name centered on the row. Out of range: grey name
-  -- moved up, with "out of range" under it. (Before 1.3.2 the grey stayed
-  -- after the player came back into range.)
-  if row.cFar ~= far then
-    row.cFar = far
-    SetNameOffset(row, far and 5 or 0)
-    row.far:SetShown(far)
-    if far then row.name:SetTextColor(0.55, 0.55, 0.55)
-    elseif db.classColors then row.name:SetTextColor(ClassColor(e.class))
-    else row.name:SetTextColor(0.92, 0.92, 0.92) end
-  end
+local function RenderRowName(row, e)
+  if row.cGuid == e.guid and row.cUnit == e.unit then return end
+  if SetPortraitTexture then pcall(SetPortraitTexture, row.portrait, e.unit) end
+  row.name:SetText(DispName(e))
+  row.cGuid, row.cUnit = e.guid, e.unit
+  if db.classColors then row.name:SetTextColor(ClassColor(e.class))
+  else row.name:SetTextColor(0.92, 0.92, 0.92) end
 end
 
-local function RenderRowTag(row, entry, far)
-  local tag = RowTag(entry, far, db.tagSymbols)
+local function RenderRowTag(row, entry)
+  local tag = RowTag(entry, db.tagSymbols)
   if row.cTag == tag then return end
   row.cTag = tag
   if tag then
@@ -1348,17 +1393,7 @@ local function RenderRowTag(row, entry, far)
     row.tag:Show()
   else
     row.tag:Hide()
-    if not far then SetNameOffset(row, 0) end
-  end
-end
-
-local function RenderRowRange(row, e, far)
-  -- Range band in words (1.8.0): a greyed row in group range reads
-  -- "near" instead of "out of range" when the setting is on.
-  local farTxt = far and (db.rangeText and e.rangeBucket == 1 and L["near"] or L["out of range"]) or nil
-  if row.cFarTxt ~= farTxt then
-    row.cFarTxt = farTxt
-    if farTxt then row.far:SetText(farTxt) end
+    SetNameOffset(row, 0)
   end
 end
 
@@ -1448,18 +1483,15 @@ end
 
 local function RenderRow(row, e, cached)
   row.entry, row.guid = e, e.guid
-  local far = e.outOfRange and true or false
-  RenderRowName(row, e, far)
-  RenderRowTag(row, e, far)
-  RenderRowRange(row, e, far)
+  RenderRowName(row, e)
+  RenderRowTag(row, e)
   RenderDurationBar(row, e)
   RenderRaidMarker(row, e)
   RenderRowTint(row, e)
   local m = e.missing
   RenderRowIcons(row, m)
-  if e.outOfRange or (cached and not X.RowTargetMatches(e)) then
-    -- Greyed placeholder row: no live binding behind the click, and the
-    -- cached binding is cleared so a reused row can't cast a stale target.
+  if cached and not X.RowTargetMatches(e) then
+    -- A cached entry whose unit token was recycled is display-only.
     row:SetAlpha(0.6)
     if row.bGuid ~= nil then ClearRowCast(row) end
   else
@@ -1490,6 +1522,23 @@ function X.SetRowColor(rule, c)
   db.rowColors[rule] = c and { c[1], c[2], c[3] } or nil
   InvalidateRows()
   QueueRefresh()
+end
+
+function X.AbortWindowScan()
+  viewport, viewportCount, rowOffset = nil, nil, nil
+  if nextBtn then nextBtn.entry, nextBtn.isClear = nil, false end
+  if groupBtn then groupBtn.entry, groupBtn.isClear = nil, false end
+  for _, row in ipairs(rows) do row.entry, row.guid = nil, nil end
+  rowLeftPress = nil
+  wipe(rowMouseButtons)
+  if InCombatLockdown() then return end -- secure combat drivers own clearing here
+  pcall(ClearNext)
+  pcall(ClearGroup)
+  for _, row in ipairs(rows) do
+    pcall(ClearRowCast, row)
+    pcall(row.Hide, row)
+  end
+  pcall(X.ShowWindowStatus, not db.hidden and L["Buff scan interrupted. Waiting for a fresh scan."])
 end
 
 -- Drop paused or hidden rows without changing the independent keybind queue.
@@ -1566,10 +1615,9 @@ local function BuildBuffView(list, n)
           order[#order + 1] = g
         end
         g.count = g.count + 1
-        if (not e.outOfRange and (g.unit == nil or g.outOfRange)) or g.unit == nil then
+        if g.unit == nil then
           g.unit, g.class, g.castGuid, g.pet = e.unit, e.class, e.guid, e.pet
-          g.outOfRange = e.outOfRange and true or false
-          g.rangeBucket, g.approximateRange = e.rangeBucket, e.approximateRange
+          g.approximateRange = e.approximateRange
         end
       end
     end
@@ -1587,11 +1635,29 @@ local function BuildBuffView(list, n)
   return order, #order
 end
 
-local function PaintRowViewport(cached)
+local function FitRows(n, extraHeight)
+  local height = X.ReadUnitNumber(UIParent.GetHeight, UIParent)
+  local width = X.ReadUnitNumber(UIParent.GetWidth, UIParent)
+  local scale = db.scale or 1 -- frame is a direct child of UIParent
+  height = height and height > 0 and height / scale - 12 or math.huge
+  width = width and width > 0 and width / scale - 12 or math.huge
+  local gap = db.rowGap or 0
+  local budget = height - topHeight - FOOTER_H - 8 - extraHeight + gap
+  local pitch = rowHeight + gap
+  local single = math_max(1, math_floor(budget / pitch))
+  local cols = db.twoCol and width >= (db.width or WIDTH) * 2 + 6 and (n > 8 or n > single) and 2 or 1
+  if n > math_min(MAX_ROWS, single * cols) then
+    single = math_max(1, math_floor((budget - 14) / pitch))
+  end
+  return math_min(MAX_ROWS, single * cols), cols
+end
+
+local function PaintRowViewport(cached, extraHeight)
   local view, n = viewport, viewportCount
-  rowOffset = math_min(rowOffset or 0, math_max(0, n - MAX_ROWS))
-  local shown = math_min(n, MAX_ROWS)
-  local wantCols = (db.twoCol and shown > 8) and 2 or 1
+  local wantCols = columns
+  if not cached then visibleLimit, wantCols = FitRows(n, extraHeight) end
+  rowOffset = math_min(rowOffset or 0, math_max(0, n - visibleLimit))
+  local shown = math_min(n, visibleLimit)
   local rowsTall = wantCols == 2 and math_floor((shown + 1) / 2) or shown
   if wantCols ~= columns or rowsTall ~= (previousRowsTall or shown) then
     columns, previousRowsTall = wantCols, rowsTall
@@ -1602,7 +1668,7 @@ local function PaintRowViewport(cached)
   for i = 1, MAX_ROWS do
     if i <= shown then RenderRow(rows[i], view[rowOffset + i], cached) else ClearRow(rows[i]) end
   end
-  local overflow = n > MAX_ROWS
+  local overflow = n > visibleLimit
   if overflow then
     local y = -topHeight - rowsTall * rowHeight
       - math_max(0, rowsTall - 1) * (db.rowGap or 0) - 2
@@ -1619,20 +1685,21 @@ local function PaintRowViewport(cached)
 end
 
 function X.ScrollRows(step)
-  if not viewport or viewportCount <= MAX_ROWS or db.hidden
+  if not viewport or viewportCount <= visibleLimit or db.hidden
       or not frame:IsShown() or InCombatLockdown() or X.PlayerSuspended()
       or (db.clickThrough and db.locked) or RowMouseHeld()
       or X.ReadUnitBool(_G.IsMouseButtonDown, "LeftButton") == true
       or X.ReadUnitBool(_G.IsMouseButtonDown, "RightButton") == true then return false end
   if viewportMode ~= db.viewMode or viewportSearch ~= X.search
       or viewportRole ~= db.roleFilter or viewportTwoCol ~= db.twoCol then return false end
-  local offset = math_max(0, math_min(rowOffset + step, viewportCount - MAX_ROWS))
+  local offset = math_max(0, math_min(rowOffset + step, viewportCount - visibleLimit))
   if offset == rowOffset then return false end
   local owner = GameTooltip and GameTooltip.GetOwner and GameTooltip:GetOwner()
   if owner == frame or (owner and owner.GetParent and owner:GetParent() == frame) then GameTooltip:Hide() end
   rowOffset = offset
-  PaintRowViewport(true)
-  return true
+  local ok, err = pcall(PaintRowViewport, true)
+  if not ok then X.RefreshFault(err) end
+  return ok
 end
 
 local function AppendBuffCoverage(parts)
@@ -1728,8 +1795,9 @@ local function RenderCoverage(entries, n)
   if db.consumables then
     for _, cd in ipairs(X.CONS_DEFS) do
       local t = X.consTally[cd.key]
-      if t and t.total > 0 then
-        parts[#parts + 1] = string_format("%s %d/%d", cd.label, t.total - t.miss, t.total)
+      if t then
+        local text = t.total > 0 and string_format("%s %d/%d", L[cd.label], t.total - t.miss, t.total) or L[cd.label]
+        parts[#parts + 1] = text .. (t.unknown > 0 and (" · " .. string_format(L["%d unknown"], t.unknown)) or "")
       end
     end
   end
@@ -1793,8 +1861,6 @@ function X.RenderQueue(entries, n, sessionShow, wasAfterCombat)
   viewportMode, viewportSearch, viewportRole = db.viewMode, X.search, db.roleFilter
   viewportTwoCol = db.twoCol
   viewport, viewportCount = viewEntries, viewN
-  local shown, rowsTall = PaintRowViewport()
-  if X.UpdateNearbyTargetAfterScan then X.UpdateNearbyTargetAfterScan() end
   -- Post-combat catch-up: one border pulse when the frozen list thaws with
   -- work waiting, so a pull's-end rebuff round doesn't go unnoticed.
   if wasAfterCombat and n > 0 and X.Flash then X.Flash() end
@@ -1814,11 +1880,14 @@ function X.RenderQueue(entries, n, sessionShow, wasAfterCombat)
     SetShownIfChanged(focusText, focusLine and true or false)
   end
 
+  local extras = (coverShown and 13 or 0) + (focusLine and 13 or 0)
+  local shown, rowsTall = PaintRowViewport(false, extras)
+  if X.UpdateNearbyTargetAfterScan then X.UpdateNearbyTargetAfterScan() end
   local h = topHeight + (shown > 0 and rowsTall * rowHeight + math_max(0, rowsTall - 1) * (db.rowGap or 0) or 18) + 8
   if hint then h = h + 13 end
   if coverShown then h = h + 13 end
   if focusLine then h = h + 13 end
-  if viewN > MAX_ROWS then h = h + 14 end
+  if viewN > visibleLimit then h = h + 14 end
   h = h + FOOTER_H  -- bottom row: settings gear + cast counter
   UpdateCounter()
   SetHeightIfChanged(frame, h)
@@ -1976,7 +2045,7 @@ function X.SuspendWindow()
 end
 
 local function BuildWindowFrame()
-  frame = CreateFrame("Frame", "BuffRadarFrame", UIParent,
+  frame = X.PanelWidget("Frame", "BuffRadarFrame", UIParent,
                       BackdropTemplateMixin and "BackdropTemplate" or nil)
   if X.PlayerSuspended() then frame:Hide() end
   frame:SetSize(db.width or WIDTH, HEADER_H + 30)
@@ -2026,7 +2095,7 @@ local function BuildCloseControl()
   title:SetPoint("TOPLEFT", 9, -7)
   title:SetText("|cff33ccffBuff|rRadar")
 
-  local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+  local close = X.PanelWidget("Button", nil, frame, "UIPanelCloseButton")
   closeButton = close
   close:SetSize(22, 22)
   close:SetPoint("TOPRIGHT", 0, 0)
@@ -2143,7 +2212,7 @@ local function BuildPill()
   -- All-buffed pill (1.6.0): with /br pill on, the full window collapses to
   -- this small button while the group is fully buffed. It sits where the
   -- window's top-left corner is; clicking it peeks at the full window.
-  pill = CreateFrame("Button", "BuffRadarPill", UIParent,
+  pill = X.PanelWidget("Button", "BuffRadarPill", UIParent,
                            BackdropTemplateMixin and "BackdropTemplate" or nil)
   if X.PlayerSuspended() then pill:Hide() end
   pill:SetSize(150, 22)
@@ -2298,7 +2367,7 @@ local function BuildFinder()
   local findLabel = findBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   findLabel:SetPoint("LEFT", 2, 0)
   findLabel:SetText("Find:")
-  findEdit = CreateFrame("EditBox", nil, findBar, "InputBoxTemplate")
+  findEdit = X.PanelWidget("EditBox", nil, findBar, "InputBoxTemplate")
   findEdit:SetSize(130, 16)
   findEdit:SetPoint("LEFT", findLabel, "RIGHT", 6, 0)
   findEdit:SetAutoFocus(false)
@@ -2407,7 +2476,7 @@ function X.SetFinderText(text)
 end
 
 function X.HasHeldRow()
-  return (viewportCount or 0) > MAX_ROWS and RowMouseHeld()
+  return (viewportCount or 0) > visibleLimit and RowMouseHeld()
 end
 
 function X.QueueVisibility(entries, index)
@@ -2415,7 +2484,7 @@ function X.QueueVisibility(entries, index)
     if row.entry == entries[index] then return "visible" end
   end
   if db.viewMode == "people" and viewport == entries
-      and (index <= (rowOffset or 0) or index > (rowOffset or 0) + MAX_ROWS) then
+      and (index <= (rowOffset or 0) or index > (rowOffset or 0) + visibleLimit) then
     return "overflow"
   end
 end

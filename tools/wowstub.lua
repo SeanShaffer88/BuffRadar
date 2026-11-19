@@ -94,6 +94,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     function methods.ClearAllPoints(self) self.points = {} end
     function methods.SetWidth(self, w) self.width = w end
     function methods.SetSize(self, w, h) self.size = { w, h } end
+    function methods.SetHeight(self, h) self.height = h end
     function methods.SetFrameStrata(self, s) self.strata = s end
     function methods.SetVertexColor(self, r, g, b, a) self.vcolor = { r, g, b, a } end
     function methods.SetHighlightTexture(self, file, blend)
@@ -108,6 +109,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     function methods.SetBackdropBorderColor(self, r, g, b, a) self.borderColor = { r, g, b, a } end
     function methods.RegisterEvent(self, ev) self.events[ev] = true end
     function methods.UnregisterEvent(self, ev) self.events[ev] = nil end
+    function methods.UnregisterAllEvents(self) self.events = {} end
     function methods.RegisterUnitEvent(self, ev, ...) self.events[ev] = { ... } end
     -- DropdownButton (modern menu) API
     function methods.SetupMenu(self, gen) self.menuGen = gen end
@@ -130,6 +132,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
 
   local frames = {}
   function env.CreateFrame(kind, name, parent, template)
+    if env.__rejectTemplate and env.__rejectTemplate(kind, name, template) then error("template refused: " .. tostring(template)) end
     local f = newObject(kind, name)
     f.template = template
     f.parent = parent
@@ -144,6 +147,8 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
   end
   env.__frames = frames
   env.UIParent = newObject("Frame", "UIParent")
+  env.UIParent.GetWidth = function() return 1280 end
+  env.UIParent.GetHeight = function() return 720 end
   env.Minimap = newObject("Frame", "Minimap")
   env.GameTooltip = newObject("GameTooltip", "GameTooltip")
   env.ColorPickerFrame = newObject("Frame", "ColorPickerFrame")
@@ -175,7 +180,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     local f = env.__over.AuraList
     local list = f and f(unit)
     local a = list and list[i]
-    if a then return a.name, "", 0, nil, 0, a.expirationTime, a.sourceUnit end
+    if a then return a.name, "", 0, nil, 0, a.expirationTime, a.sourceUnit, nil, nil, a.spellId end
     return nil
   end
   env.GetBuildInfo = function() return "12.1.5", "99999", "Oct 2026", 120105 end

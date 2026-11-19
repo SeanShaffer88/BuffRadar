@@ -1,3 +1,6 @@
 # Release zips made by build.ps1 (attach them to a GitHub release instead)
 dist
 dist/
+
+# Local handoff artifacts for field testing (do not commit ZIPs).
+/release-candidates/

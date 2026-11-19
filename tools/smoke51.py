@@ -12,8 +12,9 @@ from lupa import lua51
 stub_path, addon_path = sys.argv[1], sys.argv[2]
 lua = lua51.LuaRuntime(unpack_returned_tuples=True)
 lua.execute(open(stub_path, encoding="utf-8").read())
+audit_tests = lua.execute(Path(__file__).with_name("audit51.lua").read_text(encoding="utf-8"))
 
-harness = lua.eval(r"""function(sources, withTimer, noTemplates, forever, german)
+harness = lua.eval(r"""function(sources, withTimer, noTemplates, forever, german, auditTests)
 local chat = {}
 local env = WOWSTUB(chat, withTimer, noTemplates, forever, german)
 local unitIsUnit = env.UnitIsUnit
@@ -155,7 +156,9 @@ step("login fallback sanitizes without migrating and later loads replace the liv
   assert(not X.GetDB() and saved.obsolete and saved.scale == 9, "settings changed before BuffRadar loaded")
   onEvent(startup, "PLAYER_LOGIN")
   assert(not startup.events.PLAYER_LOGIN and client.BuffRadarFrame, "login fallback did not build the window once")
-  assert(X.GetDB() == saved and saved.scale == 2 and not saved.obsolete, "fallback did not sanitize and publish the save")
+  assert(X.GetDB() ~= saved and saved.obsolete and saved.scale == 9, "fallback modified the input save")
+  saved = X.GetDB()
+  assert(saved == client.BuffRadarDB and saved.scale == 2 and not saved.obsolete, "fallback did not publish sanitized state")
   assert(saved.dbVersion == 9 and not saved.wizardSeen and saved.showOutOfRange and saved.castMethod == "rank",
     "login fallback applied normal-load migrations")
   assert(X.Ignore.Has("BeforeLogin", "BeforeLogin"), "fallback did not rebuild the ignore index")
@@ -165,8 +168,9 @@ step("login fallback sanitizes without migrating and later loads replace the liv
   local replacement = { dbVersion = 9, scale = 1.5, showMinimap = true }
   client.BuffRadarDB = replacement
   onEvent(startup, "ADDON_LOADED", "BuffRadar")
-  assert(X.GetDB() == replacement and replacement.dbVersion == 22 and replacement.wizardSeen,
-    "normal load did not migrate and publish the replacement")
+  assert(replacement.dbVersion == 9 and not replacement.wizardSeen, "migration edited the input table")
+  assert(X.GetDB() == client.BuffRadarDB and X.GetDB().dbVersion == 23 and X.GetDB().wizardSeen,
+    "normal load did not migrate and publish detached settings")
   assert(not X.Ignore.Has("BeforeLogin", "BeforeLogin"), "ignore index retained a replaced save")
   X.ApplyGeometry()
   X.RefreshMinimapButton()
@@ -186,7 +190,7 @@ local fire = function(ev, ...)
 end
 step("ADDON_LOADED", function()
   fire("ADDON_LOADED", "BuffRadar")
-  assert(NS.X.GetDB() == env.BuffRadarDB and env.BuffRadarDB.dbVersion == 22, "live settings were not published")
+  assert(NS.X.GetDB() == env.BuffRadarDB and env.BuffRadarDB.dbVersion == 23, "live settings were not published")
   local pullFrame = NS.X.pullFrame
   if not NS.X.ApiCheck then return end -- not in the Retail TOC
   assert(pullFrame and pullFrame.events.ADDON_LOADED, "pull listener missing at startup")
@@ -232,9 +236,14 @@ step("minimap button follows both axes after the map is resized", function()
   p = button.points[#button.points]
   local followsSize = math.abs(p[4] - 155) < 0.01
   env.GetCursorPosition = function() return 655, 505 end
+  assert(not button:GetScript("OnUpdate"), "idle minimap has a frame update")
   button:GetScript("OnDragStart")(button)
   button:GetScript("OnUpdate")(button)
   button:GetScript("OnDragStop")(button)
+  assert(not button:GetScript("OnUpdate"), "minimap update survived drag release")
+  button:GetScript("OnDragStart")(button)
+  button:Hide()
+  assert(not button:GetScript("OnUpdate"), "minimap update survived hide")
   local angle = db.minimapAngle
   map.GetWidth, map.GetHeight, db.minimapAngle, env.GetCursorPosition = oldWidth, oldHeight, oldAngle, oldCursor
   NS.X.RefreshMinimapButton()
@@ -561,6 +570,8 @@ step("changing a pull timer keeps its replacement until the replacement expires"
   runQueued()
   local X, db = NS.X, env.BuffRadarDB
   local oldTally, oldPull, oldFlash, oldTrusted = X.tally, X.pull, X.Flash, X.SenderTrusted
+  local oldSender, oldRaid = X.SenderUnit, env.IsInRaid
+  X.SenderUnit = function() return "player", "Leader-TestRealm" end
   local oldSetting = db.pullFlash
   local flashes = 0
   X.Flash = function() flashes = flashes + 1 end
@@ -569,6 +580,7 @@ step("changing a pull timer keeps its replacement until the replacement expires"
   local pf = X.pullFrame
   pf.scripts.OnEvent(pf, "START_TIMER", 2, 8, 8)
   local timerA = X.pull
+  env.IsInRaid = function() return true end  -- change scope before the new provider starts
   pf.scripts.OnEvent(pf, "CHAT_MSG_ADDON", "D5", "PT\t12", "RAID", "Leader-TestRealm")
   local timerB = X.pull
   pf.scripts.OnEvent(pf, "CANCEL_PLAYER_COUNTDOWN", "Player-Leader")
@@ -587,6 +599,7 @@ step("changing a pull timer keeps its replacement until the replacement expires"
     correct = correct and X.pull == nil and flashes == 4
   end
   X.tally, X.pull, X.Flash, X.SenderTrusted, db.pullFlash = oldTally, oldPull, oldFlash, oldTrusted, oldSetting
+  X.SenderUnit, env.IsInRaid = oldSender, oldRaid
   assert(scheduled and correct, "an outdated pull timer flashed or cleared the replacement")
 end)
 step("modifier clicks: group spell mapping + shift-click bookkeeping (1.14.0)", function()
@@ -670,9 +683,12 @@ step("fast aura: unwatched payload skipped, watched payload refreshes (1.14.0)",
   fire("UNIT_AURA", "player", { addedAuras = { { name = watchedName, auraInstanceID = 9003 } } })
   assert(#env.__timers == 1, "watched payload did not queue a refresh")
   runQueued()
-  fire("UNIT_AURA", "player", { addedAuras = { { name = "Well Fed", auraInstanceID = 9001 } } })
+  local cons = env.BuffRadarDB.consumables
+  env.BuffRadarDB.consumables = true
+  fire("UNIT_AURA", "player", { addedAuras = { { name = "Well Fed", spellId = 19705, auraInstanceID = 9001 } } })
   assert(#env.__timers == 1, "consumable aura change (Well Fed) did not queue a refresh")
   runQueued()
+  env.BuffRadarDB.consumables = cons
   fire("UNIT_AURA", "player", { removedAuraInstanceIDs = { 9002 } })
   assert(#env.__timers == 1, "unknown removed ID must refresh conservatively")
   runQueued()
@@ -901,7 +917,7 @@ step("out-of-range players are never listed, then appear in range", function()
   env.IsSpellInRange = function() return 1 end
   refresh()
   local row = assert(shownRows().nameplate1, "tank 1 not listed in range").row
-  assert(not row.far.shown, "'out of range' marker still shown in range")
+  assert(row:GetAttribute("type"), "a returned in-range target did not rearm the row")
   env.IsSpellInRange = nil
   cleanup()
 end)
@@ -925,6 +941,8 @@ local function partyOfTwo(suffix)
     if u == "player" then return env.__forever and "PRIEST" or "SHAMAN", env.__forever and "PRIEST" or "SHAMAN" end
   end
   env.IsInGroup = function() return true end
+  local originalSize = env.GetNumGroupMembers
+  env.GetNumGroupMembers = function() return env.IsInGroup() and 3 or 0 end
   O.Aura = nil  -- clear any aura hook a previous step left behind
   env.SlashCmdList.BUFFRADAR("unsignore Aaron")
   env.SlashCmdList.BUFFRADAR("unsignore Zed")
@@ -936,6 +954,7 @@ local function partyOfTwo(suffix)
   return function()
     for k in pairs(O) do O[k] = nil end
     env.IsInGroup = function() return false end
+    env.GetNumGroupMembers = originalSize
     env.IsSpellInRange = nil
   end
 end
@@ -1742,7 +1761,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 22, "dbVersion not migrated to 21: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 23, "dbVersion not migrated to 23: " .. tostring(d.dbVersion))
   assert(d.assignmentEnabled == false and next(d.buffAssignments) == nil, "migration activated assignments")
   assert(next(d.blessingPreferences) == nil, "existing character got a blessing override")
   assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
@@ -1766,7 +1785,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 22 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 23 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
   -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
@@ -1774,22 +1793,22 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = { dbVersion = 9 }
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 22 and d.wizardSeen == true,
+  assert(d.dbVersion == 23 and d.wizardSeen == true,
     "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
   d.dbVersion, d.assignmentEnabled, d.thornsAnyClassOutdoors = 18, true, nil
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 22 and d.thornsAnyClassOutdoors == false and d.assignmentEnabled,
+  assert(d.dbVersion == 23 and d.thornsAnyClassOutdoors == false and d.assignmentEnabled,
     "v18 settings did not gain an opt-in Thorns default while preserving assignments")
   d.dbVersion, d.autoThemePriority, d.theme = 19, nil, "ui.auto"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 22 and d.theme == "ui.auto" and d.autoThemePriority == "",
+  assert(d.dbVersion == 23 and d.theme == "ui.auto" and d.autoThemePriority == "",
     "v19 migration changed Auto opt-in or failed to default the priority order")
   d.dbVersion, d.blessingComplement, d.plateRestore = 20, nil, nil
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 22 and d.blessingComplement == false and not next(d.plateRestore) and d.assignmentEnabled,
+  assert(d.dbVersion == 23 and d.blessingComplement == false and not next(d.plateRestore) and d.assignmentEnabled,
     "v20 migration turned on a new feature or lost an existing preference")
   d.blessingComplement = true
   d.plateRestore = { nameplateShowFriends = false, nameplateShowAll = true,
@@ -2068,6 +2087,8 @@ step("settings export/import round-trip (1.4.0)", function()
   env.SlashCmdList.BUFFRADAR("import")
   f.editBox.text = text
   f.accept.scripts.OnClick(f.accept, "LeftButton")
+  assert(d.scale == 1 and d.sortMode == "name" and f.apply:IsShown(), "preview applied settings")
+  f.apply:Click()
   assert(d.scale == 1.5 and d.sortMode == "role", "import did not restore scalars")
   assert(d.enabled.CUSTOM_TEST == false and d.rebuffPer.CUSTOM_TEST == 77,
     "import did not restore per-buff tables")
@@ -2103,9 +2124,10 @@ step("clipboard settings imports require complete input and apply atomically", f
     "older complete clipboard did not clear intentionally empty tables")
   assert(X.Import(withData) and d.enabled.TEST and d.ignored.Zed, "framed clipboard round-trip failed")
   local current, currentRebuff, currentIgnore = d.enabled, d.rebuffPer, d.ignored
-  current[string.rep("A", 4100)] = true
+  -- Large but within schema limits: exercise the size cap independently of key validation.
+  for i = 1, 180 do current["TEST_" .. i .. "_" .. string.rep("A", 24)] = true end
   local large = assert(X.Export(), "valid clipboard larger than named profile cap was refused")
-  assert(X.Import(large), "valid large clipboard did not round-trip")
+  assert(#large > 4000 and X.Import(large), "valid large clipboard did not round-trip")
   current[string.rep("A", 16500)] = true
   d.enabled, d.rebuffPer, d.ignored = current, currentRebuff, currentIgnore
   assert(not X.Export(), "oversized settings produced an unreadable export")
@@ -2171,7 +2193,8 @@ step("per-character position is stored on save (1.4.0)", function()
   local key
   for k in pairs(d.pointByChar) do key = k end
   assert(key and key:find("TestRealm", 1, true), "no per-character position stored: " .. tostring(key))
-  assert(d.pointByChar[key] == d.point, "stored position is not the current point")
+  assert(d.pointByChar[key] and table.concat(d.pointByChar[key], ",") == table.concat(d.point, ","),
+    "stored position differs from the current point")
   env.SlashCmdList.BUFFRADAR("charpoint")
   assert(d.charPoint == false, "charpoint not disabled")
 end)
@@ -2200,6 +2223,8 @@ step("group sync validates current party members and canonical realm names", fun
   local cleanup = partyOfTwo("V")
   local X, db, O = NS.X, env.BuffRadarDB, env.__over
   local sync, canAccess, assistant = db.sync, env.canaccessvalue, env.UnitIsGroupAssistant
+  local leader = env.UnitIsGroupLeader
+  env.UnitIsGroupLeader = function(u) return u == "party1" end
   local fullName, exists = O.UnitFullName, O.UnitExists
   db.sync = true
   O.UnitFullName = function(u)
@@ -2233,18 +2258,20 @@ step("group sync validates current party members and canonical realm names", fun
   O.UnitExists = function(u) return u ~= "party2" and exists(u) end
   fire("GROUP_ROSTER_UPDATE")
   assert(not X.peers["tera-realmtwo"] and not X.cover["Tera-RealmTwo"], "departed peer was retained")
-  db.sync, env.UnitIsGroupAssistant = sync, assistant
+  db.sync, env.UnitIsGroupAssistant, env.UnitIsGroupLeader = sync, assistant, leader
   cleanup()
   fire("GROUP_ROSTER_UPDATE")
 end)
 step("group sync accepts current raid traffic and rejects unreadable authority", function()
   local X, db, O = NS.X, env.BuffRadarDB, env.__over
   local sync, raid, leader, assistant = db.sync, env.IsInRaid, env.UnitIsGroupLeader, env.UnitIsGroupAssistant
-  local canAccess, roster = env.canaccessvalue, env.GetRaidRosterInfo
-  local exists, fullName, isUnit = O.UnitExists, O.UnitFullName, O.UnitIsUnit
+  local canAccess, roster, size = env.canaccessvalue, env.GetRaidRosterInfo, env.GetNumGroupMembers
+  local exists, fullName, isUnit, guid = O.UnitExists, O.UnitFullName, O.UnitIsUnit, O.UnitGUID
+  O.UnitGUID = function(u) return u == "raid1" and "Player-Me" or u == "raid2" and "Player-Lian" end
   local protected = {}
   db.sync = true
   env.IsInRaid = function() return true end
+  env.GetNumGroupMembers = function() return 2 end
   O.UnitExists = function(u) return u == "player" or u == "raid1" or u == "raid2" end
   O.UnitFullName = function(u)
     if u == "player" or u == "raid1" then return "Me", "TestRealm" end
@@ -2257,14 +2284,15 @@ step("group sync accepts current raid traffic and rejects unreadable authority",
   local key = env.__forever and "FORTITUDE" or "SKYFURY"
   fire("CHAT_MSG_ADDON", "BuffRadar", "ASSIGN;" .. key .. ";Lian", "RAID", "Lian-OtherRealm")
   assert(not X.assign[key] and not X.peers["lian-otherrealm"], "unreadable rank changed state")
-  env.GetRaidRosterInfo = function(i) if i == 2 then return "Lian-OtherRealm", 1 end end
+  env.GetRaidRosterInfo = function(i) return i == 2 and "Lian-OtherRealm" or "Me-TestRealm", i == 1 and 2 or 1 end
   fire("CHAT_MSG_ADDON", "BuffRadar", "ASSIGN;" .. key .. ";Lian", "RAID", "Lian-OtherRealm")
   assert(X.assign[key] == "Lian" and X.peers["lian-otherrealm"], "readable raid assistant was ignored")
-  X.assign[key], X.peers["lian-otherrealm"] = nil, nil
+  X.SetLocalPlan("ASSIGN", key, nil)
+  X.peers["lian-otherrealm"] = nil
   db.sync, env.IsInRaid = sync, raid
   env.UnitIsGroupLeader, env.UnitIsGroupAssistant = leader, assistant
-  env.canaccessvalue, env.GetRaidRosterInfo = canAccess, roster
-  O.UnitExists, O.UnitFullName, O.UnitIsUnit = exists, fullName, isUnit
+  env.canaccessvalue, env.GetRaidRosterInfo, env.GetNumGroupMembers = canAccess, roster, size
+  O.UnitExists, O.UnitFullName, O.UnitIsUnit, O.UnitGUID = exists, fullName, isUnit, guid
 end)
 step("caster coordination checks roster authority, drafts, acceptance and acknowledgement", function()
   if not env.__forever then return end
@@ -2853,21 +2881,22 @@ step("consumables tracked on the coverage line (1.6.0)", function()
   assert(env.BuffRadarDB.consumables == true, "consumables setting not stored")
   env.__over.AuraList = function(u)
     if u == "party2" then
-      return { { name = "Flask of the Titans", expirationTime = env.GetTime() + 600 },
-               { name = "Well Fed", expirationTime = env.GetTime() + 600 } }
+      return { { name = "Flask of the Titans", spellId = 17626, expirationTime = env.GetTime() + 600 },
+               { name = "Well Fed", spellId = 19705, expirationTime = env.GetTime() + 600 } }
     end
     return {}
   end
   refresh()
   local cover
+  local labels = NS.X.L
   for _, fs in ipairs(env.__fontstrings) do
-    if type(fs.text) == "string" and fs.text:find("Flask ", 1, true) then cover = fs.text end
+    if type(fs.text) == "string" and fs.text:find(labels["Flask"] .. " ", 1, true) then cover = fs.text end
   end
   assert(cover, "no consumables on the coverage line")
-  assert(cover:find("Flask 1/3", 1, true), "flask count wrong: " .. cover)
-  assert(cover:find("Food 1/3", 1, true), "food count wrong: " .. cover)
+  assert(cover:find(labels["Flask"] .. " 1/3", 1, true), "flask count wrong: " .. cover)
+  assert(cover:find(labels["Food"] .. " 1/3", 1, true), "food count wrong: " .. cover)
   if not env.__forever then
-    assert(cover:find("Rune 0/3", 1, true), "rune count wrong: " .. cover)
+    assert(cover:find(env.__german and (labels["Rune"] .. " · " .. string.format(labels["%d unknown"], 3)) or "Rune 0/3", 1, true), "rune count wrong: " .. cover)
   end
   env.__over.AuraList = nil
   env.SlashCmdList.BUFFRADAR("consumables")
@@ -3133,7 +3162,8 @@ step("weapon enchant watch flags your own row (1.7.0)", function()
   db.weaponWatch = true
   env.IsSpellInRange = function() return 1 end
   env.GetWeaponEnchantInfo = function() return false, 0, 0, 0, false, 0, 0, 0 end
-  env.GetInventoryItemID = function() return 12345 end
+  env.GetInventoryItemID = function(_, slot) return slot == 16 and 12345 or 42 end
+  env.GetItemInfoInstant = function(id) return id, nil, nil, id == 12345 and "INVTYPE_WEAPON" or "INVTYPE_SHIELD", nil, id == 12345 and 2 or 4 end
   refresh()
   local function selfEntry()
     for i = 1, 15 do
@@ -3149,7 +3179,7 @@ step("weapon enchant watch flags your own row (1.7.0)", function()
   local e2 = selfEntry()
   assert(e2 and not e2.weapon, "weapon flag stuck after enchanting")
   env.GetWeaponEnchantInfo = nil
-  env.GetInventoryItemID = nil
+  env.GetInventoryItemID, env.GetItemInfoInstant = nil, nil
   cleanup()
 end)
 
@@ -3361,6 +3391,7 @@ step("window palettes survive reload and profile round trips without masking sav
   }
   slash("theme ui.elvui")
   fire("ADDON_LOADED", "BuffRadar")
+  db = env.BuffRadarDB
   assert(env.BuffRadarDB.theme == "ui.elvui" and X.ThemeBorder()[1] == 96 / 255,
     "reload gave a reserved name to a saved theme")
   local order = X.ThemeOrder()
@@ -3385,7 +3416,7 @@ step("window palettes survive reload and profile round trips without masking sav
       and math.abs(db.bgColor[1] - 24 / 255) < 1e-12, "BR1 lost the palette or its color")
   slash("theme midnight")
   X.DeleteProfile("PaletteRegression")
-  assert(X.ProfileImport(shared) and X.LoadProfile("PaletteRegression")
+  assert(X.ProfileImport(shared, db.profiles.PaletteRegression) and X.LoadProfile("PaletteRegression")
       and db.theme == "ui.foreverforge" and math.abs(db.bgColor[1] - 24 / 255) < 1e-12,
     "BR2 lost the palette or its color")
   X.DeleteProfile("PaletteRegression")
@@ -3545,7 +3576,7 @@ step("Auto theme profile imports choose a local palette and keep historical save
     loaded = "DaylightUI"
     slash("theme midnight")
     X.DeleteProfile("AutoPaletteRegression")
-    assert(X.ProfileImport(br2) and X.LoadProfile("AutoPaletteRegression") and db.theme == "ui.auto"
+    assert(X.ProfileImport(br2, db.profiles.AutoPaletteRegression) and X.LoadProfile("AutoPaletteRegression") and db.theme == "ui.auto"
       and db.bgColor[1] == 0.3 and X.autoThemeResolved == "ui.daylightui" and X.ThemeBorder()[1] == 55 / 255,
       "BR2 restored the sender's displayed palette instead of local Auto")
   end)
@@ -3694,7 +3725,7 @@ step("Auto Theme Priority repairs saved orders and round trips through old and n
     assert(X.Import(export) and db.autoThemePriority == order and X.autoThemeAddon == "EllesmereUI",
       "new BR1 did not restore the order and recalculate Auto")
     slash("theme priority reset")
-    assert(X.ProfileImport(shared) and X.LoadProfile("ThemeOrderRegression")
+    assert(X.ProfileImport(shared, db.profiles.ThemeOrderRegression) and X.LoadProfile("ThemeOrderRegression")
       and db.autoThemePriority == order and X.autoThemeAddon == "EllesmereUI",
       "new BR2 did not restore the order and recalculate Auto")
   end)
@@ -4567,7 +4598,7 @@ step("world-buff watch names your world buffs (1.8.0)", function()
   local O = env.__over
   O.AuraList = function(u)
     if u == "player" then
-      return { { name = "Rallying Cry of the Dragonslayer", expirationTime = env.GetTime() + 7500 } }
+      return { { name = "Rallying Cry of the Dragonslayer", spellId = 22888, expirationTime = env.GetTime() + 7500 } }
     end
     return {}
   end
@@ -4578,12 +4609,12 @@ step("world-buff watch names your world buffs (1.8.0)", function()
   end
   local n = #chat
   env.SlashCmdList.BUFFRADAR("worldbuff")
-  assert(chatSince(n, "World: Rallying Cry of the Dragonslayer ~2h"),
+  assert(chatSince(n, NS.X.L["World"] .. ": Rallying Cry of the Dragonslayer ~2h"),
     "world buff not reported by the toggle")
   refresh()
   local line
   for _, fs in ipairs(env.__fontstrings) do
-    if type(fs.text) == "string" and fs.text:find("World: Rallying Cry", 1, true) then line = fs.text end
+    if type(fs.text) == "string" and fs.text:find(NS.X.L["World"] .. ": Rallying Cry", 1, true) then line = fs.text end
   end
   assert(line, "coverage line carries no world-buff segment")
   env.SlashCmdList.BUFFRADAR("worldbuff")
@@ -4601,8 +4632,8 @@ step("drinking healers are tagged and counted (1.8.0)", function()
     if u == "party1" then return "Priest", "PRIEST" end
     return prevClass(u)
   end
-  O.Aura = function(u, name)
-    if u == "party1" and name == "Drink" then return { expirationTime = env.GetTime() + 60 } end
+  O.AuraList = function(u)
+    if u == "party1" then return { { spellId = 430, name = "Drink", expirationTime = env.GetTime() + 60 } } end
   end
   env.IsSpellInRange = function() return 1 end
   env.SlashCmdList.BUFFRADAR("drink")
@@ -4617,7 +4648,7 @@ step("drinking healers are tagged and counted (1.8.0)", function()
   end
   assert(line, "coverage line does not count the drinking healer")
   env.SlashCmdList.BUFFRADAR("drink")
-  O.Aura = nil
+  O.UnitClass, O.AuraList = prevClass, nil
   cleanup()
 end)
 
@@ -4662,8 +4693,11 @@ step("plan strings carry the group plan to another user (1.8.0)", function()
   env.SlashCmdList.BUFFRADAR("plan import")
   env.BuffRadarExportFrame.editBox:SetText(text)
   local n = #chat
-  env.BuffRadarExportFrame.accept.scripts.OnClick(env.BuffRadarExportFrame.accept)
-  assert(chatSince(n, "Plan imported: 1 assignments, 0 blessings, 1 auto profiles"),
+  local dialog = env.BuffRadarExportFrame
+  dialog.accept:Click()
+  assert(db.autoProfile.dungeon == nil, "review changed a saved mapping")
+  dialog.apply:Click()
+  assert(chatSince(n, string.format(NS.X.L["Plan applied locally: %d assignments, %d blessings, %d auto profiles."], 1, 0, 1)),
     "plan import did not report the parts")
   assert(db.autoProfile.dungeon == "pset", "auto profile not restored by the plan")
   local n2 = #chat
@@ -4683,19 +4717,25 @@ step("plan import validates atomically and broadcasts only changes", function()
   X.assign, X.blessPlan, db.autoProfile = { FORTITUDE = "Aaron" }, {}, { dungeon = "Original" }
   env.UnitIsGroupLeader = function(u) return u == "player" end
   local messages = {}
-  X.Broadcast = function(msg) messages[#messages + 1] = msg end
+  X.Broadcast = function(msg) messages[#messages + 1] = msg; return true end
   assert(not X.PlanImport("BRPLAN1;A;FORTITUDE;Other;P;dungeon"), "incomplete plan was accepted")
   assert(not X.PlanImport("BRPLAN1;A;FORTITUDE;Other;A;FORTITUDE;Aaron"), "duplicate plan was accepted")
   assert(not X.PlanImport("BRPLAN1;P;unknown;Original"), "unknown plan context accepted")
   assert(X.PlanImport("BRPLAN1"), "empty plan was not accepted as no-op")
   assert(X.assign.FORTITUDE == "Aaron" and db.autoProfile.dungeon == "Original" and #messages == 0,
     "invalid or empty plan changed state")
-  assert(X.PlanImport("BRPLAN1;A;FORTITUDE;Aaron;A;THORNS;Bela;P;raid;Future"))
+  local draft = assert(X.ParsePlanImport("BRPLAN1;A;FORTITUDE;Aaron;A;THORNS;Bela;P;raid;Future"))
+  local lines, _, scope = X.ReviewPlan(draft)
+  assert(scope and #lines == 3 and lines[1]:find("Future", 1, true), "review omitted missing profile or sharing")
+  env.UnitIsGroupLeader = nil
+  assert(not X.ApplyPlan(draft, scope) and not X.assign.THORNS and #messages == 0,
+    "confirmation ignored the changed group authority")
+  env.UnitIsGroupLeader = function(u) return u == "player" end
+  assert(X.ApplyPlan(draft, scope))
   assert(db.autoProfile.dungeon == "Original" and db.autoProfile.raid == "Future", "plan mapping did not merge")
   assert(#messages == 1 and messages[1] == "ASSIGN;THORNS;Bela", "plan did not send only the changed record")
-  env.UnitIsGroupLeader = nil
   assert(X.PlanImport("BRPLAN1;A;THORNS;Aaron"))
-  assert(#messages == 1, "plan published assignments without leadership")
+  assert(#messages == 1, "local-only plan imported with an unrequested send")
   X.assign, X.blessPlan, db.autoProfile, env.UnitIsGroupLeader, X.Broadcast = assign, bless, mapping, leader, sent
   cleanup()
 end)
@@ -4712,8 +4752,11 @@ step("a single profile can be shared and imported (1.8.0)", function()
   env.SlashCmdList.BUFFRADAR("profile import")
   env.BuffRadarExportFrame.editBox:SetText(text)
   local n = #chat
-  env.BuffRadarExportFrame.accept.scripts.OnClick(env.BuffRadarExportFrame.accept)
-  assert(chatSince(n, "Profile imported: shareme"), "profile import not reported")
+  local dialog = env.BuffRadarExportFrame
+  dialog.accept:Click()
+  assert(not db.profiles.shareme and dialog.apply:IsShown(), "profile review changed storage")
+  dialog.apply:Click()
+  assert(chatSince(n, string.format(NS.X.L["Profile stored: %s (not loaded)."], "shareme")), "profile import not reported")
   assert(type(db.profiles.shareme) == "string", "profile not stored by the import")
   env.SlashCmdList.BUFFRADAR("profile delete shareme")
 end)
@@ -4743,19 +4786,20 @@ step("repeat offenders are counted when a group ends (1.8.0)", function()
   local cleanup = partyOfTwo("G")
   local db = env.BuffRadarDB
   env.IsSpellInRange = function() return 1 end
-  -- Earlier sessions in this setup may already have counted these two;
-  -- this step asserts exactly one more fold for its own session.
-  local beforeA = db.offenders["Aaron"] or 0
-  local beforeZ = db.offenders["Zed"] or 0
+  env.SlashCmdList.BUFFRADAR("offenders clear")
+  NS.X.OnRoster()
+  -- Isolate the saved history so the two named rows are in the top ten.
+  local guidA, guidZ = env.UnitGUID("party1"), env.UnitGUID("party2")
+  local function count(guid) return db.offenders[guid] and db.offenders[guid].count or 0 end
+  local beforeA, beforeZ = count(guidA), count(guidZ)
   refresh()  -- Aaron and Zed are both seen unbuffed this session
   env.IsInGroup = function() return false end
   fire("GROUP_ROSTER_UPDATE")  -- the group ends: the session folds
-  assert(db.offenders["Aaron"] == beforeA + 1,
-    "Aaron not counted once more: " .. tostring(db.offenders["Aaron"]))
-  assert(db.offenders["Zed"] == beforeZ + 1, "Zed not counted once more")
+  assert(count(guidA) == beforeA + 1 and db.offenders[guidA].name == "Aaron-TestRealm", "Aaron not counted once more")
+  assert(count(guidZ) == beforeZ + 1, "Zed not counted once more")
   local n = #chat
   env.SlashCmdList.BUFFRADAR("offenders")
-  assert(chatSince(n, "Aaron: " .. (beforeA + 1)), "offender list does not name Aaron")
+  assert(chatSince(n, "Aaron-TestRealm: " .. (beforeA + 1)), "offender list does not name Aaron")
   env.SlashCmdList.BUFFRADAR("offenders clear")
   assert(next(db.offenders) == nil, "offender history not cleared")
   cleanup()
@@ -5892,7 +5936,7 @@ step("Quick Setup stages activity and role, supports Back and cancel, and applie
     "Tank + Raid did not apply the reviewed setup")
   assert(db.theme == theme and db.enabled == enabled, "Quick Setup changed the theme or selected buffs")
   for key, value in pairs(old) do db[key] = value end
-  NS.X.Intel.SettingsChanged()
+  NS.X.SettingsChanged({ liteMode = true, forecastSeconds = true, statusMinimap = true, visualAlerts = true })
 end)
 
 step("two-column layout splits a long list (1.9.0)", function()
@@ -6358,10 +6402,10 @@ step("Forever nearby blessing complement respects caster ownership and explicit 
     assert(not X.ProfileImport(shared:gsub("blessingComplement=1", "blessingComplement=maybe")),
       "BR2 accepted a malformed complement setting")
     local older = shared:gsub(";blessingComplement=1;", ";")
-    assert(X.ProfileImport(older) and X.LoadProfile("ComplementAudit") and not db.blessingComplement,
+    assert(X.ProfileImport(older, db.profiles.ComplementAudit) and X.LoadProfile("ComplementAudit") and not db.blessingComplement,
       "a pre-v21 BR2 did not load with complement off")
     offers(nil)
-    assert(X.ProfileImport(shared) and X.LoadProfile("ComplementAudit") and db.blessingComplement,
+    assert(X.ProfileImport(shared, db.profiles.ComplementAudit) and X.LoadProfile("ComplementAudit") and db.blessingComplement,
       "a shared profile did not restore the opt-in")
     local cfg = env.BuffRadarConfig
     X.OpenConfig(true)
@@ -6411,7 +6455,7 @@ step("named settings profiles save, load, list, delete (1.5.0)", function()
   local n0 = #chat
   env.SlashCmdList.BUFFRADAR("profile save RaidNight")
   assert(db.profiles and db.profiles.RaidNight, "profile not saved")
-  assert(chatSince(n0, "Profile saved: RaidNight"), "no save message")
+  assert(chatSince(n0, string.format(NS.X.L["Profile stored: %s (not loaded)."], "RaidNight")), "no save message")
   env.SlashCmdList.BUFFRADAR("scale 0.75")
   assert(db.scale == 0.75, "scale not changed after saving")
   env.SlashCmdList.BUFFRADAR("profile load RaidNight")
@@ -7505,7 +7549,7 @@ step("Forever mixed raid preserves blessing ownership and rebinds after a member
     "includeSelf", "hidden", "groupOnly", "autoHide", "pauseInCities", "sortMode", "viewMode",
     "roleFilter", "pinned", "buddy", "fastAura" }
   local api = { "IsInRaid", "IsInGroup", "GetNumGroupMembers", "UnitGroupRolesAssigned",
-    "GetSpellBookItemName", "GetSpellBookItemInfo", "GetSpellTabInfo", "IsPlayerSpell", "__combat", "__addonSent" }
+    "GetSpellBookItemName", "GetSpellBookItemInfo", "GetSpellTabInfo", "IsPlayerSpell", "__combat", "__addonSent", "UnitIsGroupLeader" }
   local saved, savedApi, savedUnits = {}, {}, {}
   for _, key in ipairs(fields) do saved[key] = db[key] end
   for _, key in ipairs(api) do savedApi[key] = env[key] end
@@ -7537,6 +7581,7 @@ step("Forever mixed raid preserves blessing ownership and rebinds after a member
     end
     env.IsInRaid, env.IsInGroup = function() return true end, function() return true end
     env.GetNumGroupMembers = function() return 5 end
+    env.UnitIsGroupLeader = function(unit) return unit == "player" or unit == "raid1" end
     env.UnitGroupRolesAssigned = function(unit) local u = member(unit); return u and u[3] end
     env.C_Item.GetItemCount = function() return 10 end
     local book = {
@@ -7981,7 +8026,7 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
-  assert(chatSince(n, "dbVersion 22"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 23"), "self-test missing dbVersion")
   assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
   assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
   assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")
@@ -8532,7 +8577,7 @@ step("robustness fuzz: untrusted input, corrupt saves, failing game APIs", funct
     local ok, err = pcall(fire, "ADDON_LOADED", "BuffRadar")
     if not ok then note("savedvars load", round, err)
     else
-      local db2 = env.BuffRadarDB
+      local db2 = X.GetDB()
       if type(db2) ~= "table" then note("savedvars load", round, "save is no longer a table")
       else
         for k, ty in pairs(expected) do
@@ -8639,7 +8684,7 @@ step("robustness fuzz: untrusted input, corrupt saves, failing game APIs", funct
 end)
 -- Fresh, clock-controlled clients for the intelligence and readiness features.
 do
-  local function FeatureClient(saved, roster)
+  local function FeatureClient(saved, roster, setup)
     local client, messages = TestClient()
     local O = client.__over
     local now, due = 100, {}
@@ -8666,8 +8711,9 @@ do
     client.IsPlayerSpell = function(id) return id == 1243 or id == (forever and 14752 or 1459) end
     if not forever then client.GetSpellBookItemName = function() end end
     saved.dbVersion, saved.wizardSeen, saved.playSound = saved.dbVersion or 22, true, false
-    saved.enabled = { INNER_FIRE = false, SHADOWGUARD = false }
+    saved.enabled = saved.enabled or { INNER_FIRE = false, SHADOWGUARD = false }
     client.BuffRadarDB = saved
+    if setup then setup(client, units) end
     local X, startup = LoadClient(client)
     local function event(name, ...)
       for i = 1, #client.__frames do
@@ -8700,6 +8746,8 @@ do
       O = O, units = units, mana = mana, manaKey = manaKey, slash = client.SlashCmdList.BUFFRADAR, messages = messages }
   end
 
+  auditTests(step, FeatureClient, TestClient, LoadClient, forever)
+
   step("v21 upgrades to validated bounded readiness settings; named profiles leave local rules alone", function()
     local f = FeatureClient({ dbVersion = 21, forecastSeconds = 900, smartPriority = "true", readinessAura = -12,
       instancePriority = { [12] = "FORTITUDE", [11] = "NOT_A_BUFF", [0] = "FORTITUDE" },
@@ -8707,7 +8755,7 @@ do
         { spellID = 700, unit = "focus", encounterID = 99 }, { spellID = 701, unit = "target", encounterID = 0 },
         { spellID = math.huge, unit = "player", encounterID = 0 } } })
     local db, X = f.db, f.X
-    assert(db.dbVersion == 22 and db.forecastSeconds == 300 and not db.smartPriority
+    assert(db.dbVersion == 23 and db.forecastSeconds == 300 and not db.smartPriority
       and db.readinessAura == 0 and db.statusMinimap, "new scalar defaults or validation were wrong")
     assert(db.instancePriority[12] == "FORTITUDE" and not db.instancePriority[0] and not db.instancePriority[11]
       and #db.debuffRules == 1 and db.debuffRules[1].encounterID == 21, "invalid or duplicate rule survived sanitation")
@@ -9143,7 +9191,7 @@ setups = [
 failed = False
 for label, with_timer, no_templates, forever, german, sources in setups:
     results, chat = harness(lua.table_from([lua.table_from(file) for file in sources]),
-                            with_timer, no_templates, forever, german)
+                            with_timer, no_templates, forever, german, audit_tests)
     bad = 0
     for i in range(1, len(results) + 1):
         name, status = results[i][1], results[i][2]

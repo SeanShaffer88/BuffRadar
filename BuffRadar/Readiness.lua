@@ -53,19 +53,6 @@ local function Repairs()
   return incomplete and (reading .. " · " .. L["Some slots unknown"]) or reading
 end
 
-local function HasAuraID(id)
-  local complete = true
-  for i = 1, 40 do
-    local done, answered, spell = X.Debuffs.ReadAura("player", i, false)
-    if done then
-      if answered and complete then return false end
-      return nil
-    end
-    if spell == id then return true end
-    if not spell then complete = false end
-  end
-end
-
 local function Presence(value)
   if value == nil then return L["Unknown"] end
   return L[value and "Present" or "Missing"]
@@ -75,21 +62,22 @@ function R.Personal()
   local db = X.GetDB()
   if not X.classic or not db or db.liteMode or X.PlayerSuspended() or InCombatLockdown() then return end
   local lines = {}
+  local results = X.ObserveConsumables("player", {}, true, false, db.readinessAura > 0 and db.readinessAura or nil)
   for _, def in ipairs(X.CONS_DEFS) do
-    lines[#lines + 1] = { text = L[def.label], hint = Presence(X.ConsHas("player", def)) }
+    lines[#lines + 1] = { text = L[def.label], hint = Presence(results[def.key]) }
   end
   if db.readinessAura > 0 then
     local ok, name = pcall(X.Core.SpellName, db.readinessAura)
     local label = ok and X.Readable(name) and type(name) == "string" and name or "#" .. db.readinessAura
-    lines[#lines + 1] = { text = L["Optional consumable"] .. " · " .. label, hint = Presence(HasAuraID(db.readinessAura)) }
+    lines[#lines + 1] = { text = L["Optional consumable"] .. " · " .. label, hint = Presence(results.OPTIONAL) }
   else
     lines[#lines + 1] = { text = L["Optional consumable"], hint = L["No aura configured"] }
   end
   lines[#lines + 1] = { text = L["Healthstone in bags"], hint = Presence(Healthstone()) }
   lines[#lines + 1] = { text = L["Equipment durability"], hint = Repairs() }
-  local missing = X.WeaponEnchantMissing(true)
-  lines[#lines + 1] = { text = L["Temporary weapon coating"], hint = missing == nil and L["Unknown"]
-    or L[missing and "Missing" or "No missing coating"] }
+  local coating = X.WeaponCoatingState()
+  lines[#lines + 1] = { text = L["Temporary weapon coating"], hint = L[coating == "present" and "Present"
+    or coating == "missing" and "Missing" or coating == "na" and "Not applicable" or "Applicability unknown"] }
   local class = X.UnitClassToken("player")
   if class == "HUNTER" or class == "WARLOCK" then
     lines[#lines + 1] = { text = L["Active pet"], hint = Presence(X.ReadUnitBool(UnitExists, "pet")) }
@@ -102,8 +90,7 @@ function R.SetAura(id)
     Print(L["Enter a consumable aura spell ID, or 0 to clear it."])
     return false
   end
-  X.GetDB().readinessAura = id
-  if X.QueuePersonalReadiness then X.QueuePersonalReadiness() end
+  X.SetPreference("readinessAura", id)
   return true
 end
 

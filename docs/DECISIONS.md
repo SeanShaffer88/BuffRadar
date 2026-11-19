@@ -428,3 +428,23 @@ copies of the last completed scan, with no targets while the scan is paused.
 Readiness checks use only exposed local data; a carried Healthstone is not
 evidence about a placed Soulwell. These policies and the new UI still need
 Forever field verification.
+
+## 2026-11-18 — Review before applying or sharing; preserve incompatible saves
+
+The 1.15.38 audit follow-up separates parsing, local review, and application.
+Legacy clipboard settings and named profiles don't send messages. Plan
+sharing is a separate action scoped to a readable group and current authority;
+never assume that a successful send means a recipient received it. The
+newer-schema and deliberate-overflow save paths keep the original rather than
+rewriting it from an older or trimmed copy. Only explicit overflow recovery
+can remove preserved entries. See [the audit ledger](AUDIT_1.15.38.md).
+
+## 2026-11-18 — One deterministic Forever release package
+
+The PowerShell and POSIX launchers use the same Python manifest, with fixed
+ordering and ZIP metadata. CI compares their checksums; offline repeatability
+alone is not proof of Windows parity. The release workflow requires the
+Forever TOC version to match the tag, verifies the packaged addon and stable
+binding names, and re-downloads the published files without overwriting an
+existing release. Track field results by ZIP SHA-256 so changed bytes don't
+inherit earlier verification.

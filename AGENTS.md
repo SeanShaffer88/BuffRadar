@@ -10,19 +10,24 @@ key) to buff them.
 
 Frozen foundation: both editions share the Lua source under `BuffRadar/`.
 Their `.toc` files declare load order; do not use `require` or add globals for
-module communication. `Data.lua` initializes the addon namespace, `SavedVariables.lua`
+module communication. `Forever.lua` identifies the shipping edition, `Data.lua` checks the client
+and initializes the addon namespace, and `SavedVariables.lua`
 owns the schema and publishes the live DB, `BuffRadar.lua` owns scanning and
 cast decisions, and `Window.lua` and `Minimap.lua` own their frames and caches.
 Keep implementation state local and share entry points through the addon table.
 `BuffRadarAPI` is a versioned, read-only external interface, not a module bridge.
 Every feature is reachable through `/br` as well as through its settings control
-where it has one. SavedVariables are versioned (`dbVersion`, currently 22) with
+where it has one. SavedVariables are versioned (`dbVersion`, currently 23) with
 migration smoke fixtures; keep those fixtures in sync with format changes.
+Never overwrite a newer schema with an older addon. Bound saved collections
+at their writers as well as at load, and preserve over-limit user profiles
+and permanent ignores for explicit recovery.
 
 Build: none (interpreted Lua 5.1).
 Full gate (all of it, every time, output read): `sh tools/gate.sh` runs the Lua
 5.1 compiler, advisory limit estimates, locale and pattern checks, seven
-fake-client smoke setups using the two TOCs, and two-client coordination.
+fake-client smoke setups using the two TOCs, two-client coordination, and
+packaging regressions.
 `sh tools/install-hooks.sh` installs the pre-push gate. Also run real luacheck
 1.2.0 on all addon Lua files (0 warnings / 0 errors); `tools/check.ps1` runs the
 checks on Windows. Add trial steps for every feature in the setups it applies to.
@@ -38,16 +43,20 @@ called done; in-game behaviour is labelled **Unverified** until SEAN's field tes
 proves it (evidence labels: Verified / Partially Verified / Unverified).
 
 Special rules for this project:
-- Manual Forever release validation: run docs/FOREVER_RELEASE_CHECKLIST.md on the exact candidate build before marking in-game behavior verified.
+- Manual Forever release validation: use `docs/FOREVER_RELEASE_CHECKLIST.md`
+  and record the exact candidate ZIP digest, Windows parity result and game
+  build. An offline pass is not a Forever field pass.
 - Secure action buttons: `HookScript` / `WrapScript` only — **never**
   `SetScript("OnClick")` on a secure button.
-- **CI runs the gate** (`.github/workflows/ci.yml`, added in 1.13.0): static checks + trial run + a packaging dry run on every push/PR. Real luacheck 1.2.0 stays a local Windows step (`tools/check.ps1`) — SEAN skipped it in CI on 2026-11-08. `release.yml` publishes on a `v*` tag that must equal the Forever .toc version.
-- Publishing: one `push_files` snapshot via the GitHub connector (the Contents
-  API's per-call size cap cannot carry `BuffRadar.lua`), then blob-verify every
-  published file against the local tree. **Forever-only from 1.8.0** (SEAN
-  dropped Retail support 2026-10-25; Retail docs stay frozen at 1.7.0):
-  releases attach the Forever zip plus `SHA256SUMS.txt`, and are not shipped
-  until the assets are re-downloaded and hash-verified.
+- **CI runs the gate** (`.github/workflows/ci.yml`) on main pushes and PRs.
+  The Windows and POSIX wrappers call `tools/package.py`; CI compares their
+  digests. Real luacheck 1.2.0 remains a separate local check (included in
+  `tools/check.ps1` on Windows), not a CI dependency.
+- **Publishing:** keep the Retail docs frozen at 1.7.0; only the Forever ZIP
+  ships. Verify the release source against the tested tree. `release.yml` runs
+  on a `v*` tag matching the Forever TOC, publishes the ZIP and `SHA256SUMS.txt`,
+  and checks the downloaded assets against the packaged bytes. Do not treat a
+  successful upload as a verified release.
 - The German locale stays complete — `tools/localecheck.py` enforces it; new
   user-facing list tags need an `L[...]` entry and a deDE translation.
 - Licence is GPLv3 (upstream author Malikor). The SEAN-annex MIT default does

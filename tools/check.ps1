@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 # Runs every BuffRadar check in one go. See tools\README.md.
 #
 #   .\tools\check.ps1            run all checks (nonzero exit if any fails)
@@ -66,17 +67,11 @@ try {
 }
 finally { Pop-Location }
 
-# 2. Compile with real Lua 5.1 (the language WoW runs)
+# 2. Compile and check all shared modules, like the POSIX gate.
 Section 'Lua 5.1 compile'
-# The Forever TOC is copied over the shared addon directory during packaging.
-$luaFiles = @(foreach ($line in Get-Content -LiteralPath $toc) {
-  $entry = $line.Trim()
-  if (-not $entry.StartsWith('#') -and $entry -like '*.lua') {
-    Join-Path $addon $entry
-  }
-})
-if (-not $luaFiles.Count) { throw "No Lua entries in the Forever TOC: $toc" }
-& $py -I (Join-Path $here 'luacheck51.py') @luaFiles
+$luaFiles = @((Get-ChildItem -LiteralPath $addon -Filter '*.lua' -File).FullName)
+$localeFiles = @((Get-ChildItem -LiteralPath $locales -Filter '*.lua' -File).FullName)
+& $py -I (Join-Path $here 'luacheck51.py') @luaFiles @localeFiles
 $compileExit = $LASTEXITCODE
 if ($compileExit -ne 0) {
   Write-Host "FAILED: Lua 5.1 compile (exit $compileExit)"
@@ -89,7 +84,7 @@ Section 'Translations'
 if ($LASTEXITCODE -ne 0) { $failed += 'translations' }
 
 Section 'Lua pattern arguments'
-& $py -I (Join-Path $here 'patterncheck.py') @($luaFiles | ForEach-Object { "$_" })
+& $py -I (Join-Path $here 'patterncheck.py') @luaFiles @localeFiles
 if ($LASTEXITCODE -ne 0) { $failed += 'patterns' }
 
 # 3. Advisory Lua 5.1 limits. Only the compiler decides whether Lua can load.
@@ -114,9 +109,15 @@ Section 'Caster Coordination (two fake game clients)'
 & $py -I (Join-Path $here 'coordination51.py') (Join-Path $here 'wowstub.lua') $lua
 if ($LASTEXITCODE -ne 0) { $failed += 'two-client coordination' }
 
+Section 'Packaging regression tests'
+& $py -I (Join-Path $here 'test_package.py')
+if ($LASTEXITCODE -ne 0) { $failed += 'packaging regression tests' }
+
 # 5. Validate the current Forever ZIP if it has been built.
 $dist = Join-Path $project 'dist'
-$version = (Select-String -LiteralPath $toc -Pattern '^## Version:\s*(\d+\.\d+\.\d+)\s*$').Matches.Groups[1].Value
+$versions = @(Select-String -LiteralPath $toc -Pattern '^## Version:\s*(\d+\.\d+\.\d+)\s*$')
+if ($versions.Count -ne 1) { throw "Expected one valid Version in $toc" }
+$version = $versions[0].Matches[0].Groups[1].Value
 $zip = Join-Path $dist "BuffRadar-$version-Forever.zip"
 if (Test-Path -LiteralPath $zip) {
   Section 'Forever package'

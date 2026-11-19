@@ -25,7 +25,8 @@ english = dict(lua.execute("return " + m.group(1)).items())
 
 
 def codes(s):
-    return sorted(re.findall(r"%[ds]|\|c[0-9a-fA-F]{8}|\|r", s))
+    placeholders = re.findall(r"%%|%[-+#0]*[0-9]*(?:\.[0-9]+)?[cdiouxXeEfgGqs]", s)
+    return [item[-1] for item in placeholders], sorted(re.findall(r"\|c[0-9a-fA-F]{8}|\|r", s))
 
 
 required = {"deDE", "esES", "frFR", "ruRU", "zhCN"}

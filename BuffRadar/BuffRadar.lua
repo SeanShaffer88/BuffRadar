@@ -50,10 +50,6 @@ local SOON_DELAY = 0.1  -- event-driven refreshes are coalesced into one per 0.1
 -- Key Bindings menu labels (Bindings.xml defines the binding itself)
 BINDING_HEADER_BUFFRADAR = "BuffRadar"
 BINDING_CATEGORY_BUFFRADAR = "BuffRadar"
-_G["BINDING_NAME_CLICK BuffRadarNextButton:LeftButton"] = "Cast next buff"
-_G["BINDING_NAME_CLICK BuffRadarGroupButton:LeftButton"] = "Cast next group buff"
-BINDING_NAME_BUFFRADAR_TOGGLE = "Show / hide window"
-BINDING_NAME_BUFFRADAR_MUTE = "Mute / unmute sound"
 local NEXT_BINDING = "CLICK BuffRadarNextButton:LeftButton"
 local MACRO_NAME = "BuffRadar"
 
@@ -95,6 +91,96 @@ end
 -- Strings with %d / %s are string.format patterns: keep the placeholders.
 -- Any key a translation leaves out falls back to English.
 local L = {
+  ["Group chat send requested; delivery is not confirmed."] = "Group chat send requested; delivery is not confirmed.",
+  ["the party"] = "the party",
+  ["the raid"] = "the raid",
+  ["Apply and share sends changed assignments and blessings to %s."] = "Apply and share sends changed assignments and blessings to %s.",
+  ["Compared with your current settings (not applied):"] = "Compared with your current settings (not applied):",
+  ["Group spell range could not be confirmed."] = "Group spell range could not be confirmed.",
+  ["No eligible group target."] = "No eligible group target.",
+  ["Can't open that during combat."] = "Can't open that during combat.",
+  ["Delete"] = "Delete",
+  ["Load"] = "Load",
+  ["Save"] = "Save",
+  ["Save window, alert and buff preferences to load here or with /br profile."] = "Save window, alert and buff preferences to load here or with /br profile.",
+  ["Settings profiles"] = "Settings profiles",
+  ["Share BR2"] = "Share BR2",
+  ["Import"] = "Import",
+  ["Open the BuffRadar section of the game's key bindings."] = "Open the BuffRadar section of the game's key bindings.",
+  ["Create macro"] = "Create macro",
+  ["Set keybind"] = "Set keybind",
+  ["Keybinds"] = "Keybinds",
+  ["Open Game Menu > Options > Keybindings and look for the BuffRadar section."] = "Open Game Menu > Options > Keybindings and look for the BuffRadar section.",
+  ["Can't open key bindings during combat."] = "Can't open key bindings during combat.",
+  ["not bound"] = "not bound",
+  ["Mute / unmute sound"] = "Mute / unmute sound",
+  ["Show / hide window"] = "Show / hide window",
+  ["Cast next group buff"] = "Cast next group buff",
+  ["Cast next buff"] = "Cast next buff",
+  ["Remember panel positions: %s"] = "Remember panel positions: %s",
+  ["Use /br positions on|off|reset."] = "Use /br positions on|off|reset.",
+  ["Reset panel positions"] = "Reset panel positions",
+  ["Remember Settings and Ready Check positions"] = "Remember Settings and Ready Check positions",
+  ["Profile storage is full. Delete a profile first."] = "Profile storage is full. Delete a profile first.",
+  ["Ignore list is full. Remove entries first."] = "Ignore list is full. Remove entries first.",
+  ["Profiles: %d/%d · Ignores: %d/%d"] = "Profiles: %d/%d · Ignores: %d/%d",
+  ["No matching entry in an oversized save."] = "No matching entry in an oversized save.",
+  ["Removed from the preserved save. Reload to try normal saving again."] = "Removed from the preserved save. Reload to try normal saving again.",
+  ["Use /br storage delete profile <name> or /br storage delete ignore <name>, then reload."] = "Use /br storage delete profile <name> or /br storage delete ignore <name>, then reload.",
+  ["Too many profiles or ignores. The original save was preserved; changes are temporary."] = "Too many profiles or ignores. The original save was preserved; changes are temporary.",
+  ["Local only — not sent: %s"] = "Local only — not sent: %s",
+  ["Game accepted the group chat send; delivery is not confirmed."] = "Game accepted the group chat send; delivery is not confirmed.",
+  ["The game did not accept the send."] = "The game did not accept the send.",
+  ["The message exceeds the chat limit."] = "The message exceeds the chat limit.",
+  ["Group chat is unavailable."] = "Group chat is unavailable.",
+  ["No group channel."] = "No group channel.",
+  ["Group-cast pair limit reached. Remove a pair first."] = "Group-cast pair limit reached. Remove a pair first.",
+  ["Invalid group-cast pair; nothing changed."] = "Invalid group-cast pair; nothing changed.",
+  ["Applicability unknown"] = "Applicability unknown",
+  ["Not applicable"] = "Not applicable",
+  ["%d unknown"] = "%d unknown",
+  ["Some world buff information is unavailable."] = "Some world buff information is unavailable.",
+  ["Use a named BR2 profile to share newer preferences."] = "Use a named BR2 profile to share newer preferences.",
+  ["Group sharing is unavailable for this review."] = "Group sharing is unavailable for this review.",
+  ["Auto-profile mappings stay local, even when sharing."] = "Auto-profile mappings stay local, even when sharing.",
+  ["Group plan copy (select all, copy)"] = "Group plan copy (select all, copy)",
+  ["Paste a group plan, then review."] = "Paste a group plan, then review.",
+  ["Paste a shared profile, then review."] = "Paste a shared profile, then review.",
+  ["Legacy BR1 settings copy (select all, copy)"] = "Legacy BR1 settings copy (select all, copy)",
+  ["Paste a legacy BR1 settings copy, then review."] = "Paste a legacy BR1 settings copy, then review.",
+  ["Store as %s without loading its settings."] = "Store as %s without loading its settings.",
+  ["Auto-profile mappings using this name: %s"] = "Auto-profile mappings using this name: %s",
+  ["Existing profile: %s. Enter a different name to keep it."] = "Existing profile: %s. Enter a different name to keep it.",
+  ["The current values changed. Review again before applying."] = "The current values changed. Review again before applying.",
+  ["No settings or plan values would change."] = "No settings or plan values would change.",
+  ["Review before applying"] = "Review before applying",
+  ["Import canceled."] = "Import canceled.",
+  ["Save profile"] = "Save profile",
+  ["Replace profile"] = "Replace profile",
+  ["Apply and share"] = "Apply and share",
+  ["Apply locally"] = "Apply locally",
+  ["Review import"] = "Review import",
+  ["Edit paste"] = "Edit paste",
+  ["These settings are too large to save as a profile."] = "These settings are too large to save as a profile.",
+  ["Profile stored: %s (not loaded)."] = "Profile stored: %s (not loaded).",
+  ["That profile already exists or changed. Review it, rename, or explicitly replace it."] = "That profile already exists or changed. Review it, rename, or explicitly replace it.",
+  ["Profile names use letters, numbers, - and _ (max 40)."] = "Profile names use letters, numbers, - and _ (max 40).",
+  ["The profile's settings string is damaged."] = "The profile's settings string is damaged.",
+  ["That doesn't look like a shared BuffRadar profile."] = "That doesn't look like a shared BuffRadar profile.",
+  ["That shared profile is too large."] = "That shared profile is too large.",
+  ["Game accepted %d of %d sends; delivery is not confirmed."] = "Game accepted %d of %d sends; delivery is not confirmed.",
+  ["Plan applied locally: %d assignments, %d blessings, %d auto profiles."] = "Plan applied locally: %d assignments, %d blessings, %d auto profiles.",
+  ["Group or sharing permission changed. Review the plan again."] = "Group or sharing permission changed. Review the plan again.",
+  ["Missing profile for %s: %s"] = "Missing profile for %s: %s",
+  ["Settings applied locally."] = "Settings applied locally.",
+  ["Paste a complete, valid BuffRadar plan export."] = "Paste a complete, valid BuffRadar plan export.",
+  ["Paste a complete, valid BuffRadar settings export."] = "Paste a complete, valid BuffRadar settings export.",
+  ["That import exceeds 16 KiB."] = "That import exceeds 16 KiB.",
+  ["Nothing to import."] = "Nothing to import.",
+  ["Can't move the buff window during combat."] = "Can't move the buff window during combat.",
+  ["Buff scan interrupted. Waiting for a fresh scan."] = "Buff scan interrupted. Waiting for a fresh scan.",
+  ["A newer BuffRadar save was preserved. Changes are for this session only."] = "A newer BuffRadar save was preserved. Changes are for this session only.",
+  ["BuffRadar requires the Forever package on Interface 16001. Casting is disabled."] = "BuffRadar requires the Forever package on Interface 16001. Casting is disabled.",
   ["Find"] = "Find",
   ["Find in this tab (Esc to close)"] = "Find in this tab (Esc to close)",
   ["Matches: %d"] = "Matches: %d",
@@ -682,6 +768,10 @@ do
     for k, v in pairs(pack) do if type(v) == "string" then L[k] = v end end
   end
 end
+_G["BINDING_NAME_CLICK BuffRadarNextButton:LeftButton"] = L["Cast next buff"]
+_G["BINDING_NAME_CLICK BuffRadarGroupButton:LeftButton"] = L["Cast next group buff"]
+BINDING_NAME_BUFFRADAR_TOGGLE = L["Show / hide window"]
+BINDING_NAME_BUFFRADAR_MUTE = L["Mute / unmute sound"]
 
 ---------------------------------------------------------------------------
 -- API helpers (tolerant of old and new client APIs)
@@ -894,15 +984,21 @@ do
     return false, nil, true
   end
 
+  function X.GroupSpellInRange(spell, unit, isSelf)
+    if isSelf then return true end
+    local inRange, _, unknown = InRange(spell, unit, true)
+    return inRange and not unknown
+  end
+
   function X.FilterInRange(unit, source, out, isSelf, diagnostic)
     wipe(out)
     if isSelf == nil then isSelf = X.IsSelf(unit) end
     if isSelf == nil then return 0 end
     local n, approximate, unknown, rankLimited = 0, false, false, false
-    local level = CLASSIC_FEATURES and db.castMethod == "target" and X.ReadUnitNumber(UnitLevel, unit)
+    local level = CLASSIC_FEATURES and X.ReadUnitNumber(UnitLevel, unit)
     for i = 1, #source do
       local inRange, estimated, unreadable
-      if level and X.DefaultRank(source[i], level) == false then
+      if X.RankTooLow(source[i], level, db.castMethod) then
         rankLimited = true
       elseif isSelf then
         inRange = true
@@ -1048,33 +1144,42 @@ do
     return sourceOK and SourceOwner(source) or "unknown"
   end
 
-  function X.ReadBuff(unit, i, withOwner)
-    -- done, name, expirationTime, complete (only when done), optional owner
-    local name, expiry, owner
-    if C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
-      local aura, definitive = X.QueryAura(C_UnitAuras.GetBuffDataByIndex, unit, i)
+  local function BuffTuple(...) return select("#", ...), ... end
+  local function ReadLegacyBuff(unit, i) return BuffTuple(UnitBuff(unit, i)) end
+
+  function X.ReadBuff(unit, i, withOwner, withID)
+    -- done, name, expirationTime, complete (when done), optional owner/ID
+    local name, expiry, owner, id
+    local lookup = C_UnitAuras and (C_UnitAuras.GetBuffDataByIndex or C_UnitAuras.GetAuraDataByIndex)
+    if lookup then
+      local aura, definitive = X.QueryAura(lookup, unit, i, "HELPFUL")
       if not definitive then return true, nil, nil, false end
       if not aura then return true, nil, nil, true end
       local nameOK, value = pcall(GetField, aura, "name")
       if nameOK then name = value end
       expiry = AuraExpiration(aura)
       if withOwner then owner = AuraOwner(aura) end
+      if withID then
+        local read, spell = pcall(GetField, aura, "spellId")
+        if read then id = spell end
+      end
     elseif UnitBuff then
       -- UnitBuff's rank-less return list: expirationTime, then source.
-      local ok, value, _, _, _, _, expiration, source = pcall(UnitBuff, unit, i)
-      if not ok then return true, nil, nil, false end
+      local ok, count, value, _, _, _, _, expiration, source, _, _, spell = pcall(ReadLegacyBuff, unit, i)
+      if not ok or count == 0 then return true, nil, nil, false end
       if type(value) == "nil" then return true, nil, nil, true end
-      name, expiry = value, expiration
+      name, expiry, id = value, expiration, spell
       if withOwner then owner = SourceOwner(source) end
     else
       return true, nil, nil, false
     end
-    if not Readable(name) or type(name) ~= "string" then
+    if not Readable(name) or type(name) ~= "string" or name == "" then
       X.hid = GetTime()
-      return false
+      name = nil
     end
+    if withID and not (Readable(id) and X.Settings.PositiveID(id)) then id = nil end
     if not Readable(expiry) or type(expiry) ~= "number" or not (expiry >= 0 and expiry < math_huge) then expiry = nil end
-    return false, name, expiry, nil, owner
+    return false, name, expiry, nil, owner, id
   end
 
   local function SecondsLeft(expiry, now)
@@ -1269,7 +1374,9 @@ do
     if added then probe.added = (probe.added or 0) + 1 end
     if removed then probe.removed = (probe.removed or 0) + 1 end
     if updated then probe.updated = (probe.updated or 0) + 1 end
-    if db and db.fastAura and not full then
+    local optional = db and not db.liteMode and ((unit == "player" and db.worldWatch)
+      or ((db.consumables or db.drinkWatch) and (unit == "player" or unit:match("^party%d+$") or unit:match("^raid%d+$"))))
+    if db and db.fastAura and not full and not optional then
       if not X.AuraRelevant(unit, added, updated, removed) then
         probe.skipped = (probe.skipped or 0) + 1
         return false
@@ -1314,6 +1421,30 @@ local function HasAny(unit, names, minLeft, measure)
   local has = longest > minLeft or (minLeft == 0 and untimed)
   if unknown then return has and true or nil end
   return has, longest
+end
+
+do
+  local function ObserveFamily(unit, names, cutoff)
+    local longest, partial, untimed = 0, false, false
+    for _, name in ipairs(names) do
+      local left, presence, uncertain = X.Remaining(unit, name)
+      if left and left > cutoff then return "present", nil, nil, true end
+      if left and left > longest then longest = left end
+      if presence == "present" and not left then untimed = true end
+      if presence == "unknown" or (presence == "present" and (not left or uncertain)) then partial = true end
+    end
+    if longest > 0 or untimed then return "present", longest, partial, untimed end
+    return partial and "unknown" or "absent", longest, partial
+  end
+
+  function X.FortitudeCoverage(unit, names, threshold, measure)
+    local state, longest, uncertain, untimed = ObserveFamily(unit, names, math_max(threshold, measure or 0))
+    if state == "present" and not longest then return true end
+    if state == "unknown" then return nil end
+    local covered = state == "present" and (longest > threshold or (threshold == 0 and untimed))
+    if uncertain then return covered and true or nil end
+    return covered, longest
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -1368,6 +1499,7 @@ end
 local function ByRank(a, b) return a.rank < b.rank end
 
 function BuildBuffList()
+  X.nameKeyStamp = nil -- custom buffs can change without changing the spellbook size
   wipe(known)
   local total = SpellbookSize()
   local probing = total == 0      -- size unknown: walk until the book clearly ends
@@ -1396,7 +1528,6 @@ function BuildBuffList()
   end
 
   wipe(myBuffs)
-  X.nameKeyStamp = nil
   for _, d in ipairs(BUFF_DEFS) do
     local castName, names = nil, {}
     if d.choices then
@@ -1488,14 +1619,9 @@ function BuildBuffList()
 
   do  -- watched aura names for the fast-aura relevance check (1.14.0)
     local watch = {}
-    if CLASSIC_FEATURES then watch.Drink = true end
     for _, b in ipairs(myBuffs) do
       if b.name then watch[b.name] = true end
       for _, n in ipairs(b.names or {}) do watch[n] = true end
-    end
-    for _, cd in ipairs(X.CONS_DEFS or {}) do
-      for _, n in ipairs(cd.names or {}) do watch[n] = true end
-      if cd.sub then watch[cd.sub] = true end
     end
     for _, b in pairs(blessKnown) do
       if type(b) == "table" then
@@ -1900,85 +2026,232 @@ end
 -- keep/drop are scratch lists reused by CollectEntries.
 local Single = { holder = {}, spell = {}, keep = {}, drop = {} }
 
--- Consumables watch (1.6.0): not castable, so these never make rows --
--- they only feed the coverage line. Matched by aura name: exact names, or
--- a substring ("Flask of ..." covers every flask on both clients).
-X.CONS_DEFS = {
-  { key = "FLASK", label = "Flask", sub = "Flask of" },
-  { key = "FOOD", label = "Food", names = { "Well Fed" } },
-}
-if not CLASSIC_FEATURES then
-  X.CONS_DEFS[#X.CONS_DEFS + 1] = { key = "RUNE", label = "Rune", sub = "Augment Rune" }
-end
+do -- one bounded helpful-aura observation, no aura state kept across units
+  local english = not GetLocale or GetLocale() == "enUS" or GetLocale() == "enGB"
+  local function Family(key, label, ids, name, fragment)
+    local def = { key = key, label = label, ids = {}, names = {}, unresolved = ids, retryAt = 0,
+      legacyName = not CLASSIC_FEATURES and english and name or nil,
+      legacyFragment = not CLASSIC_FEATURES and english and fragment or nil }
+    for _, id in ipairs(ids) do def.ids[id] = true end
+    return def
+  end
+  X.CONS_DEFS = {
+    Family("FLASK", "Flask", { 17626, 17627, 17628, 17629 }, nil, "Flask of"),
+    Family("FOOD", "Food", { 19705, 19706, 19708, 19709, 19710 }, "Well Fed"),
+  }
+  if not CLASSIC_FEATURES then X.CONS_DEFS[3] = Family("RUNE", "Rune", {}, nil, "Augment Rune") end
+  local drink = Family("DRINK", "Drink", { 430, 431, 432, 1133, 1135, 1137, 10250, 22734 })
+  local world = Family("WORLD", "World", { 22888, 16609, 15366, 24425, 22817, 22818, 22820, 29534,
+    23735, 23736, 23737, 23738, 23766, 23767, 23768, 23769 })
 
--- World-buff watch (1.8.0, Forever): the famous world buffs on YOU,
--- matched by aura name like the consumables above. Feeds one segment of
--- the coverage line, so a raid can see whose Dragonslayer is ticking.
-X.WORLD_BUFFS = {
-  { name = "Rallying Cry of the Dragonslayer" }, { name = "Warchief's Blessing" },
-  { name = "Songflower Serenade" }, { name = "Spirit of Zandalar" },
-  { sub = "Sayge's Dark Fortune" }, { name = "Fengus' Ferocity" },
-  { name = "Mol'dar's Moxie" }, { name = "Slip'kik's Savvy" },
-  { name = "Traces of Silithid" },
-}
+  local function Resolve(def, now)
+    if #def.unresolved == 0 or now < def.retryAt then return end
+    def.retryAt = now + 10
+    for i = #def.unresolved, 1, -1 do
+      local ok, name = pcall(SpellName, def.unresolved[i])
+      if ok and SafeString(name) and name ~= "" then
+        def.names[name] = true
+        table.remove(def.unresolved, i)
+      end
+    end
+  end
 
-function X.WorldBuffsText()
-  if not CLASSIC_FEATURES then return nil end
-  local found = {}
-  for i = 1, 40 do
-    local done, name = X.ReadBuff("player", i)
-    if done then break end
-    if name then
-      for _, w in ipairs(X.WORLD_BUFFS) do
-        if (w.name and name == w.name) or (w.sub and name:find(w.sub, 1, true)) then
-          local left = X.Remaining("player", name)
-          local when = ""
-          if left and left < math_huge then
+  local function OptionalAura(unit, id, now)
+    local api = C_UnitAuras
+    if not api then return end
+    local aura
+    if unit == "player" and api.GetPlayerAuraBySpellID then
+      aura = X.QueryAura(api.GetPlayerAuraBySpellID, id)
+    elseif api.GetUnitAuraBySpellID then
+      aura = X.QueryAura(api.GetUnitAuraBySpellID, unit, id)
+    end
+    -- An exact match can prove presence. Nil cannot prove absence: the unit
+    -- may be out of sight or restricted. Let the bounded helpful scan decide.
+    if not aura then return end
+    local ok, spell, expiration, helpful, harmful = pcall(function()
+      return aura.spellId, aura.expirationTime, aura.isHelpful, aura.isHarmful
+    end)
+    if not ok or not Readable(spell) or spell ~= id or not Readable(expiration)
+      or type(expiration) ~= "number" or not (expiration == 0 or (expiration > now and expiration < math_huge)) then return end
+    if type(helpful) ~= "nil" and (not Readable(helpful) or helpful ~= true) then return end
+    if type(harmful) ~= "nil" and (not Readable(harmful) or harmful ~= false) then return end
+    return helpful == true or harmful == false -- absence of both flags is not proof
+  end
+
+  local function Matches(def, id, name)
+    if id and def.ids[id] then return true end
+    if name and (def.names[name] or name == def.legacyName
+      or (def.legacyFragment and name:find(def.legacyFragment, 1, true))) then return true end
+    -- A known aura ID suffices for a defined ID catalogue, but neither an
+    -- unreadable ID nor an untranslated name can prove absence on its own.
+    if (id and next(def.ids)) or (name and (def.legacyName or def.legacyFragment
+      or (next(def.names) and #def.unresolved == 0))) then return false end
+  end
+
+  function X.ObserveConsumables(unit, output, checkFood, checkDrink, optional)
+    wipe(output)
+    local now = GetTime()
+    local remaining, unavailable = checkFood and #X.CONS_DEFS or 0, {}
+    if checkFood then for _, def in ipairs(X.CONS_DEFS) do Resolve(def, now) end end
+    if checkDrink then Resolve(drink, now); remaining = remaining + 1 end
+    if optional then remaining = remaining + 1 end
+    if optional and OptionalAura(unit, optional, now) then output.OPTIONAL, remaining = true, remaining - 1 end
+    if remaining == 0 then return output end
+    local drinkUnknown, optionalUnknown
+    for i = 1, 40 do
+      local done, name, expiry, complete, _, id = X.ReadBuff(unit, i, false, true)
+      if done then
+        if complete then
+          if checkFood then
+            for _, def in ipairs(X.CONS_DEFS) do
+              if output[def.key] == nil and not unavailable[def.key]
+                and (next(def.ids) or def.legacyName or def.legacyFragment) then output[def.key] = false end
+            end
+          end
+          if checkDrink and not output.DRINK and not drinkUnknown then output.DRINK = false end
+          if optional and not output.OPTIONAL and not optionalUnknown then output.OPTIONAL = false end
+        end
+        return output
+      end
+      if not expiry or expiry == 0 or expiry > now then
+        if checkFood then
+          for _, def in ipairs(X.CONS_DEFS) do
+            local key = def.key
+            if not output[key] then
+              local match = Matches(def, id, name)
+              if match then output[key] = true; remaining = remaining - 1
+              elseif match == nil then unavailable[key] = true end
+            end
+          end
+        end
+        if checkDrink and not output.DRINK then
+          local match = Matches(drink, id, name)
+          if match then output.DRINK = true; remaining = remaining - 1
+          elseif match == nil then drinkUnknown = true end
+        end
+        if optional and not output.OPTIONAL then
+          if id == optional then output.OPTIONAL = true; remaining = remaining - 1
+          elseif not id then optionalUnknown = true end
+        end
+      end
+      if remaining == 0 then break end -- every requested category hit
+    end
+    return output
+  end
+
+  local observation = {}
+  function X.ScanConsumables(unit)
+    local checkFood = db.consumables
+    local checkDrink = CLASSIC_FEATURES and db.drinkWatch
+    if db.liteMode or not (checkFood or checkDrink) then return end
+    X.ObserveConsumables(unit, observation, checkFood, checkDrink)
+    if checkFood then
+      for _, def in ipairs(X.CONS_DEFS) do
+        local has, t = observation[def.key], X.consTally[def.key]
+        if not t then t = { total = 0, miss = 0, unknown = 0 }; X.consTally[def.key] = t end
+        if has == nil then t.unknown = t.unknown + 1
+        else
+          t.total = t.total + 1
+          if not has then t.miss = t.miss + 1 end
+        end
+      end
+    end
+    return observation.DRINK
+  end
+
+  function X.WorldBuffsText()
+    if not CLASSIC_FEATURES then return nil end
+    local found, complete, now = {}, false, GetTime()
+    Resolve(world, now)
+    local unreadable = false
+    for i = 1, 40 do
+      local done, name, expiry, ended, _, id = X.ReadBuff("player", i, false, true)
+      if done then complete = ended and not unreadable; break end
+      if not expiry or expiry == 0 or expiry > now then
+        local match = Matches(world, id, name)
+        if match and name then
+          local when, left = "", expiry and expiry > 0 and expiry - now
+          if left then
             when = left >= 3600 and string_format(" ~%dh", math_floor(left / 3600))
               or string_format(" ~%dm", math_floor(left / 60))
           end
           found[#found + 1] = name .. when
-          break
+        elseif match ~= false then unreadable = true end
+      end
+    end
+    if not complete then found[#found + 1] = L["Some world buff information is unavailable."] end
+    if #found > 0 then return L["World"] .. ": " .. table.concat(found, ", ") end
+  end
+end
+
+do
+  local current, spare = {}, {}
+  local function Track(unit, now)
+    if X.ReadUnitBool(UnitExists, unit) ~= true then return end
+    local guid = X.UnitGUIDOf(unit)
+    if not guid or current[guid] then return end
+    current[guid] = true
+    local dead = X.ReadUnitBool(UnitIsDeadOrGhost, unit)
+    if dead == true then
+      X.dead[guid], X.rezAt[guid] = now, nil
+    elseif dead == false and X.dead[guid] then
+      X.dead[guid], X.rezAt[guid] = nil, now
+    end
+  end
+
+  function X.TrackDeaths(list)
+    local now = GetTime()
+    wipe(current)
+    for i = 1, #list do Track(list[i], now) end
+    Track("player", now)
+    for guid, last in pairs(X.dead) do if not current[guid] or now - last >= 600 then X.dead[guid] = nil end end
+    for guid, last in pairs(X.rezAt) do if not current[guid] or now - last >= 60 then X.rezAt[guid] = nil end end
+    for guid, last in pairs(X.expiredAt) do if not current[guid] or now - last >= 10 then X.expiredAt[guid] = nil end end
+    for guid, keys in pairs(X.missPrev) do
+      if not current[guid] then
+        X.missPrev[guid] = nil
+        wipe(keys)
+        spare[#spare + 1] = keys
+      end
+    end
+  end
+
+  function X.ResetMissingScan()
+    for guid, keys in pairs(X.missNow) do
+      wipe(keys)
+      spare[#spare + 1] = keys
+      X.missNow[guid] = nil
+    end
+  end
+
+  function X.RecordMissing(guid, unit, spells, unknown)
+    local previous = X.missPrev[guid]
+    if unknown and not previous then return end
+    local slot = #spare
+    local keys = spare[slot] or {}
+    spare[slot] = nil
+    X.missNow[guid] = keys
+    if unknown then
+      for k in pairs(previous) do keys[k] = true end
+      return
+    end
+    local expired, fall
+    for _, spell in ipairs(spells) do
+      local key = X.KeyOfName(spell)
+      if key then
+        keys[key] = true
+        if previous and not previous[key] then
+          local names
+          for _, b in ipairs(myBuffs) do if b.name == spell then names = b.names; break end end
+          local blessing = blessKeys[spell] and blessKnown[blessKeys[spell]:sub(7)]
+          if HasAny(unit, names or (blessing and blessing.names) or { spell }, 0) == false then
+            expired, fall = true, fall or not Single.spell[key]
+          end
         end
       end
     end
+    return expired, fall
   end
-  if #found == 0 then return nil end
-  return "World: " .. table.concat(found, ", ")
-end
-
-function X.ConsHas(unit, def)
-  local complete = true
-  for i = 1, 40 do
-    local done, name, _, ended = X.ReadBuff(unit, i)
-    if done then
-      if ended and complete then return false end
-      return nil
-    end
-    if name then
-      if def.sub and name:find(def.sub, 1, true) then return true end
-      if def.names then
-        for _, nm in ipairs(def.names) do if name == nm then return true end end
-      end
-    else complete = false end
-  end
-end
-
-function X.Track(unit)
-  if not X.UnitPresent(unit) then return end
-  local guid = X.UnitGUIDOf(unit)
-  if not guid then return end
-  if X.ReadUnitBool(UnitIsDeadOrGhost, unit) == true then
-    X.dead[guid] = true
-  elseif X.dead[guid] then
-    X.dead[guid] = nil
-    X.rezAt[guid] = GetTime()
-  end
-end
-
-function X.TrackDeaths(list, extra)
-  for i = 1, #list do X.Track(list[i]) end
-  if extra then X.Track(extra) end
 end
 
 local function MeasureExpiry(unit, key, name, has, left, observe, blessing)
@@ -2003,15 +2276,6 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
   if not class then
     if report == "why" then detail.rule = L["Rule unavailable"] end
     return 0, true, false
-  end
-  if not report and isGroup and db.consumables and not db.liteMode then
-    for _, cd in ipairs(X.CONS_DEFS) do
-      local t = X.consTally[cd.key]
-      if not t then t = { total = 0, miss = 0 }; X.consTally[cd.key] = t end
-      local has = X.ConsHas(unit, cd)
-      if has ~= nil then t.total = t.total + 1 end
-      if has == false then t.miss = t.miss + 1 end
-    end
   end
   if not reviewing then X.scanUnit, X.blessingScanUnit = nil, nil end -- fresh index scans for aura readers
   local n = 0
@@ -2055,10 +2319,11 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
     if report == "why" and eligible and outdoorThorns then
       detail.rule = detail.rule .. " · " .. L["Thorns: Any Class Outdoors"]
     end
+    local coverage = b.key == "FORTITUDE" and X.FortitudeCoverage or HasAny
     if report == "raidCoverage" then
       if eligible and not b.self then
         local has
-        if detail.observable then has = HasAny(unit, b.names, 0) end
+        if detail.observable then has = coverage(unit, b.names, 0) end
         detail.record(b.name, has)
       end
     elseif reviewing and eligible then
@@ -2066,7 +2331,7 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
     elseif eligible then
       local thr = report and report ~= "why" and 0
         or (db.rebuffPer and db.rebuffPer[b.key]) or db.rebuff
-      local has, left = HasAny(unit, b.names, thr, not report and isGroup and scanHorizon)
+      local has, left = coverage(unit, b.names, thr, not report and isGroup and scanHorizon)
       if report then
         checked = true
         if has == nil then unknown = true end
@@ -2248,7 +2513,6 @@ local function EntryOrder(a, b)
   if db.sortMode == "role" and (a.role or 3) ~= (b.role or 3) then
     return (a.role or 3) < (b.role or 3)
   end
-  if (a.outOfRange or false) ~= (b.outOfRange or false) then return not a.outOfRange end
   if a.group ~= b.group then return a.group end
   return a.sortName < b.sortName  -- readable name, or "" (a shown name may be protected)
 end
@@ -2293,7 +2557,7 @@ X.Ignore = Ignore  -- for Extras.lua (1.13.0)
 function Ignore.Rebuild()
   wipe(Ignore.index)
   local dupes
-  for name in pairs(db.ignored) do
+  for _, name in ipairs(Ignore.Sorted()) do
     local k = Ignore.Key(name)
     if Ignore.index[k] then
       dupes = dupes or {}
@@ -2311,17 +2575,28 @@ end
 -- What a stored ignore entry may be: a plausible name or name-realm. Game
 -- escape codes ("|"), control characters and the list separator never occur
 -- in player names, and a stored one would render as markup in the list.
-function Ignore.Valid(name)
-  return type(name) == "string" and name ~= "" and #name <= 64
-    and name:find("%S") ~= nil and not name:find("[%c;|]")
+Ignore.Valid = X.Settings.ValidIgnore
+
+function Ignore.AddMany(names)
+  local add, pending = {}, {}
+  local available = X.Settings.Limits.ignored - X.Settings.Count(db.ignored)
+  for _, name in ipairs(names) do
+    if Ignore.Valid(name) then
+      local key = Ignore.Key(name)
+      if not Ignore.index[key] and not pending[key] then
+        if #add >= available then return nil, L["Ignore list is full. Remove entries first."] end
+        pending[key] = true
+        add[#add + 1] = name
+      end
+    end
+  end
+  for _, name in ipairs(add) do db.ignored[name], Ignore.index[Ignore.Key(name)] = true, name end
+  return #add
 end
 
 function Ignore.Add(name)
-  local k = Ignore.Key(name)
-  if Ignore.index[k] then return false end
-  db.ignored[name] = true
-  Ignore.index[k] = name
-  return true
+  local n, err = Ignore.AddMany({ name })
+  return n == 1, err
 end
 
 -- Removes the matching entry. Unless exact, a bare name also removes that
@@ -2414,8 +2689,7 @@ local function Consider(unit, isGroup)
   -- Healer drinking (1.8.0, Forever): anyone in the group with a Drink
   -- aura is marked; healing classes also feed the coverage line count.
   X.scanUnit = nil
-  if isGroup and db.drinkWatch and not db.liteMode and CLASSIC_FEATURES
-     and select(2, X.Remaining(unit, "Drink")) == "present" then
+  if isGroup and X.ScanConsumables(unit) then
     X.drinkSet[guid] = true
     local dclass = X.UnitClassToken(unit)
     if dclass == "PRIEST" or dclass == "PALADIN" or dclass == "SHAMAN"
@@ -2436,7 +2710,10 @@ local function Consider(unit, isGroup)
   if auraUnknown then X.scanHasUnknownBuffs = true end
   if allN > 0 or X.auraNeedsBuff then X.scanHasMissingBuffs = true end
   e.remain1, e.expiringSpell = X.remainTmp, e.allMissing[1]
-  if isGroup and not auraUnknown and allN == 0 then X.missNow[guid] = {} end
+  local expired, fallExpired
+  if isGroup then expired, fallExpired = X.RecordMissing(guid, unit, e.allMissing, auraUnknown) end
+  if expired then X.expiredAt[guid] = GetTime() end
+  if fallExpired and db.fallSound and X.afterCombatScan then X.fallPending = true end
   local queue = e.allMissing
   if X.subgroupDuties and next(X.subgroupDuties) and InRaid() then
     e.subgroupMissing = e.subgroupMissing or {}
@@ -2444,7 +2721,7 @@ local function Consider(unit, isGroup)
   end
   local n, approximate = X.FilterInRange(unit, queue, e.missing, isSelf)
   if #queue > 0 and n == 0 and db.rangeWatch then X.farNow[guid] = nm or true end
-  if n == 0 and (#queue > 0 or allN == 0) then return end
+  if n == 0 then return end
   local class = X.UnitClassToken(unit)
   e.unit, e.guid, e.name, e.class, e.group = unit, guid, nm or unit, class, isGroup
   e.fullName, e.sortName = full, nm or ""
@@ -2452,41 +2729,11 @@ local function Consider(unit, isGroup)
   e.rangeBucket = 0
   e.approximateRange = approximate
   e.marker = X.ReadRaidMarker(unit)
-  if isGroup and not auraUnknown then
-    -- Expiry tracking: a buff that was not missing last scan, is missing
-    -- now, and is truly gone (not just inside its rebuff window) expired,
-    -- was dispelled, or went away with a death.
-    local keys, expired, fallExpired = {}, nil, nil
-    for j = 1, #e.allMissing do
-      local key = X.KeyOfName(e.allMissing[j])
-      if key then
-        keys[key] = true
-        local prev = X.missPrev[guid]
-        if prev and not prev[key] and HasAny(unit, { e.allMissing[j] }, 0) == false then
-          expired = true
-          if not Single.spell[key] then fallExpired = true end
-        end
-      end
-    end
-    X.missNow[guid] = keys
-    -- Sticky for a few seconds: the next scan already sees the buff as
-    -- "missing last time too", so without this the flag would flap off.
-    if expired then X.expiredAt[guid] = GetTime() end
-    -- #33 (1.15.0): a group buff that was up before the fight and is gone
-    -- at the first scan after it fell off here -- CheckFalls plays the
-    -- distinct "fall" alert for it (single-target buffs excluded: they
-    -- have their own drop alert in CheckDrops).
-    if fallExpired and db.fallSound and X.afterCombatScan then X.fallPending = true end
-    local ea = X.expiredAt[guid]
-    e.expired = (expired or (ea and GetTime() - ea < 10)) or nil
-  else
-    e.expired = nil
-  end
-  if n == 0 then return end
+  local ea = X.expiredAt[guid]
+  e.expired = isGroup and not auraUnknown and (expired or (ea and GetTime() - ea < 10)) or nil
   nEntries = slot
   local rz = X.rezAt[guid]
   e.rezzed = (rz and GetTime() - rz < 60) or nil
-  e.outOfRange = false
   e.groupCast = false
   e.role, e.groupRole = RoleOf(unit, isSelf)
   e.pet = nil
@@ -2557,7 +2804,6 @@ function X.ConsiderPet(petUnit, ownerUnit)
   e.marker = X.ReadRaidMarker(petUnit)
   e.remain1, e.expiringSpell, e.groupRole = nil, nil, nil
   e.expired, e.rezzed = nil, nil
-  e.outOfRange = false
   e.groupCast = false
   e.role = 3
 end
@@ -2607,13 +2853,12 @@ local function CollectEntries()
   X.tallyUnits, X.tallyMissingUnits, X.tallyUnknownUnits = 0, 0, 0
   X.scanHasUnknownBuffs, X.scanHasMissingBuffs, X.scanNameFiltered = false, false, false
   X.rangeSilent = false
-  X.missPrev, X.missNow = X.missNow, {}
-  wipe(X.missNow)
+  X.ResetMissingScan()
   X.fallPending = nil
   nEntries = 0
   X.platesSeen, X.playersSeen = 0, 0
   local list = InRaid() and RAID or PARTY
-  X.TrackDeaths(list, "player")
+  X.TrackDeaths(list)
   for i = 1, #list do Consider(list[i], true) end
   Consider("player", true)
   -- Group pets (1.8.0): your pet and your group members' pets, as rows.
@@ -2698,9 +2943,7 @@ local function CollectEntries()
     e.drinking = X.drinkSet[e.guid] or nil
     -- Repeat-offender history (1.8.0): remember who was seen unbuffed
     -- this group session; the count lands when the group ends.
-    if e.group and not e.pet and e.sortName and e.sortName ~= "" then
-      X.offNow[e.sortName] = true
-    end
+    if e.group and not e.isSelf and not e.pet and e.fullName then X.TrackOffender(e.guid, e.fullName) end
     e.queued = nil  -- set after the sort, on the new top row only
     e.weapon = nil  -- set below, on your own row only (pooled entries)
   end
@@ -2799,7 +3042,7 @@ X.ext = {}   -- extra slash commands, registered by Extras.lua: name -> function
 function X.SpecKey()
   if not _G.GetSpecialization then return nil end
   local ok, idx = pcall(_G.GetSpecialization)
-  if ok and type(idx) == "number" and idx > 0 then return "s" .. idx end
+  if ok and Readable(idx) and type(idx) == "number" and idx >= 1 and idx <= 4 and idx == math_floor(idx) then return "s" .. idx end
   return nil
 end
 
@@ -3090,9 +3333,13 @@ end
 function X.SendGroupReport(text)
   local channel = InRaid() and "RAID" or (InGroup() and "PARTY" or nil)
   local send = (_G.C_ChatInfo and _G.C_ChatInfo.SendChatMessage) or _G.SendChatMessage
-  if not channel or not send or #text > 255 then return end
+  if not channel then return nil, L["No group channel."] end
+  if type(send) ~= "function" then return nil, L["Group chat is unavailable."] end
+  if #text > 255 then return nil, L["The message exceeds the chat limit."] end
   local ok, accepted = pcall(send, text, channel)
-  if ok and accepted ~= false then return channel end
+  if ok and type(accepted) == "nil" then return channel, nil, false end -- no delivery result from the client
+  if ok and Readable(accepted) and accepted == true then return channel, nil, true end
+  return nil, L["The game did not accept the send."]
 end
 
 function X.SnapshotMissing(report)
@@ -3117,9 +3364,10 @@ function X.ReadyReport(report)
     -- Auto-post (1.7.0): the leader or an assistant can have the summary
     -- posted to group chat too, so the group sees it without asking.
     if db.readyPost and X.AmLead() then
-      X.SendGroupReport(string_format("BuffRadar ready check: %d %s missing buffs (%d buffs needed).%s",
+      local sent, failure = X.SendGroupReport(string_format("BuffRadar ready check: %d %s missing buffs (%d buffs needed).%s",
         people, people == 1 and "person is" or "people are", report.buffs,
         note and (" " .. note) or ""))
+      if not sent then Print(string_format(L["Local only — not sent: %s"], failure)) end
     end
   end
 end
@@ -3151,7 +3399,12 @@ function X.Announce()
   end
   local text = "BuffRadar -- missing buffs: " .. table.concat(segs, " · ")
     .. (note and (" · " .. note) or "")
-  if not X.SendGroupReport(text) then
+  local channel, failure, accepted = X.SendGroupReport(text)
+  if channel then
+    Print(L[accepted and "Game accepted the group chat send; delivery is not confirmed."
+      or "Group chat send requested; delivery is not confirmed."])
+  else
+    Print(string_format(L["Local only — not sent: %s"], failure))
     Print(text)
   end
 end
@@ -3212,7 +3465,12 @@ function X.DefaultRank(spell, level)
   return false
 end
 
+function X.RankTooLow(spell, level, method)
+  return CLASSIC_FEATURES and method ~= "macro" and X.DefaultRank(spell, level) == false
+end
+
 function X.BindingRank(spell, unit, level, method)
+  if X.RankTooLow(spell, level, method) then return false end
   if method == "target" then return X.DefaultRank(spell, level) end
   return PickRank(spell, unit, level)
 end
@@ -3379,24 +3637,12 @@ function X.SubgroupDutyCommand(input)
     if #keys > 0 then Print(string_format(L["Available Buff Keys: %s"], table.concat(keys, ", "))) end
     return
   end
-  if not X.KnownSubgroupKey(key) or not selection or not InRaid() or
-    (selection ~= "ALL" and selection ~= "NONE" and not selection:match("^[1-8][,1-8]*$")) then
+  if not X.KnownSubgroupKey(key) or not selection or not InRaid() then
     Print(L["In a raid, use /br subgroup BUFF 1,2,3 or ALL or NONE."])
     return
   end
-  local groups
-  if selection ~= "ALL" then
-    groups = {}
-    if selection ~= "NONE" then
-      for group in selection:gmatch("[^,]+") do
-        if #group ~= 1 then Print(L["Use subgroup numbers 1 to 8, separated by commas."]); return end
-        groups[tonumber(group)] = true
-      end
-      if selection:find(",,", 1, true) or selection:sub(-1) == "," then
-        Print(L["Use subgroup numbers 1 to 8, separated by commas."]); return
-      end
-    end
-  end
+  local groups, valid = X.Settings.ParseSubgroups(selection)
+  if not valid then Print(L["Use subgroup numbers 1 to 8, separated by commas."]); return end
   if X.SetSubgroupDuty(key, groups) then Print(string_format(L["Subgroup responsibility updated for %s."], key)) end
 end
 
@@ -3544,11 +3790,20 @@ function X.GroupOffer(spell, unit, preview)
   if not CLASSIC_FEATURES then return nil end
   local name, baseID, greater = GroupSpellFor(spell)
   if not name then return nil end
+  local raid = InRaid()
+  local valid, isSelf = Valid(unit)
+  if not valid or not X.UnitGUIDOf(unit) or (not isSelf and not (InGroup()
+      and (raid and unit:match("^raid%d+$") or not raid and unit:match("^party[1-4]$")))) then
+    return nil, nil, nil, "target"
+  end
   local list = ranks[name]
   local pick = X.BindingRank(name, unit, X.ReadUnitNumber(UnitLevel, unit), db.castMethod)
-  if pick == false or (baseID and not known[name] and not X.ReadUnitBool(_G.IsPlayerSpell, baseID)
-      and not X.ReadUnitBool(_G.IsSpellKnown, baseID)) then return nil end
+  if pick == false or (not known[name] and not (baseID and (X.ReadUnitBool(_G.IsPlayerSpell, baseID)
+      or X.ReadUnitBool(_G.IsSpellKnown, baseID)))) then return nil end
   if not preview and OnCooldown(name) then return nil end
+  if not preview and not X.GroupSpellInRange(name, unit, isSelf) then
+    return nil, nil, nil, "range"
+  end
   local blocker, reason = X.GroupBlockersFor(spell, name, unit, greater, baseID, preview)
   if blocker then return nil, nil, nil, reason, nil, blocker end
   local exact = db.castMethod ~= "macro" and pick
@@ -3590,6 +3845,8 @@ local function GroupBlockerText(blocker)
 end
 
 function X.GroupOfferReason(item, count, reason, blockers, compact)
+  if reason == "target" then return L["No eligible group target."] end
+  if reason == "range" then return L["Group spell range could not be confirmed."] end
   if blockers then
     local first, total = blockers.first, #blockers.members
     local text
@@ -4015,7 +4272,8 @@ local function ExactCastName(unit)
 end
 
 function X.NeedsExactTarget(unit, isSelf, method)
-  return method == "target" and not isSelf and not unit:match("^party%d+$") and not unit:match("^raid%d+$")
+  return method == "target" and not isSelf and unit ~= "pet" and not unit:match("^party[1-4]$")
+    and not unit:match("^raid%d+$") and not unit:match("^partypet[1-4]$") and not unit:match("^raidpet%d+$")
 end
 
 local function ExactCastMacro(name, text, hadTarget)
@@ -4048,15 +4306,13 @@ function Bind(btn, unit, spell, isSelf, pick, gspell, gpick, hadTarget)
   btn:SetAttribute("shift-macrotext1", nil)
   local method = db.castMethod
   if method == "target" then
-    -- Self-casts go straight to "player", and party/raid members are cast on
-    -- by their group unit (party2, raid14, ...), so your target never changes.
+    -- Self, party/raid and pet casts use their unit tokens directly, so
+    -- your target never changes and a pet does not need a unique name.
     -- Anyone else -- nameplate, target or mouseover units, which can point at
     -- a different player by the time you click -- uses BuffYou's approach
     -- (MIT, by datdata): target them by exact name, cast the buff,
     -- then restore your previous target.
-    -- Group units are rebound on every roster change (GROUP_ROSTER_UPDATE
-    -- refreshes the list); only a roster change during combat, while the
-    -- list is frozen, can leave a row pointing at whoever took that slot.
+    -- PreClick checks the live GUID before acting on a reused unit token.
     btn:SetAttribute("type", nil)
     btn:SetAttribute("unit", nil)
     btn:SetAttribute("spell", nil)
@@ -4072,7 +4328,7 @@ function Bind(btn, unit, spell, isSelf, pick, gspell, gpick, hadTarget)
       end
       return
     end
-    if unit:match("^party%d+$") or unit:match("^raid%d+$") then
+    if not X.NeedsExactTarget(unit, isSelf, method) then
       btn:SetAttribute("type", "spell")
       btn:SetAttribute("spell", (pick and pick.id) or spell)
       btn:SetAttribute("unit", unit)
@@ -4291,10 +4547,13 @@ local function ApplyCast(cast, terminal, targetError)
     X.sessionCasts = X.sessionCasts + 1
     db.castsTotal = (db.castsTotal or 0) + 1
     db.stats = db.stats or {}
-    db.stats[name] = (db.stats[name] or 0) + 1
-    db.history = db.history or {}
-    db.history[#db.history + 1] = { t = (time and time()) or 0, spell = name, who = cast.who }
-    while #db.history > 50 do table.remove(db.history, 1) end
+    if X.Settings.PlainString(name, 128) then
+      if X.Settings.CanAdd(db.stats, "stats", name) then db.stats[name] = (db.stats[name] or 0) + 1 end
+      if X.Settings.PlainString(cast.who, 128) then
+        if #db.history >= 50 then table.remove(db.history, 1) end
+        db.history[#db.history + 1] = { t = (time and time()) or 0, spell = name, who = cast.who }
+      end
+    end
     X.UpdateCounter()
     local key = X.KeyOfName(name)
     if key then X.SyncSend(key, cast.guid) end
@@ -4560,7 +4819,7 @@ local function OfferGroupCast(n)
     local tally = {}
     for i = 1, n do
       local e = entries[i]
-      if e.group and not e.isSelf and not e.outOfRange then
+      if e.group and not e.isSelf and not e.pet and X.RowTargetMatches(e) then
         for _, spell in ipairs(e.missing) do
           for _, b in ipairs(myBuffs) do
             if b.name == spell and b.groupName then
@@ -4572,9 +4831,8 @@ local function OfferGroupCast(n)
     end
     for i = 1, n do
       local e = entries[i]
-      if e.outOfRange then break end
       local converted = false
-      if e.group then
+      if e.group and not e.pet then
         for _, b in ipairs(myBuffs) do
           if b.name == e.missing[1] and b.groupName
              and (tally[b.key] or 0) >= (db.groupCastMin or 3) then
@@ -4610,7 +4868,7 @@ local function AlertOnNewEntries(n)
     local guid = entries[i].guid
     listedNow[guid] = true
     -- (greyed out-of-range rows don't ding: they're not castable yet)
-    if not entries[i].outOfRange and not listedBefore[guid] then
+    if not listedBefore[guid] then
       local gone = recentlyGone[guid]
       if not gone or now - gone > 10 then newName = true end
     end
@@ -4687,6 +4945,7 @@ local function Refresh()
     AlertOnNewEntries(n)
   end
   X.Status.Publish(entries, n)
+  X.missPrev, X.missNow = X.missNow, X.missPrev
 end
 
 ---------------------------------------------------------------------------
@@ -4696,24 +4955,49 @@ local driver = CreateFrame("Frame")
 local refreshQueued = false
 local ticker
 
-X.perf = { n = 0, total = 0, max = 0, last = 0 }
-local function SafeRefresh()
-  local t0 = debugprofilestop and debugprofilestop()
-  local ok, err = pcall(Refresh)
-  if t0 then
-    local dt = debugprofilestop() - t0
-    local pf = X.perf
-    pf.n, pf.total, pf.last = pf.n + 1, pf.total + dt, dt
-    if dt > pf.max then pf.max = dt end
-  end
-  if not ok then
-    scanHorizon = nil
-    X.Status.Unavailable("updating")
-    if err ~= lastError then
-      lastError = err
-      Print("|cffff4040error:|r " .. tostring(err))
+do
+  local function RecordTiming(kind, start, ...)
+    local stop = X.ReadUnitNumber(debugprofilestop)
+    if stop and stop >= start then
+      local dt, stat = stop - start, X.timings[kind]
+      stat.n, stat.total, stat.last = stat.n + 1, stat.total + dt, dt
+      if dt > stat.max then stat.max = dt end
     end
+    return ...
   end
+
+  function X.Measure(kind, work, ...)
+    local start = X.ReadUnitNumber(debugprofilestop)
+    if not start then return work(...) end
+    return RecordTiming(kind, start, work(...))
+  end
+end
+
+X.timings = {}
+for _, kind in ipairs({ "scan", "prepare", "import", "debuff", "combatDebuff" }) do
+  X.timings[kind] = { n = 0, total = 0, max = 0, last = 0 }
+end
+
+function X.RefreshFault(err)
+  scanHorizon, nEntries, X.afterCombatScan, X.fallPending = nil, 0, nil, nil
+  X.groupFallback, X.groupFallbackEntry, X.groupFallbackSummary = nil, nil, nil
+  X.scanUnit, X.blessingScanUnit = nil, nil
+  X.scanHasUnknownBuffs, X.scanHasMissingBuffs, X.scanNameFiltered = true, false, false
+  X.tallyUnits, X.tallyMissingUnits, X.tallyUnknownUnits = 0, 0, 0
+  wipe(X.tally); wipe(X.consTally); wipe(X.expiryTally)
+  X.ClearCastIntent()
+  pcall(X.AbortWindowScan)
+  pcall(X.SyncCastMacro, true)
+  pcall(X.Status.Unavailable, InCombatLockdown() and "combat" or "updating")
+  if err ~= lastError then
+    lastError = err
+    Print("|cffff4040error:|r " .. tostring(err))
+  end
+end
+
+local function SafeRefresh()
+  local ok, err = X.Measure("scan", pcall, Refresh)
+  if not ok then X.RefreshFault(err) end
 end
 
 -- Steady refresh every UPDATE_INTERVAL via C_Timer; bursts of events (UNIT_AURA storms in
@@ -4794,6 +5078,7 @@ else
       end
       if X.playerDead then return end
       if X.ExpireReadyCheck then X.ExpireReadyCheck() end
+      if X.TickPull then X.TickPull() end
       X.UpdateFade()
       X.TickMinimapPulse()
       if not InCombatLockdown() and (eventPending or not refreshIdle) then SafeRefresh() end
@@ -4856,31 +5141,49 @@ local function RequestSpellData()
   end
 end
 
--- Register events one at a time and ignore any this client doesn't have
--- (newer clients throw an error for unknown event names, which would stop the whole file).
-for _, ev in ipairs({
-  "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
-  "SPELLS_CHANGED", "LEARNED_SPELL_IN_TAB", "LEARNED_SPELL_IN_SKILL_LINE",
-  "GROUP_ROSTER_UPDATE", "PARTY_MEMBERS_CHANGED", "RAID_ROSTER_UPDATE", "PARTY_LEADER_CHANGED",
-  "PLAYER_ROLES_ASSIGNED", "GROUP_LEFT",
-  "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "UNIT_AURA", "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
-  "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED",
-  "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED", "UI_ERROR_MESSAGE",
-  "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN", "CVAR_UPDATE", "UPDATE_BINDINGS", "UPDATE_MACROS",
-  "PLAYER_LEAVING_WORLD", "PLAYER_LOGOUT",
-  "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS",
-  "SPELL_DATA_LOAD_RESULT", "UNIT_PORTRAIT_UPDATE", "BAG_UPDATE_DELAYED",
-  "READY_CHECK", "READY_CHECK_CONFIRM", "READY_CHECK_FINISHED",
-  "PLAYER_TALENT_UPDATE", "ACTIVE_TALENT_GROUP_CHANGED",
-  "CHAT_MSG_ADDON", "CHAT_MSG_WHISPER", "CHAT_MSG_SAY", "CHALLENGE_MODE_START",
-  "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST", "PLAYER_FLAGS_CHANGED",
-  "PLAYER_FOCUS_CHANGED", "PLAYER_STARTED_MOVING", "PLAYER_STOPPED_MOVING",
-  "ENCOUNTER_START", "ENCOUNTER_END", "UPDATE_INVENTORY_DURABILITY", "PLAYER_EQUIPMENT_CHANGED", "UNIT_PET",
-}) do
-  pcall(driver.RegisterEvent, driver, ev)
+-- An incompatible install needs only the startup warning and, if locked
+-- down, one combat-exit callback to park an owned action-bar macro.
+if not X.supported then
+  driver:RegisterEvent("ADDON_LOADED")
+  driver:RegisterEvent("PLAYER_LOGIN")
+else
+  -- Register events one at a time and ignore any this client doesn't have
+  -- (newer clients throw an error for unknown event names, which would stop the whole file).
+  for _, ev in ipairs({
+    "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
+    "SPELLS_CHANGED", "LEARNED_SPELL_IN_TAB", "LEARNED_SPELL_IN_SKILL_LINE",
+    "GROUP_ROSTER_UPDATE", "PARTY_MEMBERS_CHANGED", "RAID_ROSTER_UPDATE", "PARTY_LEADER_CHANGED",
+    "PLAYER_ROLES_ASSIGNED", "GROUP_LEFT", "DISPLAY_SIZE_CHANGED", "UI_SCALE_CHANGED",
+    "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "UNIT_AURA", "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
+    "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED",
+    "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED", "UI_ERROR_MESSAGE",
+    "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN", "CVAR_UPDATE", "UPDATE_BINDINGS", "UPDATE_MACROS",
+    "PLAYER_LEAVING_WORLD", "PLAYER_LOGOUT",
+    "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS",
+    "SPELL_DATA_LOAD_RESULT", "UNIT_PORTRAIT_UPDATE", "BAG_UPDATE_DELAYED",
+    "READY_CHECK", "READY_CHECK_CONFIRM", "READY_CHECK_FINISHED",
+    "PLAYER_TALENT_UPDATE", "ACTIVE_TALENT_GROUP_CHANGED",
+    "CHAT_MSG_ADDON", "CHAT_MSG_WHISPER", "CHAT_MSG_SAY", "CHALLENGE_MODE_START",
+    "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST", "PLAYER_FLAGS_CHANGED",
+    "PLAYER_FOCUS_CHANGED", "PLAYER_STARTED_MOVING", "PLAYER_STOPPED_MOVING",
+    "ENCOUNTER_START", "ENCOUNTER_END", "UPDATE_INVENTORY_DURABILITY", "PLAYER_EQUIPMENT_CHANGED", "UNIT_PET",
+  }) do
+    pcall(driver.RegisterEvent, driver, ev)
+  end
 end
 
-driver:SetScript("OnEvent", function(_, event, arg1, ...)
+driver:SetScript("OnEvent", function(self, event, arg1, ...)
+  if not X.supported then
+    if event == "PLAYER_LOGIN" or (event == "ADDON_LOADED" and arg1 == ADDON) then
+      self:UnregisterAllEvents()
+      if InCombatLockdown() then self:RegisterEvent("PLAYER_REGEN_ENABLED") else X.SyncCastMacro(true) end
+      Print(L["BuffRadar requires the Forever package on Interface 16001. Casting is disabled."])
+    elseif event == "PLAYER_REGEN_ENABLED" and not InCombatLockdown() then
+      self:UnregisterAllEvents()
+      X.SyncCastMacro(true)
+    end
+    return
+  end
   if X.auraIds then
     if event == "PLAYER_TARGET_CHANGED" then X.auraIds.target = nil
     elseif event == "UPDATE_MOUSEOVER_UNIT" then X.auraIds.mouseover = nil
@@ -4900,7 +5203,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
   elseif event == "UPDATE_MOUSEOVER_UNIT" then
     X.DisarmStaleCastMacro("mouseover")
   elseif event == "GROUP_ROSTER_UPDATE" or event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE"
-      or event == "GROUP_LEFT" then
+      or event == "GROUP_LEFT" or event == "UNIT_PET" then
     X.DisarmStaleCastMacro()
   end
   -- The busiest events, filtered first. They queue a list refresh:
@@ -4936,7 +5239,10 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if db and X.CastEvent(event, arg1, ...) then Soon() end
     return
   end
-  if event == "PLAYER_STARTED_MOVING" or event == "PLAYER_STOPPED_MOVING" then
+  if event == "DISPLAY_SIZE_CHANGED" or event == "UI_SCALE_CHANGED" then
+    Soon() -- the secure viewport is resized only by an unlocked refresh
+    return
+  elseif event == "PLAYER_STARTED_MOVING" or event == "PLAYER_STOPPED_MOVING" then
     scanTicksRemaining = 0
     if db and db.scanThrottle and not refreshIdle and not InCombatLockdown() then Soon() end
     return
@@ -4957,6 +5263,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if X.QueuePersonalReadiness and (event ~= "UNIT_PET" or Readable(arg1) and arg1 == "player") then
       X.QueuePersonalReadiness()
     end
+    if event == "UNIT_PET" and db and db.pets and not InCombatLockdown() then Soon() end
     return
   elseif event == "CVAR_UPDATE" then
     local name = type(arg1) == "string" and Readable(arg1) and arg1:lower()
@@ -4975,6 +5282,8 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if X.RefreshConfig then X.RefreshConfig() end
     return
   elseif event == "PARTY_LEADER_CHANGED" then
+    X.CheckLegacyAuthority()
+    if X.CheckPullRoster then X.CheckPullRoster() end
     X.OnCoordinationRoster(true)
     Soon()
     return
@@ -4986,6 +5295,9 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     if X.QueueAssignmentPreviewRefresh then X.QueueAssignmentPreviewRefresh() end
     return
   elseif event == "GROUP_LEFT" then
+    X.CheckLegacyAuthority(not InGroup())
+    X.joinGeneration = (X.joinGeneration or 0) + 1
+    X.OnRoster()
     X.OnCoordinationRoster(true)
     if not InGroup() then
       X.Intel.ResetContext()
@@ -5106,7 +5418,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
       end
       return
     end
-    X.Settings.Load(true)
+    X.ShowSaveState(X.Settings.Load(true))
     X.Status.Unavailable("updating")
     Ignore.Rebuild()
     X.SpecSwap()
@@ -5115,7 +5427,7 @@ driver:SetScript("OnEvent", function(_, event, arg1, ...)
     driver:UnregisterEvent("PLAYER_LOGIN")  -- one-off
     if not db then
       -- Defensive fallback: normally ADDON_LOADED has already migrated the save.
-      X.Settings.Load(false)
+      X.ShowSaveState(X.Settings.Load(false))
       Ignore.Rebuild()
     end
     X.ResolveAutoTheme()
@@ -5253,7 +5565,7 @@ local function MacroBody(disarmed)
   -- Write the already prepared action as top-level commands instead. The
   -- only /click in this path is an ordinary button for cast bookkeeping.
   local text, shifted = nextBtn:GetAttribute("macrotext"), nextBtn:GetAttribute("shift-macrotext1")
-  if db.castMethod ~= "target" and not entry.pet and X.NeedsExactTarget(entry.unit, entry.isSelf, "target") then
+  if db.castMethod ~= "target" and X.NeedsExactTarget(entry.unit, entry.isSelf, "target") then
     -- In other cast modes the button may carry a mutable nameplate or
     -- mouseover token. Never embed that token in a stored macro.
     text, shifted = X.ExactCastBody(entry.unit, nextBtn.bSpellText, shifted and nextBtn.bGroupText, X.UnitPresent("target"))
@@ -5303,14 +5615,14 @@ local function MacroEditorOpen()
     macro.editor = editor
     editor:HookScript("OnHide", function()
       if not X.InvalidateCastMacro() then return end
-      if X.PlayerSuspended() then X.SyncCastMacro(true) else Soon() end
+      if not X.supported or X.PlayerSuspended() then X.SyncCastMacro(true) else Soon() end
     end)
   end
   return true
 end
 
 function X.SyncCastMacro(disarmed)
-  if not db or InCombatLockdown() or macro.writing or not EditMacro then return end
+  if (not db and not disarmed) or InCombatLockdown() or macro.writing or not EditMacro then return end
   if not macro.checked then
     local index, body = ReadMacro()
     if index and not body then return end
@@ -5354,20 +5666,20 @@ end
 function KeybindText(binding)
   local k1, k2 = nil, nil
   if GetBindingKey then k1, k2 = GetBindingKey(binding or NEXT_BINDING) end
-  if not k1 then return "|cff888888not bound|r" end
+  if not k1 then return "|cff888888" .. L["not bound"] .. "|r" end
   local function nice(k) return (GetBindingText and GetBindingText(k)) or k end
   return "|cffffd100" .. nice(k1) .. (k2 and (", " .. nice(k2)) or "") .. "|r"
 end
 
 function OpenKeybinds()
   if X.PlayerSuspended() then return end
-  if InCombatLockdown() then Print("Can't open key bindings during combat."); return end
+  if InCombatLockdown() then Print(L["Can't open key bindings during combat."]); return end
   local ok = false
   if Settings and Settings.OpenToCategory and Settings.KEYBINDINGS_CATEGORY_ID then
     ok = pcall(Settings.OpenToCategory, Settings.KEYBINDINGS_CATEGORY_ID, BINDING_HEADER_BUFFRADAR)
   end
   if not ok then
-    Print("Open Game Menu > Options > Keybindings and look for the BuffRadar section.")
+    Print(L["Open Game Menu > Options > Keybindings and look for the BuffRadar section."])
   end
 end
 
@@ -5426,7 +5738,7 @@ end -- keybind + macro block
 
 -- Addon-private entry points. Consumers read the current queue counts and
 -- session flags through accessors; the spell and entry tables are reused.
-X.Print, X.L, X.Refresh = Print, L, Refresh
+X.Print, X.L, X.Refresh = Print, L, SafeRefresh
 X.InGroup, X.InRaid = InGroup, InRaid
 X.Core = {
   BuildBuffList = BuildBuffList,

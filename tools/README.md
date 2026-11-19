@@ -8,7 +8,7 @@ including the one where WoW silently refuses to load the whole addon.
 
 On Windows, open **PowerShell 7** in the project folder (the one holding
 `BuffRadar\` and `build.ps1`). In File Explorer, open that folder and type
-`pwsh` into the address bar. Install Python 3 first if `py -3 --version`
+`pwsh` into the address bar. Install Python 3.10 or newer first if `py -3 --version`
 doesn't find it. Follow the one-time setup below, then run:
 
 ```powershell
@@ -19,8 +19,25 @@ If you already have a BuffRadar tools folder, pass it with
 `-ToolsDir 'C:\path\to\brlua'`. From a Unix shell with Python 3 and Lupa
 available, use `sh tools/gate.sh` to run the same gate used by GitHub CI.
 
-The checker prints each result and ends with **All checks passed.** or
-**FAILED:** followed by what failed (exit code 1). Then build with `.\build.ps1`.
+The checker exits nonzero on failure. A compiler failure stops the run before
+smoke. Run Luacheck 1.2.0 separately from the POSIX gate.
+
+## Build and verify the ZIP
+
+Use `.\build.ps1` from PowerShell or `sh tools/package.sh` from POSIX. Both
+call `tools/package.py`, write a deterministic ZIP and checksum to `dist/`,
+and accept `--tag vX.Y.Z` to require an exact TOC match. Build before running
+`check.ps1` again to include the current ZIP in its checks, or verify directly
+with the Python environment that has Lupa installed:
+
+```sh
+python -I tools/checkpackage.py dist/BuffRadar-X.Y.Z-Forever.zip .
+```
+
+Replace `X.Y.Z` with the TOC version. The final `.` checks ZIP inventory and
+bytes against the current source, including the adjacent `SHA256SUMS.txt`.
+CI builds on Windows and POSIX and compares SHA-256 digests. Build twice
+before freezing a candidate, and use that exact ZIP for the field checklist.
 
 To run only the two-client Caster Coordination harness with the checker’s
 Python environment, use:
@@ -48,12 +65,13 @@ then — just run `-Setup` again.
 | Check | Catches |
 |---|---|
 | **luacheck** | Accidental globals, unused or shadowed variables, unreachable code. Settings in `..\.luacheckrc`: reading the game's API is allowed, creating globals is reported unless listed there. |
-| **Lua 5.1 compile** (`luacheck51.py`) | Compiles the addon and translations (the Forever TOC in PowerShell, all shared Lua files in CI). A compiler failure stops the gate before the trial run. |
+| **Lua 5.1 compile** (`luacheck51.py`) | Compiles all shared Lua and locale files in PowerShell and POSIX. A compiler failure stops the gate before the trial run. |
 | **Lua 5.1 limits** (`lualimits.py`) | Estimates headroom against Lua 5.1's limits of 200 active locals and 60 upvalues per function. The checker warns from 195 locals or 55 upvalues. The estimates are advisory. |
-| **Trial run** (`smoke51.py` + `wowstub.lua`) | Loads each edition in its TOC order. Checks startup and save migrations, cast attributes and event bookkeeping, window layout and controls, profile round trips, slash commands, and scan performance. Runs seven setups: both declared TOCs, plus variations for Extras on Retail, timers, UI templates, and German. |
-| **Translations** (`localecheck.py`) | Each `Locales\*.lua` against BuffRadar's English text: keys BuffRadar doesn't use (typos, outdated text) and `%d` / `%s` / color codes that differ — both fail the check. Untranslated lines are only listed. |
+| **Trial run** (`smoke51.py` + `wowstub.lua`) | Loads each edition in its TOC order. Checks startup and save migrations, cast attributes and event bookkeeping, window layout and controls, profile round trips, slash commands, and scan performance. `audit51.lua` contains isolated hardening regressions. Runs seven setups: both declared TOCs, plus variations for Extras on Retail, timers, UI templates, and German. |
+| **Translations** (`localecheck.py`) | Each `Locales\*.lua` against BuffRadar's English text: keys BuffRadar doesn't use (typos, outdated text) and `%d` / `%s` / color codes that differ — both fail the check. Missing German keys fail; untranslated keys in partial locales are reported. |
 | **Lua pattern arguments** (`patterncheck.py`) | Every `find` / `match` / `gmatch` / `gsub` pattern must be a string literal, or the call must be a plain find (`:find(x, 1, true)`), so player names, chat and imports can never be read as patterns. One line at a time; a non-literal pattern fails the check. |
-| **Forever package** | If a ZIP for the current version exists in `dist\`, checks its bytes against the current source, TOC metadata, declared Lua load order, and XML bindings in a Forever mock. CI builds and checks the archive on every PR. |
+| **Packaging regressions** (`test_package.py`) | Rebuilds from independent source trees and checks repeat bytes, version/tag rejection, link and path refusal, source drift, archive metadata, checksums and exact bindings. |
+| **Forever package** | If a ZIP for the current version exists in `dist\`, checks its bytes against the current source, TOC metadata, declared Lua load order, and XML bindings in a Forever mock, including `/br selftest` version readback. CI builds and checks the archive on every PR. |
 | **Two-client coordination** (`coordination51.py`) | Loads two independent Forever mock clients. Relays their real plan, cast, and session-proof packets. Checks plan acceptance, bidirectional cast sync, and replay rejection across roster and leadership changes. |
 
 ## Limits of the fake game client

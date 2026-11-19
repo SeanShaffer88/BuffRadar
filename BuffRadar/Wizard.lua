@@ -92,8 +92,8 @@ local function FinishSetup(w)
   ApplyGeometry()
   ApplyAppearance()
   X.ApplyRowLayout()
-  X.Intel.ForgetAlerts()
-  X.Intel.SettingsChanged()
+  X.SettingsChanged({ forecastSeconds = true, smartPriority = true, visualAlerts = true,
+    statusMinimap = true, profile = true })
   if X.RefreshConfig then X.RefreshConfig() end
   Print(L["Quick Setup complete. Run /br wizard to make new choices."])
 end
@@ -106,7 +106,7 @@ function X.OpenWizard()
   end
   local w = X.wizardFrame
   if not w then
-    w = CreateFrame("Frame", "BuffRadarWizard", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    w = X.PanelWidget("Frame", "BuffRadarWizard", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
     X.wizardFrame = w
     w:SetSize(422, 334)
     w:SetPoint("CENTER")
@@ -129,27 +129,24 @@ function X.OpenWizard()
     w.body:SetWordWrap(true)
     w.choice = {}
     for i = 1, 3 do
-      local b = CreateFrame("Button", nil, w, "UIPanelButtonTemplate")
+      local b = X.PanelWidget("Button", nil, w, "UIPanelButtonTemplate")
       b:SetSize(252, 28)
       b:SetPoint("TOP", w, "TOP", 0, -100 - (i - 1) * 38)
       w.choice[i] = b
     end
-    w.back = CreateFrame("Button", nil, w, "UIPanelButtonTemplate")
+    w.back = X.PanelWidget("Button", nil, w, "UIPanelButtonTemplate")
     w.back:SetSize(94, 24)
     w.back:SetPoint("BOTTOMLEFT", 16, 14)
     w.back:SetText(L["Back"])
     w.back:SetScript("OnClick", function() X.WizardPage(w.page - 1) end)
-    w.next = CreateFrame("Button", nil, w, "UIPanelButtonTemplate")
+    w.next = X.PanelWidget("Button", nil, w, "UIPanelButtonTemplate")
     w.next:SetSize(112, 24)
     w.next:SetPoint("BOTTOMRIGHT", -16, 14)
     w.next:SetText(L["Apply"])
     w.next:SetScript("OnClick", function() FinishSetup(w) end)
-    local close = CreateFrame("Button", nil, w, "UIPanelCloseButton")
+    local close = X.PanelWidget("Button", nil, w, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -5, -5)
-    close:SetScript("OnClick", function()
-      db.wizardSeen = true
-      w:Hide()
-    end)
+    close:SetScript("OnClick", function() w:Hide() end)
     w.close = close
     w:SetScript("OnHide", function() w.draft = nil end)
     if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarWizard") end
@@ -230,7 +227,7 @@ function X.CheckRange()
   for i = 1, core.EntryCount() do
     local e = entries[i]
     local g = e.guid
-    if g and X.farPrev[g] and not e.outOfRange and not e.pet then
+    if g and X.farPrev[g] and not e.pet then
       local name = X.farPrev[g] == true and e.name or X.farPrev[g]
       Print(string_format("%s is in range now and still needs a buff.", name))
       PlayAlert("new")
@@ -582,82 +579,240 @@ function X.DiscordText()
   return table.concat(lines, "\n")
 end
 
+local function ReviewText(f, lines)
+  f.reviewText:SetText(table.concat(lines, "\n"))
+  f.reviewChild:SetHeight(math.max(1, f.reviewText:GetStringHeight() or 1))
+  f.review:SetVerticalScroll(0)
+end
+
+local function ReviewNamedProfile(f)
+  local name = f.nameBox:GetText():match("^%s*(.-)%s*$")
+  local valid = X.Settings.IsProfileName(name)
+  local prior = valid and db.profiles[name] or nil
+  local used = valid and table.concat(X.ProfileMappings(name), ", ") or ""
+  local lines = { valid and string_format(L["Store as %s without loading its settings."], name)
+    or L["Profile names use letters, numbers, - and _ (max 40)."] }
+  if prior then lines[#lines + 1] = string_format(L["Existing profile: %s. Enter a different name to keep it."], name) end
+  if used ~= "" then lines[#lines + 1] = string_format(L["Auto-profile mappings using this name: %s"], used) end
+  f.reviewName, f.reviewPrior, f.reviewMappings = name, prior, used
+  f.apply:SetText(L[prior and "Replace profile" or "Save profile"])
+  f.apply:SetEnabled(valid and true or false)
+  lines[#lines + 1] = L["Compared with your current settings (not applied):"]
+  for _, line in ipairs(f.profileLines) do lines[#lines + 1] = line end
+  if #f.profileLines == 0 then lines[#lines + 1] = L["No settings or plan values would change."] end
+  ReviewText(f, lines)
+end
+
+local function ReviewImport(f)
+  return X.Measure("import", function()
+    local parse = f.importMode == "plan" and X.ParsePlanImport
+      or f.importMode == "profile" and X.ParseSharedProfile or X.ParseSettingsImport
+    local draft, err = parse(f.editBox:GetText())
+    if not draft then Print(err); return end
+    f.draft, f.reviewDB, f.reviewSignature, f.shareScope = draft, db, nil, nil
+    f.title:SetText(L["Review before applying"])
+    f.editBox:ClearFocus()
+    f.editBox:Hide()
+    f.accept:Hide()
+    f.back:Show()
+    f.review:Show()
+    f.apply:SetEnabled(true)
+    f.apply:Show()
+    if f.importMode == "profile" then
+      f.profileLines = X.ReviewSettings(draft.patch)
+      f.nameBox:Show()
+      f.nameBox:SetText(draft.name)
+      ReviewNamedProfile(f)
+      return
+    end
+    f.apply:SetText(L["Apply locally"])
+    local lines, _, scope
+    if f.importMode == "plan" then lines, _, scope = X.ReviewPlan(draft)
+    else lines = X.ReviewSettings(draft) end
+    f.reviewSignature, f.shareScope = table.concat(lines, "\n"), scope or nil
+    f.share:SetShown(f.shareScope ~= nil)
+    if #lines == 0 then lines[1] = L["No settings or plan values would change."] end
+    if f.importMode == "plan" then
+      lines[#lines + 1] = L["Auto-profile mappings stay local, even when sharing."]
+      if scope then
+        local channel = scope:match("^(%u+):")
+        lines[#lines + 1] = string_format(L["Apply and share sends changed assignments and blessings to %s."],
+          L[channel == "RAID" and "the raid" or "the party"])
+      else lines[#lines + 1] = L["Group sharing is unavailable for this review."] end
+    end
+    ReviewText(f, lines)
+  end)
+end
+
+local function ApplyImport(f, share)
+  if not f.draft or f.reviewDB ~= db or InCombatLockdown() or X.PlayerSuspended() then return end
+  local ok, msg = X.Measure("import", function()
+    if f.importMode == "profile" then
+      local name = f.nameBox:GetText():match("^%s*(.-)%s*$")
+      local lines = X.ReviewSettings(f.draft.patch)
+      if name ~= f.reviewName or db.profiles[name] ~= f.reviewPrior
+        or table.concat(X.ProfileMappings(name), ", ") ~= f.reviewMappings
+        or table.concat(lines, "\n") ~= table.concat(f.profileLines, "\n") then
+        f.profileLines = lines
+        ReviewNamedProfile(f)
+        return false, L["The current values changed. Review again before applying."]
+      end
+      return X.StoreProfile(name, f.draft.body, f.reviewPrior)
+    end
+    local plan = f.importMode == "plan"
+    local lines = plan and X.ReviewPlan(f.draft) or X.ReviewSettings(f.draft)
+    if f.reviewSignature ~= table.concat(lines, "\n") then
+      ReviewImport(f)
+      return false, L["The current values changed. Review again before applying."]
+    end
+    if plan then
+      if share and not f.shareScope then return false, L["Group sharing is unavailable for this review."] end
+      return X.ApplyPlan(f.draft, share and f.shareScope or nil)
+    end
+    X.ApplyProfile(f.draft)
+    return true, L["Settings applied locally."]
+  end)
+  Print(msg)
+  if not ok then return end
+  f.completed = true
+  f:Hide()
+  ApplyGeometry()
+  ApplyAppearance()
+  X.ApplyRowLayout()
+  if X.RefreshConfig then X.RefreshConfig() end
+  QueueRefresh()
+end
+
+local function ShowPaste(f, importing)
+  f.draft, f.reviewDB, f.reviewPrior, f.profileLines = nil, nil, nil, nil
+  f.title:SetText(f.pasteTitle)
+  f.review:Hide()
+  f.nameBox:Hide()
+  f.apply:Hide()
+  f.share:Hide()
+  f.back:Hide()
+  f.accept:SetShown(importing)
+  f.editBox:Show()
+  f.editBox:SetFocus()
+  f.editBox:HighlightText()
+end
+
 function X.ShowExport(text, forImport, titleText, mode)
   if X.PlayerSuspended() then return end
-  if InCombatLockdown() then Print("Can't open that during combat."); return end
+  if InCombatLockdown() then Print(L["Can't open that during combat."]); return end
   local f = X.exportFrame
   if not f then
-    f = CreateFrame("Frame", "BuffRadarExportFrame", UIParent,
+    f = X.PanelWidget("Frame", "BuffRadarExportFrame", UIParent,
                     BackdropTemplateMixin and "BackdropTemplate" or nil)
     X.exportFrame = f
-    f:SetSize(440, 150)
+    f:SetSize(550, 275)
     f:SetPoint("CENTER")
+    f:SetClampedToScreen(true)
     f:SetFrameStrata("DIALOG")
+    f:EnableMouse(true)
     if f.SetBackdrop then
-      f:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 },
-      })
+      f:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", tile = true, tileSize = 16, edgeSize = 12,
+        insets = { left = 3, right = 3, top = 3, bottom = 3 } })
       f:SetBackdropColor(0.04, 0.05, 0.09, 0.97)
       f:SetBackdropBorderColor(0.35, 0.55, 0.8, 1)
     end
-    f:EnableMouse(true)
-    f:SetMovable(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", function(self) self:StartMoving() end)
-    f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
     f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.title:SetPoint("TOPLEFT", 12, -10)
-    local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+    local close = X.PanelWidget("Button", nil, f, "UIPanelCloseButton")
     close:SetSize(22, 22)
     close:SetPoint("TOPRIGHT", 0, 0)
     close:SetScript("OnClick", function() f:Hide() end)
     local eb = CreateFrame("EditBox", nil, f)
-    eb:SetPoint("TOPLEFT", 12, -34)
-    eb:SetPoint("BOTTOMRIGHT", -12, 36)
+    eb:SetPoint("TOPLEFT", 12, -38)
+    eb:SetPoint("BOTTOMRIGHT", -12, 38)
     eb:SetMultiLine(true)
-    if eb.SetAutoFocus then eb:SetAutoFocus(false) end
+    eb:SetAutoFocus(false)
     if eb.SetFontObject and ChatFontNormal then eb:SetFontObject(ChatFontNormal) end
-    eb:SetScript("OnEscapePressed", function(self) if self.ClearFocus then self:ClearFocus() end end)
+    eb:SetScript("OnEscapePressed", function() f:Hide() end)
     f.editBox = eb
-    local acc = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    acc:SetSize(110, 22)
-    acc:SetPoint("BOTTOMRIGHT", -12, 8)
-    acc:SetText("Import")
-    acc:SetScript("OnClick", function()
-      local ok, msg
-      if f.importMode == "plan" then
-        ok, msg = X.PlanImport(f.editBox:GetText())
-      elseif f.importMode == "profile" then
-        ok, msg = X.ProfileImport(f.editBox:GetText())
-      elseif f.importMode == "ignore" then
-        ok, msg = X.IgnoreImport(f.editBox:GetText())
-      else
-        local txt = f.editBox:GetText()
-        if X.PrintDiff then X.PrintDiff(txt, "This import") end  -- what it changes, before it does (1.12.0)
-        ok, msg = X.Import(txt)
-      end
-      Print(msg)
-      if ok then
-        f:Hide()
-        ApplyGeometry()
-        ApplyAppearance()
-        if X.RefreshConfig then X.RefreshConfig() end
-        if QueueRefresh then QueueRefresh() end
-      end
+    f.review = CreateFrame("ScrollFrame", nil, f)
+    f.review:SetPoint("TOPLEFT", 12, -36)
+    f.review:SetPoint("BOTTOMRIGHT", -12, 65)
+    f.review:EnableMouseWheel(true)
+    f.review:SetScript("OnMouseWheel", function(self, delta)
+      local scroll = math.max(0, math.min(self:GetVerticalScrollRange(), self:GetVerticalScroll() - delta * 48))
+      self:SetVerticalScroll(scroll)
     end)
-    f.accept = acc
+    f.reviewChild = CreateFrame("Frame", nil, f.review)
+    f.reviewChild:SetSize(520, 1)
+    f.review:SetScrollChild(f.reviewChild)
+    f.reviewText = f.reviewChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.reviewText:SetPoint("TOPLEFT")
+    f.reviewText:SetWidth(520)
+    f.reviewText:SetJustifyH("LEFT")
+    f.nameBox = X.PanelWidget("EditBox", nil, f, "InputBoxTemplate")
+    f.nameBox:SetSize(208, 22)
+    f.nameBox:SetPoint("BOTTOMLEFT", 17, 38)
+    f.nameBox:SetAutoFocus(false)
+    f.nameBox:SetMaxLetters(40)
+    f.nameBox:SetScript("OnTextChanged", function() if f.profileLines then ReviewNamedProfile(f) end end)
+    f.nameBox:SetScript("OnEscapePressed", function() f:Hide() end)
+    local function button(label, w, anchor, offset, action, y)
+      local b = X.PanelWidget("Button", nil, f, "UIPanelButtonTemplate")
+      b:SetSize(w, 22)
+      b:SetPoint(anchor, offset, y or 8)
+      b:SetText(L[label])
+      b:SetScript("OnClick", function()
+        if f:IsShown() and b:IsShown() and not InCombatLockdown() and not X.PlayerSuspended() then action() end
+      end)
+      return b
+    end
+    f.back = button("Edit paste", 135, "BOTTOMLEFT", 12, function() ShowPaste(f, true) end)
+    f.share = button("Apply and share", 170, "BOTTOMRIGHT", -98, function() ApplyImport(f, true) end, 37)
+    f.apply = button("Apply locally", 170, "BOTTOMRIGHT", -98, function() ApplyImport(f) end)
+    f.cancel = button("Cancel", 80, "BOTTOMRIGHT", -12, function() f:Hide() end)
+    f.accept = button("Review import", 145, "BOTTOMRIGHT", -98, function()
+      if f.importMode ~= "ignore" then ReviewImport(f); return end
+      local ok, msg = X.IgnoreImport(f.editBox:GetText())
+      Print(msg)
+      if ok then f.completed = true; f:Hide() end
+    end)
+    f:SetScript("OnHide", function()
+      if f.importing and not f.completed then Print(L["Import canceled."]) end
+      f.draft, f.reviewDB, f.reviewPrior, f.importing, f.profileLines = nil, nil, nil, nil, nil
+      f.editBox:ClearFocus()
+      f.nameBox:ClearFocus()
+    end)
     if UISpecialFrames then UISpecialFrames[#UISpecialFrames + 1] = "BuffRadarExportFrame" end
     f:Hide()
   end
-  f.title:SetText(titleText or (forImport and "BuffRadar -- paste a settings string, then Import"
-                             or "BuffRadar -- your settings string (select all, copy)"))
-  f.importMode = mode or "settings"  -- what the Import button applies (1.8.0)
+  f.importMode, f.importing, f.completed = mode or "settings", forImport, nil
+  f.pasteTitle = titleText or L[forImport and "Paste a legacy BR1 settings copy, then review."
+    or "Legacy BR1 settings copy (select all, copy)"]
   f.editBox:SetText(text or "")
-  f.accept:SetShown(forImport and true or false)
+  f.accept:SetText(L[f.importMode == "ignore" and "Import" or "Review import"])
   f:Show()
-  if f.editBox.SetFocus then f.editBox:SetFocus() end
-  if f.editBox.HighlightText then f.editBox:HighlightText() end
+  ShowPaste(f, forImport and true or false)
+end
+
+function X.ShowSaveState(state)
+  if state == "future" then Print(L["A newer BuffRadar save was preserved. Changes are for this session only."])
+  elseif state == "overflow" then
+    Print(L["Too many profiles or ignores. The original save was preserved; changes are temporary."])
+    Print(L["Use /br storage delete profile <name> or /br storage delete ignore <name>, then reload."])
+  end
+end
+
+function X.RequestProfileSave(name)
+  if not X.Settings.IsProfileName(name) then
+    Print(L["Profile names use letters, numbers, - and _ (max 40)."])
+    return
+  end
+  local prior = db.profiles[name]
+  if not prior then
+    local _, msg = X.SaveProfile(name)
+    Print(msg)
+    if X.RefreshConfig then X.RefreshConfig() end
+    return
+  end
+  local body = X.ProfileSnapshot()
+  if not body then Print(L["These settings are too large to save as a profile."]); return end
+  X.ShowExport("BuffRadar profile: " .. name .. "\n" .. body, true, L["Review before applying"], "profile")
+  if X.exportFrame and X.exportFrame:IsShown() and not InCombatLockdown() then ReviewImport(X.exportFrame) end
 end

@@ -4,12 +4,27 @@ The feature list for BuffRadar (Forever edition) for
 WoW: Forever (Interface 16001). For the short version see
 `README.md`; for store-listing copy see `DESCRIPTION.md`.
 
-Prepared 2026-10-24 from the shipped 1.3.2 Forever README and
-CHANGELOG; updated 2026-11-14 for 1.15.16. Since 1.3.2 both editions are built from one source —
-the addon picks the Forever buff set when it loads on the Forever
-client — and the Forever buff set itself is unchanged from 1.2.4.
-**From 1.8.0 BuffRadar is Forever-only**: Retail support was dropped
-2026-10-25, and 1.7.0 is the last Retail release.
+The shipping Forever TOC requires Interface 16001. The historical Retail
+TOC remains a test fixture; 1.7.0 was the last Retail release.
+
+## 1.15.38: safer casts, saves and sharing
+
+- A scan or viewport paint failure clears cast actions until a successful
+  refresh. The viewport scrolls when fewer rows fit your screen.
+- Group casts use the same eligibility checks for automatic offers,
+  Shift-click, and the group key. Missing prerequisites fall back to the
+  single cast. Pet rows bind their pet unit, not a player's name.
+- Food, flask, drinking and world-buff checks use recognised aura IDs and
+  client spell names. An unreadable observation is not a confirmed absence.
+  Personal readiness checks temporary coatings only on eligible weapons.
+- Schema 23 preserves newer saves and deliberate profile/ignore overflow.
+  Review pasted settings before applying. Named profiles show collisions
+  and may be stored under another name without loading them.
+- Plan imports are local by default. Sharing requires an explicit choice,
+  current group membership and permission to send. Auto-profile mappings
+  stay local. A send result doesn't confirm that another player received it.
+- `/br positions on` remembers Settings and Ready Check positions (off by
+  default). `/br perf` reports available CPU timing samples by type.
 
 ## 1.15.37: Readiness
 
@@ -99,7 +114,9 @@ each needs in-game evidence or a sharper definition, recorded in
 
 - **Buff plan strings** (`/br plan export|import`): assignments,
   the blessing plan and the auto-profile map as one copyable
-  string; importing applies it and shares it onward.
+  string. Import opens a review; **Apply locally** is the default. If
+  authorised, **Apply and share** sends changed assignments and blessings,
+  not auto-profile mappings.
 - **Name finder** (`/br find`, `/br findbox`): a search box on the
   window filters the list by name; reports stay unfiltered.
 - **Duration bars** (`/br bars`): a thin bar under each row shows
@@ -161,8 +178,9 @@ each needs in-game evidence or a sharper definition, recorded in
 - **Row tooltips, completed:** hover a row to see the buffs the
   player has from your set, with the time left on each.
 - **Weapon enchant watch** (`/br weapon`): your row (or the
-  coverage line) flags an equipped weapon with no temporary
-  enchant — imbue, poison, oil or stone.
+  coverage line) flags an applicable melee weapon with no temporary
+  coating (such as an imbue, poison, oil or stone). Empty slots, shields, and
+  ranged weapons don't count as missing.
 - **Instance-entry reminder** (`/br enterflash`, on by default):
   one line on entering a dungeon, raid or battleground unbuffed.
 - **Group expiry warning:** the coverage line names a group buff
@@ -346,13 +364,12 @@ stays hidden on those characters.
 - **Water droplet alert** when someone new appears (optional, with a
   mute keybind; a system sound or silence can be chosen instead, and
   alerts can stay quiet in instances).
-- **Out-of-range players** can stay listed, greyed **and marked
-  *out of range* in text** (since 1.3.2 — the state doesn't rely on
-  color alone), so you see who's coming into range. **Right-click a
-  row** to ignore a player who doesn't want buffs
-  (`/br ignore` / `/br unignore` / `/br ignorelist`); since 1.3.2
-  the ignore list is realm-aware, ignores capitalization, and names
-  can be removed one by one on the Ignore & Stats tab.
+- **Explicitly out-of-range players are not cast rows.** Range Watch
+  (`/br rangewatch`) can alert when a player enters range. Assumed range is
+  an opt-in for unanswered checks and is marked estimated. **Right-click a
+  row** or use `/br ignore` to add to the realm-aware permanent ignore list
+  (up to 192 names); remove names on the Ignore & Stats tab or with
+  `/br unignore`.
 - **Role ordering** option: you, tanks (by the group role they
   picked) and leaders first (`/br sort name|role`).
 - Pauses in major cities (and, optionally, in battlegrounds), can
@@ -385,8 +402,8 @@ stays hidden on those characters.
   statistics (`/br count`, `/br resetcount`, `/br stats`). The
   session count resets on login or `/reload`; the all-time count is
   shared by all your characters.
-- Three keybinds: **Cast next buff**, **Show / hide window** and
-  **Mute / unmute sound** (`/br key`).
+- Four keybinds: **Cast next buff**, **Cast next group buff**,
+  **Show / hide window**, and **Mute / unmute sound** (`/br key`).
 
 ## Not in this version
 
@@ -398,6 +415,12 @@ stays hidden on those characters.
   nameplates — there is no API for a general nearby-player list.
 
 ## Verification status
+
+**1.15.38:** Lua 5.1 fake-client, coordination, lint, and package checks pass.
+Windows package parity and live Forever results are **Unverified**. Fake
+clients do not reproduce taint, chat delivery, real viewport rendering, or
+restricted aura/range behavior on a live build. Known spell IDs are not a
+complete catalogue of all Forever consumables or world buffs.
 
 **1.15.35:** Macro migration, nearby cast targeting, blessing
 selection, and reversible nameplate controls pass the Lua smoke tests.

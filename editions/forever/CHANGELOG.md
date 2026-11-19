@@ -2,6 +2,38 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.15.38 — WoW: Forever
+
+- Require the Forever package on Interface 16001. On another interface,
+  BuffRadar leaves the save alone, disables casting, and parks only its own
+  Cast Next Buff macro when the client allows edits.
+- Upgrade saves to schema 23 with validated nested settings and window
+  positions. A newer save or one over the profile or ignore limit is
+  preserved, with a temporary working copy instead of silent data loss.
+- Review settings, named profiles, and plans before applying them. Named
+  profile collisions show affected auto-profile mappings; saving a profile
+  doesn't load it. Plans apply locally unless you choose **Apply and share**
+  with current group permission. Chat and plan sends don't promise delivery.
+- Check ranks, group spell range and reagents before offering the group
+  version. A pet row uses its pet unit and stays out of the group threshold.
+  A scan or row paint error clears stale cast actions before recovery.
+- Use recognised spell IDs for food, flasks, drinking and world buffs. Mark
+  unreadable data unknown and distinguish a missing temporary weapon coating
+  from an inapplicable or unreadable slot.
+- Fit the scrollable list to available screen height without changing the
+  next cast. `/br positions on` remembers Settings and Ready Check panel
+  positions; `/br positions reset` recenters them. Nearby diagnostics update
+  on target and nameplate setting changes while open.
+- Keep stale roster data and delayed join notices from crossing group
+  transitions. Pull countdowns ignore unrelated cancellations and expire
+  on either timer backend. `/br perf` separates scan, preparation, import
+  and debuff timings.
+- Use one deterministic Forever ZIP builder from Windows and POSIX. Verify
+  the TOC, SHA-256, packaged Lua startup, and all four existing bindings.
+
+**Verification:** automated Lua 5.1 and package checks passed. Windows
+build parity and live behavior on this candidate are **Unverified**.
+
 ## 1.15.37 — WoW: Forever
 
 - Open **Settings → Readiness** for buff expiry forecasts and smart priority.

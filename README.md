@@ -8,13 +8,19 @@ BuffRadar shows which players need a buff you can cast in **WoW: Forever**
 (Interface 16001). Click a name, press your **Cast next buff** key, or use a
 macro to work through the list. Your character goes first by default.
 
+**1.15.38 candidate:** safer imports and saves, stricter cast checks, and a
+list that fits shorter viewports. See the [changes](editions/forever/CHANGELOG.md)
+and [verification status](docs/FOREVER_1.15.38_VALIDATION.md).
+
 ## Download and Install
 
 1. Download the Forever ZIP from the [latest GitHub release](https://github.com/SeanShaffer88/BuffRadar/releases/latest)
    or the [CurseForge project](https://www.curseforge.com/wow/addons/buffradar).
 2. Extract the `BuffRadar` folder into your Forever client's `Interface/AddOns`
    folder. The installed TOC should be at `Interface/AddOns/BuffRadar/BuffRadar.toc`.
-3. Enable BuffRadar in the game's AddOns list.
+3. Enable BuffRadar in the game's AddOns list. `/br selftest` reports the
+   installed version and client interface. This package needs Interface 16001;
+   loading it as out of date on another interface does not enable casting.
 
 ## Quick Start
 
@@ -48,8 +54,8 @@ macro to work through the list. Your character goes first by default.
 | Discovery and eligibility | Checks group members, target, mouseover, and readable friendly nameplates for buffs you know that fit the recipient. Uses spell range where available and proximity where needed. `/br assumerange` lets you opt into listing players with unknown range. `/br rangewatch` can alert when someone who needs a buff enters range. |
 | Safety and pauses | Combat hides and disarms cast rows and excludes targets in combat. Death and ghost state suspend the addon UI. Choose group-only visibility, major-city pauses, battleground and arena pauses, flight-path pauses, PvP skips, and a low-mana threshold with `/br group`, `/br cities`, `/br bg`, `/br taxi`, `/br pvp`, and `/br mana`. |
 | Queue order | Check yourself first, prioritize recently resurrected players, and pin one player. Sort by name, tanks and leaders, distance, or most buffs needed. Filter by name or by group role when the client supplies roles. Use `/br self`, `/br pin`, `/br sort`, `/br find`, and `/br filter`. |
-| List views | Use `/br view people\|buffs` for a row per player or per needed buff. The buff view shows how many players need each buff. Scroll long lists with the wheel or `/br scroll up\|down`. The cast-next key still uses the head of the full queue. |
-| Ignore lists | Right-click a row to save an ignore or Shift-right-click to ignore for this session. Manage entries under **Ignore & Stats** or with `/br ignore`, `/br unignore`, `/br signore`, and `/br unsignore`. Export or import the list with `/br ignorelist export` or `/br ignorelist import`. |
+| List views | Use `/br view people\|buffs` for a row per player or per needed buff. The list fits up to 15 rows to the usable screen size. Scroll with the wheel or `/br scroll up\|down`; Cast Next Buff still uses the head of the full queue. |
+| Ignore lists | Right-click a row to save an ignore or Shift-right-click to ignore for this session. Manage entries under **Ignore & Stats** or with `/br ignore`, `/br unignore`, `/br signore`, and `/br unsignore`. Export or import with `/br ignorelist export` or `/br ignorelist import`. The permanent list holds up to 192 names; imports past that limit do not partially apply. |
 | Scan options | `/br throttle on` adjusts periodic scans to movement, group size, and latency without delaying event refreshes. `/br fastaura` skips rescans when a readable aura change can be identified as unrelated to watched buffs. |
 
 ### Casting
@@ -68,8 +74,9 @@ macro to work through the list. Your character goes first by default.
 - **Group versions.** Set the minimum need for automatic group-cast offers
   with `/br groupcast`. Enable Shift-click with `/br modclick` and register
   your own spells with `/br grouppair "Single" "Group"`. BuffRadar falls
-  back to a single-target cast when group eligibility or known reagent
-  availability blocks the group cast.
+  back to a single-target cast when the roster, assignment, spell range,
+  cooldown, or a required reagent blocks the group cast. Supported group pets
+  get single-target buffs; they do not count toward the group-cast threshold.
 - **Cast controls.** `/br mode` selects target, spell ID, macro, or ranked
   macro mode. `/br clickreg` chooses when clicks fire. If BuffRadar can tie
   a line-of-sight failure to its cast, it skips that target temporarily so
@@ -133,10 +140,10 @@ aura and Hunter aspect reminders with `/br aura`.
 | Raid Preparation | Open the read-only checklist from **Raid Coverage** or use `/br prep`. Expand a player for missing and expiring buffs, consumable checks, and unknown readings. **Reagents** compares carried quantities with estimated needs and flags shortfalls. Roster changes refresh the open checklist and preserve expansion for a player still present. Open **Personal** with `/br readiness`, even solo, for food, flask, an optional consumable aura, carried Healthstones, durability, and applicable weapon and pet checks. |
 | Subgroup Responsibilities | Open from **Raid Coverage** or `/br subgroup panel`. Restrict a buff to selected raid groups, preview the affected roster, and see why a group cast may fall back to a single-target cast. For example, `/br subgroup FORTITUDE 1,2` assigns groups 1 and 2. Set **All** or **None** as needed. Rules clear when you leave the raid or reload. |
 | Ready Checks | `/br ready show` lists player responses, missing and expiring buffs, unknowns, and estimated group reagents. `/br readypost` lets leaders and assistants enable automatic group-chat summaries. |
-| Recaps and sharing | Get a death recap or post-wipe rebuff report and reprint them with `/br death show` and `/br wipe show`. Use `/br summary` for needs by buff, `/br announce` for party or raid chat, and `/br discord` for copyable Markdown. |
+| Recaps and sharing | Get a death recap or post-wipe rebuff report and reprint them with `/br death show` and `/br wipe show`. Use `/br summary` for needs by buff, `/br announce` requests a party or raid send and falls back to a local report on refusal; it cannot confirm delivery. `/br discord` copies Markdown. |
 | Coverage line | Pick visible parts with `/br cover` including progress, buffs and cooldowns, the active or away BuffRadar roster, group expiry, world buffs, drinking healers, and session uptime. `/br uptime` reports the share of grouped scans that found every checked player buffed. |
 | Encounter debuffs | In Settings → **Readiness**, or with `/br debuff add <spell ID> [player\|focus] [encounter ID]` and `/br debuff on`, show readable auras and their stacks in a separate strip. An encounter ID restricts a rule to that fight. |
-| Extras to watch | Read flask and food counts for Forever, see your temporary weapon enchant, and track your focus target's buff needs, world buff timers, or drinking healers. Watch group pets for Fortitude, Mark of the Wild, and Arcane Intellect. Use `/br consumables`, `/br weapon`, `/br focus`, `/br worldbuff`, `/br drink`, or `/br pets`. |
+| Extras to watch | Read recognised flask and food auras and see your temporary melee-weapon coating, and track your focus target's buff needs, world buff timers, or drinking healers. Watch group pets for Fortitude, Mark of the Wild, and Arcane Intellect. Use `/br consumables`, `/br weapon`, `/br focus`, `/br worldbuff`, `/br drink`, or `/br pets`. |
 
 ### Group Coordination
 
@@ -176,7 +183,9 @@ aura and Hunter aspect reminders with `/br aura`.
 - **Window layout.** Drag, lock, resize from the bottom corners, reset
   position or appearance, and set width, list scale, or settings scale
   independently. Save position per character and scale per specialization.
-  Move the window through the game's Edit Mode when the client exposes it.
+  Use `/br positions on` to remember the Settings and Ready Check panels'
+  positions separately (off by default); use `reset` to recenter them.
+  Move the main window through the game's Edit Mode when available.
   Hold Shift to snap while resizing when enabled. Click-through while
   locked, idle fade, an all-buffed pill with click-to-peek, and empty-list
   hiding are optional. Hover to show the close button. Hiding the title
@@ -213,9 +222,9 @@ aura and Hunter aspect reminders with `/br aura`.
 |---|---|
 | Presets and specialization | Quick Setup drafts a preset and alert preferences based on your activity and role. It applies them only on confirmation. Standalone presets are available through `/br preset`. Buff toggles and rebuff overrides can follow the active specialization when the client identifies it. |
 | Named profiles | Save, load, list, delete, and share profiles from **Ignore & Stats** or `/br profile`. Preview a saved profile's differences with `/br profile diff <name>`. `/br autoprofile` can switch profiles for raids, dungeons, battlegrounds, grouped world play, or solo play. |
-| Import and export | Use `/br export` and `/br import` for settings strings and `/br diff <string>` to preview them. Share the Class & Role Assignments table with `/br profile share` and `/br profile import`. A shared profile can replace a saved profile of the same name and is applied when loaded. Use `/br plan export` and `/br plan import` to transfer and merge group buff assignments, the blessing plan, and auto-profile mappings. |
-| Casts and history | Show session and all-time totals, reset counters, see per-spell stats or export them, and review the last 50 tracked casts. See `/br count`, `/br resetcount`, `/br stats`, and `/br history`. `/br offenders` tracks players seen unbuffed across group sessions. |
-| Troubleshooting | `/br why <name>` explains how a player is handled. `/br debug` reports client and window state, `/br clicks` logs cast attempts, `/br selftest` prints a report for bug reports, `/br apicheck export` produces a copyable API report, `/br buffcheck` checks spell IDs, and `/br perf` reports scan timings when available. `/br stats memory` reports the game's addon total, not per-feature estimates. `/br lite on` pauses forecasts, readiness, debuffs, and optional watches without changing their saved settings. |
+| Import and export | `/br import` reviews a legacy BR1 settings copy before applying it locally. `/br profile import` previews a named profile; rename it or confirm replacement, then load it separately. `/br plan import` reviews a plan and defaults to applying locally. **Apply and share** requires current group authority and sync, and sends only changed assignments and blessings, never auto-profile mappings. |
+| Casts and history | Show session and all-time totals, reset counters, see per-spell stats or export them, and review the last 50 tracked casts. See `/br count`, `/br resetcount`, `/br stats`, and `/br history`. `/br offenders` tracks up to 50 records by player identity, counted once per group session. |
+| Troubleshooting | `/br why <name>` explains how a player is handled. `/br debug` reports client and window state, `/br clicks` logs cast attempts, `/br selftest` prints a report for bug reports, `/br apicheck export` produces a copyable API report, `/br buffcheck` checks spell IDs, and `/br perf` reports separate scan, preparation, import and debuff CPU timings when available. `/br stats memory` reports the game's addon total, not per-feature estimates. `/br lite on` pauses forecasts, readiness, debuffs, and optional watches without changing their saved settings. |
 | UI integration and feedback | Use the [read-only status API](docs/STATUS_API.md) or `/br status export`. Get a copyable feature-request link with `/br feedback` or see the [roadmap](docs/ROADMAP.md). |
 
 ## Player Guides
@@ -243,8 +252,9 @@ BuffRadar has targeted Forever since 1.8.0. The last Retail release was
 The [Forever TOC](editions/forever/BuffRadar.toc) and the historical
 [Retail TOC](BuffRadar/BuffRadar.toc) load a shared Lua 5.1 implementation:
 
-- [Data](BuffRadar/Data.lua) initializes the addon namespace. [SavedVariables](BuffRadar/SavedVariables.lua)
-  validates and migrates `BuffRadarDB` on load; [Profiles](BuffRadar/Profiles.lua)
+- [Data](BuffRadar/Data.lua) checks the client using the shipping TOC marker.
+  [SavedVariables](BuffRadar/SavedVariables.lua) validates and migrates
+  `BuffRadarDB` on a detached copy; [Profiles](BuffRadar/Profiles.lua)
   handles settings and plan imports and exports.
 - [Core](BuffRadar/BuffRadar.lua) scans and builds the cast queue.
   [Intelligence](BuffRadar/Intelligence.lua) owns scan cadence, forecasts and
@@ -267,7 +277,7 @@ The [Forever TOC](editions/forever/BuffRadar.toc) and the historical
 |---|---|
 | `BuffRadar/` | Shared addon source, translations, art, bindings, and historical Retail files |
 | `editions/forever/` | The Forever edition's `.toc`, README and changelog |
-| `build.ps1` | Packages the supported Forever edition and SHA-256 checksum with PowerShell 7 |
+| `build.ps1`, `tools/package.sh` | PowerShell 7 and POSIX entry points to the same deterministic Forever packager |
 | `tools/` | Automated checks — see [tools/README.md](tools/README.md) |
 | `.luacheckrc` | luacheck settings used by the checks |
 | `AGENTS.md` | Project rule sheet (prompt in force, frozen foundation, gate) |
@@ -277,14 +287,22 @@ The [Forever TOC](editions/forever/BuffRadar.toc) and the historical
 
 ## Making a Release
 
-```powershell
-.\tools\check.ps1 -Setup   # first time only
-.\tools\check.ps1          # luacheck, Lua 5.1 compile and limits, translations, trial run
-.\build.ps1                # Forever ZIP and SHA256SUMS.txt in dist\
+Run `sh tools/gate.sh` on POSIX (Python 3.10+ with Lupa) and Luacheck 1.2.0
+on `BuffRadar/`, or use `tools/check.ps1` in PowerShell 7 (`-Setup` once).
+Build with `sh tools/package.sh` or `./build.ps1`. Both write the Forever ZIP
+and `SHA256SUMS.txt` to `dist/`. With the gate's Python environment active, run:
+
+```sh
+python -I tools/checkpackage.py dist/BuffRadar-X.Y.Z-Forever.zip .
 ```
 
-Then test the Forever zip in the game. The zip holds a `BuffRadar` folder that goes in
-`Interface\AddOns`.
+Replace `X.Y.Z` with the TOC version. In CI the Windows and POSIX digests
+must match. Test the exact ZIP in Forever with the
+[release checklist](docs/FOREVER_RELEASE_CHECKLIST.md), not a loose source
+copy. Record the digest, game build and results. See the
+[1.15.38 audit ledger](docs/AUDIT_1.15.38.md) for offline coverage and limits.
+After a tagged release, verify the hosted ZIP against its published checksum
+and the tested artifact.
 
 ## License
 

@@ -17,17 +17,16 @@ local function Tuple(...) return select("#", ...), ... end
 local function Legacy(lookup, unit, index) return Tuple(lookup(unit, index)) end
 
 -- An explicit nil at the end of a list is different from a refused read.
--- The same guarded exact-ID reader is used for the personal consumable check.
-function D.ReadAura(unit, index, harmful)
-  local modern = C_UnitAuras and (harmful and C_UnitAuras.GetDebuffDataByIndex or not harmful and C_UnitAuras.GetBuffDataByIndex)
+local function ReadDebuff(unit, index)
+  local modern = C_UnitAuras and C_UnitAuras.GetDebuffDataByIndex
   local indexed = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
   local ok, id, name, icon, stacks
   if modern or indexed then
-    local aura, answered = X.QueryAura(modern or indexed, unit, index, harmful and "HARMFUL" or "HELPFUL")
+    local aura, answered = X.QueryAura(modern or indexed, unit, index, "HARMFUL")
     if not aura then return true, answered end
     ok, id, name, icon, stacks = pcall(Fields, aura)
   else
-    local legacyLookup = harmful and UnitDebuff or not harmful and UnitBuff
+    local legacyLookup = UnitDebuff
     if type(legacyLookup) ~= "function" then return true, false end
     local read, count, label, image, applications, _, _, _, _, _, _, spell = pcall(Legacy, legacyLookup, unit, index)
     if not read or count == 0 then return true, false end
@@ -104,7 +103,7 @@ local function Scan(unit)
   Wipe(result)
   if X.PlayerSuspended() or not Watches(unit) or not X.UnitPresent(unit) then return end
   for i = 1, 40 do
-    local done, _, spell, name, icon, stacks = D.ReadAura(unit, i, true)
+    local done, _, spell, name, icon, stacks = ReadDebuff(unit, i)
     if done then break end
     if spell then
       for j, rule in ipairs(db.debuffRules) do
@@ -127,18 +126,25 @@ function D.Clear()
   end
 end
 
-function D.Refresh()
-  if not listening then return end
+local function RefreshAll()
   Wipe(pending)
   Scan("player")
   Scan("focus")
   Draw()
 end
 
-local function RefreshUnit(unit)
+function D.Refresh()
+  if listening then X.Measure(InCombatLockdown() and "combatDebuff" or "debuff", RefreshAll) end
+end
+
+local function RefreshOne(unit)
   pending[unit] = nil
   Scan(unit)
   Draw()
+end
+
+local function RefreshUnit(unit)
+  X.Measure(InCombatLockdown() and "combatDebuff" or "debuff", RefreshOne, unit)
 end
 
 local function OnEvent(_, event, unit)
@@ -233,10 +239,9 @@ X.ext.debuff = function(rest)
   local id, unit, boss = args:match("^(%d+)%s*(%a*)%s*(%d*)$")
   unit = unit == "" and "player" or unit
   if (action == "on" or action == "off") and args == "" then
-    db.debuffWatch = action == "on"
+    X.SetPreference("debuffWatch", action == "on")
     Print(string.format(L["Debuff watch: %s"], L[db.debuffWatch and "On" or "Off"]))
     if db.debuffWatch and db.liteMode then Print(L["Debuff watch is paused in Lite mode."]) end
-    D.Apply()
   elseif action == "add" and id then
     if D.SetRule(tonumber(id), unit, boss == "" and 0 or tonumber(boss)) then Print(L["Debuff rule saved."]) end
   elseif action == "remove" and id and boss == "" then

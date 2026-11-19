@@ -2,6 +2,14 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## 1.15.38 Audit Follow-up
+
+Use the [candidate verification matrix](FOREVER_1.15.38_VALIDATION.md) to
+identify the ZIP and record Windows and Forever results. Run the 1.15.38 rows
+there plus the applicable readiness and general checks below. Use a backed-up
+SavedVariables file and disposable test settings for downgrade and cap checks.
+An offline pass does not verify rendering, protected actions, or delivery.
+
 ## 1.15.37 Readiness
 
 Result: **Unverified in game**. Use the 1.15.37 Forever ZIP.
@@ -316,7 +324,9 @@ Result: **passed** — SEAN, reported 2026-11-16 (all releases through
 
 ## General Release Checks
 
-- **Empty list:** with no missing buffs, confirm the fully-buffed message. Disable friendly nameplates and confirm the explicit warning. On a client that does not answer range checks, confirm the list warns that range cannot be verified instead of claiming everyone is buffed.
+- **Empty list:** verify that confirmed coverage, no eligible cast target,
+  disabled friendly nameplates and unreadable range or auras are distinct
+  states. Unknown coverage must not be reported as fully buffed.
 - **Eligibility:** confirm a player appears only when a known buff benefits them and they are in spell range, alive, and out of combat. Toggle include-self and verify the character can buff itself.
 - **Cast attribution:** outside combat, use `/br clicks` to turn on diagnostics.
   Start with a buff that appears in the list and note the cast counter. Click its
@@ -338,8 +348,9 @@ Result: **passed** — SEAN, reported 2026-11-16 (all releases through
 - **Combat:** enter combat with buffs missing. Confirm no protected cast starts; after combat, verify the list resumes and catches up.
 - **Death and resurrection:** die in and out of combat. Check that BuffRadar's window, pill, minimap button, and open settings close, and that its cast bindings stay disarmed. Reload while dead and test release to ghost form, combat ending while dead, resurrection after releasing, and resurrection without releasing. Confirm the normal window and minimap preferences resume after resurrection and combat, including a window you hid manually before death. The game's AddOns and minimap-compartment entries can stay listed, but their BuffRadar controls should not open the addon while dead.
 - **Hover close:** with the title on and off, hover the list, then move onto and off the close button. Confirm it stays under the cursor, remains reachable near the screen edge, and leaves no header gap with the title off. Confirm locked click-through and the existing show/hide binding still work.
-- **Scrollable rows:** with more than 15 entries, scroll over the list to the
-  bottom and back. Confirm the row range updates and a click buffs the player
+- **Scrollable rows:** test with more than 15 entries, then with a short
+  viewport or higher UI scale so fewer rows fit. Scroll to the bottom and
+  back. Confirm the footer's row span updates and a click buffs the player
   shown on that row. Verify the Cast Next Buff key still uses the first eligible
   player in the full list. Test wheel input while holding a mouse button over a
   row and after combat begins. Confirm the secure rows disarm in combat and
@@ -360,10 +371,14 @@ Result: **passed** — SEAN, reported 2026-11-16 (all releases through
   and remove a watched buff, then change target or leave the group. Verify the
   list reflects the new unit and its buffs. Run `/br perf` out of combat and
   record scan counts and timings while solo and in a raid, if available.
+  Record preparation, import and combat-debuff samples separately. Compare
+  the raid scan average and worst case with the 2 ms / 8 ms field targets;
+  don't infer these from fake-client timings.
 - **Pull timers:** with buffs missing and pull flash enabled, start a group
-  countdown, cancel or replace it, and verify the replacement stays active
-  until its own deadline. Use `/br apicheck` to check the native and supported
-  boss-mod countdown diagnostics.
+  countdown and cancel it. Replace a countdown while it is still active:
+  unrelated or ambiguous cancellations must not remove the replacement, which
+  still has its own expiry. Use `/br apicheck` to record which payloads the
+  client emits. Do not assume a boss-mod map field is a unique timer ID.
 - **Ready check and wipe:** confirm missing buffs are reported for a group member
   beyond cast range. Check that unreadable aura data is marked unverified and
   a ready check leaves the visible cast target unchanged. In a raid, confirm

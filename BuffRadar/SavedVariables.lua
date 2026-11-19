@@ -4,9 +4,34 @@
 
 local _, ns = ...
 local X = ns.X
-local DB_VERSION = 22
+local DB_VERSION = 23
 local PROFILE_MAX_BYTES = 4000
 local MIN_WIDTH, MAX_WIDTH = 180, 400
+
+local LIMITS = { profiles = 32, ignored = 192, pointByChar = 64, stats = 192, specProfiles = 4,
+  specScales = 4, enabled = 256, rebuffPer = 256, coverParts = 16, buffContext = 256, offenders = 50 }
+
+local function Count(map)
+  local n = 0
+  for _ in pairs(map) do n = n + 1 end
+  return n
+end
+
+local function KeepKeys(source, limit, valid, compare)
+  local keys = {}
+  local function Trim()
+    table.sort(keys, compare)
+    for i = #keys, limit + 1, -1 do keys[i] = nil end
+  end
+  for key, value in pairs(source) do
+    if valid(key, value) then
+      keys[#keys + 1] = key
+      if #keys >= limit * 2 then Trim() end
+    end
+  end
+  Trim()
+  return keys
+end
 
 local DEFAULTS = {
   locked = false,
@@ -60,6 +85,8 @@ local DEFAULTS = {
   compact = false,     -- half-height rows without portraits (1.4.0)
   textScale = 1,       -- list text scale, separate from the window scale (1.4.0)
   charPoint = false,   -- remember the window position per character (1.4.0)
+  rememberPanelPositions = false,
+  panelPoints = {},
   pointByChar = {},    -- charPoint positions: "Name-Realm" -> point table (1.4.0)
   profiles = {},       -- named settings profiles: name -> settings string (1.5.0)
   sync = true,         -- trade "I just buffed them" notes with other BuffRadar users (1.5.0)
@@ -178,12 +205,9 @@ local function PriorityKey(key)
 end
 
 local function CopyInstancePriority(value)
-  local clean, count = {}, 0
-  for id, key in pairs(value) do
-    if PositiveID(id) and PriorityKey(key) then
-      clean[id], count = key, count + 1
-      if count >= MAX_INSTANCE_RULES then break end
-    end
+  local clean = {}
+  for _, id in ipairs(KeepKeys(value, MAX_INSTANCE_RULES, function(id, key) return PositiveID(id) and PriorityKey(key) end)) do
+    clean[id] = value[id]
   end
   return clean
 end
@@ -248,23 +272,44 @@ end
 
 -- Each table field is rebuilt from validated values. Never hand a defaults
 -- subtable to the writable DB, or touch live settings while checking an import.
-local function CopyStringMap(value, valid)
+local function PlainString(value, limit)
+  return type(value) == "string" and #value > 0 and #value <= limit and not value:find("[%c|]")
+end
+
+local function ValidIgnore(name)
+  return PlainString(name, 64) and name:find("%S") ~= nil and not name:find(";", 1, true)
+end
+
+local function CopyMap(value, limit, valid)
   local clean = {}
-  for key, item in pairs(value) do
-    if type(key) == "string" and valid(item) then clean[key] = item end
-  end
+  for _, key in ipairs(KeepKeys(value, limit, valid)) do clean[key] = value[key] end
   return clean
 end
 
 local function IsBoolean(v) return type(v) == "boolean" end
 local function IsNonnegative(v) return IsNumber(v) and v >= 0 end
+local function ValidBuffToken(key) return PlainString(key, 40) and key:match("^[A-Z0-9_]+$") end
 
-local function CopyBooleanMap(value) return CopyStringMap(value, IsBoolean) end
-local function CopyNumberMap(value) return CopyStringMap(value, IsNonnegative) end
+local function CopyBooleanMap(value)
+  return CopyMap(value, LIMITS.enabled, function(k, v) return ValidBuffToken(k) and IsBoolean(v) end)
+end
 
-local function IsPoint(value)
-  return type(value) == "table" and type(value[1]) == "string" and type(value[2]) == "string"
+local function CopyRebuffMap(value)
+  local clean = CopyMap(value, LIMITS.rebuffPer, function(k, v) return ValidBuffToken(k) and IsNonnegative(v) end)
+  for key, v in pairs(clean) do clean[key] = Clamp(v, 0, 600) end
+  return clean
+end
+
+local anchors = { TOPLEFT = true, TOP = true, TOPRIGHT = true, LEFT = true, CENTER = true,
+  RIGHT = true, BOTTOMLEFT = true, BOTTOM = true, BOTTOMRIGHT = true }
+local function ValidPoint(value)
+  return type(value) == "table" and anchors[value[1]] and anchors[value[2]]
     and IsNumber(value[3]) and IsNumber(value[4])
+    and math.abs(value[3]) <= 100000 and math.abs(value[4]) <= 100000
+end
+
+local function CopyPoint(value)
+  if ValidPoint(value) then return { value[1], value[2], value[3], value[4] } end
 end
 
 local function CopyColor(value)
@@ -273,15 +318,18 @@ local function CopyColor(value)
   end
 end
 
+local function SpecKey(key)
+  return type(key) == "string" and key:match("^s[1-4]$") ~= nil
+end
+
 local function CopySpecProfiles(value)
   local clean = {}
-  for key, profile in pairs(value) do
-    if type(key) == "string" and type(profile) == "table" then
-      clean[key] = {
-        enabled = type(profile.enabled) == "table" and CopyBooleanMap(profile.enabled) or {},
-        rebuffPer = type(profile.rebuffPer) == "table" and CopyNumberMap(profile.rebuffPer) or {},
-      }
-    end
+  for _, key in ipairs(KeepKeys(value, LIMITS.specProfiles, function(k, v) return SpecKey(k) and type(v) == "table" end)) do
+    local p = value[key]
+    clean[key] = {
+      enabled = type(p.enabled) == "table" and CopyBooleanMap(p.enabled) or {},
+      rebuffPer = type(p.rebuffPer) == "table" and CopyRebuffMap(p.rebuffPer) or {},
+    }
   end
   return clean
 end
@@ -298,14 +346,16 @@ local function CopyPlateRestore(value)
 end
 
 local function CopyHistory(value)
-  local clean = {}
-  for _, entry in ipairs(value) do
-    if type(entry) == "table" and type(entry.spell) == "string" and type(entry.who) == "string" then
-      clean[#clean + 1] = { t = IsNumber(entry.t) and math.floor(entry.t) or 0,
-                           spell = entry.spell, who = entry.who }
+  local recent, clean = {}, {}
+  -- Look back through at most 200 slots even for an oversized/corrupt save.
+  for i = #value, math.max(1, #value - 199), -1 do
+    local entry = value[i]
+    if type(entry) == "table" and PlainString(entry.spell, 128) and PlainString(entry.who, 128) then
+      recent[#recent + 1] = { t = IsNumber(entry.t) and math.floor(entry.t) or 0, spell = entry.spell, who = entry.who }
+      if #recent >= 50 then break end
     end
   end
-  while #clean > 50 do table.remove(clean, 1) end
+  for i = #recent, 1, -1 do clean[#clean + 1] = recent[i] end
   return clean
 end
 
@@ -339,17 +389,17 @@ local function CopyCustomSpells(value)
   return clean
 end
 
-local function CopyCustomGroup(value)
-  local clean, count = {}, 0
-  for single, group in pairs(value) do
-    if type(single) == "string" and type(group) == "string"
-       and #single >= 1 and #single <= 60 and #group >= 1 and #group <= 60 then
-      clean[single] = group
-      count = count + 1
-      if count >= 20 then break end
-    end
+local MAX_GROUP_PAIRS = 20
+local function ValidGroupPair(single, group)
+  local function ValidSpell(name)
+    return type(name) == "string" and #name >= 1 and #name <= 60
+      and name:match("^%S") and name:match("%S$") and not name:find("[%c;%[%]|]")
   end
-  return clean
+  return ValidSpell(single) and ValidSpell(group)
+end
+
+local function CopyCustomGroup(value)
+  return CopyMap(value, MAX_GROUP_PAIRS, ValidGroupPair)
 end
 
 local function CopyBuffPriority(value)
@@ -391,32 +441,37 @@ local TABLE_FIELDS = {
     return clean
   end,
   enabled = CopyBooleanMap,
-  ignored = CopyBooleanMap,
-  coverParts = CopyBooleanMap,
+  ignored = function(value)
+    return CopyMap(value, LIMITS.ignored, function(name, enabled) return enabled == true and ValidIgnore(name) end)
+  end,
+  coverParts = function(value)
+    return CopyMap(value, LIMITS.coverParts, function(k, v) return PlainString(k, 24) and IsBoolean(v) end)
+  end,
   specScales = function(value)
-    local clean = {}
-    for key, scale in pairs(value) do
-      if type(key) == "string" and IsNumber(scale) then clean[key] = Clamp(scale, 0.5, 2) end
-    end
+    local clean = CopyMap(value, LIMITS.specScales, function(k, v) return SpecKey(k) and IsNumber(v) end)
+    for key, scale in pairs(clean) do clean[key] = Clamp(scale, 0.5, 2) end
     return clean
   end,
   specProfiles = CopySpecProfiles,
   pointByChar = function(value)
     local clean = {}
-    for name, point in pairs(value) do
-      if type(name) == "string" and IsPoint(point) then clean[name] = { point[1], point[2], point[3], point[4] } end
+    for _, name in ipairs(KeepKeys(value, LIMITS.pointByChar, function(k, v) return PlainString(k, 128) and ValidPoint(v) end)) do
+      clean[name] = CopyPoint(value[name])
     end
     return clean
+  end,
+  panelPoints = function(value)
+    return { settings = CopyPoint(value.settings), ready = CopyPoint(value.ready) }
   end,
   profiles = function(value)
-    local clean = {}
-    for name, body in pairs(value) do
-      if IsProfileName(name) and type(body) == "string" and #body <= PROFILE_MAX_BYTES then clean[name] = body end
-    end
-    return clean
+    return CopyMap(value, LIMITS.profiles, function(k, v) return IsProfileName(k) and type(v) == "string" and #v <= PROFILE_MAX_BYTES end)
   end,
   autoProfile = function(value)
-    return CopyStringMap(value, function(name) return type(name) == "string" and #name <= 40 end)
+    local clean = {}
+    for _, key in ipairs({ "raid", "dungeon", "pvp", "world", "solo" }) do
+      if IsProfileName(value[key]) then clean[key] = value[key] end
+    end
+    return clean
   end,
   history = CopyHistory,
   customSpells = CopyCustomSpells,
@@ -432,11 +487,27 @@ local TABLE_FIELDS = {
     return clean
   end,
   buffContext = function(value)
-    return CopyStringMap(value, function(context) return context == "raid" or context == "instance" end)
+    return CopyMap(value, LIMITS.buffContext, function(k, v) return ValidBuffToken(k) and (v == "raid" or v == "instance") end)
   end,
-  rebuffPer = CopyNumberMap,
-  stats = CopyNumberMap,
-  offenders = CopyNumberMap,
+  rebuffPer = CopyRebuffMap,
+  stats = function(value) return CopyMap(value, LIMITS.stats, function(k, v) return PlainString(k, 128) and IsNonnegative(v) end) end,
+  offenders = function(value)
+    local function Valid(k, v)
+      if not PlainString(k, 128) then return false end
+      if IsNonnegative(v) then return true end -- legacy display-name key
+      return type(v) == "table" and PlainString(v.name, 128) and IsNonnegative(v.count)
+    end
+    local function Counts(k) local v = value[k]; return type(v) == "number" and v or v.count end
+    local clean = {}
+    for _, key in ipairs(KeepKeys(value, LIMITS.offenders, Valid, function(a, b)
+      return Counts(a) > Counts(b) or (Counts(a) == Counts(b) and a < b)
+    end)) do
+      local v = value[key]
+      if type(v) == "number" then clean["legacy:" .. key] = { name = key, count = v }
+      else clean[key] = { name = v.name, count = v.count } end
+    end
+    return clean
+  end,
 }
 
 local function CleanSetting(key, value, default)
@@ -453,6 +524,7 @@ local function CleanSetting(key, value, default)
   elseif kind == "string" then
     if ENUMS[key] and not ENUMS[key][value] then return default end
     if key == "theme" and #value > 24 then return default end
+    if key == "pinned" and (#value > 128 or value:find("[%c|]")) then return default end
     if key == "autoThemePriority" and value ~= "" then
       return EncodeAutoThemePriority(OrderedAutoThemeAddons(value))
     end
@@ -470,6 +542,15 @@ local function CleanTheme(name, themes)
 end
 
 -- Also used for detached profile candidates, without publishing a new DB.
+local function PreparePatch(saved, patch)
+  local prepared = {}
+  for key, value in pairs(patch) do
+    if DEFAULTS[key] ~= nil then prepared[key] = CleanSetting(key, value, DEFAULTS[key]) end
+  end
+  if prepared.theme then prepared.theme = CleanTheme(prepared.theme, saved.customThemes) end
+  return prepared
+end
+
 local function Sanitize(saved)
   if type(saved) ~= "table" then saved = {} end
   for key in pairs(saved) do
@@ -479,7 +560,7 @@ local function Sanitize(saved)
     saved[key] = CleanSetting(key, saved[key], default)
   end
   saved.theme = CleanTheme(saved.theme, saved.customThemes)
-  if not IsPoint(saved.point) then saved.point = nil end
+  saved.point = CopyPoint(saved.point)
   if not IsNumber(saved.dbVersion) then saved.dbVersion = nil end
   return saved
 end
@@ -503,14 +584,58 @@ local function Migrate(saved)
   if previous < DB_VERSION then saved.dbVersion = DB_VERSION end
 end
 
-local db
+local function ParseSubgroups(value)
+  if value == "ALL" then return nil, true end
+  if value == "NONE" then return {}, true end
+  if type(value) ~= "string" or #value > 15 or #value == 0 then return nil, false end
+  local groups = {}
+  for token in (value .. ","):gmatch("(.-),") do
+    if not token:match("^[1-8]$") then return nil, false end
+    local n = tonumber(token)
+    if groups[n] then return nil, false end
+    groups[n] = true
+  end
+  return groups, true
+end
+
+local db, preserved, saveState
 local listeners = {}
 
+local function DeliberateOverflow(saved)
+  local profiles, ignored = 0, 0
+  if type(saved.profiles) == "table" then
+    for name, body in pairs(saved.profiles) do
+      if IsProfileName(name) and type(body) == "string" then
+        profiles = profiles + 1
+        if #body > PROFILE_MAX_BYTES or profiles > LIMITS.profiles then return true end
+      end
+    end
+  end
+  if type(saved.ignored) == "table" then
+    for name, value in pairs(saved.ignored) do
+      if value == true and ValidIgnore(name) then
+        ignored = ignored + 1
+        if ignored > LIMITS.ignored then return true end
+      end
+    end
+  end
+end
+
 local function Load(migrate)
-  local saved = Sanitize(BuffRadarDB)
-  if migrate then Migrate(saved) end
-  BuffRadarDB, db = saved, saved
+  local original, candidate = BuffRadarDB, {}
+  if type(original) == "table" then
+    for key in pairs(KNOWN_KEYS) do candidate[key] = original[key] end
+  end
+  local future = IsNumber(candidate.dbVersion) and candidate.dbVersion > DB_VERSION
+  saveState = future and "future" or (DeliberateOverflow(candidate) and "overflow") or nil
+  preserved = saveState == "overflow" and original or nil
+  local saved = Sanitize(candidate)
+  if future then saved.dbVersion = DB_VERSION end
+  if migrate or future then Migrate(saved) end
+  if not saveState then BuffRadarDB = saved end
+  db = saved
   for _, listener in ipairs(listeners) do listener(db) end
+  return saveState
 end
 
 local function OnDBLoaded(listener)
@@ -523,6 +648,30 @@ X.OnDBLoaded = OnDBLoaded
 X.Settings = {
   Load = Load,
   Sanitize = Sanitize,
+  PreparePatch = PreparePatch,
+  CopyPoint = CopyPoint,
+  ValidGroupPair = ValidGroupPair,
+  ParseSubgroups = ParseSubgroups,
+  MaxGroupPairs = MAX_GROUP_PAIRS,
+  Limits = LIMITS,
+  Count = Count,
+  PlainString = PlainString,
+  ValidIgnore = ValidIgnore,
+  CanAdd = function(map, kind, key) return map[key] ~= nil or Count(map) < LIMITS[kind] end,
+  SaveState = function() return saveState end,
+  RemovePreservedEntry = function(kind, key)
+    local collection = preserved and saveState == "overflow" and preserved[kind]
+    if type(collection) ~= "table" or collection[key] == nil then return false end
+    collection[key] = nil
+    return true
+  end,
+  RecordOffenders = function(observed)
+    for guid, name in pairs(observed) do
+      local old = db.offenders[guid]
+      db.offenders[guid] = { name = name, count = (old and old.count or 0) + 1 }
+    end
+    db.offenders = TABLE_FIELDS.offenders(db.offenders)
+  end,
   Defaults = DEFAULTS,
   MinWidth = MIN_WIDTH,
   MaxWidth = MAX_WIDTH,

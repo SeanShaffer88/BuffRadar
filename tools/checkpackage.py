@@ -1,60 +1,71 @@
 """Validate the Forever ZIP and load its Lua files in TOC order under Lua 5.1."""
 
 import re
+import runpy
+import stat
 import sys
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from xml.etree import ElementTree
-from zipfile import BadZipFile, ZipFile
+from zipfile import BadZipFile, ZIP_STORED, ZipFile
 
 from lupa import lua51
 
+manifest = runpy.run_path(str(Path(__file__).with_name("package.py")))
+BINDINGS = {
+    "CLICK BuffRadarNextButton:LeftButton": "",
+    "CLICK BuffRadarGroupButton:LeftButton": "",
+    "BUFFRADAR_TOGGLE": "BuffRadar_ToggleWindow()",
+    "BUFFRADAR_MUTE": "BuffRadar_ToggleSound()",
+}
 
-def load_archive(archive):
+
+def load_archive(archive, require_deterministic=False):
     with ZipFile(archive) as package:
         broken = package.testzip()
         if broken:
             raise ValueError(f"CRC check failed for {broken}")
-        members = {}
+        members, spellings = {}, {}
         used_names = set()
+        if require_deterministic and (package.comment or package.namelist() != sorted(package.namelist())):
+            raise ValueError("Expected deterministic archive metadata and member order")
         for entry in package.infolist():
-            name = entry.filename.rstrip("/")
-            path = PurePosixPath(name)
+            name = entry.filename[:-1] if entry.is_dir() else entry.filename
+            path = manifest["register_path"](name, spellings)
             if (
-                path.as_posix() != name
+                entry.orig_filename != entry.filename
                 or path.parts[:1] != ("BuffRadar",)
-                or ".." in path.parts
-                or "\\" in name
-                or ":" in name
                 or (len(path.parts) == 1 and not entry.is_dir())
-                or name.casefold() in used_names
+                or stat.S_ISLNK(entry.external_attr >> 16)
+                or name in used_names
             ):
                 raise ValueError(f"Invalid or duplicate package path: {entry.filename}")
-            used_names.add(name.casefold())
+            if require_deterministic and (entry.is_dir() or entry.compress_type != ZIP_STORED
+                    or entry.date_time != manifest["FIXED_DATE"] or entry.create_system != 3
+                    or entry.external_attr != manifest["FIXED_MODE"] or entry.extra or entry.comment):
+                raise ValueError(f"Unexpected package metadata: {entry.filename}")
+            used_names.add(name)
             if not entry.is_dir():
                 members[path.relative_to("BuffRadar").as_posix()] = package.read(entry)
     return members
 
 
 def check_package(archive, project=None):
-    members = load_archive(archive)
+    members = load_archive(archive, require_deterministic=project is not None)
     if project is not None:
-        edition = {"BuffRadar.toc", "README.md", "CHANGELOG.md", "DESCRIPTION.md", "FEATURES.md"}
-        shared = project / "BuffRadar"
-        expected = {path.relative_to(shared).as_posix(): path
-                    for path in shared.rglob("*") if path.is_file()}
-        expected.update({name: project / "editions" / "forever" / name for name in edition})
+        _, expected = manifest["source_manifest"](project)
         if set(members) != set(expected):
             raise ValueError(f"Package inventory differs from source: {sorted(set(members) ^ set(expected))}")
         for name, path in expected.items():
             if members[name] != path.read_bytes():
                 raise ValueError(f"Stale package entry {name}. Rebuild the ZIP.")
     toc = members["BuffRadar.toc"].decode("utf-8-sig").replace("\r\n", "\n")
-    interface = re.findall(r"^## Interface:[ \t]*(.+)$", toc, re.MULTILINE)
-    if len(interface) != 1 or interface[0].strip() != "16001":
-        raise ValueError("The Forever TOC must declare Interface 16001")
-    version = re.findall(r"^## Version:[ \t]*(\d+\.\d+\.\d+)[ \t]*$", toc, re.MULTILINE)
-    if len(version) != 1 or archive.name != f"BuffRadar-{version[0]}-Forever.zip":
+    manifest["metadata"](toc, "Interface", manifest["INTERFACE"])
+    version = manifest["metadata"](toc, "Version", r"[0-9]+\.[0-9]+\.[0-9]+")
+    if archive.name != f"BuffRadar-{version}-Forever.zip":
         raise ValueError("The ZIP filename must match the Forever TOC version")
+    sums = archive.with_name("SHA256SUMS.txt")
+    if (project is not None or sums.exists()) and sums.read_bytes() != manifest["checksum"](archive).encode("ascii"):
+        raise ValueError("SHA256SUMS.txt does not match the archive bytes")
     paths = [line.strip().replace("\\", "/") for line in toc.splitlines()
              if line.strip() and not line.lstrip().startswith("#")]
     if len(paths) != len(set(paths)):
@@ -62,16 +73,22 @@ def check_package(archive, project=None):
     lua_files = {name for name in members if name.endswith(".lua")}
     if set(paths) != lua_files or not lua_files:
         raise ValueError(f"TOC and packaged Lua files differ: {sorted(set(paths) ^ lua_files)}")
+    expected_names = lua_files | manifest["EDITION"] | manifest["SHARED_ASSETS"]
+    if set(members) != expected_names:
+        raise ValueError(f"Unexpected package inventory: {sorted(set(members) ^ expected_names)}")
     for icon in re.findall(r"^## IconTexture:[ \t]*Interface\\AddOns\\BuffRadar\\(.+)$", toc, re.MULTILINE):
         if icon.strip().replace("\\", "/") not in members:
             raise ValueError(f"Missing TOC icon asset: {icon}")
 
     lua = lua51.LuaRuntime(unpack_returned_tuples=True)
     lua.execute(Path(__file__).with_name("wowstub.lua").read_text(encoding="utf-8"))
-    start = lua.eval(r"""function()
+    start = lua.eval(r"""function(version)
       local chat = {}
-      local env = WOWSTUB(chat, true, false, true, true)
+      local env = WOWSTUB(chat, true, false, true, false)
       env._G, env.strlower, env.format = env, string.lower, string.format
+      env.C_AddOns = { GetAddOnMetadata = function(addon, key)
+        if addon == "BuffRadar" and key == "Version" then return version end
+      end }
       setmetatable(env, {__index = _G})
       local ns = {}
       return env, function(source, name)
@@ -88,24 +105,32 @@ def check_package(archive, project=None):
             end
           end
         end
-        for _, line in ipairs(chat) do
-          assert(not line:find("error", 1, true), line)
+        assert(ns.X.classic and env.BuffRadarFrame and env.SlashCmdList.BUFFRADAR, "packaged addon did not start")
+        local nextLine, versionFound = #chat + 1, false
+        env.SlashCmdList.BUFFRADAR("selftest")
+        for i, line in ipairs(chat) do
+          assert(not line:find("|cffff4040error:|r", 1, true), line)
+          if i >= nextLine and line:find("version " .. version .. " · Forever edition · interface 16001", 1, true) then
+            versionFound = true
+          end
         end
-        assert(env.BuffRadarFrame and env.SlashCmdList.BUFFRADAR, "packaged addon did not start")
+        assert(versionFound, "Self-test did not report the installed version and edition")
       end
     end""")
-    env, load, login = start()
+    env, load, login = start(version)
     for path in paths:
         load(members[path].decode("utf-8-sig"), path)
     login()
 
     bindings = ElementTree.fromstring(members["Bindings.xml"])
-    if bindings.tag != "Bindings" or not len(bindings):
+    if bindings.tag != "Bindings" or len(bindings) != len(BINDINGS):
         raise ValueError("Missing binding definitions")
     seen = set()
     for binding in bindings:
         name = binding.get("name")
-        if binding.tag != "Binding" or not name or name in seen or not binding.get("category") or len(binding):
+        code = (binding.text or "").strip()
+        if (binding.tag != "Binding" or name not in BINDINGS or name in seen
+                or binding.get("category") != "BUFFRADAR" or len(binding) or code != BINDINGS[name]):
             raise ValueError(f"Invalid binding definition: {name}")
         seen.add(name)
         click = re.fullmatch(r"CLICK (\w+):\w+", name)
@@ -113,7 +138,6 @@ def check_package(archive, project=None):
             if env[click.group(1)] is None:
                 raise ValueError(f"Missing binding target: {name}")
         else:
-            code = (binding.text or "").strip()
             handler = re.fullmatch(r"(\w+)\(\)", code)
             if not handler or lua.eval("type")(env[handler.group(1)]) != "function":
                 raise ValueError(f"Missing binding handler: {name}")

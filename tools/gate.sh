@@ -9,9 +9,9 @@ cd "$(dirname "$0")/.."
 # so probe each candidate by running it rather than by finding it.
 PY=
 for candidate in python3 python; do
-  if "$candidate" -c "import sys" >/dev/null 2>&1; then PY=$candidate; break; fi
+  if "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; then PY=$candidate; break; fi
 done
-[ -n "$PY" ] || { echo "No working python3 or python found."; exit 1; }
+[ -n "$PY" ] || { echo "Python 3.10 or newer is required."; exit 1; }
 # Check all shared modules, including files added to either edition.
 echo "== luacheck51";   "$PY" -I tools/luacheck51.py BuffRadar/*.lua BuffRadar/Locales/*.lua
 echo "== lualimits";    for f in BuffRadar/*.lua; do "$PY" -I tools/lualimits.py "$f"; done
@@ -19,4 +19,5 @@ echo "== localecheck";  "$PY" -I tools/localecheck.py BuffRadar/BuffRadar.lua Bu
 echo "== patterncheck"; "$PY" -I tools/patterncheck.py BuffRadar/*.lua BuffRadar/Locales/*.lua
 echo "== smoke";        "$PY" -I tools/smoke51.py tools/wowstub.lua BuffRadar/BuffRadar.lua
 echo "== coordination"; "$PY" -I tools/coordination51.py tools/wowstub.lua BuffRadar/BuffRadar.lua
+echo "== packaging regression tests"; "$PY" -I tools/test_package.py
 echo "Gate passed. Real luacheck 1.2.0: run tools/check.ps1 on Windows."

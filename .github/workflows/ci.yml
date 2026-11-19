@@ -13,9 +13,40 @@ jobs:
           python-version: "3.12"
       - run: |
           python -m pip install --only-binary=:all: lupa==2.8
-      - name: Gate (static checks + smoke on six fake-client setups)
+      - name: Gate (static checks and Lua 5.1 fake-client suites)
         run: sh tools/gate.sh
       - name: Package (dry run)
         run: sh tools/package.sh
       - name: Verify packaged Forever load order and bindings
         run: python -I tools/checkpackage.py dist/BuffRadar-*-Forever.zip .
+      - name: Save POSIX digest for comparison
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: forever-posix-digest
+          path: dist/SHA256SUMS.txt
+          if-no-files-found: error
+  windows-package:
+    needs: gate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --only-binary=:all: lupa==2.8
+      - run: ./build.ps1
+      - name: Verify packaged Forever load order and bindings
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem dist/BuffRadar-*-Forever.zip
+          python -I tools/checkpackage.py $zip.FullName .
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: forever-posix-digest
+          path: posix
+      - name: Compare the Windows and POSIX package digests
+        shell: pwsh
+        run: |
+          if ((Get-Content dist/SHA256SUMS.txt -Raw) -cne (Get-Content posix/SHA256SUMS.txt -Raw)) {
+            throw 'Package bytes differ across platforms.'
+          }

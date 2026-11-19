@@ -6,19 +6,15 @@ local _, ns = ...
 local X = {}
 ns.X = X
 
--- Edition, picked at load from the client's interface version: the
--- Forever client reports 16001, retail 120105 and up. One source serves
--- both; each edition's zip differs only in its .toc and docs. CLASSIC_FEATURES (true
--- on Forever) turns on spell ranks, group versions of buffs (Prayer of
--- Fortitude, ...) and paladin blessings; on retail their settings, commands
--- and cast modes ("id", "rank") are hidden and that code stays inert.
-local CLASSIC_FEATURES
-do
-  local ok, _, _, _, iface = pcall(GetBuildInfo)
-  iface = ok and tonumber(iface) or 0
-  CLASSIC_FEATURES = iface > 0 and iface < 100000
-end
+-- The packaged loader supplies the declared client; API feature detection
+-- remains separate. The non-shipping Retail TOC is only a regression fixture.
+local ok, iface = pcall(function()
+  local _, _, _, interface = GetBuildInfo()
+  return tonumber(interface)
+end)
+local CLASSIC_FEATURES = ok and ns.ForeverInterface == iface and iface ~= nil
 X.classic = CLASSIC_FEATURES
+X.supported = CLASSIC_FEATURES or (ok and not ns.ForeverInterface and iface == 120105)
 
 X.friendlyPlateCVars = { "nameplateShowFriendlyPlayers", "nameplateShowFriends" }
 X.friendlyPlateNamesCVar = "nameplateShowOnlyNameForFriendlyPlayerUnits"
