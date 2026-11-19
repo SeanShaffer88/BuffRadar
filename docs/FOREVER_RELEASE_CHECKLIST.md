@@ -10,6 +10,18 @@ general checks below. Use a backed-up
 SavedVariables file and disposable test settings for downgrade and cap checks.
 An offline pass does not verify rendering, protected actions, or delivery.
 
+## 1.16.1 Rapid macro retries
+
+Result: **Unverified in game**. Use the exact 1.16.1 Forever ZIP.
+
+- Enable `/br clicks`. Cast through the managed action-bar macro, then retry
+  the same target and spell quickly enough for Forever to report `SENT` after
+  the click. A successful cast should update the counter and history once.
+- Repeat with a different target before the first cast is correlated. The
+  ambiguous cast must not be credited to the wrong player.
+- Press again while the spell is not ready. Confirm the game may show its
+  cooldown message and BuffRadar keeps the target queued until a cast succeeds.
+
 ## 1.15.37 Readiness
 
 Result: **Unverified in game**. Use the 1.15.37 Forever ZIP.
