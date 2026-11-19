@@ -52,8 +52,8 @@ as the situation calls for. When everyone is buffed, the list empties and
 gets out of your way. It costs nothing, asks for nothing, and never talks to
 anything outside the game.
 
-Version 1.15.38 · Interface 16001 · GPLv3.
-Field-tested through v1.15.33; v1.15.34–v1.15.38 remain Unverified in game.
+Version 1.16.0 · Interface 16001 · GPLv3.
+Field-tested through v1.15.33; v1.15.34 and later remain Unverified in game.
 
 **Forever-only from 1.8.0:** the Retail edition ended at 1.7.0 (dropped
 2026-10-25). Both editions were built from the same source; this zip's `.toc`
@@ -63,7 +63,7 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
 
 **Docs:** [Features](FEATURES.md) · [Description](DESCRIPTION.md) · [Changelog](CHANGELOG.md)
 
-## Upgrading to 1.15.38
+## Upgrading to 1.16.0
 
 Back up `BuffRadarDB`'s SavedVariables file before upgrading. Existing valid
 settings upgrade to schema 23. A newer schema is left untouched; your
@@ -74,7 +74,7 @@ use `/br storage delete profile <name>` or `/br storage delete ignore <name>`
 to remove an entry from an over-limit save, then reload. Those commands
 can't edit a newer-schema save.
 
-`/br selftest` should report **1.15.38 · Forever edition · interface 16001**.
+`/br selftest` should report **1.16.0 · Forever edition · interface 16001**.
 An incompatible client won't start the cast UI or change your saved settings.
 
 ## Readiness (introduced in 1.15.37)

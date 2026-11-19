@@ -2,11 +2,11 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
-## 1.15.38 Audit Follow-up
+## 1.16.0 Audit Follow-up
 
-Use the [candidate verification matrix](FOREVER_1.15.38_VALIDATION.md) to
-identify the ZIP and record Windows and Forever results. Run the 1.15.38 rows
-there plus the applicable readiness and general checks below. Use a backed-up
+Use the [1.16.0 verification matrix](FOREVER_1.16.0_VALIDATION.md) to identify
+and check the ZIP. Run its field scenarios plus the applicable readiness and
+general checks below. Use a backed-up
 SavedVariables file and disposable test settings for downgrade and cap checks.
 An offline pass does not verify rendering, protected actions, or delivery.
 

@@ -7,7 +7,7 @@ WoW: Forever (Interface 16001). For the short version see
 The shipping Forever TOC requires Interface 16001. The historical Retail
 TOC remains a test fixture; 1.7.0 was the last Retail release.
 
-## 1.15.38: safer casts, saves and sharing
+## 1.16.0: safer casts, saves and sharing
 
 - A scan or viewport paint failure clears cast actions until a successful
   refresh. The viewport scrolls when fewer rows fit your screen.
@@ -416,9 +416,10 @@ stays hidden on those characters.
 
 ## Verification status
 
-**1.15.38:** Lua 5.1 fake-client, coordination, lint, and package checks pass.
-Windows package parity and live Forever results are **Unverified**. Fake
-clients do not reproduce taint, chat delivery, real viewport rendering, or
+**1.16.0:** Lua 5.1 fake-client, coordination, lint, and package checks cover
+this release. CI compares Windows and POSIX build digests. Live Forever
+behavior is **Unverified**. Fake clients do not reproduce taint, chat
+delivery, real viewport rendering, or
 restricted aura/range behavior on a live build. Known spell IDs are not a
 complete catalogue of all Forever consumables or world buffs.
 

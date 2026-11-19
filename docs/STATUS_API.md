@@ -32,7 +32,7 @@ confirmed missing or has at most 15 seconds left. `partial` can be true even
 when one need is known. `covered` applies only to the buffs BuffRadar was able
 to check, not every buff in the game. `unavailable` has a `reason` of `inactive`,
 `updating`, `paused`, `combat`, or `dead`. In these states the API does not
-return old targets as current. In 1.15.38 an incompatible install stays
+return old targets as current. In 1.16.0 an incompatible install stays
 `inactive`; a failed refresh or cached row paint invalidates the snapshot
 instead of republishing an old queue. This does not change the API version.
 

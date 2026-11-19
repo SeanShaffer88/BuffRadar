@@ -1,8 +1,8 @@
 # BuffRadar — Use-Case, Risk and Test Matrix
 
-Started with 1.15.33 and updated for the 1.15.38 audit follow-up. Each row
+Started with 1.15.33 and updated for the audit follow-up shipping in 1.16.0. Each row
 ties a scenario to its mitigation and evidence. See the [audit ledger](AUDIT_1.15.38.md)
-and [candidate matrix](FOREVER_1.15.38_VALIDATION.md) for new cases. Evidence names are trial-run steps in `tools/smoke51.py` unless
+and [release matrix](FOREVER_1.16.0_VALIDATION.md) for new cases. Evidence names are trial-run steps in `tools/smoke51.py` unless
 marked `coord:` (`tools/coordination51.py`) or `gate` (`tools/gate.sh` /
 `tools/check.ps1`).
 
@@ -149,8 +149,8 @@ below. Keep the current Windows and in-game results with the tested ZIP hash.
   throttling and real secret-value behaviour can't be reproduced offline. A
   passing gate is evidence, not proof.
 - **In-game verification:** releases through 1.15.33 are field-verified;
-  1.15.34–1.15.38 are Unverified in game. Windows package parity passed in
-  CI; see the [candidate matrix](FOREVER_1.15.38_VALIDATION.md).
+  1.15.34 and later remain Unverified in game. See the
+  [1.16.0 verification matrix](FOREVER_1.16.0_VALIDATION.md) for offline checks.
 - **Fuzzing is sampled:** about 1,000 inputs per parser, 3,000 messages,
   1,500 commands, 250 corrupt saves and 200 API-chaos rounds per setup. It
   finds shallow-to-medium defects; it can't prove their absence. The
