@@ -24,7 +24,8 @@ If the ZIP hash changes, use a new matrix for the changed artifact.
 | Candidate repeat build and checksum | **Pass** | Two clean POSIX output runs (one with `--tag v1.15.38`), byte-identical ZIPs and checksum files, then `sha256sum -c SHA256SUMS.txt`. No tag was created. |
 | Package contents and startup | **Pass** | Source-aware `tools/checkpackage.py` verified all 32 files, loaded 22 Forever TOC entries in Lua 5.1, checked all four stable bindings, and read version 1.15.38 and Interface 16001 via `/br selftest`. |
 | Patch whitespace and release notes | **Pass** | `git diff --check`; the first Forever changelog section matches the candidate TOC. |
-| Windows `build.ps1` and `tools/check.ps1` | **Not run** | No Windows/PowerShell result from this workspace. CI is configured to compare digests; configuration is not a result. |
+| Windows `build.ps1` and package parity | **Pass in CI** | [PR #57 CI run](https://github.com/SeanShaffer88/BuffRadar/actions/runs/44429425381) built and verified the Windows ZIP with PowerShell and compared its SHA-256 with the POSIX build. The candidate was also reproduced byte-for-byte from the tested commit. |
+| Full native Windows `tools/check.ps1` gate | **Not run** | The Windows CI job checks packaging; it does not run the full local Windows checker. |
 | Hosted ZIP and checksum readback | **Not run** | No 1.15.38 GitHub release or other publication. After approved publication verify both downloaded files against the candidate bytes. |
 
 Detailed scope: [32-item audit ledger](AUDIT_1.15.38.md).
@@ -43,9 +44,8 @@ Get-Content dist/SHA256SUMS.txt
 ```
 
 Record the Windows/PowerShell/Python versions, gate exit status, and digest.
-The file hash and checksum line must match the header above. CI compares the
-Windows and POSIX checksum files on the same revision; its result can be
-recorded separately from the local Luacheck run.
+The file hash and checksum line must match the header above. The CI parity
+result is recorded separately from the full local Windows check.
 
 ## Forever field pass — pending
 

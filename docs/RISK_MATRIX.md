@@ -149,8 +149,8 @@ below. Keep the current Windows and in-game results with the tested ZIP hash.
   throttling and real secret-value behaviour can't be reproduced offline. A
   passing gate is evidence, not proof.
 - **In-game verification:** releases through 1.15.33 are field-verified;
-  1.15.34–1.15.38 are Unverified in game. No Windows hash comparison has been
-  recorded for the 1.15.38 candidate.
+  1.15.34–1.15.38 are Unverified in game. Windows package parity passed in
+  CI; see the [candidate matrix](FOREVER_1.15.38_VALIDATION.md).
 - **Fuzzing is sampled:** about 1,000 inputs per parser, 3,000 messages,
   1,500 commands, 250 corrupt saves and 200 API-chaos rounds per setup. It
   finds shallow-to-medium defects; it can't prove their absence. The
