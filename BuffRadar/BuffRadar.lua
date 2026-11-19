@@ -4527,7 +4527,11 @@ function X.BeginCastClick(btn, button, down, label, barBody)
     rowPress = press
   end
   local samePress = previous and previous.guid == guid and previous.id == id and previous.spell == name
-  local ambiguous = (previous and not samePress) or (waiting and not (samePress and waiting.press == previous))
+  -- A rapid retry for the same recipient and spell is still one identifiable
+  -- intent: Forever may emit SENT after PostClick, even after another click.
+  local sameIntent = waiting and waiting.guid == guid and waiting.expectedID == id and waiting.spell == name
+  local ambiguous = (previous and not samePress)
+    or (waiting and not (samePress and waiting.press == previous) and not sameIntent)
   local keyDown = not isRow and GetCVarBool and GetCVarBool("ActionButtonUseKeyDown")
   dispatch = { button = btn, spell = name, expectedID = id, guid = guid, who = nameOfTarget,
     full = full, short = short, preferred = preferred, terminals = {}, ambiguous = ambiguous,

@@ -964,6 +964,7 @@ step("action-bar macro follows self and nearby targets without chaining macros",
   local index = env.GetMacroIndexByName("BuffRadar")
   local savedMacro = env.__macros[index]
   local oldCVar, oldOpen, oldSpell, oldZone = env.GetCVarBool, env.Settings.OpenToCategory, env.C_Spell, env.__zone
+  local oldGetTime = O.GetTime
   local oldSelf, oldMode, oldMod, oldSort, oldCity = db.includeSelf, db.castMethod, db.modClick, db.sortMode, db.pauseInCities
   local oldEdit, oldFrame, oldOffer, oldShift = env.EditMacro, env.MacroFrame, X.GroupOffer, env.IsShiftKeyDown
   local function idle(body) return body and not body:find("\n/click", 1, true) and not body:find("\n/cast", 1, true) end
@@ -1086,6 +1087,23 @@ step("action-bar macro follows self and nearby targets without chaining macros",
     fire("UNIT_SPELLCAST_SUCCEEDED", "player", "managed-macro", spellID)
     assert(db.castsTotal == before + 1 and db.history[#db.history].who == target,
       "the direct bar cast lost confirmed recipient attribution")
+    local now = 1000
+    O.GetTime = function() return now end
+    X.ResetCastTracking()
+    before = db.castsTotal
+    env.__runningMacro = index
+    env.BuffRadarMacroButton:Click()
+    env.__runningMacro = nil
+    now = now + 0.162
+    env.__runningMacro = index
+    env.BuffRadarMacroButton:Click()
+    env.__runningMacro = nil
+    fire("UNIT_SPELLCAST_SENT", "player", target, "rapid-managed-macro", spellID)
+    fire("UNIT_SPELLCAST_SUCCEEDED", "player", "rapid-managed-macro", spellID)
+    O.GetTime = oldGetTime
+    assert(db.castsTotal == before + 1 and db.history[#db.history].who == target,
+      "a rapid same-target bar retry lost its delayed cast attribution")
+    X.ResetCastTracking()
     local opened
     env.Settings.OpenToCategory = function(category, section) opened = category == env.Settings.KEYBINDINGS_CATEGORY_ID and section end
     env.SlashCmdList.BUFFRADAR("gamepad")
@@ -1205,6 +1223,7 @@ step("action-bar macro follows self and nearby targets without chaining macros",
     assert(env.GetMacroBody(index) == custom, "a macro with an added line was reclaimed from the marker alone")
   end)
   env.__combat, env.__runningMacro, X.macroParked = false, nil, nil
+  O.GetTime = oldGetTime
   env.GetCVarBool, env.Settings.OpenToCategory, env.C_Spell, env.__zone = oldCVar, oldOpen, oldSpell, oldZone
   env.EditMacro, env.MacroFrame, X.GroupOffer, env.IsShiftKeyDown = oldEdit, oldFrame, oldOffer, oldShift
   db.includeSelf, db.castMethod, db.modClick, db.sortMode, db.pauseInCities = oldSelf, oldMode, oldMod, oldSort, oldCity
@@ -1463,11 +1482,15 @@ step("Forever event order correlates exact identity and consumes a GUID once", f
   sent("expired"); done("expired")
   click("LeftButton"); click("LeftButton")
   sent("overlap"); done("overlap")
+  assert(db.castsTotal == initial + 1, "same-target retries lost a uniquely matched cast")
+  initial = db.castsTotal
   click("LeftButton")
-  row.scripts.PreClick(row, "LeftButton", false)
-  sent("overlap-in-new-click")
-  row.scripts.PostClick(row, "LeftButton", false)
+  local otherRow = shownRows().party2.row
+  otherRow.scripts.PreClick(otherRow, "LeftButton", false)
+  sent("overlap-in-new-click", spellID, env.UnitName(otherRow.entry.unit))
+  otherRow.scripts.PostClick(otherRow, "LeftButton", false)
   done("overlap-in-new-click")
+  assert(db.castsTotal == initial, "an overlapping different-target cast was attributed")
   click("LeftButton")
   local masked = {}
   env.issecretvalue = function(v) return v == masked end
