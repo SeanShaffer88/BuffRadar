@@ -1,5 +1,9 @@
 # BuffRadar 1.15.38 — audit follow-up
 
+This ledger preserves the evidence for the unpublished 1.15.38 candidate.
+The changes ship as **1.16.0**; use the [release matrix](FOREVER_1.16.0_VALIDATION.md)
+for the new version's distinct ZIP and checksum.
+
 This ledger groups the 32 follow-up items by subsystem. It compares the
 candidate with v1.15.37 (`a02f3ebcafb663352d1e6038cb95e8e3c3eaf41e`).
 Unless marked otherwise, the evidence is from Lua 5.1 fake clients, static

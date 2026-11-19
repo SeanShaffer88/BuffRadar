@@ -44,7 +44,7 @@ come first.
   of the main window on German clients (settings are English for
   now).
 
-## What's new in 1.15.38
+## What's new in 1.16.0
 
 Review a paste before applying settings or plans. Plans stay local unless
 an authorised player chooses to share them, and importing a named profile
@@ -79,6 +79,6 @@ were informed by BuffYou by datdata (MIT). Since 1.3.2 the Forever
 and Retail editions are built from the same source; **from 1.8.0
 BuffRadar is Forever-only** — Retail support ended at 1.7.0.
 
-**Verification:** Field-tested through 1.15.33. The 1.15.38 candidate passes
+**Verification:** Field-tested through 1.15.33. The 1.16.0 release passes
 automated checks; live casting, layout and chat behavior are **Unverified**
 on this build.

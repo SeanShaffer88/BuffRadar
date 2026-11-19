@@ -2,7 +2,10 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
-## 1.15.38 — WoW: Forever
+## 1.16.0 — WoW: Forever
+
+This release ships the hardening changes from the unpublished 1.15.38
+candidate. It retains the existing four bindings and requires Interface 16001.
 
 - Require the Forever package on Interface 16001. On another interface,
   BuffRadar leaves the save alone, disables casting, and parks only its own
@@ -31,8 +34,9 @@ All notable changes to BuffRadar are listed here. Newest first.
 - Use one deterministic Forever ZIP builder from Windows and POSIX. Verify
   the TOC, SHA-256, packaged Lua startup, and all four existing bindings.
 
-**Verification:** automated Lua 5.1 and package checks passed. Windows
-build parity and live behavior on this candidate are **Unverified**.
+**Verification:** Lua 5.1 and ZIP checks cover the release; CI compares the
+Windows and POSIX package bytes. Live WoW: Forever behavior remains
+**Unverified** on this build.
 
 ## 1.15.37 — WoW: Forever
 

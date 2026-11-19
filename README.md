@@ -8,9 +8,9 @@ BuffRadar shows which players need a buff you can cast in **WoW: Forever**
 (Interface 16001). Click a name, press your **Cast next buff** key, or use a
 macro to work through the list. Your character goes first by default.
 
-**1.15.38 candidate:** safer imports and saves, stricter cast checks, and a
-list that fits shorter viewports. See the [changes](editions/forever/CHANGELOG.md)
-and [verification status](docs/FOREVER_1.15.38_VALIDATION.md).
+**1.16.0:** safer imports and saves, stricter cast checks, and a list that fits
+shorter viewports. See the [changes](editions/forever/CHANGELOG.md) and
+[release verification](docs/FOREVER_1.16.0_VALIDATION.md).
 
 ## Download and Install
 
@@ -300,7 +300,7 @@ Replace `X.Y.Z` with the TOC version. In CI the Windows and POSIX digests
 must match. Test the exact ZIP in Forever with the
 [release checklist](docs/FOREVER_RELEASE_CHECKLIST.md), not a loose source
 copy. Record the digest, game build and results. See the
-[1.15.38 audit ledger](docs/AUDIT_1.15.38.md) for offline coverage and limits.
+[audit ledger](docs/AUDIT_1.15.38.md) for offline coverage and limits.
 After a tagged release, verify the hosted ZIP against its published checksum
 and the tested artifact.
 
