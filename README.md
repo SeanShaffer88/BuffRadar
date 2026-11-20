@@ -8,9 +8,9 @@ BuffRadar shows which players need a buff you can cast in **WoW: Forever**
 (Interface 16001). Click a name, press your **Cast next buff** key, or use a
 macro to work through the list. Your character goes first by default.
 
-**1.16.1:** keeps cast counts and history accurate after rapid macro retries.
-See the [changes](editions/forever/CHANGELOG.md) and
-[release verification](docs/FOREVER_1.16.1_VALIDATION.md).
+**1.16.2:** the action-bar macro keeps following the next buff after you log
+in again. See the [changes](editions/forever/CHANGELOG.md) and
+[release verification](docs/FOREVER_1.16.2_VALIDATION.md).
 
 ## Download and Install
 
