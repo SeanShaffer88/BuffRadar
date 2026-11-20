@@ -5546,12 +5546,20 @@ local function IsManagedMacro(body)
   return handBack == "/targetlasttarget" or handBack == "/cleartarget"
 end
 
+-- The game hands stored macro text back with a trailing line break after a
+-- relog (and may use CR LF). Compare on the text itself, or BuffRadar
+-- refuses its own macro at login and leaves it frozen until it is remade.
+local function MacroText(body)
+  body = body:gsub("\r\n?", "\n")
+  return (body:gsub("%s+$", ""))
+end
+
 local function ReadMacro()
   if not (GetMacroIndexByName and GetMacroBody) then return end
   local ok, id = pcall(GetMacroIndexByName, MACRO_NAME)
   if ok and type(id) == "number" and Readable(id) and id > 0 then
     local read, body = pcall(GetMacroBody, id)
-    return id, read and type(body) == "string" and Readable(body) and body or nil
+    return id, read and type(body) == "string" and Readable(body) and MacroText(body) or nil
   end
 end
 

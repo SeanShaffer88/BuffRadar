@@ -1239,6 +1239,83 @@ step("action-bar macro follows self and nearby targets without chaining macros",
   X.Refresh()
   assert(ok, err)
 end)
+-- Player report (1.16.1): after a relog the bar macro stayed on its last
+-- text (idle, or the self /click) until it was deleted and remade. The
+-- game hands stored macro text back with a trailing line break, and the
+-- exact-text ownership check refused BuffRadar's own macro.
+step("bar macro stays managed when the game returns its text with line-break changes", function()
+  local cleanup = twoTanks()
+  local X, O, db = NS.X, env.__over, env.BuffRadarDB
+  local index = env.GetMacroIndexByName("BuffRadar")
+  local savedMacro = index > 0 and env.__macros[index]
+  local oldEdit, oldBody = env.EditMacro, env.GetMacroBody
+  local oldSelf, oldMode, oldSort = db.includeSelf, db.castMethod, db.sortMode
+  local selfCovered = false
+  local header = "# BuffRadar\n/stopmacro [combat][@player,dead]"
+  local function relog(stored, suffix)
+    if index > 0 then env.__macros[index] = nil end
+    fire("UPDATE_MACROS")
+    X.SyncCastMacro(true) -- forget the macro this session tracked
+    env.GetMacroBody = function(i)
+      local body = oldBody(i)
+      return body and (body:gsub("\n", suffix == "\r\n" and "\r\n" or "\n") .. suffix)
+    end
+    index = env.CreateMacro("BuffRadar", 134400, stored)
+    fire("UPDATE_MACROS")
+  end
+  local ok, err = pcall(function()
+    db.includeSelf, db.castMethod, db.sortMode = true, "target", "name"
+    O.Aura = function(unit)
+      if unit == "player" and selfCovered then return { expirationTime = env.GetTime() + 3600 } end
+    end
+    env.IsSpellInRange = function() return 1 end
+    env.EditMacro = function(...)
+      local slot = oldEdit(...)
+      fire("UPDATE_MACROS") -- synchronous on the real client
+      return slot
+    end
+    local stored = {
+      header,
+      header .. "\n/click BuffRadarNextButton",
+      header .. "\n/click BuffRadarNextButton LeftButton 1",
+      "/click BuffRadarNextButton",
+    }
+    for _, suffix in ipairs({ "", "\n", "\r\n", "\n\n", " \n" }) do
+      for _, text in ipairs(stored) do
+        selfCovered = false
+        relog(text, suffix)
+        X.Refresh()
+        local label = string.format("%q + %q", text, suffix)
+        assert(oldBody(index):find("\n/click BuffRadarNextButton", 1, true),
+          "relogged macro did not arm for the self buff: " .. label)
+        selfCovered = true
+        X.Refresh()
+        assert(oldBody(index):find("\n/targetexact Tank1\n", 1, true),
+          "relogged macro stopped following the queue to a nearby player: " .. label)
+        selfCovered = false
+        X.Refresh()
+        assert(oldBody(index):find("\n/click BuffRadarNextButton", 1, true),
+          "macro lost ownership after its own write was read back: " .. label)
+      end
+    end
+    -- A hand-edited macro stays the player's, whatever the line endings.
+    local custom = header .. "\n/say hello"
+    relog(custom, "\n")
+    X.Refresh()
+    assert(oldBody(index) == custom, "a hand-edited macro was reclaimed after a relog")
+  end)
+  env.EditMacro, env.GetMacroBody = oldEdit, oldBody
+  db.includeSelf, db.castMethod, db.sortMode = oldSelf, oldMode, oldSort
+  if index > 0 then env.__macros[index] = nil end
+  fire("UPDATE_MACROS")
+  X.SyncCastMacro(true)
+  if savedMacro then env.CreateMacro(savedMacro.name, savedMacro.icon, savedMacro.body); fire("UPDATE_MACROS") end
+  cleanup()
+  env.IsSpellInRange = nil
+  X.ResetCastTracking()
+  X.Refresh()
+  assert(ok, err)
+end)
 step("cast keybinds disarm when a roster token changes after the scan", function()
   local cleanup = partyOfTwo("KEY")
   local O, X, db = env.__over, NS.X, env.BuffRadarDB

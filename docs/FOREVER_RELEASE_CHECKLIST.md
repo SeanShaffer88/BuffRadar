@@ -2,6 +2,14 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## Macro after relog
+
+- Put the BuffRadar macro on an action bar, log out fully, and log back in.
+  Without remaking it, check that pressing it buffs the next player in the
+  list, including a nearby player shown only by nameplate, not just you.
+- Open the macro editor and check that the text follows the next player as
+  the list changes. A macro you edited by hand must stay as you wrote it.
+
 ## 1.16.0 Audit Follow-up
 
 Use the [1.16.0 verification matrix](FOREVER_1.16.0_VALIDATION.md) to identify

@@ -2,6 +2,15 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## Unreleased
+
+- Keep the BuffRadar action-bar macro following the next buff after you log
+  in again. The game returns saved macro text with a trailing line break, so
+  BuffRadar stopped recognizing its own macro. The macro then stayed idle, or
+  buffed only you, until it was deleted and remade.
+
+Automated checks cover the line-break cases; live behavior remains **Unverified**.
+
 ## 1.16.1 — WoW: Forever
 
 - Keep confirmed casts in the counter and history when Forever reports a
