@@ -7,6 +7,15 @@ WoW: Forever (Interface 16001). For the short version see
 The shipping Forever TOC requires Interface 16001. The historical Retail
 TOC remains a test fixture; 1.7.0 was the last Retail release.
 
+## 1.16.2: macro after relog
+
+- The BuffRadar action-bar macro stays managed after you log in again. The
+  game returns saved macro text with a trailing line break, which BuffRadar
+  no longer mistakes for a hand-edited macro. Macros you edited yourself are
+  still left alone.
+
+**Verification:** automated checks; live behavior remains **Unverified**.
+
 ## 1.16.1: accurate cast history
 
 - Preserve cast counts and history when Forever reports a successful cast
