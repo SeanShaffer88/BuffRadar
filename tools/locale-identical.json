@@ -1,0 +1,37 @@
+{
+  "deDE": {
+    "Feedback": "Common German UI loanword",
+    "%s: %s": "Pure formatting pattern",
+    "Buffs": "Established German game term",
+    "Name": "Identical German noun",
+    "Tank": "Established role term",
+    "%d ms": "Numeric SI unit pattern",
+    "Auto (%s)": "Common automatic-mode abbreviation with format",
+    "Auto": "Common automatic-mode abbreviation",
+    "%s: %s -> %s": "Pure formatting pattern"
+  },
+  "esES": {
+    "%d ms": "Numeric SI unit pattern",
+    "%s: %s": "Pure formatting pattern",
+    "%s: %s -> %s": "Pure formatting pattern",
+    "Auto": "Common automatic-mode abbreviation",
+    "Auto (%s)": "Common automatic-mode abbreviation with format",
+    "DPS": "Established gaming acronym",
+    "Personal": "Spanish adjective"
+  },
+  "frFR": {
+    "%d ms": "Numeric SI unit pattern",
+    "Auto": "Common automatic-mode abbreviation",
+    "Auto (%s)": "Common automatic-mode abbreviation with format",
+    "Buffs": "Established French gaming term",
+    "DPS": "Established gaming acronym",
+    "Tank": "Established French role term",
+    "Raids": "Established French gaming term",
+    "combat": "French noun"
+  },
+  "ruRU": {
+    "%s: %s": "Pure formatting pattern",
+    "%s: %s -> %s": "Pure formatting pattern"
+  },
+  "zhCN": {}
+}

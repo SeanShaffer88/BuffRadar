@@ -91,6 +91,23 @@ end
 -- Strings with %d / %s are string.format patterns: keep the placeholders.
 -- Any key a translation leaves out falls back to English.
 local L = {
+  ["First cast guide"] = "First cast guide",
+  ["Open Quick Setup"] = "Open Quick Setup",
+  ["Open Buff List"] = "Open Buff List",
+  ["Copy Support Report"] = "Copy Support Report",
+  ["Support report"] = "Support report",
+  ["Technical details only. No player names or user text are included. Review and copy locally."] = "Technical details only. No player names or user text are included. Review and copy locally.",
+  ["Waiting for discovery."] = "Waiting for discovery.",
+  ["This client or edition is unsupported."] = "This client or edition is unsupported.",
+  ["No supported buffs are learned."] = "No supported buffs are learned.",
+  ["Discovery is paused or disabled."] = "Discovery is paused or disabled.",
+  ["No missing buffs are queued. Covered players need no cast."] = "No missing buffs are queued. Covered players need no cast.",
+  ["Discovery is incomplete or filtered."] = "Discovery is incomplete or filtered.",
+  ["Ready: activate an existing BuffRadar row, binding or managed macro yourself."] = "Ready: activate an existing BuffRadar row, binding or managed macro yourself.",
+  ["Waiting for your cast."] = "Waiting for your cast.",
+  ["Confirmed: BuffRadar credited your cast."] = "Confirmed: BuffRadar credited your cast.",
+  ["Guidance is paused during combat or while the player is unavailable."] = "Guidance is paused during combat or while the player is unavailable.",
+  ["Quick Setup is complete. Use /br firstcast for a guided first cast."] = "Quick Setup is complete. Use /br firstcast for a guided first cast.",
   ["Find settings across all tabs"] = "Find settings across all tabs",
   ["No settings match this search."] = "No settings match this search.",
   ["Cast next buff: %s"] = "Cast next buff: %s",
@@ -1474,6 +1491,8 @@ local hasAnyBuff = false
 local bookCount = 0
 local sessionShow = false   -- user explicitly opened the window this session
 local lastError
+local scanFaults = 0
+function X.ScanFaultCount() return scanFaults end
 
 local BuildBuffList  -- reads the spellbook; helpers block-scoped (200-local limit)
 do
@@ -4507,6 +4526,7 @@ local function CastTargetNames(unit, macro)
     localTarget and name:lower() or nil, preferred and preferred:lower() or nil
 end
 
+local successSerial, successObserver, successEpoch = 0, nil, 0
 function X.BeginCastClick(btn, button, down, label, barBody)
   local entry = btn.entry
   Trace(label .. " pre", button, down and "down" or "up", entry and entry.missing and entry.missing[1])
@@ -4560,6 +4580,8 @@ function X.BeginCastClick(btn, button, down, label, barBody)
     or (waiting and not (samePress and waiting.press == previous) and not sameIntent)
   local keyDown = not isRow and GetCVarBool and GetCVarBool("ActionButtonUseKeyDown")
   dispatch = { button = btn, spell = name, expectedID = id, guid = guid, who = nameOfTarget,
+    source = label == "click" and "row" or label == "bar macro" and "macro" or "binding",
+    supportEpoch = successEpoch,
     full = full, short = short, preferred = preferred, terminals = {}, ambiguous = ambiguous,
     press = press, deferred = (isRow or label == "bar macro" or (not not down) == (not not keyDown)) and not entry.pet }
   Trace("expected", name, id, nameOfTarget, guid)
@@ -4568,6 +4590,13 @@ end
 local function IsFailedCast(event)
   return event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET"
 end
+
+function X.ObserveCastSuccess(observer)
+  successEpoch = successEpoch + 1
+  successObserver = type(observer) == "function" and observer or nil
+  return successSerial
+end
+function X.CastSuccessSerial() return successSerial end
 
 local function ApplyCast(cast, terminal, targetError)
   if terminal == "UNIT_SPELLCAST_SUCCEEDED" then
@@ -4589,6 +4618,8 @@ local function ApplyCast(cast, terminal, targetError)
     if key then X.SyncSend(key, cast.guid) end
     X.queueAt = GetTime()
     Trace("attributed", terminal, cast.sentGUID)
+    successSerial = successSerial + 1
+    if successObserver and cast.supportEpoch == successEpoch then pcall(successObserver, successSerial, cast.source, cast.sentID) end
   elseif targetError and IsFailedCast(terminal) then
     local expires = GetTime() + 30
     X.failedTargets[cast.guid] = expires
@@ -5009,6 +5040,7 @@ for _, kind in ipairs({ "scan", "prepare", "import", "debuff", "combatDebuff" })
 end
 
 function X.RefreshFault(err)
+  scanFaults = math_min(1000000, scanFaults + 1)
   scanHorizon, nEntries, X.afterCombatScan, X.fallPending = nil, 0, nil, nil
   X.groupFallback, X.groupFallbackEntry, X.groupFallbackSummary = nil, nil, nil
   X.scanUnit, X.blessingScanUnit = nil, nil
@@ -5751,6 +5783,7 @@ function X.SyncCastMacro(disarmed)
   if signature ~= macro.deliverySignature then
     macro.deliverySignature = signature
     if X.RefreshNextPreview then X.RefreshNextPreview() end
+    if X.SupportChanged then pcall(X.SupportChanged) end
   end
 end
 

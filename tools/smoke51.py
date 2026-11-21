@@ -13,6 +13,8 @@ stub_path, addon_path = sys.argv[1], sys.argv[2]
 lua = lua51.LuaRuntime(unpack_returned_tuples=True)
 lua.execute(open(stub_path, encoding="utf-8").read())
 audit_tests = lua.execute(Path(__file__).with_name("audit51.lua").read_text(encoding="utf-8"))
+support_tests = lua.execute(Path(__file__).with_name("support51.lua").read_text(encoding="utf-8"))
+audit_tests = lua.eval("function(a,b) return function(...) a(...); b(...) end end")(audit_tests, support_tests)
 
 harness = lua.eval(r"""function(sources, withTimer, noTemplates, forever, german, auditTests)
 local chat = {}

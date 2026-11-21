@@ -2889,11 +2889,15 @@ function AssignmentUI.BuildReadinessSettings(panel)
     personal:SetPoint("TOPLEFT", 339, -420)
   end
   r.memory = MakeButton(panel, L["Memory usage"], 152, I.MemoryReport)
-  r.memory:SetPoint("TOPLEFT", 14, -469)
+  r.memory:SetPoint("TOPLEFT", 14, -444)
   local status = MakeButton(panel, L["Copy buff status"], 152, function() K.Stop(); X.ext.status("export") end)
   status:SetPoint("LEFT", r.memory, "RIGHT", 10, 0)
   r.feedback = MakeButton(panel, L["Feedback"], 152, function() K.Stop(); X.ShowFeedback() end)
   r.feedback:SetPoint("LEFT", status, "RIGHT", 10, 0)
+  r.firstCast = MakeButton(panel, L["First cast guide"], 234, function() K.Stop(); X.Support.Open() end)
+  r.firstCast:SetPoint("TOPLEFT", 14, -474)
+  r.support = MakeButton(panel, L["Copy Support Report"], 234, function() K.Stop(); X.Support.ShowReport() end)
+  r.support:SetPoint("LEFT", r.firstCast, "RIGHT", 10, 0)
 
   function r.Update()
     for _, cb in ipairs(r.checks) do cb:Update() end

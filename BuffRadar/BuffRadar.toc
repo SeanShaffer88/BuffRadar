@@ -24,3 +24,4 @@ Config.lua
 Slash.lua
 Recaps.lua
 Profiles.lua
+Support.lua

@@ -17,6 +17,7 @@ local reasons = { combat = "Buff scan paused in combat", dead = "Buff scan pause
 
 local function Notify()
   revision = revision + 1
+  if X.SupportChanged then pcall(X.SupportChanged) end
   if X.UpdateMinimapStatus then X.UpdateMinimapStatus() end
   -- Consumers can re-read after the queue has been committed. No dependency
   -- or load-order requirement, and a consumer exception cannot break casting.
@@ -78,6 +79,12 @@ end
 
 function S.State() return state end
 function S.Count() return count end
+
+-- Typed internal aggregates: intentionally excludes expiry recipients and rows.
+function S.Diagnostics()
+  return { revision = revision, state = state, reason = reason, partial = partial,
+    actionable = count, expiring = expiring }
+end
 
 function S.Description()
   return L[labels[state] or reasons[reason]]

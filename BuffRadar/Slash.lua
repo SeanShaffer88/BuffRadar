@@ -184,6 +184,7 @@ local function HandleSlash(msg)
   syncState()
   local cmd, rest = (msg or ""):match("^%s*(%S*)%s*(.-)%s*$")
   cmd = (cmd or ""):lower()
+  if (cmd == "firstcast" or cmd == "support") and X.ext[cmd] then X.ext[cmd](rest); return end
   if not X.supported then Print(L["BuffRadar requires the Forever package on Interface 16001. Casting is disabled."]); return end
   if not db then Print("Settings not loaded yet."); return end
   if (cmd == "" or cmd == "show" or cmd == "hide" or cmd == "announce"
