@@ -448,9 +448,17 @@ stays hidden on those characters.
   Esc > Options > AddOns (on clients that list addon options), or
   with `/br config`. `/br config find` searches across the tabs and focuses
   the selected setting without changing it.
-- **Languages:** English and complete German translations cover settings,
-  list and tooltips, with partial French, Spanish, Russian and Simplified
-  Chinese translations. Missing translated strings fall back to English.
+- **Languages:** English and complete German, French, Spanish, Russian and
+  Simplified Chinese packs cover all current settings, list and tooltip keys.
+  Strict offline checks validate formatting, literal commands and locale-first
+  flows; native-speaker certification and actual client rendering are unverified.
+- **First cast guide:** `/br firstcast` explains discovery and delivery readiness,
+  then confirms a user-triggered cast only through the normal attributed success
+  path. Closing/reopening starts a fresh attempt; combat pauses guidance.
+- **Private support report:** `/br support` opens a local copy dialog containing
+  a bounded typed technical report. Names, profile labels, macro bodies, history
+  and raw errors are excluded. Nothing is sent or copied to the clipboard
+  automatically. Both actions are also in **Readiness** settings.
 - **Cast counter** for this session and all-time, plus per-spell cast
   statistics (`/br count`, `/br resetcount`, `/br stats`). The
   session count resets on login or `/reload`; the all-time count is

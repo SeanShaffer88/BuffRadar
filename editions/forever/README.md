@@ -42,6 +42,16 @@ client supplies learned-rank and recipient-level data. Plain-name macro mode
 lets the game choose the rank. Missing information can leave the highest
 learned rank as the fallback; the preview shows the prepared cast.
 
+For a first cast, `/br firstcast` explains discovery and separate direct/macro
+readiness, then waits for a cast you activate yourself. Closing starts no work;
+reopening begins a new attempt. Combat pauses guidance and keyboard capture.
+`/br support` opens a copyable local technical report without player names,
+profile labels, histories, macro bodies or raw errors. It sends nothing. Both
+commands also have **Readiness** settings buttons. All five translated packs
+(German, French, Spanish, Russian and Simplified Chinese) cover every current
+interface key; offline format and flow checks are separate from native-speaker
+and in-game rendering validation.
+
 ## Screenshots
 
 Captured in WoW: Forever with BuffRadar v1.15.35.

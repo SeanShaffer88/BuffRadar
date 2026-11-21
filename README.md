@@ -230,10 +230,20 @@ aura and Hunter aspect reminders with `/br aura`.
   Escape exits navigation. The color picker, keybind prompt, setup wizard,
   and profile share dialogs have their own controls. Enable status symbols
   with `/br tagsymbols` and reduced motion with `/br motion`.
-- **Languages.** English and German text are bundled, along with partial
-  French, Spanish, Russian, and Simplified Chinese translations.
+- **Languages.** English plus complete German, French, Spanish, Russian and
+  Simplified Chinese packs cover all current interface strings. Offline checks
+  verify keys, format contracts and locale-first flows; native-speaker and
+  actual client rendering review remain separate.
 
 ### Profiles and Diagnostics
+
+Use `/br firstcast` for a session-local guide through discovery and cast readiness.
+It waits for a cast you activate through the existing list, binding or managed
+macro, and confirms only an attributed success. It never casts automatically.
+`/br support` opens a local copy window with allowlisted technical settings,
+aggregate counts, readiness and categorized errors. It excludes player names,
+profile labels, history, macro text and raw errors, and sends nothing. Both
+actions are available in the **Readiness** settings tab.
 
 | Feature | Controls and behavior |
 |---|---|
