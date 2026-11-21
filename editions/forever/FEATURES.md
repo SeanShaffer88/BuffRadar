@@ -7,7 +7,7 @@ WoW: Forever (Interface 16001). For the short version see
 The shipping Forever TOC requires Interface 16001. The historical Retail
 TOC remains a test fixture; 1.7.0 was the last Retail release.
 
-## Current Workflow
+## 1.17.0: Current Workflow
 
 - **Optional coverage views:** `/br matrix` presents bounded player/buff pages
   from committed scan evidence; `/br selfstrip` reports personal aura status in

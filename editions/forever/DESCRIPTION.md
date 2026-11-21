@@ -40,16 +40,25 @@ come first.
   Buffs / Behavior / Ignore & Stats / Readiness) with hover help on every
   setting, per-buff toggles and rebuff thresholds, a resizable
   window, role ordering, a realm-aware right-click ignore list, cast
-  statistics for the session and all-time — and a German translation
-  of the main window on German clients (settings are English for
-  now).
+  statistics for the session and all-time. German, French, Spanish,
+  Russian and Simplified Chinese packs cover settings, help and visible
+  status and error messages.
 
-## What's new in 1.16.3
+## What's new in 1.17.0
 
-Shared-scanner maintenance preserves single-recipient buff ownership when
-the current holder is excluded from the list. The regression uses the
-historical Retail Earth Shield definition; Forever's current buff definitions
-do not use this mode.
+Daily Tasks brings discovery, cast delivery and preparation together. Settings
+search understands localized intents, and completed-scan status distinguishes
+fresh observations from paused, stale or unavailable evidence.
+
+Share preferences without player identities by default, or explicitly review a
+full backup. Recover recent ordinary-setting changes within the session;
+purchases, identities and network actions stay outside that history.
+
+Optional Coverage Matrix pages and a fixed Self Buff Status strip display
+read-only evidence without changing cast decisions. Reagent restocking starts
+disabled: configure supported targets and limits, review a merchant quote, then
+confirm one reagent row. Changed quotes cancel consent; no automatic purchases
+are made. All five locale packs include the new workflow and visible messages.
 
 ## Readiness
 
@@ -78,5 +87,6 @@ were informed by BuffYou by datdata (MIT). Since 1.3.2 the Forever
 and Retail editions are built from the same source; **from 1.8.0
 BuffRadar is Forever-only** — Retail support ended at 1.7.0.
 
-**Verification:** Field-tested through 1.15.33. The 1.16.3 release passes
-automated checks; live behavior remains **Unverified** on this build.
+**Verification:** covers Lua 5.1 compilation, automated mock-client and locale
+checks, and package integrity. The package targets Interface 16001 and retains
+SavedVariables schema 23.

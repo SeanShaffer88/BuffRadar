@@ -2,20 +2,28 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
-## Unreleased — WoW: Forever
+## 1.17.0 — WoW: Forever
 
-- Add optional read-only player-by-buff coverage pages and a fixed personal
-  aura-status strip, separate from tracking toggles and cast actions.
-- Add opt-in reagent targets, conservative bag/stock/bundle estimates and
-  reviewed merchant purchases. Each explicit confirmation authorizes only one
+- Complete visible-message localization in German, French, Spanish, Russian
+  and Simplified Chinese, including settings, help and error paths.
+- Add Daily Tasks navigation for discovery, cast delivery and preparation,
+  while retaining the expert settings tabs and keyboard navigation.
+- Improve settings search with localized intent matching and direct-control
+  focus without changing a setting when a result is selected.
+- Show completed-scan freshness separately from attempts, pauses and failures.
+- Default shared settings to preferences without player identities; recipients
+  keep their ignored players and named exceptions. Full sharing is explicit.
+- Add bounded, session-only recovery for ordinary preferences. Purchases,
+  identities and network actions are excluded from undo history.
+- Add optional read-only coverage pages and a fixed personal aura-status strip.
+  Confirmed, missing, unknown and not-applicable evidence remain distinct.
+- Add opt-in reagent targets and reviewed merchant purchases with conservative
+  bag, stock, bundle, copper and item limits. Each confirmation authorizes one
   quoted reagent row; changed quotes and combat cancel that authorization.
-- Simplify daily discovery/casting/preparation navigation, improve settings
-  intent search and expose completed-scan freshness.
-- Add identity-aware preference sharing and bounded ordinary-setting recovery;
-  complete visible-text localization through the supported locale packs.
 
-Offline verification is recorded with the candidate change. In-game tests are
-assumed by request and were not run; live behavior remains **Unverified**.
+**Verification:** covers Lua 5.1 compilation, automated mock-client and locale
+checks, and package integrity. Interface remains 16001 and SavedVariables
+schema remains 23.
 
 ## 1.16.3 — WoW: Forever
 
