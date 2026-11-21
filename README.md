@@ -8,10 +8,9 @@ BuffRadar shows which players need a buff you can cast in **WoW: Forever**
 (Interface 16001). Click a name, press your **Cast next buff** key, or use a
 macro to work through the list. Your character goes first by default.
 
-**1.16.3:** shared-scanner maintenance and single-recipient ownership regression
-coverage. The corrected ownership mode is used by the historical Retail
-definitions. See the [changes](editions/forever/CHANGELOG.md) and the
-[previous 1.16.2 verification](docs/FOREVER_1.16.2_VALIDATION.md).
+The [Forever Player Guide](editions/forever/README.md) describes the current
+workflow. Release history and its verification evidence remain in the
+[changelog](editions/forever/CHANGELOG.md) and [feature reference](editions/forever/FEATURES.md).
 
 ## Download and Install
 
@@ -38,6 +37,10 @@ definitions. See the [changes](editions/forever/CHANGELOG.md) and the
   setup. Use `/br why <name>` for a player's eligibility and assignment.
 - Click **?** on the buff window or run `/br nearby` to check friendly
   nameplates, the last scan count, and your current target's eligibility.
+- Find settings across all six tabs with `/br config find`. Select a
+  `Tab > Setting` result to open its tab and focus the control; selecting
+  a result does not change its value. Use Previous/Next for more matches
+  and Escape to close search.
 
 ## Features
 
@@ -71,7 +74,12 @@ definitions. See the [changes](editions/forever/CHANGELOG.md) and the
   on cooldown and can pick a recipient-eligible rank when the data is available.
 - **Cast preview.** Hover a row or the window footer to see the planned cast.
   The next-cast tooltip can show the target, spell rank, fallback reason,
-  and known group-blocker count.
+  and known group-blocker count. The footer also reports direct-binding
+  and action-bar macro readiness separately. A populated queue does not
+  mean that both delivery methods are armed. An unavailable or pending
+  macro reports its reason; use **Cast next buff** only when that binding
+  is shown as ready. `/br status export` includes the same **Cast delivery**
+  diagnostics without changing the macro.
 - **Group versions.** Set the minimum need for automatic group-cast offers
   with `/br groupcast`. Enable Shift-click with `/br modclick` and register
   your own spells with `/br grouppair "Single" "Group"`. BuffRadar falls
@@ -82,6 +90,11 @@ definitions. See the [changes](editions/forever/CHANGELOG.md) and the
   macro mode. `/br clickreg` chooses when clicks fire. If BuffRadar can tie
   a line-of-sight failure to its cast, it skips that target temporarily so
   the next cast can move on.
+
+Plain-name macro mode leaves rank selection to the game. The other supported
+cast modes use recipient-level rank information when available; missing rank
+or level data can leave the highest learned rank as the fallback. Review the
+next-cast preview when buffing lower-level players.
 
 ### Supported Buffs
 
@@ -207,7 +220,10 @@ aura and Hunter aspect reminders with `/br aura`.
   green (`+`), ordinary needs yellow (`!`), critical needs red (`!!`), and
   unknown coverage gray (`?`). A paused scan has no mark. `/br visual on`
   adds quiet highlights independently of sound and respects Reduced Motion.
-- **Accessible settings.** Search the active tab with `/br config find`. Use
+- **Accessible settings.** Search every tab with `/br config find`. Results
+  show their destination tab and setting, including unavailable controls.
+  The six tabs are **Window**, **Alerts**, **Buffs**, **Behavior**,
+  **Ignore & Stats**, and **Readiness**. Use
   `/br config navigate` for keyboard controls or `/br config narrate`
   for the game's configured text-to-speech voice. Tab or Shift+Tab moves,
   Enter or Space activates, arrow keys adjust, F1 toggles speech, and

@@ -7,6 +7,29 @@ WoW: Forever (Interface 16001). For the short version see
 The shipping Forever TOC requires Interface 16001. The historical Retail
 TOC remains a test fixture; 1.7.0 was the last Retail release.
 
+## Current Workflow
+
+- **Setup and discovery:** `/br wizard` reviews a starting configuration;
+  `/br plates` enables friendly nameplate discovery and `/br nearby` diagnoses it.
+- **Casting:** click a row, bind **Cast next buff** with `/br key`, or create
+  the managed action-bar macro with `/br macro`. The footer distinguishes
+  direct-binding readiness from macro readiness, including parked and pending
+  states. Use the stated reason; a queue alone does not prove either path ready.
+- **Settings:** `/br config find` searches all six tabs with `Tab > Setting`
+  results, Previous/Next paging and exact-control focus. Selecting a result
+  leaves its value unchanged. Escape closes search; keyboard navigation and
+  narration remain available.
+- **Assignments and preparation:** `/br why <name>`, `/br coverage` and
+  `/br prep` explain rules and distinguish missing buffs from unknown readings.
+  Missing role data falls back to the class's World assignment cell.
+- **Profiles and troubleshooting:** `/br profile` manages named profiles;
+  imports are previewed before applying. `/br status export` includes separate
+  **Cast delivery** diagnostics. See the [player guide](README.md) for the
+  everyday workflow and [changelog](CHANGELOG.md) for release history.
+
+<details>
+<summary>Historical Release Highlights (version-specific counts and behavior)</summary>
+
 ## 1.16.3: shared-scanner maintenance
 
 - Preserve ownership of single-recipient buffs when their holder is ignored or
@@ -301,6 +324,8 @@ each needs in-game evidence or a sharper definition, recorded in
 - Settings-window tabs and main checkboxes are translatable now;
   German covers all 44 strings.
 
+</details>
+
 ## The list
 
 - **Live list of who needs what.** Every nearby player missing one
@@ -328,8 +353,11 @@ each needs in-game evidence or a sharper definition, recorded in
   button (`/br key` or `/br gamepad`), or put the managed BuffRadar macro
   (`/br macro`) on an action bar. A hand-written `/click` macro can't
   chain another macro to reach an ungrouped target.
-- **Highest rank.** Buffs are cast by name, so your highest known
-  rank is always used.
+- **Recipient rank.** Supported cast modes choose a recipient-eligible
+  learned rank when the client supplies rank and level information.
+  Plain-name macro mode leaves the choice to the game. Missing information
+  can leave the highest learned rank as the fallback. The footer previews
+  the prepared cast.
 - **Class-aware.** Arcane Intellect only goes to mana users, Thorns
   to melee classes, Fear Ward to warriors, and so on. Paladins give
   each class one fitting blessing: **Blessing of Kings leads every
@@ -407,8 +435,8 @@ stays hidden on those characters.
 
 ## Settings and statistics
 
-- Tabbed settings window (Window / Alerts / Buffs / Behavior /
-  Ignore & Stats) — since 1.3.2 in the standard game style with
+- Six-tab settings window (Window / Alerts / Buffs / Behavior /
+  Ignore & Stats / Readiness) in the standard game style with
   tabs along the bottom where the client provides it: background
   color, opacity, title, border, width and scale; per-buff on/off
   (`/br buffs`, `/br toggle KEY`); per-buff rebuff timing on the
@@ -418,11 +446,11 @@ stays hidden on those characters.
   settings window. Settings open from the gear icon, by
   right-clicking the minimap button or the addon menu entry, via
   Esc > Options > AddOns (on clients that list addon options), or
-  with `/br config`.
-- **Languages:** the main window, its tooltips and the minimap
-  tooltips are in German on German clients (`Locales\deDE.lua`,
-  which is also the template for other languages); the settings
-  window is English for now.
+  with `/br config`. `/br config find` searches across the tabs and focuses
+  the selected setting without changing it.
+- **Languages:** English and complete German translations cover settings,
+  list and tooltips, with partial French, Spanish, Russian and Simplified
+  Chinese translations. Missing translated strings fall back to English.
 - **Cast counter** for this session and all-time, plus per-spell cast
   statistics (`/br count`, `/br resetcount`, `/br stats`). The
   session count resets on login or `/reload`; the all-time count is
@@ -477,6 +505,9 @@ WoW: Forever on 2026-11-14.
   (Interface 120105), a separate zip from the same source with its
   own feature list.
 
+<details>
+<summary>Earlier Fixes and Additions</summary>
+
 ## Fixed in 1.15.2
 
 - List only players currently in cast range who can benefit from a known
@@ -514,3 +545,5 @@ WoW: Forever on 2026-11-14.
 - `/br apicheck export` - API report in a copy window.
 - `/br ignorelist export | import` - move the ignore list between characters.
 - `/br summary` - casts still needed per buff, biggest first.
+
+</details>

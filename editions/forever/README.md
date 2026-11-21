@@ -7,7 +7,40 @@
 BuffRadar shows a small window listing every nearby player who is missing one of *your*
 buffs — with their portrait, class-colored name and icons of what they still need.
 Click a name to buff them. Press one key (or one macro) to buff the next person.
-You always come first.
+Your character comes first by default.
+
+## Current Forever Workflow
+
+1. **Set up discovery.** Run `/br wizard` to review a starting setup and
+   `/br plates` for readable friendly nameplates outside your group.
+   Group, target and mouseover checks also contribute. `/br nearby` explains
+   discovery; `/br plates restore` undoes recorded nameplate changes.
+2. **Choose cast delivery.** Bind **Cast next buff** through `/br key` or
+   `/br gamepad`, click a player row, or create the managed action-bar macro
+   with `/br macro` outside combat. Hover the footer for separate binding
+   and macro readiness. A queue entry can exist while the macro is parked.
+   Follow the displayed reason; use the direct binding only when it is ready.
+3. **Find and adjust settings.** `/br config find` searches **Window**,
+   **Alerts**, **Buffs**, **Behavior**, **Ignore & Stats**, and **Readiness**.
+   Results show `Tab > Setting`; select one to open and focus its control
+   without changing the value. Previous/Next pages through matches. Tab and
+   Enter navigate results, and Escape closes search. Use `/br config narrate`
+   for the game's configured speech support.
+4. **Buff and prepare.** Review the next-cast preview, then activate a cast.
+   `/br why <name>` explains eligibility or assignments. `/br coverage` and
+   `/br prep` distinguish confirmed, missing and unknown observations.
+   Unreadable aura data is unknown. Assignment rules use the class's World
+   cell when a recipient's group role is unavailable, then normal inheritance.
+5. **Keep and share settings.** Use **Ignore & Stats** or `/br profile` for
+   named profiles and their import preview. Loading a profile is separate
+   from importing it. `/br status export` copies local diagnostics, including
+   **Cast delivery**. See [Features](FEATURES.md) for the full reference and
+   [Changelog](CHANGELOG.md) for historical changes.
+
+Recipient-level rank selection is available in supported cast modes when the
+client supplies learned-rank and recipient-level data. Plain-name macro mode
+lets the game choose the rank. Missing information can leave the highest
+learned rank as the fallback; the preview shows the prepared cast.
 
 ## Screenshots
 
@@ -77,9 +110,9 @@ can't edit a newer-schema save.
 `/br selftest` should report **1.16.3 · Forever edition · interface 16001**.
 An incompatible client won't start the cast UI or change your saved settings.
 
-## Readiness (introduced in 1.15.37)
+## Readiness
 
-Open **Settings → Readiness** for the new controls. Combat restrictions on
+Open **Settings → Readiness** for these controls. Combat restrictions on
 click-to-buff casts still apply.
 
 | Command | What it does |
@@ -293,7 +326,7 @@ and [roadmap](https://github.com/SeanShaffer88/BuffRadar/blob/main/docs/ROADMAP.
   show/hide keybind, a minimap button and an addon-compartment entry.
 - **Cast counter** for this session and all-time, plus per-spell cast statistics.
 - **Customizable look:** background color, opacity, title, border, width and scale —
-  in the tabbed settings window (Window / Alerts / Buffs / Behavior / Ignore & Stats).
+  in the six-tab settings window (Window / Alerts / Buffs / Behavior / Ignore & Stats / Readiness).
   Drag either bottom corner to scale the whole window (or set the width with `/br width`); pick a scale
   (50%–200%) for the list window and for the settings window from their dropdowns.
 
@@ -333,7 +366,6 @@ header space above the list.
 | Buff someone | Click their name in the window |
 | Buff the next person | Your *Cast next buff* key, or the BuffRadar macro |
 | Settings | Gear icon in the bottom-left corner, right-click the minimap button or the addon menu entry, Esc > Options > AddOns > BuffRadar (on clients that list addon options), or `/br config` — hover any setting for a short explanation |
-
 | Show / hide from the minimap | Left-click the minimap button or BuffRadar in the minimap's addon menu |
 | Rebuff timing | Settings > Buffs: a seconds box per buff (empty = the all-buffs time) and one for all buffs |
 | Move the window | Drag it (lock it with `/br lock`) |
@@ -356,8 +388,11 @@ Hover over a name to see exactly what will be cast and what they still need.
   queue; don't copy its body into a custom macro. Existing auto-generated
   macros update in place. A hand-written `/click BuffRadarNextButton` macro
   cannot execute another macro, so replace it with the managed one. Use the
-  direct binding if a cast won't fit within the game's 255-byte macro limit,
-  and remove the bar macro if you disable or uninstall BuffRadar.
+  direct binding if the footer reports it ready while the action-bar macro
+  exceeds the game's 255-byte limit. Both paths can be unavailable for an
+  unsafe cast. Pending synchronization can mean the macro editor is open,
+  a macro is running, or combat prevents an update. Hand-edited macros stay
+  untouched. Remove the bar macro if you disable or uninstall BuffRadar.
 - **Controllers:** `/br gamepad` opens the same binding menu and shows the two
   ways to set up controller buffing. To put the macro on a gamepad action bar
   without a mouse, select **BuffRadar** in the game's Macros window and use
