@@ -84,6 +84,10 @@ Section 'Translations'
 if ($LASTEXITCODE -ne 0) { $failed += 'translations' }
 
 Section 'Lua pattern arguments'
+& $py -I (Join-Path $here 'test_localecheck.py')
+if ($LASTEXITCODE -ne 0) { $failed += 'locale regression fixtures' }
+& $py -I (Join-Path $here 'locale_flows51.py')
+if ($LASTEXITCODE -ne 0) { $failed += 'locale-first flows' }
 & $py -I (Join-Path $here 'patterncheck.py') @luaFiles @localeFiles
 if ($LASTEXITCODE -ne 0) { $failed += 'patterns' }
 

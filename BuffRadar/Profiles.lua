@@ -617,6 +617,18 @@ function X.ProfileNames()
   return names
 end
 
+function X.ProfileCount()
+  local live = X.GetDB()
+  local profiles = live and rawget(live, "profiles")
+  if type(profiles) ~= "table" or getmetatable(profiles) then return nil end
+  local count = 0
+  for _ in next, profiles do
+    count = count + 1
+    if count > 1000 then return nil end
+  end
+  return count
+end
+
 -- Shipped presets (1.6.0, replacing a proposed buff-next keybind -- the
 -- BuffRadarNextButton binding already ships): one-click window/behavior
 -- setups. They touch only the keys listed, never buff toggles or timings,

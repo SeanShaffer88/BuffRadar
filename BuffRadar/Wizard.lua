@@ -96,6 +96,7 @@ local function FinishSetup(w)
     statusMinimap = true, profile = true })
   if X.RefreshConfig then X.RefreshConfig() end
   Print(L["Quick Setup complete. Run /br wizard to make new choices."])
+  Print(L["Quick Setup is complete. Use /br firstcast for a guided first cast."])
 end
 
 function X.OpenWizard()

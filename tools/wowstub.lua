@@ -35,6 +35,11 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     function methods.IsShown(self) return self.shown end
     function methods.IsVisible(self) return self.shown and (not self.parent or self.parent:IsVisible()) end
     function methods.GetParent(self) return self.parent end
+    function methods.EnableKeyboard(self, value) self.keyboard = value end
+    function methods.SetPropagateKeyboardInput(self, value)
+      assert(not env.__combat, "ADDON_ACTION_BLOCKED: SetPropagateKeyboardInput is nocombat")
+      self.propagate = value
+    end
     function methods.SetAttribute(self, k, v) self.attrs[k] = v end
     function methods.GetAttribute(self, k) return self.attrs[k] end
     function methods.RegisterForClicks(self, ...) self.clickRegistration = { ... } end
@@ -160,7 +165,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
   env.BackdropTemplateMixin = {}
 
   -- World / unit API: a level-80 shaman, solo, out of combat, outside cities.
-  env.GetLocale = function() return german and "deDE" or "enUS" end
+  env.GetLocale = function() return type(german) == "string" and german or german and "deDE" or "enUS" end
   -- Aura lookups go through env.__over.Aura(unit, name, filter); default: no auras.
   env.C_UnitAuras = {
     GetAuraDataBySpellName = function(unit, name, filter)
