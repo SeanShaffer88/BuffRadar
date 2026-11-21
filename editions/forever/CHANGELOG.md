@@ -2,6 +2,15 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.16.3 — WoW: Forever
+
+- Include a shared-scanner correction that preserves single-recipient buff
+  ownership when the current holder is ignored or filtered out of the list.
+  Regression checks cover the historical Retail Earth Shield definition;
+  Forever's current buff definitions do not use this mode.
+
+Automated checks cover both editions; live behavior remains **Unverified**.
+
 ## 1.16.2 — WoW: Forever
 
 - Keep the BuffRadar action-bar macro following the next buff after you log
