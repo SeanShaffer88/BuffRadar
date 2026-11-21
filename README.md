@@ -8,9 +8,10 @@ BuffRadar shows which players need a buff you can cast in **WoW: Forever**
 (Interface 16001). Click a name, press your **Cast next buff** key, or use a
 macro to work through the list. Your character goes first by default.
 
-**1.16.2:** the action-bar macro keeps following the next buff after you log
-in again. See the [changes](editions/forever/CHANGELOG.md) and
-[release verification](docs/FOREVER_1.16.2_VALIDATION.md).
+**1.16.3:** shared-scanner maintenance and single-recipient ownership regression
+coverage. The corrected ownership mode is used by the historical Retail
+definitions. See the [changes](editions/forever/CHANGELOG.md) and the
+[previous 1.16.2 verification](docs/FOREVER_1.16.2_VALIDATION.md).
 
 ## Download and Install
 

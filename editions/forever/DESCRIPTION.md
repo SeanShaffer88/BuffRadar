@@ -44,11 +44,12 @@ come first.
   of the main window on German clients (settings are English for
   now).
 
-## What's new in 1.16.2
+## What's new in 1.16.3
 
-The BuffRadar action-bar macro keeps following the next buff after you log
-in again. Before, it could stay idle or buff only you until it was deleted
-and remade.
+Shared-scanner maintenance preserves single-recipient buff ownership when
+the current holder is excluded from the list. The regression uses the
+historical Retail Earth Shield definition; Forever's current buff definitions
+do not use this mode.
 
 ## Readiness
 
@@ -77,5 +78,5 @@ were informed by BuffYou by datdata (MIT). Since 1.3.2 the Forever
 and Retail editions are built from the same source; **from 1.8.0
 BuffRadar is Forever-only** — Retail support ended at 1.7.0.
 
-**Verification:** Field-tested through 1.15.33. The 1.16.2 release passes
+**Verification:** Field-tested through 1.15.33. The 1.16.3 release passes
 automated checks; live behavior remains **Unverified** on this build.

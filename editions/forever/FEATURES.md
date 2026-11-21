@@ -7,6 +7,14 @@ WoW: Forever (Interface 16001). For the short version see
 The shipping Forever TOC requires Interface 16001. The historical Retail
 TOC remains a test fixture; 1.7.0 was the last Retail release.
 
+## 1.16.3: shared-scanner maintenance
+
+- Preserve ownership of single-recipient buffs when their holder is ignored or
+  filtered. Regression checks exercise the historical Retail Earth Shield
+  definition; Forever's current definitions do not use this mode.
+
+**Verification:** automated checks; live behavior remains **Unverified**.
+
 ## 1.16.2: macro after relog
 
 - The BuffRadar action-bar macro stays managed after you log in again. The
