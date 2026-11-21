@@ -34,6 +34,7 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
     function methods.SetShown(self, v) if v then self:Show() else self:Hide() end end
     function methods.IsShown(self) return self.shown end
     function methods.IsVisible(self) return self.shown and (not self.parent or self.parent:IsVisible()) end
+    function methods.GetParent(self) return self.parent end
     function methods.SetAttribute(self, k, v) self.attrs[k] = v end
     function methods.GetAttribute(self, k) return self.attrs[k] end
     function methods.RegisterForClicks(self, ...) self.clickRegistration = { ... } end

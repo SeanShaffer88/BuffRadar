@@ -122,6 +122,12 @@ X.ext.status = function(rest)
     X.Print(line)
   else
     local lines = { line }
+    if X.DeliveryLines then
+      local direct, bar = X.DeliveryLines()
+      lines[#lines + 1] = L["Cast delivery"]
+      lines[#lines + 1] = direct
+      lines[#lines + 1] = bar
+    end
     if expiryEnd and expiryEnd > GetTime() then lines[#lines + 1] = I.ForecastText(expirySpell, expiryName, expiryEnd) end
     for i = 1, count do
       local row = rows[i]

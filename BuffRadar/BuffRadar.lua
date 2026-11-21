@@ -91,6 +91,24 @@ end
 -- Strings with %d / %s are string.format patterns: keep the placeholders.
 -- Any key a translation leaves out falls back to English.
 local L = {
+  ["Find settings across all tabs"] = "Find settings across all tabs",
+  ["No settings match this search."] = "No settings match this search.",
+  ["Cast next buff: %s"] = "Cast next buff: %s",
+  ["Action-bar macro %s: %s"] = "Action-bar macro %s: %s",
+  ["Cast delivery"] = "Cast delivery",
+  ["Casting is intentionally disarmed."] = "Casting is intentionally disarmed.",
+  ["Recipient changed or is unreadable."] = "Recipient changed or is unreadable.",
+  ["Cast cannot be represented safely."] = "Cast cannot be represented safely.",
+  ["Cast exceeds 255 bytes."] = "Cast exceeds 255 bytes.",
+  ["Macro controls are unavailable."] = "Macro controls are unavailable.",
+  ["Create the managed macro with /br macro."] = "Create the managed macro with /br macro.",
+  ["Stored macro could not be read."] = "Stored macro could not be read.",
+  ["The macro is custom or no longer managed."] = "The macro is custom or no longer managed.",
+  ["Synchronization waits until combat ends."] = "Synchronization waits until combat ends.",
+  ["Close the macro editor to synchronize."] = "Close the macro editor to synchronize.",
+  ["Synchronization waits for the running macro."] = "Synchronization waits for the running macro.",
+  ["Waiting for synchronization."] = "Waiting for synchronization.",
+  ["Pending"] = "Pending",
   ["Group chat send requested; delivery is not confirmed."] = "Group chat send requested; delivery is not confirmed.",
   ["the party"] = "the party",
   ["the raid"] = "the raid",
@@ -5573,14 +5591,17 @@ end
 
 local function MacroBody(disarmed)
   local nextBtn = X.GetNextButton()
-  local entry = nextBtn and nextBtn.entry
-  if disarmed or X.macroParked or X.PlayerSuspended() or not X.RowTargetMatches(entry) then return MACRO_HEADER end
+  local entry = nextBtn and (nextBtn.entry or nextBtn.deliveryEntry)
+  if disarmed or X.macroParked or X.PlayerSuspended() or InCombatLockdown() then return MACRO_HEADER, "disarmed" end
+  if not entry then return MACRO_HEADER, "no_target" end
+  if not X.RowTargetMatches(entry) then return MACRO_HEADER, "recipient" end
+  if not nextBtn.entry then return MACRO_HEADER, "unsafe" end
   local action = nextBtn:GetAttribute("type")
   if action == "spell" then
     local down = GetCVarBool and GetCVarBool("ActionButtonUseKeyDown")
-    return MACRO_HEADER .. "\n" .. LEGACY_CLICK .. (down and " LeftButton 1" or "")
+    return MACRO_HEADER .. "\n" .. LEGACY_CLICK .. (down and " LeftButton 1" or ""), "ready"
   end
-  if action ~= "macro" then return MACRO_HEADER end
+  if action ~= "macro" then return MACRO_HEADER, "unsafe" end
   -- WoW cannot /click a button that runs macrotext from an action-bar macro.
   -- Write the already prepared action as top-level commands instead. The
   -- only /click in this path is an ordinary button for cast bookkeeping.
@@ -5589,18 +5610,19 @@ local function MacroBody(disarmed)
     -- In other cast modes the button may carry a mutable nameplate or
     -- mouseover token. Never embed that token in a stored macro.
     text, shifted = X.ExactCastBody(entry.unit, nextBtn.bSpellText, shifted and nextBtn.bGroupText, X.UnitPresent("target"))
-    if nextBtn:GetAttribute("shift-type1") and not shifted then return MACRO_HEADER end
+    if nextBtn:GetAttribute("shift-type1") and not shifted then return MACRO_HEADER, "unsafe" end
   end
-  if not text then return MACRO_HEADER end
+  if not text then return MACRO_HEADER, "unsafe" end
   if shifted and shifted ~= text then
     local a, condition, spell, b = text:match("^(.-)/cast (%b[]) ([^\r\n]+)(.*)$")
     local sa, sc, ss, sb = shifted:match("^(.-)/cast (%b[]) ([^\r\n]+)(.*)$")
-    if not condition or not sc or sa ~= a or sb ~= b then return MACRO_HEADER end
+    if not condition or not sc or sa ~= a or sb ~= b then return MACRO_HEADER, "unsafe" end
     text = a .. "/cast [mod:shift,nomod:ctrl,nomod:alt," .. sc:sub(2) .. " " .. ss
       .. "; " .. condition .. " " .. spell .. b
   end
   local body = MACRO_HEADER .. "\n" .. MACRO_NOTE .. "\n" .. text
-  return #body <= 255 and body or MACRO_HEADER
+  if #body > 255 then return MACRO_HEADER, "overflow" end
+  return body, "ready"
 end
 
 function X.InvalidateCastMacro()
@@ -5641,7 +5663,62 @@ local function MacroEditorOpen()
   return true
 end
 
-function X.SyncCastMacro(disarmed)
+-- A diagnostic read uses the same body decision as synchronization. It never
+-- creates or edits a macro, attaches editor hooks, or arms protected buttons.
+function X.CastDelivery()
+  local proposed, proposedReason = MacroBody()
+  local nextBtn = X.GetNextButton()
+  local entry = nextBtn and nextBtn.entry
+  local action = nextBtn and nextBtn:GetAttribute("type")
+  local directReason = "ready"
+  if X.macroParked or X.PlayerSuspended() or InCombatLockdown() then directReason = "disarmed"
+  elseif not nextBtn or not (entry or nextBtn.deliveryEntry) then directReason = "no_target"
+  elseif not X.RowTargetMatches(entry or nextBtn.deliveryEntry) then directReason = "recipient"
+  elseif not entry or nextBtn.bGuid ~= entry.guid or (action ~= "spell" and action ~= "macro") then directReason = "unsafe" end
+  local result = { directReady = directReason == "ready", directReason = directReason,
+    macroReady = false, macroState = "unavailable", reason = proposedReason,
+    proposedReason = proposedReason }
+  if not (GetMacroIndexByName and GetMacroBody and EditMacro) then result.reason = "api"; return result end
+  local index, stored = ReadMacro()
+  if not index then result.reason = "missing"; return result end
+  if not stored then result.reason = "unreadable"; return result end
+  local owned
+  if macro.body then owned = macro.owned and macro.body == stored else owned = IsManagedMacro(stored) end
+  if not owned then result.reason = "custom"; return result end
+  if proposedReason ~= "ready" and not InCombatLockdown() then
+    return result
+  elseif proposed ~= stored then
+    local editor = _G.MacroFrame
+    if InCombatLockdown() then result.reason = "combat"
+    elseif editor and editor:IsShown() then result.reason = "editor"
+    elseif RunningMacro() then result.reason = "running"
+    else result.reason = "sync" end
+    result.macroState = "pending"
+  elseif proposedReason == "ready" then
+    result.reason, result.macroState, result.macroReady = "ready", "ready", true
+  end
+  return result
+end
+
+local deliveryReasons = {
+  ready = "Ready", no_target = "No queued target.", disarmed = "Casting is intentionally disarmed.",
+  recipient = "Recipient changed or is unreadable.", unsafe = "Cast cannot be represented safely.",
+  overflow = "Cast exceeds 255 bytes.", api = "Macro controls are unavailable.",
+  missing = "Create the managed macro with /br macro.", unreadable = "Stored macro could not be read.",
+  custom = "The macro is custom or no longer managed.", combat = "Synchronization waits until combat ends.",
+  editor = "Close the macro editor to synchronize.", running = "Synchronization waits for the running macro.",
+  sync = "Waiting for synchronization.",
+}
+
+function X.DeliveryLines()
+  local state = X.CastDelivery()
+  return string_format(L["Cast next buff: %s"], L[deliveryReasons[state.directReason]]),
+    string_format(L["Action-bar macro %s: %s"],
+      state.macroState == "ready" and L["Ready"] or state.macroState == "pending" and L["Pending"] or L["Unavailable"],
+      L[deliveryReasons[state.reason]])
+end
+
+local function SyncCastMacro(disarmed)
   if (not db and not disarmed) or InCombatLockdown() or macro.writing or not EditMacro then return end
   if not macro.checked then
     local index, body = ReadMacro()
@@ -5662,6 +5739,19 @@ function X.SyncCastMacro(disarmed)
   macro.writing = false
   local id, saved = ReadMacro()
   if id == index and saved == body then macro.body = body end
+end
+
+function X.SyncCastMacro(disarmed)
+  SyncCastMacro(disarmed)
+  local state = X.CastDelivery()
+  local nextBtn = X.GetNextButton()
+  local entry = nextBtn and (nextBtn.entry or nextBtn.deliveryEntry)
+  local signature = state.directReason .. ":" .. state.reason .. ":" .. state.macroState
+    .. ":" .. tostring(entry and (entry.castGuid or entry.guid)) .. ":" .. tostring(nextBtn and nextBtn.bSpellText)
+  if signature ~= macro.deliverySignature then
+    macro.deliverySignature = signature
+    if X.RefreshNextPreview then X.RefreshNextPreview() end
+  end
 end
 
 function X.DisarmStaleCastMacro(unit, removed)
@@ -5713,14 +5803,21 @@ end
 
 -- Create or update the owned macro and put it on the cursor. Background
 -- refreshes never create one or touch a custom macro of the same name.
+local function PrintDelivery()
+  local direct, bar = X.DeliveryLines()
+  Print(direct); Print(bar)
+end
+
 MakeMacro = function()
-  if InCombatLockdown() then Print("Can't edit macros during combat."); return end
+  if InCombatLockdown() then Print("Can't edit macros during combat."); PrintDelivery(); return end
   if not (GetMacroIndexByName and GetMacroBody and CreateMacro and EditMacro) then
     Print(L["Macro controls are unavailable. Bind Cast next buff with /br key instead."])
+    PrintDelivery()
     return
   end
   if MacroEditorOpen() then
     Print(L["Close the macro editor before creating the BuffRadar macro."])
+    PrintDelivery()
     return
   end
   local idx, current = ReadMacro()
@@ -5728,6 +5825,7 @@ MakeMacro = function()
   local body = MacroBody()
   if idx and (not current or not macro.owned) then
     Print(L["Rename your custom BuffRadar macro first, or bind Cast next buff with /br key."])
+    PrintDelivery()
     return
   end
   if not idx and GetNumMacros then
@@ -5735,6 +5833,7 @@ MakeMacro = function()
     local cap = (constants and constants.MAX_ACCOUNT_MACROS) or MAX_ACCOUNT_MACROS or 120
     if GetNumMacros() >= cap then
       Print(L["Your general macro slots are full. Make room or bind Cast next buff with /br key."])
+      PrintDelivery()
       return
     end
   end
@@ -5748,11 +5847,13 @@ MakeMacro = function()
   local id, saved = ReadMacro()
   if not id or saved ~= body then
     Print(L["Couldn't save the BuffRadar macro. Bind Cast next buff with /br key instead."])
+    PrintDelivery()
     return
   end
   macro.index, macro.body, macro.owned, macro.checked = id, body, true, true
   if PickupMacro then pcall(PickupMacro, id) end
   Print(L["Place the BuffRadar macro on an action bar. It follows the next buff automatically."])
+  PrintDelivery()
 end
 end -- keybind + macro block
 
