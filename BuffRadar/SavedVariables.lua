@@ -136,6 +136,8 @@ local DEFAULTS = {
   liteMode = false,
   debuffWatch = false,
   debuffRules = {},     -- bounded list of { spellID, unit, encounterID }
+  matrixView = false, selfStatusStrip = false,
+  restockEnabled = false, restockTargets = {}, restockSpendCap = 20000, restockUnitCap = 40,
   readinessAura = 0,    -- optional personal consumable aura spell ID
   history = {},        -- last 50 casts through BuffRadar: { t, spell, who } (1.7.0)
   growUp = false,      -- the list grows upward from a fixed bottom edge (1.8.0)
@@ -177,7 +179,7 @@ local RANGES = { bgAlpha = { 0, 1 }, scale = { 0.5, 2 }, cfgScale = { 0.5, 2 },
                  groupCastMin = { 2, 40 }, minimapAngle = { 0, 360 },
                  lowMana = { 0, 100 }, textScale = { 0.8, 1.5 }, idleFade = { 0, 90 },
                  rowGap = { 0, 8 }, iconSize = { 0, 24 }, nameTrim = { 0, 24 },
-                 forecastSeconds = { 0, 300 }, readinessAura = { 0, 2000000 } }
+                 forecastSeconds = { 0, 300 }, readinessAura = { 0, 2000000 }, restockSpendCap = { 0, 10000000 }, restockUnitCap = { 0, 200 } }
 
 local function IsNumber(v)
   return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
@@ -273,7 +275,7 @@ end
 -- Each table field is rebuilt from validated values. Never hand a defaults
 -- subtable to the writable DB, or touch live settings while checking an import.
 local function PlainString(value, limit)
-  return type(value) == "string" and #value > 0 and #value <= limit and not value:find("[%c|]")
+  return type(value) == "string" and #value > 0 and #value <= limit and not value:find("[%z\1-\31\127|]")
 end
 
 local function ValidIgnore(name)
@@ -415,6 +417,13 @@ local function CopyBuffPriority(value)
 end
 
 local TABLE_FIELDS = {
+  restockTargets = function(value)
+    if getmetatable(value) or (issecretvalue and issecretvalue(value)) then return {} end
+    return CopyMap(value,16,function(id,n)
+      if issecretvalue and (issecretvalue(id) or issecretvalue(n)) then return false end
+      return PositiveID(id) and IsNumber(n) and n>=0 and n<=200 and n==math.floor(n)
+    end)
+  end,
   bgColor = function(value)
     local fallback = DEFAULTS.bgColor
     return CopyColor(value) or { fallback[1], fallback[2], fallback[3] }
@@ -461,7 +470,7 @@ local TABLE_FIELDS = {
     return clean
   end,
   panelPoints = function(value)
-    return { settings = CopyPoint(value.settings), ready = CopyPoint(value.ready) }
+    return { settings = CopyPoint(value.settings), ready = CopyPoint(value.ready), daily = CopyPoint(value.daily), matrix = CopyPoint(value.matrix), selfStatus = CopyPoint(value.selfStatus), supplies = CopyPoint(value.supplies) }
   end,
   profiles = function(value)
     return CopyMap(value, LIMITS.profiles, function(k, v) return IsProfileName(k) and type(v) == "string" and #v <= PROFILE_MAX_BYTES end)
@@ -518,13 +527,13 @@ local function CleanSetting(key, value, default)
     if not IsNumber(value) then value = default end
     local range = RANGES[key]
     if range then value = Clamp(value, range[1], range[2]) end
-    if key == "castsTotal" or key == "forecastSeconds" or key == "readinessAura" then value = math.floor(value) end
+    if key == "castsTotal" or key == "forecastSeconds" or key == "readinessAura" or key == "restockSpendCap" or key == "restockUnitCap" then value = math.floor(value) end
   elseif type(value) ~= kind then
     return default
   elseif kind == "string" then
     if ENUMS[key] and not ENUMS[key][value] then return default end
     if key == "theme" and #value > 24 then return default end
-    if key == "pinned" and (#value > 128 or value:find("[%c|]")) then return default end
+    if key == "pinned" and (#value > 128 or value:find("[%z\1-\31\127|]")) then return default end
     if key == "autoThemePriority" and value ~= "" then
       return EncodeAutoThemePriority(OrderedAutoThemeAddons(value))
     end

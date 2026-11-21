@@ -214,7 +214,7 @@ function X.RenderReadyCheck()
     or string.format(L["Waiting %d"], counts.waiting)
   readyView.summary:SetText(string.format(L["Ready %d · %s · Not ready %d · Unknown %d"],
     counts.ready, middle, counts.notready, counts.unknown))
-  readyView.reagents:SetText(readyCheck.reagents or "")
+  readyView.reagents:SetText(readyCheck.reagents   or   "")
   for i, row in ipairs(readyView.rows) do
     local member = readyCheck.members[readyOffset + i]
     if member then
@@ -224,9 +224,9 @@ function X.RenderReadyCheck()
     row:SetShown(member ~= nil)
   end
   local total = #readyCheck.members
-  readyView.footer:SetText(total > READY_ROWS and string.format(L["Players %d–%d of %d · Scroll or /br ready next"],
-    readyOffset + 1, math_min(readyOffset + READY_ROWS, total), total) or "/br ready hide")
-  readyView.snapshot:SetText(readyCheck.finished and L["Showing buff coverage at the end of the ready check."] or "")
+  readyView.footer:SetText(total > READY_ROWS   and   string.format(L["Players %d–%d of %d · Scroll or /br ready next"],
+    readyOffset + 1, math_min(readyOffset + READY_ROWS, total), total)   or   "/br ready hide")
+  readyView.snapshot:SetText(readyCheck.finished   and   L["Showing buff coverage at the end of the ready check."]   or   "")
   readyView:Show()
 end
 
@@ -251,7 +251,7 @@ function X.ReadyViewCommand(mode)
     if readyCheck then X.RenderReadyCheck()
     else Print(L["Ready-check details will open at the next ready check in your group."]) end
   else
-    Print("Usage: /br ready [show|hide|next|prev]")
+    Print(L["Usage: /br ready [show|hide|next|prev]"])
   end
 end
 
@@ -311,12 +311,12 @@ function X.DeathRecap(show)
   X.lastDeath = lines
   if not show then return end
   if people == 0 then
-    Print("Death recap: " .. (note or "all checked buffs were present."))
+    Print(string.format(L["Death recap: %s"], (note  or  L["all checked buffs were present."])))
   else
-    Print(string.format("Death recap: %d %s missing buffs (%d buffs needed) when you died:",
-      people, people == 1 and "person was" or "people were", report.buffs))
+    Print(string.format(L["Death recap: %d %s missing buffs (%d buffs needed) when you died:"],
+      people, people == 1 and L["person was"] or L["people were"], report.buffs))
     for i = 1, math_min(#lines, 12) do Print(lines[i]) end
-    if #lines > 12 then Print(string.format("  +%d more", #lines - 12)) end
+    if #lines > 12 then Print(string.format(L["  +%d more"], #lines - 12)) end
   end
 end
 
@@ -350,17 +350,17 @@ function X.WipeCheck()
       unavailable, unavailable == 1 and "player" or "players")
   end
   X.lastWipe = lines
-  Print(string.format("Wipe report: %d of %d died. %s", dead, total,
-    people == 0 and (note or "All checked buffs are present.")
-      or string.format("%d %s missing buffs (%d buffs needed):", people,
-        people == 1 and "person is" or "people are", report.buffs)))
+  Print(string.format(L["Wipe report: %d of %d died. %s"], dead, total,
+    people == 0 and (note or L["All checked buffs are present."])
+      or string.format(L["%d %s missing buffs (%d buffs needed):"], people,
+        people == 1 and L["person is"] or L["people are"], report.buffs)))
   local first = people == 0 and note and 2 or 1
   for i = first, math_min(#lines, 12) do Print(lines[i]) end
-  if #lines > 12 then Print(string.format("  +%d more", #lines - 12)) end
+  if #lines > 12 then Print(string.format(L["  +%d more"], #lines - 12)) end
   if people > 0 and X.AmLead() then
     local sent, failure = X.SendGroupReport(string.format(
       "BuffRadar wipe report: %d of %d died. %d %s missing buffs (%d buffs needed).%s",
-      dead, total, people, people == 1 and "person is" or "people are", report.buffs,
+      dead, total, people, people == 1 and L["person is"] or L["people are"], report.buffs,
       note and (" " .. note) or ""))
     if not sent then Print(string.format(L["Local only — not sent: %s"], failure)) end
   end

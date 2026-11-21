@@ -42,12 +42,12 @@ end
 
 local function DecodeString(text)
   local value = Unesc(text)
-  if not value:find("%c") and Esc(value) == text then return value end
+  if not value:find("[%z\1-\31\127]") and Esc(value) == text then return value end
 end
 
-local function ClipboardExport(parts, kind)
+local function ClipboardExport(parts)
   local body = table.concat(parts, ";")
-  if #body > CLIPBOARD_MAX_BYTES then return nil, kind .. " exceeds the 16 KiB export limit." end
+  if #body > CLIPBOARD_MAX_BYTES then return nil, L["That export exceeds 16 KiB."] end
   return body
 end
 
@@ -76,7 +76,7 @@ function X.Export()
   table_sort(names)
   for _, name in ipairs(names) do parts[#parts + 1] = "ignored." .. Esc(name) .. "=1" end
   parts[#parts + 1] = "endExport=1"
-  return ClipboardExport(parts, "Settings")
+  return ClipboardExport(parts)
 end
 
 -- BR2 is the named profile format. Keep BR1 exports readable by older clients.
@@ -132,11 +132,13 @@ do
     return Esc(value)
   end
 
-  function X.ProfileSnapshot()
-    local db = X.GetDB()
+  function X.ProfileSnapshot(scope, source)
+    local db = source or X.GetDB()
+    local excluded=scope=="preferences"
     local parts = { "bgColor=" .. Encode(db.bgColor), "blessingPreferences=1" }
+    if scope then parts[#parts+1]="identity=" .. (excluded and "excluded" or "included") end
     for _, key in ipairs(scalarList) do
-      if not optionalFalse[key] or db[key] then
+      if not (excluded and key=="pinned") and (not optionalFalse[key] or db[key]) then
         parts[#parts + 1] = key .. "=" .. Encode(db[key])
       end
     end
@@ -152,7 +154,7 @@ do
       end
     end
     for map in pairs(profileMaps) do
-      for key, value in pairs(db[map]) do
+      for key, value in pairs((excluded and map=="ignored") and {} or db[map]) do
         local field = map .. "." .. Esc(key) .. "=" .. Encode(value)
         bytes = bytes + 1 + #field
         if bytes > PROFILE_MAX_BYTES then return nil end
@@ -209,7 +211,7 @@ do
   local function ParseProfile(body, directImport)
     if type(body) ~= "string" or #body > (directImport and CLIPBOARD_MAX_BYTES or PROFILE_MAX_BYTES) then return nil end
     local version, payload = body:match("^(BR[12]);(.+)$")
-    if not version or (directImport and version ~= "BR1") then return nil end
+    if not version then return nil end
     local modern = version == "BR2"
     local patch, count, scalarFields, priorityKeys = {}, 0, {}, {}
     local assignments, sizes = {}, {}
@@ -223,7 +225,10 @@ do
       if not key then return nil end
       local map, member = key:match("^(%a+)%.(.*)$")
       local kind = map and profileMaps[map]
-      if modern and map == "a" then
+      if modern and key=="identity" then
+        if scalarFields.identity or (raw~="excluded" and raw~="included") then return nil end
+        scalarFields.identity=raw
+      elseif modern and map == "a" then
         local class, slot = member:match("^([A-Z]+)%.([A-Z]+)$")
         if not X.ValidAssignmentCell(class, slot) then return nil end
         local cell = X.DecodeAssignment(raw)
@@ -282,6 +287,11 @@ do
     end
     if count == 0 then return nil end
     if modern then
+      if directImport and not scalarFields.identity then return nil end
+      if scalarFields.identity=="excluded" then
+        if scalarFields.pinned or next(patch.ignored) then return nil end
+        patch.ignored=nil
+      end
       if scalarFields.buffAssignments then
         patch.buffAssignments = assignments
       elseif next(assignments) then
@@ -293,7 +303,8 @@ do
       end
       if not patch.bgColor then return nil end
       for _, key in ipairs(scalarList) do
-        if not scalarFields[key] and key ~= "autoThemePriority" and not featureScalars[key] then
+        if not scalarFields[key] and key ~= "autoThemePriority" and not featureScalars[key]
+          and not (key=="pinned" and scalarFields.identity=="excluded") then
           if optionalFalse[key] or (key == "assumeRange" and scalarFields.strata) then
             patch[key] = false
           else
@@ -359,6 +370,7 @@ do
   end
 
   function X.ApplyProfile(patch)
+    if settings.SaveState()=="future" then return false,"future" end
     local db = X.GetDB()
     local candidate = settings.PreparePatch(db, patch)
     local changed, delta = {}, {}
@@ -382,7 +394,8 @@ end
 function X.Import(text)
   local patch, result = X.ParseSettingsImport(text)
   if not patch then return false, result end
-  X.ApplyProfile(patch)
+  local ok,why=X.ApplyProfile(patch)
+  if ok==false then return false,why end
   return true, L["Settings applied locally."]
 end
 
@@ -412,7 +425,7 @@ function X.PlanExport()
   for _, c in ipairs(ctxs) do
     parts[#parts + 1] = "P;" .. Esc(c) .. ";" .. Esc(db.autoProfile[c])
   end
-  return ClipboardExport(parts, "The group plan")
+  return ClipboardExport(parts)
 end
 
 local planContexts = { raid = true, dungeon = true, pvp = true, world = true, solo = true }
@@ -533,11 +546,36 @@ end
 -- Share a single profile (1.8.0): one named profile (not all your
 -- settings) as a copyable text — a header line naming it, then its
 -- settings string. Importing stores it under that name, unapplied.
-function X.ProfileShareText(name)
-  local db = X.GetDB()
-  local s = db.profiles[name]
-  if not IsProfileName(name) or not X.ParseProfile(s) then return nil end
-  return "BuffRadar profile: " .. name .. "\n" .. s
+function X.ProfileShareText(name,scope)
+  local preview=X.SharePreview(scope,name)
+  return preview and preview.text or nil
+end
+
+-- Identity-aware BR2 sharing is structurally separate from legacy full backups.
+function X.SharePreview(scope,name)
+  scope=scope or "preferences"
+  if scope~="preferences" and scope~="full" then return nil,"invalid" end
+  local db=X.GetDB()
+  if not db then return nil,"generation" end
+  local source=db
+  if name then
+    if not IsProfileName(name) then return nil,"invalid" end
+    local patch=X.ParseProfile(db.profiles[name]);if not patch then return nil,"invalid" end
+    source={}
+    for key,value in pairs(db) do source[key]=value end
+    for key,value in pairs(settings.PreparePatch(db,patch)) do source[key]=value end
+  end
+  local body=X.ProfileSnapshot(scope,source)
+  if not body then return nil,"limit" end
+  local counts={preferences=0,ignored=0,pinned=0,identitiesExcluded=scope=="preferences"}
+  for _ in body:gmatch("[^;]+=[^;]*") do counts.preferences=counts.preferences+1 end
+  if scope=="full" then
+    for _ in pairs(source.ignored or {}) do counts.ignored=counts.ignored+1 end
+    counts.pinned=source.pinned~="" and 1 or 0
+  end
+  local text=name and ("BuffRadar profile: " .. (scope=="preferences" and "Shared" or name) .. "\n" .. body) or body
+  if #text>16384 then return nil,"limit" end
+  return {scope=scope,text=text,counts=counts}
 end
 
 function X.ParseSharedProfile(text)
@@ -597,7 +635,7 @@ function X.LoadProfile(name)
   local s = db.profiles[name]
   if type(s) ~= "string" then return false end
   local patch = X.ParseProfile(s)
-  if not patch then return false, "The profile's settings string is damaged." end
+  if not patch then return false, L["The profile's settings string is damaged."] end
   X.ApplyProfile(patch)
   return true
 end

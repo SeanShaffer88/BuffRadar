@@ -2,6 +2,21 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## Unreleased — WoW: Forever
+
+- Add optional read-only player-by-buff coverage pages and a fixed personal
+  aura-status strip, separate from tracking toggles and cast actions.
+- Add opt-in reagent targets, conservative bag/stock/bundle estimates and
+  reviewed merchant purchases. Each explicit confirmation authorizes only one
+  quoted reagent row; changed quotes and combat cancel that authorization.
+- Simplify daily discovery/casting/preparation navigation, improve settings
+  intent search and expose completed-scan freshness.
+- Add identity-aware preference sharing and bounded ordinary-setting recovery;
+  complete visible-text localization through the supported locale packs.
+
+Offline verification is recorded with the candidate change. In-game tests are
+assumed by request and were not run; live behavior remains **Unverified**.
+
 ## 1.16.3 — WoW: Forever
 
 - Include a shared-scanner correction that preserves single-recipient buff

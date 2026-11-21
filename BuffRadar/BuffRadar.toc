@@ -13,6 +13,7 @@ Data.lua
 SavedVariables.lua
 BuffRadar.lua
 Intelligence.lua
+Preferences.lua
 Status.lua
 Debuffs.lua
 Readiness.lua
@@ -25,3 +26,6 @@ Slash.lua
 Recaps.lua
 Profiles.lua
 Support.lua
+Views.lua
+Supplies.lua
+Daily.lua

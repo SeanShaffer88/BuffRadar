@@ -90,719 +90,7 @@ end
 -- tooltips show is listed here (the list doubles as the translator's checklist).
 -- Strings with %d / %s are string.format patterns: keep the placeholders.
 -- Any key a translation leaves out falls back to English.
-local L = {
-  ["First cast guide"] = "First cast guide",
-  ["Open Quick Setup"] = "Open Quick Setup",
-  ["Open Buff List"] = "Open Buff List",
-  ["Copy Support Report"] = "Copy Support Report",
-  ["Support report"] = "Support report",
-  ["Technical details only. No player names or user text are included. Review and copy locally."] = "Technical details only. No player names or user text are included. Review and copy locally.",
-  ["Waiting for discovery."] = "Waiting for discovery.",
-  ["This client or edition is unsupported."] = "This client or edition is unsupported.",
-  ["No supported buffs are learned."] = "No supported buffs are learned.",
-  ["Discovery is paused or disabled."] = "Discovery is paused or disabled.",
-  ["No missing buffs are queued. Covered players need no cast."] = "No missing buffs are queued. Covered players need no cast.",
-  ["Discovery is incomplete or filtered."] = "Discovery is incomplete or filtered.",
-  ["Ready: activate an existing BuffRadar row, binding or managed macro yourself."] = "Ready: activate an existing BuffRadar row, binding or managed macro yourself.",
-  ["Waiting for your cast."] = "Waiting for your cast.",
-  ["Confirmed: BuffRadar credited your cast."] = "Confirmed: BuffRadar credited your cast.",
-  ["Guidance is paused during combat or while the player is unavailable."] = "Guidance is paused during combat or while the player is unavailable.",
-  ["Quick Setup is complete. Use /br firstcast for a guided first cast."] = "Quick Setup is complete. Use /br firstcast for a guided first cast.",
-  ["Find settings across all tabs"] = "Find settings across all tabs",
-  ["No settings match this search."] = "No settings match this search.",
-  ["Cast next buff: %s"] = "Cast next buff: %s",
-  ["Action-bar macro %s: %s"] = "Action-bar macro %s: %s",
-  ["Cast delivery"] = "Cast delivery",
-  ["Casting is intentionally disarmed."] = "Casting is intentionally disarmed.",
-  ["Recipient changed or is unreadable."] = "Recipient changed or is unreadable.",
-  ["Cast cannot be represented safely."] = "Cast cannot be represented safely.",
-  ["Cast exceeds 255 bytes."] = "Cast exceeds 255 bytes.",
-  ["Macro controls are unavailable."] = "Macro controls are unavailable.",
-  ["Create the managed macro with /br macro."] = "Create the managed macro with /br macro.",
-  ["Stored macro could not be read."] = "Stored macro could not be read.",
-  ["The macro is custom or no longer managed."] = "The macro is custom or no longer managed.",
-  ["Synchronization waits until combat ends."] = "Synchronization waits until combat ends.",
-  ["Close the macro editor to synchronize."] = "Close the macro editor to synchronize.",
-  ["Synchronization waits for the running macro."] = "Synchronization waits for the running macro.",
-  ["Waiting for synchronization."] = "Waiting for synchronization.",
-  ["Pending"] = "Pending",
-  ["Group chat send requested; delivery is not confirmed."] = "Group chat send requested; delivery is not confirmed.",
-  ["the party"] = "the party",
-  ["the raid"] = "the raid",
-  ["Apply and share sends changed assignments and blessings to %s."] = "Apply and share sends changed assignments and blessings to %s.",
-  ["Compared with your current settings (not applied):"] = "Compared with your current settings (not applied):",
-  ["Group spell range could not be confirmed."] = "Group spell range could not be confirmed.",
-  ["No eligible group target."] = "No eligible group target.",
-  ["Can't open that during combat."] = "Can't open that during combat.",
-  ["Delete"] = "Delete",
-  ["Load"] = "Load",
-  ["Save"] = "Save",
-  ["Save window, alert and buff preferences to load here or with /br profile."] = "Save window, alert and buff preferences to load here or with /br profile.",
-  ["Settings profiles"] = "Settings profiles",
-  ["Share BR2"] = "Share BR2",
-  ["Import"] = "Import",
-  ["Open the BuffRadar section of the game's key bindings."] = "Open the BuffRadar section of the game's key bindings.",
-  ["Create macro"] = "Create macro",
-  ["Set keybind"] = "Set keybind",
-  ["Keybinds"] = "Keybinds",
-  ["Open Game Menu > Options > Keybindings and look for the BuffRadar section."] = "Open Game Menu > Options > Keybindings and look for the BuffRadar section.",
-  ["Can't open key bindings during combat."] = "Can't open key bindings during combat.",
-  ["not bound"] = "not bound",
-  ["Mute / unmute sound"] = "Mute / unmute sound",
-  ["Show / hide window"] = "Show / hide window",
-  ["Cast next group buff"] = "Cast next group buff",
-  ["Cast next buff"] = "Cast next buff",
-  ["Remember panel positions: %s"] = "Remember panel positions: %s",
-  ["Use /br positions on|off|reset."] = "Use /br positions on|off|reset.",
-  ["Reset panel positions"] = "Reset panel positions",
-  ["Remember Settings and Ready Check positions"] = "Remember Settings and Ready Check positions",
-  ["Profile storage is full. Delete a profile first."] = "Profile storage is full. Delete a profile first.",
-  ["Ignore list is full. Remove entries first."] = "Ignore list is full. Remove entries first.",
-  ["Profiles: %d/%d · Ignores: %d/%d"] = "Profiles: %d/%d · Ignores: %d/%d",
-  ["No matching entry in an oversized save."] = "No matching entry in an oversized save.",
-  ["Removed from the preserved save. Reload to try normal saving again."] = "Removed from the preserved save. Reload to try normal saving again.",
-  ["Use /br storage delete profile <name> or /br storage delete ignore <name>, then reload."] = "Use /br storage delete profile <name> or /br storage delete ignore <name>, then reload.",
-  ["Too many profiles or ignores. The original save was preserved; changes are temporary."] = "Too many profiles or ignores. The original save was preserved; changes are temporary.",
-  ["Local only — not sent: %s"] = "Local only — not sent: %s",
-  ["Game accepted the group chat send; delivery is not confirmed."] = "Game accepted the group chat send; delivery is not confirmed.",
-  ["The game did not accept the send."] = "The game did not accept the send.",
-  ["The message exceeds the chat limit."] = "The message exceeds the chat limit.",
-  ["Group chat is unavailable."] = "Group chat is unavailable.",
-  ["No group channel."] = "No group channel.",
-  ["Group-cast pair limit reached. Remove a pair first."] = "Group-cast pair limit reached. Remove a pair first.",
-  ["Invalid group-cast pair; nothing changed."] = "Invalid group-cast pair; nothing changed.",
-  ["Applicability unknown"] = "Applicability unknown",
-  ["Not applicable"] = "Not applicable",
-  ["%d unknown"] = "%d unknown",
-  ["Some world buff information is unavailable."] = "Some world buff information is unavailable.",
-  ["Use a named BR2 profile to share newer preferences."] = "Use a named BR2 profile to share newer preferences.",
-  ["Group sharing is unavailable for this review."] = "Group sharing is unavailable for this review.",
-  ["Auto-profile mappings stay local, even when sharing."] = "Auto-profile mappings stay local, even when sharing.",
-  ["Group plan copy (select all, copy)"] = "Group plan copy (select all, copy)",
-  ["Paste a group plan, then review."] = "Paste a group plan, then review.",
-  ["Paste a shared profile, then review."] = "Paste a shared profile, then review.",
-  ["Legacy BR1 settings copy (select all, copy)"] = "Legacy BR1 settings copy (select all, copy)",
-  ["Paste a legacy BR1 settings copy, then review."] = "Paste a legacy BR1 settings copy, then review.",
-  ["Store as %s without loading its settings."] = "Store as %s without loading its settings.",
-  ["Auto-profile mappings using this name: %s"] = "Auto-profile mappings using this name: %s",
-  ["Existing profile: %s. Enter a different name to keep it."] = "Existing profile: %s. Enter a different name to keep it.",
-  ["The current values changed. Review again before applying."] = "The current values changed. Review again before applying.",
-  ["No settings or plan values would change."] = "No settings or plan values would change.",
-  ["Review before applying"] = "Review before applying",
-  ["Import canceled."] = "Import canceled.",
-  ["Save profile"] = "Save profile",
-  ["Replace profile"] = "Replace profile",
-  ["Apply and share"] = "Apply and share",
-  ["Apply locally"] = "Apply locally",
-  ["Review import"] = "Review import",
-  ["Edit paste"] = "Edit paste",
-  ["These settings are too large to save as a profile."] = "These settings are too large to save as a profile.",
-  ["Profile stored: %s (not loaded)."] = "Profile stored: %s (not loaded).",
-  ["That profile already exists or changed. Review it, rename, or explicitly replace it."] = "That profile already exists or changed. Review it, rename, or explicitly replace it.",
-  ["Profile names use letters, numbers, - and _ (max 40)."] = "Profile names use letters, numbers, - and _ (max 40).",
-  ["The profile's settings string is damaged."] = "The profile's settings string is damaged.",
-  ["That doesn't look like a shared BuffRadar profile."] = "That doesn't look like a shared BuffRadar profile.",
-  ["That shared profile is too large."] = "That shared profile is too large.",
-  ["Game accepted %d of %d sends; delivery is not confirmed."] = "Game accepted %d of %d sends; delivery is not confirmed.",
-  ["Plan applied locally: %d assignments, %d blessings, %d auto profiles."] = "Plan applied locally: %d assignments, %d blessings, %d auto profiles.",
-  ["Group or sharing permission changed. Review the plan again."] = "Group or sharing permission changed. Review the plan again.",
-  ["Missing profile for %s: %s"] = "Missing profile for %s: %s",
-  ["Settings applied locally."] = "Settings applied locally.",
-  ["Paste a complete, valid BuffRadar plan export."] = "Paste a complete, valid BuffRadar plan export.",
-  ["Paste a complete, valid BuffRadar settings export."] = "Paste a complete, valid BuffRadar settings export.",
-  ["That import exceeds 16 KiB."] = "That import exceeds 16 KiB.",
-  ["Nothing to import."] = "Nothing to import.",
-  ["Can't move the buff window during combat."] = "Can't move the buff window during combat.",
-  ["Buff scan interrupted. Waiting for a fresh scan."] = "Buff scan interrupted. Waiting for a fresh scan.",
-  ["A newer BuffRadar save was preserved. Changes are for this session only."] = "A newer BuffRadar save was preserved. Changes are for this session only.",
-  ["BuffRadar requires the Forever package on Interface 16001. Casting is disabled."] = "BuffRadar requires the Forever package on Interface 16001. Casting is disabled.",
-  ["Find"] = "Find",
-  ["Find in this tab (Esc to close)"] = "Find in this tab (Esc to close)",
-  ["Matches: %d"] = "Matches: %d",
-  ["Background opacity"] = "Background opacity",
-  ["Idle fade (mouse away)"] = "Idle fade (mouse away)",
-  ["Window scale"] = "Window scale",
-  ["Settings window scale"] = "Settings window scale",
-  ["Group buff threshold"] = "Group buff threshold",
-  ["Tab or Shift-Tab moves. Enter or Space selects. Arrows adjust. F1 toggles speech. Escape exits."] =
-    "Tab or Shift-Tab moves. Enter or Space selects. Arrows adjust. F1 toggles speech. Escape exits.",
-  ["Settings narration is unavailable. Check the game's Text to Speech settings."] =
-    "Settings narration is unavailable. Check the game's Text to Speech settings.",
-  ["Settings keyboard navigation is unavailable in combat or while dead."] =
-    "Settings keyboard navigation is unavailable in combat or while dead.",
-  ["Keyboard Navigation"] = "Keyboard Navigation",
-  ["Exit Navigation"] = "Exit Navigation",
-  ["Settings narration on"] = "Settings narration on",
-  ["Settings narration off"] = "Settings narration off",
-  ["Checked"] = "Checked",
-  ["Not checked"] = "Not checked",
-  ["Selected tab"] = "Selected tab",
-  ["Tab"] = "Tab",
-  ["Button"] = "Button",
-  ["Edit field"] = "Edit field",
-  ["Setting"] = "Setting",
-  ["Background color"] = "Background color",
-  ["Row spacing"] = "Row spacing",
-  ["Buff icon size"] = "Buff icon size",
-  ["Custom (%s)"] = "Custom (%s)",
-  ["Custom theme"] = "Custom theme",
-  ["Auto"] = "Auto",
-  ["Auto (%s)"] = "Auto (%s)",
-  ["Auto Theme Priority…"] = "Auto Theme Priority…",
-  ["Auto Theme Priority"] = "Auto Theme Priority",
-  ["Auto uses the first loaded addon in this list."] = "Auto uses the first loaded addon in this list.",
-  ["Selected: %s (%s)"] = "Selected: %s (%s)",
-  ["No supported UI addon is loaded. Using Midnight."] = "No supported UI addon is loaded. Using Midnight.",
-  ["Auto is off. Current theme: %s."] = "Auto is off. Current theme: %s.",
-  ["Move Up"] = "Move Up",
-  ["Move Down"] = "Move Down",
-  ["Move %s Up"] = "Move %s Up",
-  ["Move %s Down"] = "Move %s Down",
-  ["Reset Order"] = "Reset Order",
-  ["Auto Theme Priority reset."] = "Auto Theme Priority reset.",
-  ["Auto Theme Priority updated."] = "Auto Theme Priority updated.",
-  ["Could not move that Auto theme."] = "Could not move that Auto theme.",
-  ["Usage: /br theme priority [panel|list|up <id>|down <id>|reset]"] =
-    "Usage: /br theme priority [panel|list|up <id>|down <id>|reset]",
-  ["Theme"] = "Theme",
-  ["Close"] = "Close",
-  ["Close settings"] = "Close settings",
-  ["Buff"] = "Buff",
-  ["Rebuff time for %s"] = "Rebuff time for %s",
-  ["Use all-buff setting"] = "Use all-buff setting",
-  ["Rebuff time for all buffs (seconds)"] = "Rebuff time for all buffs (seconds)",
-  ["Remove ignored player %d"] = "Remove ignored player %d",
-  ["Profile name"] = "Profile name",
-  ["Row tooltips"] = "Row tooltips",
-  ["Name length"] = "Name length",
-  ["Find in this tab"] = "Find in this tab",
-  ["  /br config navigate - keyboard navigation   /br config narrate - keyboard navigation with speech"] =
-    "  /br config navigate - keyboard navigation   /br config narrate - keyboard navigation with speech",
-  -- window status lines
-  ["Paused in a major city."] = "Paused in a major city.",
-  ["Paused in a battleground."] = "Paused in a battleground.",
-  ["Everyone nearby is buffed."] = "Everyone nearby is buffed.",
-  ["No targets in the buff queue."] = "No targets in the buff queue.",
-  ["The name finder hides all buff targets."] = "The name finder hides all buff targets.",
-  ["Some buff information is unavailable."] = "Some buff information is unavailable.",
-  ["Estimated range"] = "Estimated range",
-  ["Friendly nameplates are off."] = "Friendly nameplates are off.",
-  ["Nearby Player Diagnostics"] = "Nearby Player Diagnostics",
-  ["Why Is Someone Missing?"] = "Why Is Someone Missing?",
-  ["Friendly nameplates: %s"] = "Friendly nameplates: %s",
-  ["Player nameplates seen on last scan: %d"] = "Player nameplates seen on last scan: %d",
-  ["Player nameplates seen on last scan: unavailable"] = "Player nameplates seen on last scan: unavailable",
-  ["Current Target"] = "Current Target",
-  ["Select a friendly player to check."] = "Select a friendly player to check.",
-  ["Current target information is unavailable."] = "Current target information is unavailable.",
-  ["Enable Friendly Nameplates"] = "Enable Friendly Nameplates",
-  ["On"] = "On",
-  ["Off"] = "Off",
-  ["Refresh"] = "Refresh",
-  ["Can't change nameplate settings during combat."] = "Can't change nameplate settings during combat.",
-  ["Couldn't find a supported friendly nameplate setting on this client."] = "Couldn't find a supported friendly nameplate setting on this client.",
-  ["Couldn't turn on friendly nameplates. Check the game's nameplate settings."] = "Couldn't turn on friendly nameplates. Check the game's nameplate settings.",
-  ["Friendly nameplates are enabled. The game may still hide them outside combat."] = "Friendly nameplates are enabled. The game may still hide them outside combat.",
-  ["Friendly nameplates turned on, so nearby non-group players can be listed."] = "Friendly nameplates turned on, so nearby non-group players can be listed.",
-  ["Nameplate settings are unavailable while dead."] = "Nameplate settings are unavailable while dead.",
-  ["Next buff: %s — %s"] = "Next buff: %s — %s",
-  ["Complement Nearby Blessings"] = "Complement Nearby Blessings",
-  ["Offer a different known blessing outside your group if another Paladin already provides your preferred blessing. Explicit rules still take precedence."] = "Offer a different known blessing outside your group if another Paladin already provides your preferred blessing. Explicit rules still take precedence.",
-  ["Blessing: complement another Paladin"] = "Blessing: complement another Paladin",
-  ["Usage: /br bless complement on|off"] = "Usage: /br bless complement on|off",
-  ["Learn a blessing before changing this setting."] = "Learn a blessing before changing this setting.",
-  ["Complement Nearby Blessings: %s"] = "Complement Nearby Blessings: %s",
-  ["Disable Friendly Nameplates"] = "Disable Friendly Nameplates",
-  ["Show Friendly Health Bars"] = "Show Friendly Health Bars",
-  ["Show Friendly Names Only"] = "Show Friendly Names Only",
-  ["Restore Nameplates"] = "Restore Nameplates",
-  ["No nameplate changes to restore."] = "No nameplate changes to restore.",
-  ["Some nameplate settings could not be restored. Try again or check the game's options."] = "Some nameplate settings could not be restored. Try again or check the game's options.",
-  ["Restored your previous nameplate settings."] = "Restored your previous nameplate settings.",
-  ["Couldn't change friendly nameplate style. Check the game's nameplate settings."] = "Couldn't change friendly nameplate style. Check the game's nameplate settings.",
-  ["Friendly nameplates now show names only."] = "Friendly nameplates now show names only.",
-  ["Friendly nameplates can show health bars again."] = "Friendly nameplates can show health bars again.",
-  ["Couldn't turn off friendly nameplates. Check the game's nameplate settings."] = "Couldn't turn off friendly nameplates. Check the game's nameplate settings.",
-  ["Friendly nameplates turned off. Your group, target, and mouseover are still checked."] = "Friendly nameplates turned off. Your group, target, and mouseover are still checked.",
-  ["Usage: /br plates on|off|names|bars|restore"] = "Usage: /br plates on|off|names|bars|restore",
-  ["Macro controls are unavailable. Bind Cast next buff with /br key instead."] = "Macro controls are unavailable. Bind Cast next buff with /br key instead.",
-  ["Rename your custom BuffRadar macro first, or bind Cast next buff with /br key."] = "Rename your custom BuffRadar macro first, or bind Cast next buff with /br key.",
-  ["Your general macro slots are full. Make room or bind Cast next buff with /br key."] = "Your general macro slots are full. Make room or bind Cast next buff with /br key.",
-  ["Close the macro editor before creating the BuffRadar macro."] = "Close the macro editor before creating the BuffRadar macro.",
-  ["Couldn't save the BuffRadar macro. Bind Cast next buff with /br key instead."] = "Couldn't save the BuffRadar macro. Bind Cast next buff with /br key instead.",
-  ["Place the BuffRadar macro on an action bar. It follows the next buff automatically."] = "Place the BuffRadar macro on an action bar. It follows the next buff automatically.",
-  ["Bind a controller button to BuffRadar's Cast next buff, or put /br macro on an action bar."] = "Bind a controller button to BuffRadar's Cast next buff, or put /br macro on an action bar.",
-  ["/br gamepad - set up controller buffing"] = "/br gamepad - set up controller buffing",
-  ["Cast next buff works with a keyboard or controller and does not fire in combat."] = "Cast next buff works with a keyboard or controller and does not fire in combat.",
-  ["Group buff key: %s"] = "Group buff key: %s",
-  ["Group blessing would conflict with a player exception."] = "Group blessing would conflict with a player exception.",
-  ["Could not check reagent: %s."] = "Could not check reagent: %s.",
-  ["Missing reagent: %s."] = "Missing reagent: %s.",
-  ["Estimated group reagents (carried/needed): %s"] = "Estimated group reagents (carried/needed): %s",
-  ["some needs unknown"] = "some needs unknown",
-  ["Use /br plates to see nearby players."] = "Use /br plates to see nearby players.",
-  ["Move closer or use /br why <name>."] = "Move closer or use /br why <name>.",
-  ["No cast target is available."] = "No cast target is available.",
-  ["BuffRadar Ready Check"] = "BuffRadar Ready Check",
-  ["Buffs ignored"] = "Buffs ignored",
-  ["%s missing"] = "%s missing",
-  ["%s expires in %ds"] = "%s expires in %ds",
-  ["%s unavailable"] = "%s unavailable",
-  ["Buff coverage unavailable"] = "Buff coverage unavailable",
-  ["Checked buffs present"] = "Checked buffs present",
-  ["No applicable buffs"] = "No applicable buffs",
-  ["Ready"] = "Ready",
-  ["Not ready"] = "Not ready",
-  ["Waiting"] = "Waiting",
-  ["Unknown"] = "Unknown",
-  ["No response"] = "No response",
-  ["No response %d"] = "No response %d",
-  ["Waiting %d"] = "Waiting %d",
-  ["Ready %d · %s · Not ready %d · Unknown %d"] = "Ready %d · %s · Not ready %d · Unknown %d",
-  ["Players %d–%d of %d · Scroll or /br ready next"] = "Players %d–%d of %d · Scroll or /br ready next",
-  ["Ready-check details will open at the next ready check in your group."] = "Ready-check details will open at the next ready check in your group.",
-  ["Showing buff coverage at the end of the ready check."] = "Showing buff coverage at the end of the ready check.",
-  ["Range could not be confirmed; the list may be incomplete."] = "Range could not be confirmed; the list may be incomplete.",
-  ["No supported buffs in your spellbook."] = "No supported buffs in your spellbook.",
-  ["combat"] = "combat",
-  ["Blessings by class"] = "Blessings by class",
-  ["Class & Role Assignments"] = "Class & Role Assignments",
-  ["Thorns: Any Class Outdoors"] = "Thorns: Any Class Outdoors",
-  ["Offer Thorns to any class in the open world. Explicit class and role assignments take precedence."] = "Offer Thorns to any class in the open world. Explicit class and role assignments take precedence.",
-  ["Use Class & Role Assignments"] = "Use Class & Role Assignments",
-  ["All Roles"] = "All Roles",
-  ["World"] = "World",
-  ["Tank"] = "Tank",
-  ["Heal"] = "Heal",
-  ["DPS"] = "DPS",
-  ["Default"] = "Default",
-  ["None"] = "None",
-  ["Custom"] = "Custom",
-  ["%d selected"] = "%d selected",
-  ["%d unavailable"] = "%d unavailable",
-  ["World applies to nearby players and unknown roles. A role or World rule takes priority over All Roles. Only enabled buffs are offered."] = "World applies to nearby players and unknown roles. A role or World rule takes priority over All Roles. Only enabled buffs are offered.",
-  ["Select spells for this cell. Changes apply immediately."] = "Select spells for this cell. Changes apply immediately.",
-  ["No known targeted buffs."] = "No known targeted buffs.",
-  ["Inherit from All Roles or the built-in rules."] = "Inherit from All Roles or the built-in rules.",
-  ["Offer no assigned buffs for this cell."] = "Offer no assigned buffs for this cell.",
-  ["Class & Role Assignments are available in WoW: Forever."] = "Class & Role Assignments are available in WoW: Forever.",
-  ["Class & Role Assignments enabled."] = "Class & Role Assignments enabled.",
-  ["Class & Role Assignments disabled."] = "Class & Role Assignments disabled.",
-  ["Group buff would conflict with an assignment."] = "Group buff would conflict with an assignment.",
-  ["%s would reach %s, whose assignment excludes %s (%s)."] = "%s would reach %s, whose assignment excludes %s (%s).",
-  ["%s conflicts with %s's individual blessing exception (%s)."] = "%s conflicts with %s's individual blessing exception (%s).",
-  ["%s is blocked because %s has a different group-plan blessing (%s)."] = "%s is blocked because %s has a different group-plan blessing (%s).",
-  ["%s is blocked because %s's blessing is assigned to another Paladin."] = "%s is blocked because %s's blessing is assigned to another Paladin.",
-  ["%s could not be verified because roster information is unavailable."] = "%s could not be verified because roster information is unavailable.",
-  ["%s could not be verified because its group coverage is unknown."] = "%s could not be verified because its group coverage is unknown.",
-  ["A group member"] = "A group member",
-  ["Using %s on one player instead."] = "Using %s on one player instead.",
-  ["%s is blocked by %d group member."] = "%s is blocked by %d group member.",
-  ["%s is blocked by %d group members."] = "%s is blocked by %d group members.",
-  ["The blocker list may be incomplete because some roster information is unavailable."] = "The blocker list may be incomplete because some roster information is unavailable.",
-  ["Group Cast Blockers"] = "Group Cast Blockers",
-  ["No subgroup responsibilities."] = "No subgroup responsibilities.",
-  ["Available Buff Keys: %s"] = "Available Buff Keys: %s",
-  ["In a raid, use /br subgroup BUFF 1,2,3 or ALL or NONE."] = "In a raid, use /br subgroup BUFF 1,2,3 or ALL or NONE.",
-  ["Use subgroup numbers 1 to 8, separated by commas."] = "Use subgroup numbers 1 to 8, separated by commas.",
-  ["Subgroup responsibility updated for %s."] = "Subgroup responsibility updated for %s.",
-  ["%s could reach a subgroup outside your responsibility."] = "%s could reach a subgroup outside your responsibility.",
-  ["Raid Preparation"] = "Raid Preparation",
-  ["Players"] = "Players",
-  ["Reagents"] = "Reagents",
-  ["Needs Attention"] = "Needs Attention",
-  ["Checks Complete"] = "Checks Complete",
-  ["No eligible players to check."] = "No eligible players to check.",
-  ["No reagents required for the current checklist."] = "No reagents required for the current checklist.",
-  ["Reagent needs could not be confirmed."] = "Reagent needs could not be confirmed.",
-  ["%d carried · %d needed"] = "%d carried · %d needed",
-  ["Carried quantity unknown · %d needed"] = "Carried quantity unknown · %d needed",
-  ["Shortfall: %d"] = "Shortfall: %d",
-  ["Expand details"] = "Expand details",
-  ["Collapse details"] = "Collapse details",
-  ["%d Players · %d Need Attention · %d With Unknowns"] = "%d Players · %d Need Attention · %d With Unknowns",
-  ["Page %d of %d"] = "Page %d of %d",
-  ["Out-of-combat snapshot · Refresh for current results"] = "Out-of-combat snapshot · Refresh for current results",
-  ["Use /br prep show, personal, hide, next, or prev."] = "Use /br prep show, personal, hide, next, or prev.",
-  ["Join a party or raid to use Raid Preparation."] = "Join a party or raid to use Raid Preparation.",
-  ["Temporary weapon coating missing"] = "Temporary weapon coating missing",
-  ["No active pet"] = "No active pet",
-  ["No personal reminders"] = "No personal reminders",
-  ["%d Players · %d Missing Buffs · %d Players With Unknown Buffs"] = "%d Players · %d Missing Buffs · %d Players With Unknown Buffs",
-  ["Players %d–%d of %d · Scroll or /br prep next"] = "Players %d–%d of %d · Scroll or /br prep next",
-  ["Refresh Preparation"] = "Refresh Preparation",
-  ["Food"] = "Food",
-  ["Flask"] = "Flask",
-  ["Edit Rule"] = "Edit Rule",
-  ["Return to Blockers"] = "Return to Blockers",
-  ["Review Changes"] = "Review Changes",
-  ["Review Caster Plan"] = "Review Caster Plan",
-  ["No learned buff capabilities have been reported."] = "No learned buff capabilities have been reported.",
-  ["Unassigned"] = "Unassigned",
-  ["Provider unavailable"] = "Provider unavailable",
-  ["%s: %s -> %s"] = "%s: %s -> %s",
-  ["Caster plan from %s. Use /br coordinate inbox to review it."] = "Caster plan from %s. Use /br coordinate inbox to review it.",
-  ["Caster Coordination is available in WoW: Forever."] = "Caster Coordination is available in WoW: Forever.",
-  ["Caster Coordination"] = "Caster Coordination",
-  ["Opt In"] = "Opt In",
-  ["Opt Out"] = "Opt Out",
-  ["Reports"] = "Reports",
-  ["Draft"] = "Draft",
-  ["Delivery"] = "Delivery",
-  ["Inbox"] = "Inbox",
-  ["Request Reports"] = "Request Reports",
-  ["Publish Plan"] = "Publish Plan",
-  ["Review Incoming Plan"] = "Review Incoming Plan",
-  ["Accept"] = "Accept",
-  ["Decline"] = "Decline",
-  ["Buff Key"] = "Buff Key",
-  ["Add Needed Buff"] = "Add Needed Buff",
-  ["No caster reports requested."] = "No caster reports requested.",
-  ["No reviewed draft."] = "No reviewed draft.",
-  ["No plan has been published."] = "No plan has been published.",
-  ["Plan from %s"] = "Plan from %s",
-  ["No plan waiting for review."] = "No plan waiting for review.",
-  ["Your accepted duties: %s"] = "Your accepted duties: %s",
-  ["Delivery status is separate from buff coverage."] = "Delivery status is separate from buff coverage.",
-  ["Caster coordination was cleared because the group or its leadership changed."] = "Caster coordination was cleared because the group or its leadership changed.",
-  ["Caster Coordination is off."] = "Caster Coordination is off.",
-  ["Caster Coordination needs cast sync and a group outside combat."] = "Caster Coordination needs cast sync and a group outside combat.",
-  ["Roster information is unavailable."] = "Roster information is unavailable.",
-  ["Caster Coordination is on for this group."] = "Caster Coordination is on for this group.",
-  ["Use /br coordinate on to join this group's caster planning."] = "Use /br coordinate on to join this group's caster planning.",
-  ["No current caster plan to review."] = "No current caster plan to review.",
-  ["Caster plan from %s: %s. Use /br coordinate accept or decline."] = "Caster plan from %s: %s. Use /br coordinate accept or decline.",
-  ["Review the caster plan with /br coordinate inbox first."] = "Review the caster plan with /br coordinate inbox first.",
-  ["Your learned buffs or existing assignments changed. Ask for a new caster plan."] = "Your learned buffs or existing assignments changed. Ask for a new caster plan.",
-  ["The caster message could not be sent."] = "The caster message could not be sent.",
-  ["Caster duties accepted."] = "Caster duties accepted.",
-  ["Only the group leader or an assistant can manage caster plans."] = "Only the group leader or an assistant can manage caster plans.",
-  ["Asked group members for their learned buffs."] = "Asked group members for their learned buffs.",
-  ["Use /br coordinate need <BUFF KEY>."] = "Use /br coordinate need <BUFF KEY>.",
-  ["Awaiting acknowledgement"] = "Awaiting acknowledgement",
-  ["Acknowledged"] = "Acknowledged",
-  ["Send failed"] = "Send failed",
-  ["Assigned locally"] = "Assigned locally",
-  ["%s: %s"] = "%s: %s",
-  ["Request fresh caster reports with /br coordinate request."] = "Request fresh caster reports with /br coordinate request.",
-  ["Review the caster plan with /br coordinate review first."] = "Review the caster plan with /br coordinate review first.",
-  ["Caster reports or assignments changed. Review the updated draft before publishing."] = "Caster reports or assignments changed. Review the updated draft before publishing.",
-  ["No new caster duties to send."] = "No new caster duties to send.",
-  ["No assigned buffs"] = "No assigned buffs",
-  ["Use /br coordinate panel|on|off|request|need|review|publish|status|inbox|accept|decline."] = "Use /br coordinate panel|on|off|request|need|review|publish|status|inbox|accept|decline.",
-  ["Apply"] = "Apply",
-  ["Undo Last Change"] = "Undo Last Change",
-  ["There is no blocker edit to undo."] = "There is no blocker edit to undo.",
-  ["The blocker edit can no longer be undone."] = "The blocker edit can no longer be undone.",
-  ["The last blocker edit was undone."] = "The last blocker edit was undone.",
-  ["The group could not be checked. Try Undo again when roster information is available."] = "The group could not be checked. Try Undo again when roster information is available.",
-  ["Practice Mode"] = "Practice Mode",
-  ["Sample Raid"] = "Sample Raid",
-  ["Practice with sample players. Your group and settings are unaffected."] = "Practice with sample players. Your group and settings are unaffected.",
-  ["Mira · Inherited All Roles rule"] = "Mira · Inherited All Roles rule",
-  ["Thoren · Individual blessing exception"] = "Thoren · Individual blessing exception",
-  ["Arden · Buff data unavailable"] = "Arden · Buff data unavailable",
-  ["Offer Fortitude to the sample group"] = "Offer Fortitude to the sample group",
-  ["Clear Thoren's blessing exception"] = "Clear Thoren's blessing exception",
-  ["Practice changes applied to the sample raid."] = "Practice changes applied to the sample raid.",
-  ["Power Word: Fortitude"] = "Power Word: Fortitude",
-  ["Blessing of Kings"] = "Blessing of Kings",
-  ["Blessing of Wisdom"] = "Blessing of Wisdom",
-  ["Back"] = "Back",
-  ["Cancel"] = "Cancel",
-  ["Done"] = "Done",
-  ["Edit the draft, then review the changes before applying."] = "Edit the draft, then review the changes before applying.",
-  ["Gains: %s"] = "Gains: %s",
-  ["Loses: %s"] = "Loses: %s",
-  ["No changes to group buff offers."] = "No changes to group buff offers.",
-  ["Some group members could not be checked."] = "Some group members could not be checked.",
-  ["The group or rules changed. Review again before applying."] = "The group or rules changed. Review again before applying.",
-  ["Review the changes before applying to the current group."] = "Review the changes before applying to the current group.",
-  ["No group cast blockers are currently listed."] = "No group cast blockers are currently listed.",
-  ["The blocker changed. Check the updated list."] = "The blocker changed. Check the updated list.",
-  ["Edit Blessing Exception"] = "Edit Blessing Exception",
-  ["Preview Current Group"] = "Preview Current Group",
-  ["Refresh Preview"] = "Refresh Preview",
-  ["Raid Coverage"] = "Raid Coverage",
-  ["Coverage is available in WoW: Forever."] = "Coverage is available in WoW: Forever.",
-  ["Raid Group %d"] = "Raid Group %d",
-  ["Party"] = "Party",
-  ["Unknown Subgroup"] = "Unknown Subgroup",
-  ["Blessings"] = "Blessings",
-  ["Subgroup Responsibilities"] = "Subgroup Responsibilities",
-  ["All Groups"] = "All Groups",
-  ["Selected Groups"] = "Selected Groups",
-  ["No Groups"] = "No Groups",
-  ["Included"] = "Included",
-  ["Outside Selected Groups"] = "Outside Selected Groups",
-  ["Join a raid to set subgroup responsibilities."] = "Join a raid to set subgroup responsibilities.",
-  ["Session only. Changes apply after you select Apply."] = "Session only. Changes apply after you select Apply.",
-  ["Subgroup responsibilities changed. Review the current selection and try again."] = "Subgroup responsibilities changed. Review the current selection and try again.",
-  ["No raid members to preview."] = "No raid members to preview.",
-  ["No available group version for this target."] = "No available group version for this target.",
-  ["Some roster information could not be checked."] = "Some roster information could not be checked.",
-  ["Join a party or raid to check buff coverage."] = "Join a party or raid to check buff coverage.",
-  ["%d Confirmed · %d Missing · %d Unknown"] = "%d Confirmed · %d Missing · %d Unknown",
-  ["Missing: %s"] = "Missing: %s",
-  ["Unknown: %s"] = "Unknown: %s",
-  ["All checked players have this buff."] = "All checked players have this buff.",
-  ["No group to preview."] = "No group to preview.",
-  ["Members %d–%d of %d"] = "Members %d–%d of %d",
-  ["Due: %s"] = "Due: %s",
-  ["Available: %s"] = "Available: %s",
-  ["No buffs due"] = "No buffs due",
-  ["No buffs available"] = "No buffs available",
-  ["Previous"] = "Previous",
-  ["Next"] = "Next",
-  ["%s · %s rule"] = "%s · %s rule",
-  ["%s · %s rule (role unavailable)"] = "%s · %s rule (role unavailable)",
-  ["%s · %s rule (nearby player)"] = "%s · %s rule (nearby player)",
-  ["%s · Built-in rules"] = "%s · Built-in rules",
-  ["%s · None"] = "%s · None",
-  ["Rule unavailable"] = "Rule unavailable",
-  ["Applied rule for %s: %s."] = "Applied rule for %s: %s.",
-  ["Blessing: player exception"] = "Blessing: player exception",
-  ["Blessing: group plan"] = "Blessing: group plan",
-  ["Blessing assigned to another Paladin"] = "Blessing assigned to another Paladin",
-  ["Player details unavailable"] = "Player details unavailable",
-  ["Currently ineligible"] = "Currently ineligible",
-  ["Ignored"] = "Ignored",
-  ["Temporarily skipped after a failed cast"] = "Temporarily skipped after a failed cast",
-  ["Buff information unavailable"] = "Buff information unavailable",
-  ["On cooldown: %s"] = "On cooldown: %s",
-  ["Range could not be confirmed"] = "Range could not be confirmed",
-  ["No eligible rank or range"] = "No eligible rank or range",
-  ["Out of cast range"] = "Out of cast range",
-  ["Group option: %s"] = "Group option: %s",
-  ["%s · Manual role: %s"] = "%s · Manual role: %s",
-  ["%s · Manual role: %s (game role takes precedence)"] = "%s · Manual role: %s (game role takes precedence)",
-  ["Set Role"] = "Set Role",
-  ["Change Role"] = "Change Role",
-  ["Session Role for %s"] = "Session Role for %s",
-  ["Choose a fallback when the game does not report a role."] = "Choose a fallback when the game does not report a role.",
-  ["Use Game Role"] = "Use Game Role",
-  ["Current selection"] = "Current selection",
-  ["The member or role changed. Refresh and try again."] = "The member or role changed. Refresh and try again.",
-  ["Default (%s)"] = "Default (%s)",
-  ["Default blessing"] = "Default blessing",
-  ["Previously selected blessing unavailable"] = "Previously selected blessing unavailable",
-  ["An active group blessing plan takes precedence."] = "An active group blessing plan takes precedence.",
-  ["Rows %d–%d of %d"] = "Rows %d–%d of %d",
-  ["Use the mouse wheel to see more rows."] = "Use the mouse wheel to see more rows.",
-  ["Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time"] =
-    "Casts: |cffffffff%d|r this session  ·  |cffffffff%d|r all-time",
-  -- Compact form, used when the window is too narrow for the line above.
-  ["Casts: |cffffffff%d|r / |cffffffff%d|r"] = "Casts: |cffffffff%d|r / |cffffffff%d|r",
-  ["out of range"] = "out of range",  -- under a greyed row's name
-  ["recently rezzed"] = "recently rezzed",  -- under a rezzed player's name (1.4.0)
-  ["a buff just expired"] = "a buff just expired",  -- under the name (1.4.0)
-  ["being buffed"] = "being buffed",  -- another BuffRadar user just cast it (1.5.0)
-  ["asked for a buff"] = "asked for a buff",  -- asked in chat (1.5.0)
-  ["up next"] = "up next",  -- the row your next cast should go to (1.6.0)
-  ["your assignment"] = "your assignment",  -- the leader gave this buff to you (1.6.0)
-  ["assigned elsewhere"] = "assigned elsewhere",  -- the leader gave this buff to another user (1.6.0)
-  ["buddy's watch"] = "buddy's watch",  -- buddy split gave this row to the other user (1.6.0)
-  ["All buffed"] = "All buffed",  -- pill text (1.6.0)
-  ["Collapse to a pill while everyone is buffed"] = "Collapse to a pill while everyone is buffed",
-  ["Tag the next row after a cast"] = "Tag the next row after a cast",
-  ["Track flasks, food and runes (coverage line)"] = "Track flasks, food and runes (coverage line)",
-  ["Split the list with other BuffRadar users"] = "Split the list with other BuffRadar users",
-  ["Post the ready-check summary to group chat"] = "Post the ready-check summary to group chat",
-  ["pinned"] = "pinned",  -- row tag for the pinned player (1.7.0)
-  ["weapon enchant missing"] = "weapon enchant missing",  -- row tag (1.7.0)
-  ["Watch my weapon enchant"] = "Watch my weapon enchant",
-  ["Grow the list upward"] = "Grow the list upward",
-  ["Two columns when the list is long"] = "Two columns when the list is long",
-  ["Print a recap when I die"] = "Print a recap when I die",
-  ["Print a report after a wipe"] = "Print a report after a wipe",
-  ["Hide the window in combat"] = "Hide the window in combat",
-  ["pet"] = "pet",  -- row tag for a group pet (1.8.0)
-  ["drinking"] = "drinking",  -- row tag for a drinking healer (1.8.0)
-  ["near"] = "near",  -- range band word for a greyed row (1.8.0)
-  ["Watch group pets"] = "Watch group pets",
-  ["Watch my aura or aspect"] = "Watch my aura or aspect",
-  ["Watch my world buffs"] = "Watch my world buffs",
-  ["Mark healers who are drinking"] = "Mark healers who are drinking",
-  ["Show a name finder on the window"] = "Show a name finder on the window",
-  ["Remind me when entering an instance unbuffed"] = "Remind me when entering an instance unbuffed",
-  ["Halve the rescan rate in big groups"] = "Halve the rescan rate in big groups",
-  ["Skip rescans for aura changes that touch no watched buff"] = "Skip rescans for aura changes that touch no watched buff",
-  ["Shift-click a row casts the group version of its buff"] = "Shift-click a row casts the group version of its buff",
-  ["Shift-click to cast: %s"] = "Shift-click to cast: %s",
-  ["Flash when a pull timer starts"] = "Flash when a pull timer starts",
-  ["Low mana -- buffing paused."] = "Low mana -- buffing paused.",
-  ["~%dm left"] = "~%dm left",  -- on a row whose buff is about to expire
-  ["~%ds left"] = "~%ds left",
-  -- settings window (tabs and the main Window / Alerts / Buffs / Behavior
-  -- checkboxes; the rest of the settings window is English for now)
-  ["Window"] = "Window", ["Alerts"] = "Alerts", ["Buffs"] = "Buffs",
-  ["Behavior"] = "Behavior", ["Ignore & Stats"] = "Ignore & Stats",
-  ["Show BuffRadar title"] = "Show BuffRadar title",
-  ["Show border"] = "Show border",
-  ["Minimap button (drag it around the minimap)"] = "Minimap button (drag it around the minimap)",
-  ["Play a sound when a name appears"] = "Play a sound when a name appears",
-  ["No alert sound in dungeons, raids or battlegrounds"] =
-    "No alert sound in dungeons, raids or battlegrounds",
-  ["Show cast counter in the window"] = "Show cast counter in the window",
-  ["Buff myself first (all buffs that suit me)"] = "Buff myself first (all buffs that suit me)",
-  ["Only show in a party or raid"] = "Only show in a party or raid",
-  ["Pause scanning in major cities"] = "Pause scanning in major cities",
-  ["Pause in battlegrounds and arenas"] = "Pause in battlegrounds and arenas",
-  ["Sync casts with other BuffRadar users"] = "Sync casts with other BuffRadar users",
-  ["Mark players who ask for a buff in chat"] = "Mark players who ask for a buff in chat",
-  ["Print a summary when joining a group"] = "Print a summary when joining a group",
-  ["Buff toggle strip on the window"] = "Buff toggle strip on the window",
-  ["Paused on a flight path."] = "Paused on a flight path.",
-  ["Pause on flight paths"] = "Pause on flight paths",
-  ["Alert when a watched buff drops"] = "Alert when a watched buff drops",
-["Sound when a buff falls off in combat"] = "Sound when a buff falls off in combat",
-  ["Offer group buffs in a party or raid"] = "Offer group buffs in a party or raid",
-  ["Show out-of-range players (greyed)"] = "Show out-of-range players (greyed)",
-  ["Compact rows (no portraits)"] = "Compact rows (no portraits)",
-  ["Per-character window position"] = "Per-character window position",
-  ["Shift-right-click to ignore for this session only."] =
-    "Shift-right-click to ignore for this session only.",
-  -- row tooltip
-  ["Out of range — move closer to cast:"] = "Out of range — move closer to cast:",
-  ["Click to cast: %s"] = "Click to cast: %s",
-  ["Group version — one cast buffs the whole party."] = "Group version — one cast buffs the whole party.",
-  ["Right-click to ignore this player."] = "Right-click to ignore this player.",
-  ["Still needs: %s"] = "Still needs: %s",
-  -- window buttons, minimap button and addon menu
-  ["BuffRadar settings"] = "BuffRadar settings",
-  ["Drag to resize the window"] = "Drag to resize the window",
-  ["Left-click: show / hide the window"] = "Left-click: show / hide the window",
-  ["Right-click: settings"] = "Right-click: settings",
-  ["Drag: move around the minimap"] = "Drag: move around the minimap",
-  -- Readiness, forecasts and Quick Setup.
-  ["%d broken · Lowest %d%%"] = "%d broken · Lowest %d%%",
-  ["%d cast targets · %d forecast buffs"] = "%d cast targets · %d forecast buffs",
-  ["%d ms"] = "%d ms",
-  ["Active pet"] = "Active pet",
-  ["Adaptive scan throttle"] = "Adaptive scan throttle",
-  ["Adaptive scan throttle: %s"] = "Adaptive scan throttle: %s",
-  ["An instance ID is required."] = "An instance ID is required.",
-  ["Apply here"] = "Apply here",
-  ["Briefly highlight the window or minimap without sound. Respects Reduced Motion."] = "Briefly highlight the window or minimap without sound. Respects Reduced Motion.",
-  ["Buff coverage could not be verified"] = "Buff coverage could not be verified",
-  ["Buff intelligence"] = "Buff intelligence",
-  ["Buff scan paused"] = "Buff scan paused",
-  ["Buff scan paused in combat"] = "Buff scan paused in combat",
-  ["Buff scan paused while dead"] = "Buff scan paused while dead",
-  ["BuffRadar memory: %.0f KB (game-reported total)."] = "BuffRadar memory: %.0f KB (game-reported total).",
-  ["BuffRadar memory: unavailable on this client."] = "BuffRadar memory: unavailable on this client.",
-  ["Buffs need attention"] = "Buffs need attention",
-  ["Checked buffs are covered"] = "Checked buffs are covered",
-  ["Choose your activity and role, then review the suggested settings. /br wizard"] = "Choose your activity and role, then review the suggested settings. /br wizard",
-  ["Consumable aura ID (0 = off)"] = "Consumable aura ID (0 = off)",
-  ["Copy buff status"] = "Copy buff status",
-  ["Copy the current buff status"] = "Copy the current buff status",
-  ["Copy the feedback link and open it in your browser."] = "Copy the feedback link and open it in your browser.",
-  ["Debuff rule saved."] = "Debuff rule saved.",
-  ["Debuff watch is paused in Lite mode."] = "Debuff watch is paused in Lite mode.",
-  ["Debuff watch limit reached."] = "Debuff watch limit reached.",
-  ["Debuff watch: %s"] = "Debuff watch: %s",
-  ["Dungeons / Mythic+"] = "Dungeons / Mythic+",
-  ["Enable forecasts before setting a timer."] = "Enable forecasts before setting a timer.",
-  ["Encounter %d"] = "Encounter %d",
-  ["Encounter ID (optional)"] = "Encounter ID (optional)",
-  ["Encounter debuffs"] = "Encounter debuffs",
-  ["Enter a consumable aura spell ID, or 0 to clear it."] = "Enter a consumable aura spell ID, or 0 to clear it.",
-  ["Enter a forecast time from 0 to 300 seconds (0 turns it off)."] = "Enter a forecast time from 0 to 300 seconds (0 turns it off).",
-  ["Equipment durability"] = "Equipment durability",
-  ["Feedback"] = "Feedback",
-  ["Focus"] = "Focus",
-  ["Forecast lead: %ds (0 = off)."] = "Forecast lead: %ds (0 = off).",
-  ["Forecast seconds (0 = off)"] = "Forecast seconds (0 = off)",
-  ["Forecast: %s on %s expires in %ds."] = "Forecast: %s on %s expires in %ds.",
-  ["Forecasts are paused in Lite mode."] = "Forecasts are paused in Lite mode.",
-  ["Healthstone in bags"] = "Healthstone in bags",
-  ["Important buff missing or expiring"] = "Important buff missing or expiring",
-  ["Instance %d: %s"] = "Instance %d: %s",
-  ["Instance rule limit reached."] = "Instance rule limit reached.",
-  ["Lite mode"] = "Lite mode",
-  ["Lite mode: %s"] = "Lite mode: %s",
-  ["Local preparation timer: %ds."] = "Local preparation timer: %ds.",
-  ["Lowest %d%%"] = "Lowest %d%%",
-  ["Memory usage"] = "Memory usage",
-  ["Minimap status: %s"] = "Minimap status: %s",
-  ["Missing"] = "Missing",
-  ["Most buffs needed"] = "Most buffs needed",
-  ["Name"] = "Name",
-  ["New to BuffRadar? Run /br wizard for Quick Setup."] = "New to BuffRadar? Run /br wizard for Quick Setup.",
-  ["No applicable buffs to check"] = "No applicable buffs to check",
-  ["No aura configured"] = "No aura configured",
-  ["No debuffs are being tracked."] = "No debuffs are being tracked.",
-  ["No durable equipment"] = "No durable equipment",
-  ["No instance priority rules saved."] = "No instance priority rules saved.",
-  ["No missing coating"] = "No missing coating",
-  ["Open personal checks"] = "Open personal checks",
-  ["Optional consumable"] = "Optional consumable",
-  ["Order: %s · Forecast: %ds (0 = off)"] = "Order: %s · Forecast: %ds (0 = off)",
-  ["Pause the checklist, forecasts, debuffs and optional aura watches without changing their settings."] = "Pause the checklist, forecasts, debuffs and optional aura watches without changing their settings.",
-  ["Performance & alerts"] = "Performance & alerts",
-  ["Periodic scan: %.1fs · Latency: %s"] = "Periodic scan: %.1fs · Latency: %s",
-  ["Personal"] = "Personal",
-  ["Personal consumable aura ID: %d (0 = off)."] = "Personal consumable aura ID: %d (0 = off).",
-  ["Player"] = "Player",
-  ["Present"] = "Present",
-  ["Press Enter to save."] = "Press Enter to save.",
-  ["Priority buff key for this instance"] = "Priority buff key for this instance",
-  ["Promote buffs for tanks, healers, recovery and your instance rules without changing eligibility."] = "Promote buffs for tanks, healers, recovery and your instance rules without changing eligibility.",
-  ["Queue rows: %d · Saved casts: %d · Debuff rules: %d"] = "Queue rows: %d · Saved casts: %d · Debuff rules: %d",
-  ["Quick Setup"] = "Quick Setup",
-  ["Quick Setup complete. Run /br wizard to make new choices."] = "Quick Setup complete. Run /br wizard to make new choices.",
-  ["Quick Setup is unavailable in combat."] = "Quick Setup is unavailable in combat.",
-  ["Quick Setup · Step %d of 3"] = "Quick Setup · Step %d of 3",
-  ["Quiet alerts and the minimap status are enabled. Buff selections and keybinds are kept."] = "Quiet alerts and the minimap status are enabled. Buff selections and keybinds are kept.",
-  ["Quiet visual alerts"] = "Quiet visual alerts",
-  ["Raid Preparation is available in WoW: Forever."] = "Raid Preparation is available in WoW: Forever.",
-  ["Raid Preparation is paused in Lite mode."] = "Raid Preparation is paused in Lite mode.",
-  ["Raids"] = "Raids",
-  ["Readiness"] = "Readiness",
-  ["Remove"] = "Remove",
-  ["Repair recommended"] = "Repair recommended",
-  ["Group only: %s · Group casts: %s · Pause in cities: %s"] = "Group only: %s · Group casts: %s · Pause in cities: %s",
-  ["Save watch"] = "Save watch",
-  ["Shift-right-click: Quick Setup"] = "Shift-right-click: Quick Setup",
-  ["Show watched debuffs"] = "Show watched debuffs",
-  ["Slow periodic scans at rest or with high latency. Event refreshes stay responsive."] = "Slow periodic scans at rest or with high latency. Event refreshes stay responsive.",
-  ["Smart buff priority"] = "Smart buff priority",
-  ["Smart priority: %s"] = "Smart priority: %s",
-  ["Solo play"] = "Solo play",
-  ["Some buff coverage could not be verified"] = "Some buff coverage could not be verified",
-  ["Some slots unknown"] = "Some slots unknown",
-  ["Soulwell availability cannot be checked."] = "Soulwell availability cannot be checked.",
-  ["Spell ID"] = "Spell ID",
-  ["Status on the minimap"] = "Status on the minimap",
-  ["Tanks first"] = "Tanks first",
-  ["Temporary weapon coating"] = "Temporary weapon coating",
-  ["That debuff is not on the watch list."] = "That debuff is not on the watch list.",
-  ["The game does not report memory by feature."] = "The game does not report memory by feature.",
-  ["Track up to eight harmful spell IDs on you or your focus, when the client exposes them."] = "Track up to eight harmful spell IDs on you or your focus, when the client exposes them.",
-  ["Use /br debuff on|off|list, add <spell ID> [player|focus] [encounter ID], or remove <spell ID> [player|focus]."] = "Use /br debuff on|off|list, add <spell ID> [player|focus] [encounter ID], or remove <spell ID> [player|focus].",
-  ["Use /br forecast timer <1-600|off>."] = "Use /br forecast timer <1-600|off>.",
-  ["Use /br readiness [personal|show|hide|next|prev] or aura <spell ID|off>."] = "Use /br readiness [personal|show|hide|next|prev] or aura <spell ID|off>.",
-  ["Use /br smartprio [on|off|list], here <KEY|clear>, or instance <ID> <KEY|clear>."] = "Use /br smartprio [on|off|list], here <KEY|clear>, or instance <ID> <KEY|clear>.",
-  ["Use a buff key from /br buffs."] = "Use a buff key from /br buffs.",
-  ["Use a key from /br buffs. Clear the field to remove the rule."] = "Use a key from /br buffs. Clear the field to remove the rule.",
-  ["Use a valid debuff spell ID, player or focus, and an optional encounter ID."] = "Use a valid debuff spell ID, player or focus, and an optional encounter ID.",
-  ["Visual alerts: %s"] = "Visual alerts: %s",
-  ["Waiting for a fresh buff scan"] = "Waiting for a fresh buff scan",
-  ["Watch unit"] = "Watch unit",
-  ["What do you play most often?"] = "What do you play most often?",
-  ["What is your primary role?"] = "What is your primary role?",
-  ["Your character only"] = "Your character only",
-  ["Your supported buffs: %s"] = "Your supported buffs: %s",
-}
-setmetatable(L, { __index = function(_, k) return k end })
-do
-  local loc = (GetLocale and GetLocale()) or "enUS"
-  local pack = namespace.Locales and namespace.Locales[loc]
-  if type(pack) == "table" then
-    for k, v in pairs(pack) do if type(v) == "string" then L[k] = v end end
-  end
-end
+local L = X.L
 _G["BINDING_NAME_CLICK BuffRadarNextButton:LeftButton"] = L["Cast next buff"]
 _G["BINDING_NAME_CLICK BuffRadarGroupButton:LeftButton"] = L["Cast next group buff"]
 BINDING_NAME_BUFFRADAR_TOGGLE = L["Show / hide window"]
@@ -2350,7 +1638,12 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
       detail.rule = detail.rule .. " · " .. L["Thorns: Any Class Outdoors"]
     end
     local coverage = b.key == "FORTITUDE" and X.FortitudeCoverage or HasAny
-    if report == "raidCoverage" then
+    if report == "evidence" then
+      if detail.selfOnly then eligible = true end -- actual player auras, independent of tracking toggles
+      local has,left
+      if eligible and detail.observable then has,left=coverage(unit,b.names,0,3600000) end
+      detail.record(b.key,eligible,has,left)
+    elseif report == "raidCoverage" then
       if eligible and not b.self then
         local has
         if detail.observable then has = coverage(unit, b.names, 0) end
@@ -2403,7 +1696,12 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
   local blessingEligible = (not subgroupKey or subgroupKey == "BLESSINGS")
     and bl and IsOn("BLESSINGS", true) and (not isSelf or db.includeSelf)
     and X.ContextOK("BLESSINGS")
-  if report == "raidCoverage" then
+  if report == "evidence" then
+    if detail.selfOnly then blessingEligible=bl~=nil end
+    local has,left
+    if blessingEligible and detail.observable then has,left=HasAny(unit,bl.names,0,3600000) end
+    detail.record("BLESSINGS",blessingEligible,has,left)
+  elseif report == "raidCoverage" then
     if blessingEligible then
       local has
       if detail.observable then has = HasAny(unit, bl.names, 0) end
@@ -2880,7 +2178,87 @@ local function OrderMissing(entry)
   if entry.expiringSpell ~= m[1] then entry.remain1 = nil end
 end
 
+do
+  local committed={group={generation=0,buffs={},members={},incomplete=true},self={generation=0,buffs={},members={},incomplete=true}}
+  local pending
+  local function Clone(value)
+    if type(value)~="table" then return value end
+    local out={};for k,v in pairs(value) do out[k]=Clone(v) end;return out
+  end
+  local function Build(scope)
+    local selfOnly=scope=="self"
+    local result={buffs={},members={},incomplete=false,overflow=false}
+    local definitions={}
+    for _,b in ipairs(myBuffs) do definitions[#definitions+1]={key=b.key,name=b.name,spellID=b.id} end
+    if next(blessKnown) then definitions[#definitions+1]={key="BLESSINGS",name=L["Blessings"]} end
+    table_sort(definitions,function(a,b) return a.key<b.key end)
+    local maxBuffs=selfOnly and 16 or 24
+    local admitted={}
+    for i,b in ipairs(definitions) do
+      if i>maxBuffs then result.overflow,result.incomplete=true,true;break end
+      result.buffs[#result.buffs+1]=b;admitted[b.key]=true
+    end
+    local knownGUIDs={}
+    local function Member(unit)
+      if X.ReadUnitBool(UnitExists,unit)~=true then return end
+      local guid=X.UnitGUIDOf(unit)
+      if not guid then result.incomplete=true;return end
+      if knownGUIDs[guid] then return end
+      if #result.members>=40 then result.overflow,result.incomplete=true,true;return end
+      knownGUIDs[guid]=true
+      local full,name=Ignore.UnitNames(unit)
+      local subgroup=InRaid() and X.RaidSubgroup(tonumber(unit:match("^raid(%d+)$"))) or 1
+      local row={guid=guid,unit=unit,label=full or name or unit,subgroup=subgroup or 0,cells={}}
+      for _,b in ipairs(result.buffs) do row.cells[b.key]={state="unknown"} end
+      result.members[#result.members+1]=row
+      local observable=X.ReadUnitBool(UnitIsConnected,unit)==true and X.ReadUnitBool(UnitIsDeadOrGhost,unit)==false
+      if UnitInPhase and X.ReadUnitBool(UnitInPhase,unit)~=true then observable=false end
+      local isSelf=X.ReadUnitBool(UnitIsUnit,unit,"player")
+      if isSelf==nil then result.incomplete=true;return end
+      Missing(unit,{},true,isSelf,"evidence",{selfOnly=selfOnly,observable=observable,record=function(key,eligible,has,left)
+        if not admitted[key] then return end
+        local state=not eligible and "not-applicable" or has==true and "confirmed" or has==false and "missing" or "unknown"
+        local cell={state=state};row.cells[key]=cell
+        if state=="unknown" then result.incomplete=true end
+        if state=="confirmed" and X.Readable(left) and type(left)=="number" and left==left and left>=0 and left<math.huge then
+          local now=X.ReadUnitNumber(GetTime);if now and now>=0 then cell.expiresAt=now+left end
+        end
+      end})
+    end
+    if selfOnly then Member("player")
+    else
+      local list=InRaid() and RAID or PARTY
+      for i=1,#list do Member(list[i]) end
+      Member("player")
+      local expected=X.ReadUnitNumber(GetNumGroupMembers)
+      if expected and expected>0 and #result.members~=expected then result.incomplete=true end
+    end
+    return result
+  end
+  function X.BeginCoverageEvidence()
+    pending={}
+    if db.matrixView then pending.group=Build("group") end
+    if db.selfStatusStrip then pending.self=Build("self") end
+  end
+  function X.CommitCoverageEvidence(generation,at)
+    for _,scope in ipairs({"group","self"}) do
+      local value=pending and pending[scope]
+      if value then value.generation,value.observedAt=generation,at;committed[scope]=value
+      elseif not (scope=="group" and db.matrixView or scope=="self" and db.selfStatusStrip) then
+        committed[scope]={generation=generation,observedAt=at,buffs={},members={},incomplete=true}
+      end
+    end
+    pending=nil
+  end
+  function X.CoverageEvidence(scope)
+    local result=Clone(committed[scope=="self" and "self" or "group"])
+    result.freshness=X.Status.Freshness();return result
+  end
+end
+
 local function CollectEntries()
+  X.Status.Attempt()
+  X.BeginCoverageEvidence()
   local nowT = GetTime()
   scanHorizon = X.Intel.BeginScan()
   for guid, untilTime in pairs(X.failedTargets) do
@@ -3368,10 +2746,10 @@ end
 
 function X.GroupCoverageNote(report)
   if report.unknown > 0 then
-    return string_format("Buff coverage could not be verified for %d %s.",
-      report.unknown, report.unknown == 1 and "player" or "players")
+    return string_format(L[report.unknown == 1 and "Buff coverage could not be verified for %d player."
+      or "Buff coverage could not be verified for %d players."], report.unknown)
   end
-  if report.checked == 0 then return "No applicable buffs were found to check." end
+  if report.checked == 0 then return L["No applicable buffs were found to check."] end
 end
 
 -- WoW owns group-chat permissions. A refused send leaves the report local.
@@ -3401,16 +2779,16 @@ function X.ReadyReport(report)
   local people = #report.people
   local note = X.GroupCoverageNote(report)
   if people == 0 then
-    Print("Ready check: " .. (note or "all checked buffs are present."))
+    Print(string_format(L["Ready check: %s"],note or L["all checked buffs are present."]))
   else
-    Print(string_format("Ready check: %d %s missing buffs (%d buffs needed). /br announce posts the list.",
-      people, people == 1 and "person is" or "people are", report.buffs))
+    Print(string_format(L["Ready check: %d %s missing buffs (%d buffs needed). /br announce posts the list."],
+      people, people == 1 and L["person is"] or L["people are"], report.buffs))
     if note then Print(note) end
     -- Auto-post (1.7.0): the leader or an assistant can have the summary
     -- posted to group chat too, so the group sees it without asking.
     if db.readyPost and X.AmLead() then
-      local sent, failure = X.SendGroupReport(string_format("BuffRadar ready check: %d %s missing buffs (%d buffs needed).%s",
-        people, people == 1 and "person is" or "people are", report.buffs,
+      local sent, failure = X.SendGroupReport(string_format(L["BuffRadar ready check: %d %s missing buffs (%d buffs needed).%s"],
+        people, people == 1 and L["person is"] or L["people are"], report.buffs,
         note and (" " .. note) or ""))
       if not sent then Print(string_format(L["Local only — not sent: %s"], failure)) end
     end
@@ -3430,7 +2808,7 @@ function X.Announce()
     end
   end
   if #order == 0 then
-    Print(note or "All checked buffs are present -- nothing to announce.")
+    Print(note or L["All checked buffs are present -- nothing to announce."])
     return
   end
   local segs = {}
@@ -3442,7 +2820,7 @@ function X.Announce()
     if #names > 3 then seg = seg .. " +" .. (#names - 3) end
     segs[#segs + 1] = seg
   end
-  local text = "BuffRadar -- missing buffs: " .. table.concat(segs, " · ")
+  local text = L["BuffRadar -- missing buffs: "] .. table.concat(segs, " · ")
     .. (note and (" · " .. note) or "")
   local channel, failure, accepted = X.SendGroupReport(text)
   if channel then
@@ -4853,10 +4231,10 @@ local function FocusLine()
   if not name then return end
   local count = Missing("focus", focusMissing, false, isSelf)
   if count > 0 then
-    return "Focus " .. name .. ": needs " .. table.concat(focusMissing, ", ", 1, math_min(count, 3))
-      .. (count > 3 and (" +" .. (count - 3)) or "")
+    return string_format(L["Focus %s: needs %s"], name,
+      table.concat(focusMissing, ", ", 1, math_min(count, 3)) .. (count > 3 and (" +" .. (count - 3)) or ""))
   end
-  if not X.auraUnknown then return "Focus " .. name .. ": buffed" end
+  if not X.auraUnknown then return string_format(L["Focus %s: buffed"],name) end
 end
 
 local function PauseReason()
@@ -5053,7 +4431,7 @@ function X.RefreshFault(err)
   pcall(X.Status.Unavailable, InCombatLockdown() and "combat" or "updating")
   if err ~= lastError then
     lastError = err
-    Print("|cffff4040error:|r " .. tostring(err))
+    Print(string_format(L["|cffff4040error:|r %s"],tostring(err)))
   end
 end
 
@@ -5160,7 +4538,7 @@ local function RebuildNow()
   if not db then return end
   wipe(iconCache)
   local ok, err = pcall(BuildBuffList)
-  if not ok then Print("|cffff4040error reading spellbook:|r " .. tostring(err)) end
+  if not ok then Print(string_format(L["|cffff4040error reading spellbook:|r %s"],tostring(err))) end
   X.prioDirty = true
   if X.WindowReady() then
     X.InvalidateRows()
@@ -5290,8 +4668,7 @@ driver:SetScript("OnEvent", function(self, event, arg1, ...)
   end
   if event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN" then
     if arg1 == ADDON then
-      Print("|cffff4040the game blocked a BuffRadar action|r (" .. event .. ": " ..
-        tostring((...)) .. "). Please send this line to the developer.")
+      Print(string_format(L["|cffff4040the game blocked a BuffRadar action|r (%s)"],event .. ": " .. tostring((...))))
     end
     return
   end
@@ -5499,22 +4876,22 @@ driver:SetScript("OnEvent", function(self, event, arg1, ...)
     X.inGroupPrev = InGroup()
     RequestSpellData()
     local ok, err = pcall(BuildBuffList)
-    if not ok then Print("|cffff4040error reading spellbook:|r " .. tostring(err)) end
+    if not ok then Print(string_format(L["|cffff4040error reading spellbook:|r %s"],tostring(err))) end
     X.prioDirty = true
     ok, err = pcall(X.BuildUI)
-    if not ok then Print("|cffff4040error building window:|r " .. tostring(err)) end
+    if not ok then Print(string_format(L["|cffff4040error building window:|r %s"],tostring(err))) end
     X.ApplyClickThrough()
     X.Debuffs.Apply()
     X.SyncCastMacro(true) -- migrate the built-in macro, but never arm a prior session's queue
-    Print("loaded. Type /br to show the window.")
+    Print(L["loaded. Type /br to show the window."])
     if not db.wizardSeen then
       Print(L["New to BuffRadar? Run /br wizard for Quick Setup."])
     end
     if X.FriendlyPlatesOn() == false then
-      Print("friendly nameplates are |cffff4040off|r - nearby players outside your group can't be listed until they're on. Type /br plates to turn them on (or press Shift+V).")
+      Print(L["friendly nameplates are |cffff4040off|r - nearby players outside your group can't be listed until they're on. Type /br plates to turn them on (or press Shift+V)."])
     end
     if not hasAnyBuff then
-      Print("You don't know any buffs this addon handles yet; the window will appear once you learn one.")
+      Print(L["You don't know any buffs this addon handles yet; the window will appear once you learn one."])
     end
     StartTicker()
     Soon()
@@ -5573,7 +4950,7 @@ end)
 function BuffRadar_ToggleSound()
   if not db or X.PlayerSuspended() then return end
   db.playSound = not db.playSound
-  Print(db.playSound and "Sound |cff00ff00on|r" or "Sound |cffff4040muted|r")
+  Print(db.playSound and L["Sound |cff00ff00on|r"] or L["Sound |cffff4040muted|r"])
   if X.RefreshConfig then X.RefreshConfig() end
 end
 
@@ -5842,7 +5219,7 @@ local function PrintDelivery()
 end
 
 MakeMacro = function()
-  if InCombatLockdown() then Print("Can't edit macros during combat."); PrintDelivery(); return end
+  if InCombatLockdown() then Print(L["Can't edit macros during combat."]); PrintDelivery(); return end
   if not (GetMacroIndexByName and GetMacroBody and CreateMacro and EditMacro) then
     Print(L["Macro controls are unavailable. Bind Cast next buff with /br key instead."])
     PrintDelivery()
