@@ -1,5 +1,53 @@
 -- Focused release-candidate regressions using the same isolated clients as the smoke gate.
 return function(step, fresh, testClient, loadClient, forever)
+  step("audit: excluded single-buff holders retain ownership in either roster order", function()
+    if forever then return end
+    for _, exclusion in ipairs({ "permanent", "session", "role", "failed" }) do
+      for _, holder in ipairs({ "party1", "party2" }) do
+        local other = holder == "party1" and "party2" or "party1"
+        local f = fresh({ includeSelf = false, pauseInCities = false, rebuff = 30,
+          enabled = { EARTH_SHIELD = true }, roleFilter = exclusion == "role" and "TANK" or "ALL" }, true, function(c, units)
+          units.player, units.party1, units.party2 = { "Me", "SHAMAN" }, { "Alia", "WARRIOR" }, { "Bren", "WARRIOR" }
+          c.IsPlayerSpell = function(id) return id == 974 end
+          c.UnitGroupRolesAssigned = function(unit) return unit == holder and "HEALER" or "TANK" end
+        end)
+        local X, present, mine = f.X, true, true
+        f.O.Aura = function(unit, spell, filter)
+          if unit == holder and spell == "Earth Shield" and present
+              and (mine or not filter:find("PLAYER", 1, true)) then return { expirationTime = 700 } end
+        end
+        local function offered(unit)
+          for i = 1, X.Core.EntryCount() do
+            local entry = X.Core.Entries[i]
+            if entry.unit == unit then
+              for _, spell in ipairs(entry.missing) do if spell == "Earth Shield" then return true end end
+            end
+          end
+          return false
+        end
+        if exclusion == "permanent" then f.slash("ignore " .. f.units[holder][1] .. "-Realm")
+        elseif exclusion == "session" then f.slash("signore " .. f.units[holder][1] .. "-Realm")
+        elseif exclusion == "failed" then X.failedTargets[f.client.UnitGUID(holder)] = 200 end
+        X.Refresh()
+        assert(not offered(other), exclusion .. " holder lost ownership when enumerated as " .. holder)
+        mine = false; X.Refresh()
+        assert(offered(other), "another caster's aura suppressed the offer")
+        mine, present = true, false; X.Refresh()
+        assert(offered(other), "removed aura left stale ownership")
+        f.O.Aura = function(unit, spell)
+          if unit == "player" and spell == "Earth Shield" then return { expirationTime = 700 } end
+        end
+        X.Refresh()
+        assert(offered(other), "self aura incorrectly claimed the other-player slot")
+        f.O.Aura = function(unit, spell)
+          if unit == holder and spell == "Earth Shield" then return { expirationTime = 700 } end
+        end
+        X.Core.Missing(holder, {}, true, false, true)
+        assert(not next(X.Core.Single.holder), "report-only aura reads changed ownership")
+      end
+    end
+  end)
+
   local function mentions(messages, text, first)
     local count = 0
     for i = (first or 0) + 1, #messages do

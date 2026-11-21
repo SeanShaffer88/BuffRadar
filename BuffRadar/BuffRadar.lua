@@ -2288,15 +2288,8 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
     detail.assignment = assignment ~= nil
     detail.rule = X.AssignmentRuleText(class, role, source, assignment, isGroup, manual)
   end
-  local lookup = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
   for i = 1, #myBuffs do
     local b = myBuffs[i]
-    if not report and b.single and not isSelf and not Single.holder[b.key] and lookup then
-      local aura = X.QueryNamedAura(lookup, unit, b.name, "HELPFUL|PLAYER")
-      if aura then
-        Single.holder[b.key], Single.spell[b.key] = unit, b.name
-      end
-    end
     local applies, outdoorThorns
     if b.self then
       applies = isSelf
@@ -2666,6 +2659,18 @@ function X.SessionHas(full, short)
   return short ~= nil and X.session[Ignore.Key(short)] ~= nil
 end
 
+local function ObserveSingleHolder(unit, isSelf)
+  if isSelf then return end
+  local lookup = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
+  if not lookup then return end
+  for _, buff in ipairs(myBuffs) do
+    if buff.single and not Single.holder[buff.key] then
+      local aura = X.QueryNamedAura(lookup, unit, buff.name, "HELPFUL|PLAYER")
+      if aura then Single.holder[buff.key], Single.spell[buff.key] = unit, buff.name end
+    end
+  end
+end
+
 local function Consider(unit, isGroup)
   local valid, isSelf = Valid(unit)
   if not valid then return end
@@ -2673,6 +2678,9 @@ local function Consider(unit, isGroup)
   -- protected one can't be either, so that unit is skipped.
   local guid = X.UnitGUIDOf(unit)
   if not guid or seen[guid] then return end
+  -- A hidden row still owns its single-target buff, so observe it before
+  -- ignore, retry and role filters can exclude its recipient.
+  ObserveSingleHolder(unit, isSelf)
   local blockedUntil = X.failedTargets[guid]
   if blockedUntil then
     if blockedUntil > GetTime() then return end
