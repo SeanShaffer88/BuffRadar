@@ -445,10 +445,16 @@ end
 local function ShowNextPreview(owner)
   if InCombatLockdown() or X.PlayerSuspended() or (db.locked and db.clickThrough) then return end
   local entry = nextBtn and nextBtn.entry
-  if not entry or not nextBtn:GetAttribute("type") then return end
   GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-  GameTooltip:AddLine(string_format(L["Next buff: %s — %s"], entry.fullName or entry.name,
-    nextBtn.bSpellText or entry.missing[1]), 1, 1, 1, true)
+  if entry then
+    GameTooltip:AddLine(string_format(L["Next buff: %s — %s"], entry.fullName or entry.name,
+      nextBtn.bSpellText or entry.missing[1]), 1, 1, 1, true)
+  end
+  if X.DeliveryLines then
+    local direct, macroLine = X.DeliveryLines()
+    GameTooltip:AddLine(direct, 0.8, 0.9, 1, true)
+    GameTooltip:AddLine(macroLine, 0.8, 0.9, 1, true)
+  end
   local group = groupBtn
   if group and group.entry == entry and group.bSpellText then
     GameTooltip:AddLine(string_format(L["Group buff key: %s"], group.bSpellText), 0.8, 0.9, 1, true)
@@ -456,6 +462,14 @@ local function ShowNextPreview(owner)
   local reason = NoCastReason(entry)
   if reason then GameTooltip:AddLine(reason, 1, 0.7, 0.3, true) end
   GameTooltip:Show()
+end
+
+function X.RefreshNextPreview()
+  if nextPreview and GameTooltip.IsShown and GameTooltip:IsShown()
+      and GameTooltip.GetOwner and GameTooltip:GetOwner() == nextPreview then
+    GameTooltip:ClearLines()
+    ShowNextPreview(nextPreview)
+  end
 end
 
 local function BuildNextButton()
@@ -547,6 +561,7 @@ local function BuildGroupButton()
 end
 
 function X.SetNextCast(entry)
+  if nextBtn then nextBtn.deliveryEntry = entry end
   if nextBtn and entry then
     nextBtn.entry = BindCached(nextBtn, entry.unit, entry.missing[1], entry.guid) and entry or nil
     ArmGroupButton(entry)
@@ -557,6 +572,7 @@ function X.SetNextCast(entry)
 end
 
 function X.ClearKeybindCasts()
+  if nextBtn then nextBtn.deliveryEntry = nil end
   ClearNext()
   ClearGroup()
 end

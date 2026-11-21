@@ -29,6 +29,7 @@ local OpenConfig, RefreshConfig  -- assigned in the block below, published on X 
 
 do
 local cfg
+local SelectTab
 local CONFIG_WIDTH, CONFIG_HEIGHT = 600, 610
 local NATIVE_TAB_DEPTH = 30  -- 32-unit native tabs start 2 units above the bottom edge
 local K = {}  -- keyboard navigation and speech are opt-in for this settings session
@@ -82,6 +83,16 @@ function K.InScope(entry)
 end
 
 function K.Controls()
+  if cfg.searchResultsPanel and cfg.searchResultsPanel:IsVisible() then
+    local found = {}
+    local function append(widget)
+      if widget and K.Available(widget.navigation) then found[#found + 1] = widget.navigation end
+    end
+    append(cfg.searchBox)
+    for _, row in ipairs(cfg.searchRows) do append(row) end
+    append(cfg.searchPrev); append(cfg.searchNext); append(cfg.searchToggle)
+    return found
+  end
   local modal = K.Modal()
   local panel = modal or cfg.panels[cfg.curTab]
   local entries, controls = {}, {}
@@ -215,6 +226,7 @@ function K.RegisterEdit(box, panel, label, value)
       end
       K.transition = true
       if original then original(self) end
+      if K.edit ~= self then return end
       if self:HasFocus() then self:ClearFocus() end
       if not K.active then return end
       K.edit = nil
@@ -353,9 +365,31 @@ local function SearchKey(label)
 end
 
 local function RegisterSearch(widget, panel, label)
-  local entry = { w = widget, panel = panel, keys = SearchKey(label) }
+  local owner, guard = panel, 0
+  while owner and not owner.searchTab and owner ~= cfg and guard < 20 do
+    owner, guard = owner:GetParent(), guard + 1
+  end
+  local entry = { w = widget, panel = panel, label = label, keys = SearchKey(label),
+    tab = owner and owner.searchTab, owner = owner, order = #X.cfgReg + 1 }
   X.cfgReg[#X.cfgReg + 1] = entry
   return entry
+end
+
+function X.CfgSearch(query)
+  local results = {}
+  query = SearchKey(query or "")
+  for _, entry in ipairs(X.cfgReg) do
+    if entry.tab and entry.label ~= "" and entry.w:IsShown()
+        and (entry.keys .. " " .. SearchKey(cfg.tabBtns[entry.tab]:GetText())):find(query, 1, true) then
+      results[#results + 1] = entry
+    end
+  end
+  table_sort(results, function(a, b)
+    local x, y = cfg.tabBtns[a.tab].navigation.order, cfg.tabBtns[b.tab].navigation.order
+    if x ~= y then return x < y end
+    return a.order < b.order
+  end)
+  return results
 end
 
 local function MakeCheck(parent, label, getter, setter)
@@ -419,17 +453,35 @@ end
 
 local function UpdateSearch()
   local query = cfg.searchBox:GetText() or ""
-  local count = X.CfgFilter(query)
-  cfg.searchHint:SetText(query == "" and L["Find in this tab (Esc to close)"]
-    or string.format(L["Matches: %d"], count))
+  X.CfgFilter(query)
+  cfg.searchResults = query ~= "" and X.CfgSearch(query) or {}
+  local count, pageSize = #cfg.searchResults, #cfg.searchRows
+  cfg.searchPage = math_min(cfg.searchPage or 1, math.max(1, math.ceil(count / pageSize)))
+  for i, row in ipairs(cfg.searchRows) do
+    local entry = cfg.searchResults[(cfg.searchPage - 1) * pageSize + i]
+    row.entry = entry
+    if entry then
+      local enabled = not entry.w.IsEnabled or entry.w:IsEnabled()
+      row:SetText(cfg.tabBtns[entry.tab]:GetText() .. " > " .. entry.label
+        .. (enabled and "" or (" — " .. L["Unavailable"])))
+    end
+    row:SetShown(entry ~= nil)
+  end
+  cfg.searchHint:SetText(query == "" and L["Find settings across all tabs"]
+    or count == 0 and L["No settings match this search."] or string.format(L["Matches: %d"], count))
+  cfg.searchResultsPanel:SetShown(query ~= "")
+  if cfg.searchPage > 1 then cfg.searchPrev:Enable() else cfg.searchPrev:Disable() end
+  if cfg.searchPage * pageSize < count then cfg.searchNext:Enable() else cfg.searchNext:Disable() end
 end
 
 local function CloseSearch()
   if not cfg.searchBox then return end
   cfg.searchBox:ClearFocus()
   cfg.searchBox:SetText("")
+  cfg.searchPage = 1
+  cfg.searchResultsPanel:Hide()
   X.CfgFilter("")
-  cfg.searchHint:SetText(L["Find in this tab (Esc to close)"])
+  cfg.searchHint:SetText(L["Find settings across all tabs"])
   cfg.searchFooter:Hide()
   if K.active and not K.edit then cfg.navStatus:Show() end
 end
@@ -616,7 +668,7 @@ local function MakeScaleDropdown(parent, getter, setter, label)
   return b
 end
 
-local function SelectTab(key)
+SelectTab = function(key)
   CloseSearch()
   cfg.curTab = key
   if cfg.themePriorityPanel then cfg.themePriorityPanel:Hide() end
@@ -691,6 +743,8 @@ local function OpenBlessingPanel()
   if not cfg.blessingPanel then
     local panel = X.PanelWidget("Frame", "BuffRadarBlessingPreferences", cfg,
                               BackdropTemplateMixin and "BackdropTemplate" or nil)
+    panel.searchTab = "buffs"
+    panel.searchOpen = function() panel:Show() end
     cfg.blessingPanel, cfg.blessingSelectors = panel, {}
     panel:SetPoint("CENTER", cfg, "CENTER")
     panel:SetSize(490, 392)
@@ -2503,6 +2557,8 @@ end
 
 function AssignmentUI.Build()
   local panel = AssignmentUI.CreatePanel(cfg, "BuffRadarAssignments", 574, 405, cfg:GetFrameLevel() + 8)
+  panel.searchTab = "buffs"
+  panel.searchOpen = function() X.OpenAssignments() end
   local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   title:SetPoint("TOPLEFT", 15, -14)
   title:SetPoint("TOPRIGHT", -241, -14)
@@ -2628,6 +2684,8 @@ do
 
   local function BuildAutoThemePriority()
     local panel = AssignmentUI.CreatePanel(cfg, "BuffRadarAutoThemePriority", 540, 405, cfg:GetFrameLevel() + 8)
+    panel.searchTab = "look"
+    panel.searchOpen = function() X.OpenAutoThemePriority() end
     local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 18, -14)
     title:SetText(L["Auto Theme Priority"])
@@ -2944,6 +3002,7 @@ local function BuildConfig()
     K.Register(btn, cfg, label, "tab").key = key
     cfg.tabBtns[key] = btn
     local panel = CreateFrame("Frame", nil, cfg)
+    panel.searchTab = key
     if cfg.nativeTabs then  -- inside the template's inset area, below the title bar
       panel:SetPoint("TOPLEFT", cfg.Inset, "TOPLEFT", 4, -4)
     else
@@ -3837,6 +3896,8 @@ local function BuildConfig()
   -- are full. Coverage-line parts, row color marks, tooltip detail and
   -- the row-name options live here.
   local dpanel = X.PanelWidget("Frame", nil, cfg, BackdropTemplateMixin and "BackdropTemplate" or nil)
+  dpanel.searchTab = "look"
+  dpanel.searchOpen = function() cfg.displayBtn:Click() end
   dpanel:SetSize(470, 484)
   dpanel:SetPoint("CENTER", cfg, "CENTER", 0, 0)
   if dpanel.SetBackdrop then
@@ -3976,10 +4037,16 @@ local function BuildConfig()
   local searchHint = footer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   searchHint:SetPoint("LEFT", searchBox, "RIGHT", 8, 0)
   cfg.searchHint = searchHint
-  searchBox:SetScript("OnTextChanged", UpdateSearch)
-  searchBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+  searchBox:SetScript("OnTextChanged", function() cfg.searchPage = 1; UpdateSearch() end)
+  searchBox:SetScript("OnEnterPressed", function()
+    if cfg.searchRows[1].entry then cfg.searchRows[1]:Click() end
+  end)
+  searchBox:SetScript("OnTabPressed", function()
+    K.Start(K.narrate)
+    K.Focus(cfg.searchRows[1].entry and cfg.searchRows[1].navigation or cfg.searchBox.navigation)
+  end)
   searchBox:SetScript("OnEscapePressed", CloseSearch)
-  K.RegisterEdit(searchBox, cfg, L["Find in this tab"], function()
+  K.RegisterEdit(searchBox, cfg, L["Find settings across all tabs"], function()
     return cfg.searchHint:GetText()
   end)
   cfg.searchBox = searchBox
@@ -3994,8 +4061,45 @@ local function BuildConfig()
     end
   end)
   cfg.searchToggle = searchToggle
-  K.Register(searchToggle, cfg, L["Find in this tab"], "button")
-  Tip(cfg.searchToggle, L["Find"], L["Find in this tab (Esc to close)"])
+  K.Register(searchToggle, cfg, L["Find settings across all tabs"], "button")
+  Tip(cfg.searchToggle, L["Find"], L["Find settings across all tabs"])
+  local results = X.PanelWidget("Frame", nil, cfg, BackdropTemplateMixin and "BackdropTemplate" or nil)
+  results:SetPoint("BOTTOMLEFT", cfg, "BOTTOMLEFT", 14, 38)
+  results:SetSize(572, 210)
+  results:SetFrameLevel(cfg:GetFrameLevel() + 25)
+  if results.SetBackdrop then
+    results:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+    results:SetBackdropColor(0.04, 0.05, 0.08, 1)
+    results:SetBackdropBorderColor(0.35, 0.55, 0.8, 1)
+  end
+  cfg.searchResultsPanel, cfg.searchRows = results, {}
+  for i = 1, 5 do
+    local row = MakeButton(results, "", 544, function()
+      local entry = cfg.searchRows[i].entry
+      if not entry or InCombatLockdown() or X.PlayerSuspended() then return end
+      local narrate = K.narrate
+      SelectTab(entry.tab)
+      RefreshConfig()
+      if entry.owner and entry.owner.searchOpen then entry.owner.searchOpen() end
+      if entry.w.navigation then K.Start(narrate); K.Focus(entry.w.navigation) end
+    end)
+    row:SetPoint("TOPLEFT", 14, -12 - (i - 1) * 32)
+    K.Register(row, cfg, function() return row:GetText() end, "button")
+    row:Hide()
+    cfg.searchRows[i] = row
+  end
+  cfg.searchPrev = MakeButton(results, L["Previous"], 100, function()
+    cfg.searchPage = math.max(1, cfg.searchPage - 1); UpdateSearch()
+  end)
+  cfg.searchPrev:SetPoint("BOTTOMLEFT", 14, 10)
+  cfg.searchPrev.navigation.panel = cfg
+  cfg.searchNext = MakeButton(results, L["Next"], 100, function()
+    cfg.searchPage = cfg.searchPage + 1; UpdateSearch()
+  end)
+  cfg.searchNext:SetPoint("BOTTOMRIGHT", -14, 10)
+  cfg.searchNext.navigation.panel = cfg
+  results:Hide()
   RegisterSearch(cfg.slider, look, "background opacity " .. L["Background opacity"])
   RegisterSearch(cfg.fadeSlider, look, "idle fade " .. L["Idle fade (mouse away)"])
   RegisterSearch(cfg.gcSlider, beh, "group buff threshold " .. L["Group buff threshold"])
@@ -4022,6 +4126,7 @@ local function BuildConfig()
   cfg:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_REGEN_DISABLED" then
       K.Stop(true)
+      CloseSearch()
       if cfg.themePriorityPanel then cfg.themePriorityPanel:Hide() end
       if cfg.assignmentPanel then cfg.assignmentPanel:Hide() end
     elseif cfg:IsShown() then ApplyConfigScale() end
@@ -4193,6 +4298,7 @@ RefreshConfig = function()
     if it then
       cb.itemKey, cb.itemLabel, cb.itemWho = it.key, it.label, it.who
       cb.searchEntry.keys = SearchKey(it.label .. " " .. (it.who or ""))
+      cb.searchEntry.label = it.label
       cb.label:SetText(it.label .. "  |cff888888" .. (it.who or "") .. "|r")
       cb:FitLabel()
       cb:SetChecked(IsOn(it.key, it.default) and true or false)

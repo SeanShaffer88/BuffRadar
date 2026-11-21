@@ -1033,6 +1033,11 @@ step("action-bar macro follows self and nearby targets without chaining macros",
     assert(body:find(shownRows().nameplate1.row:GetAttribute("macrotext"), 1, true),
       "row and bar macro disagreed on how to reach the player")
     local writes = env.__macroWrites
+    local delivery = X.CastDelivery()
+    assert(delivery.directReady and delivery.macroReady and delivery.reason == "ready",
+      "armed direct and synchronized bar actions were not reported ready")
+    X.DeliveryLines(); X.CastDelivery()
+    assert(env.__macroWrites == writes, "diagnostic reads edited macros")
     X.Refresh(); X.Refresh()
     assert(env.__macroWrites == writes, "a steady queue rewrote its macro")
     keyDown = false
@@ -1134,6 +1139,9 @@ step("action-bar macro follows self and nearby targets without chaining macros",
     renamed, replacement = "Cedric", "Player-1-T99"
     X.Refresh()
     assert(env.GetMacroBody(index) == body, "macro editor did not defer automatic writes")
+    local pending = X.CastDelivery()
+    assert(pending.directReady and not pending.macroReady and pending.macroState == "pending"
+      and pending.reason == "editor", "editor delay hid usable direct casting or reported the stale macro ready")
     env.MacroFrame:Hide()
     timerTick()
     assert(env.GetMacroBody(index):find("/targetexact Cedric", 1, true), "macro did not catch up after editing finished")
@@ -1145,10 +1153,15 @@ step("action-bar macro follows self and nearby targets without chaining macros",
     X.Refresh()
     assert(button.entry and #button:GetAttribute("macrotext") <= 255 and idle(env.GetMacroBody(index)),
       "an oversized bar macro was stored or disabled the native cast")
+    local overflow = X.CastDelivery()
+    assert(overflow.directReady and not overflow.macroReady and overflow.reason == "overflow"
+      and overflow.macroState == "unavailable", "bar overflow incorrectly disabled direct casting or claimed pending sync")
     renamed, replacement = "Alden\n/cast Another Spell", "Player-1-T101"
     X.Refresh()
     assert(not button:GetAttribute("macrotext") and idle(env.GetMacroBody(index)),
       "an unusable exact name became macro commands")
+    assert(not X.CastDelivery().directReady and X.CastDelivery().reason == "unsafe",
+      "unsafe recipient was advertised as usable")
     renamed, replacement = nil, nil
     X.Refresh()
     if env.__forever then
@@ -1178,6 +1191,8 @@ step("action-bar macro follows self and nearby targets without chaining macros",
     fire("ZONE_CHANGED_NEW_AREA")
     timerTick()
     assert(idle(env.GetMacroBody(index)) and not button.entry, "city pause left the macro armed")
+    assert(not X.CastDelivery().directReady and not X.CastDelivery().macroReady,
+      "paused actions were advertised as ready")
     db.pauseInCities, env.__zone = false, oldZone
     X.Refresh()
     assert(not idle(env.GetMacroBody(index)), "turning off city pause did not rearm the macro")
@@ -1188,6 +1203,8 @@ step("action-bar macro follows self and nearby targets without chaining macros",
     X.SyncCastMacro(true)
     assert(env.__macroWrites == combatWrites and not simulate(body, "Previous friend", true, true),
       "combat attempted to edit the macro or left the direct cast enabled")
+    assert(not X.CastDelivery().directReady and not X.CastDelivery().macroReady,
+      "combat safety state was reported ready")
     env.__combat = false
     fire("PLAYER_REGEN_ENABLED")
     assert(idle(env.GetMacroBody(index)), "pre-combat macro was still armed before a safe rescan")
@@ -1195,6 +1212,7 @@ step("action-bar macro follows self and nearby targets without chaining macros",
     assert(not idle(env.GetMacroBody(index)), "leaving combat did not rearm the macro")
     fire("PLAYER_DEAD")
     assert(idle(env.GetMacroBody(index)), "death left the macro armed")
+    assert(X.CastDelivery().directReason == "disarmed" and not X.CastDelivery().macroReady)
     fire("PLAYER_ALIVE")
     X.Refresh()
     assert(not idle(env.GetMacroBody(index)), "resurrection did not rearm the macro")
@@ -1214,6 +1232,8 @@ step("action-bar macro follows self and nearby targets without chaining macros",
     X.Refresh()
     env.SlashCmdList.BUFFRADAR("macro")
     assert(env.GetMacroBody(index) == custom, "an edited BuffRadar macro was overwritten")
+    assert(X.CastDelivery().reason == "custom" and not X.CastDelivery().macroReady,
+      "custom macro ownership was reported synchronized")
     env.__macros[index] = nil
     fire("UPDATE_MACROS")
     X.SyncCastMacro(true)
@@ -5573,6 +5593,46 @@ step("keyboard settings navigation changes tabs, checkboxes, sliders, and choice
   cfg.tabBtns.look:Click()
 end)
 
+step("global settings search crosses tabs, pages deterministically, and never changes a value", function()
+  local X = NS.X
+  local cfg = env.BuffRadarConfig
+  env.SlashCmdList.BUFFRADAR("config find")
+  local results = X.CfgSearch("")
+  assert(#results > 5, "global registry did not include hidden-tab controls")
+  local tabs, previous = {}, nil
+  for _, entry in ipairs(results) do
+    tabs[entry.tab] = true
+    if previous then
+      local a, b = cfg.tabBtns[previous.tab].navigation.order, cfg.tabBtns[entry.tab].navigation.order
+      assert(a < b or (a == b and previous.order < entry.order), "search order is unstable")
+    end
+    previous = entry
+  end
+  local count = 0
+  for _ in pairs(tabs) do count = count + 1 end
+  assert(count >= 5, "global search only indexed the current tab")
+  cfg.searchBox:SetText("opacity"); cfg.searchBox.scripts.OnTextChanged(cfg.searchBox)
+  local entry = assert(cfg.searchRows[1].entry)
+  assert(entry.tab == "look" and entry.w == cfg.slider, "result lost its destination identity")
+  local value = cfg.slider:GetValue()
+  cfg.searchRows[1]:Click()
+  assert(cfg.curTab == "look" and cfg.navOutline.points[1][2] == cfg.slider and cfg.slider:GetValue() == value,
+    "choosing a result did not focus its exact control without mutation")
+  env.SlashCmdList.BUFFRADAR("config find")
+  cfg.searchBox:SetText("unlikely_search_912"); cfg.searchBox.scripts.OnTextChanged(cfg.searchBox)
+  assert(#cfg.searchResults == 0 and not cfg.searchRows[1]:IsShown()
+    and cfg.searchHint:GetText() == X.L["No settings match this search."], "no-results state retained a stale selectable row")
+  local label = cfg.tabBtns.look:GetText()
+  cfg.searchBox:SetText(label); cfg.searchBox.scripts.OnTextChanged(cfg.searchBox)
+  assert(#cfg.searchResults > 5 and cfg.searchPage == 1)
+  local first = cfg.searchRows[1].entry
+  cfg.searchNext:Click()
+  assert(cfg.searchPage == 2 and cfg.searchRows[1].entry ~= first, "result paging did not advance")
+  cfg.searchPrev:Click()
+  assert(cfg.searchPage == 1 and cfg.searchRows[1].entry == first, "result paging was not stable")
+  cfg.searchBox.scripts.OnEscapePressed(cfg.searchBox)
+end)
+
 step("keyboard settings preserve native text editing and release gameplay focus", function()
   local cfg = env.BuffRadarConfig
   cfg.tabBtns.look:Click()
@@ -5591,10 +5651,14 @@ step("keyboard settings preserve native text editing and release gameplay focus"
   search:SetText("opacity")
   search.scripts.OnTextChanged(search)
   search.scripts.OnEnterPressed(search)
-  assert(input:HasFocus() and search:GetText() == "opacity", "search commit did not retain results and return focus")
-  input.scripts.OnEnterPressed(input)
+  assert(input:HasFocus() and not cfg.searchFooter:IsShown() and cfg.curTab == "look"
+      and cfg.navOutline.points[1][2] == cfg.slider,
+    "search selection did not navigate to and focus the matching setting")
+  env.SlashCmdList.BUFFRADAR("config find")
   search.scripts.OnEscapePressed(search)
-  assert(input:HasFocus() and not cfg.searchFooter:IsShown() and search:GetText() == "", "search escape did not cancel and return")
+  assert(not cfg.searchFooter:IsShown() and search:GetText() == "" and not search:HasFocus(),
+    "search escape did not release native editing")
+  env.SlashCmdList.BUFFRADAR("config navigate")
   advanceTo(cfg.searchToggle)
   input.scripts.OnEnterPressed(input)
   env.__combat = true
