@@ -5593,6 +5593,43 @@ step("keyboard settings navigation changes tabs, checkboxes, sliders, and choice
   cfg.tabBtns.look:Click()
 end)
 
+step("nested search opens persistent destinations and excludes contextual picker actions", function()
+  if not env.__forever then return end
+  local X, cfg = NS.X, env.BuffRadarConfig
+  X.OpenRaidCoverage()
+  local assignments, coverage = cfg.assignmentPanel, cfg.assignmentPanel.coverage
+  assert(coverage:GetParent() == assignments and assignments:GetParent() == cfg,
+    "fixture does not expose the real parent chain")
+  local before = X.ProfileSnapshot()
+  local nested
+  for _, entry in ipairs(X.CfgSearch("")) do
+    assert(entry.w ~= assignments.picker.defaultButton and entry.w ~= assignments.picker.noneButton,
+      "context-dependent picker choices escaped their search boundary")
+    if entry.w == coverage.refresh then nested = entry end
+  end
+  assert(nested and #nested.path == 2, "persistent nested control lost its opener chain")
+  cfg.tabBtns.look:Click()
+  assert(not coverage:IsVisible(), "test destination must start hidden")
+  env.SlashCmdList.BUFFRADAR("config find")
+  cfg.searchBox:SetText(X.L["Refresh Preview"])
+  cfg.searchBox.scripts.OnTextChanged(cfg.searchBox)
+  local found
+  repeat
+    for _, row in ipairs(cfg.searchRows) do
+      if row.entry == nested then found = row; break end
+    end
+    if found or not cfg.searchNext:IsEnabled() then break end
+    cfg.searchNext:Click()
+  until found
+  assert(found, "nested result was absent from the actual result viewport")
+  found:Click()
+  assert(coverage:IsVisible() and coverage.refresh:IsVisible() and cfg.navInput:HasFocus()
+    and cfg.navOutline.points[1][2] == coverage.refresh,
+    "nested result focused a hidden control or the wrong destination")
+  assert(X.ProfileSnapshot() == before, "search navigation changed a saved setting")
+  cfg.tabBtns.look:Click()
+end)
+
 step("global settings search crosses tabs, pages deterministically, and never changes a value", function()
   local X = NS.X
   local cfg = env.BuffRadarConfig

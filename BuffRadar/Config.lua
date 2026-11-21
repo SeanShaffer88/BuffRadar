@@ -365,21 +365,32 @@ local function SearchKey(label)
 end
 
 local function RegisterSearch(widget, panel, label)
-  local owner, guard = panel, 0
-  while owner and not owner.searchTab and owner ~= cfg and guard < 20 do
+  local owner, guard, path, blocked = panel, 0, {}, false
+  while owner and owner ~= cfg and guard < 20 do
+    if owner.searchBoundary and not owner.searchOpen then blocked = true end
+    if owner.searchOpen then path[#path + 1] = owner end
+    if owner.searchTab then break end
     owner, guard = owner:GetParent(), guard + 1
   end
   local entry = { w = widget, panel = panel, label = label, keys = SearchKey(label),
-    tab = owner and owner.searchTab, owner = owner, order = #X.cfgReg + 1 }
+    tab = not blocked and owner and owner.searchTab, owner = owner, path = path, order = #X.cfgReg + 1 }
   X.cfgReg[#X.cfgReg + 1] = entry
   return entry
+end
+
+local function SearchAvailable(entry)
+  if not entry.tab or entry.label == "" or not entry.w:IsShown() then return false end
+  for _, panel in ipairs(entry.path) do
+    if panel.searchFilter and not panel.searchFilter(entry.w) then return false end
+  end
+  return true
 end
 
 function X.CfgSearch(query)
   local results = {}
   query = SearchKey(query or "")
   for _, entry in ipairs(X.cfgReg) do
-    if entry.tab and entry.label ~= "" and entry.w:IsShown()
+    if SearchAvailable(entry)
         and (entry.keys .. " " .. SearchKey(cfg.tabBtns[entry.tab]:GetText())):find(query, 1, true) then
       results[#results + 1] = entry
     end
@@ -891,6 +902,9 @@ end
 
 function AssignmentUI.CreatePanel(parent, name, width, height, level)
   local panel = CreateFrame("Frame", name, parent)
+  -- Modal children are searchable only with an explicit, context-free opener.
+  -- Drafts, member pickers and review actions must keep their selected context.
+  panel.searchBoundary = true
   panel:SetSize(width, height)
   panel:SetPoint("CENTER")
   panel:SetFrameLevel(level)
@@ -1762,6 +1776,8 @@ end
 
 function AssignmentUI.BuildCoverage(panel)
   local view = AssignmentUI.CreatePanel(panel, "BuffRadarRaidCoverage", 574, 405, panel:GetFrameLevel() + 5)
+  view.searchOpen = function() AssignmentUI.OpenCoverage(panel) end
+  view.searchFilter = function(widget) return widget == view.refresh end
   view.rows = {}
   view.title = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   view.title:SetPoint("TOPLEFT", 16, -14)
@@ -4081,8 +4097,8 @@ local function BuildConfig()
       local narrate = K.narrate
       SelectTab(entry.tab)
       RefreshConfig()
-      if entry.owner and entry.owner.searchOpen then entry.owner.searchOpen() end
-      if entry.w.navigation then K.Start(narrate); K.Focus(entry.w.navigation) end
+      for index = #entry.path, 1, -1 do entry.path[index].searchOpen() end
+      if entry.w:IsVisible() and entry.w.navigation then K.Start(narrate); K.Focus(entry.w.navigation) end
     end)
     row:SetPoint("TOPLEFT", 14, -12 - (i - 1) * 32)
     K.Register(row, cfg, function() return row:GetText() end, "button")
