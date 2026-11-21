@@ -10,13 +10,43 @@ X.Status = S
 local rows, count, revision = {}, 0, 0
 local state, reason, partial = "unavailable", "inactive", false
 local expiring, expirySpell, expiryName, expiryEnd = 0, nil, nil, nil
+local lastAttemptAt, lastCompletedAt, completedGeneration, badClock = nil, nil, 0, false
 local labels = { covered = "Checked buffs are covered", attention = "Buffs need attention",
   critical = "Important buff missing or expiring", unknown = "Buff coverage could not be verified" }
 local reasons = { combat = "Buff scan paused in combat", dead = "Buff scan paused while dead",
   paused = "Buff scan paused", updating = "Waiting for a fresh buff scan", inactive = "No applicable buffs to check" }
 
+local function ObserverRefresh()
+  if X.Daily then pcall(X.Daily.Refresh) end
+  if X.Views then pcall(X.Views.Refresh) end
+end
+local function Now(value)
+  local n=value
+  if n==nil then n=X.ReadUnitNumber(GetTime) end
+  return X.Readable(n) and type(n)=="number" and n==n and n>=0 and n<math.huge and n or nil
+end
+function S.Attempt()
+  local now=Now()
+  if not now or (lastAttemptAt and now<lastAttemptAt) then badClock=true;return end
+  lastAttemptAt=now
+end
+function S.Freshness(now)
+  now=Now(now)
+  local age=now and lastCompletedAt and now-lastCompletedAt or nil
+  local current,why="never",reason
+  if not now or badClock or (age and age<0) then current,why,age="unavailable","clock",nil
+  elseif state=="unavailable" and (reason=="paused" or reason=="combat" or reason=="dead") then current="paused"
+  elseif state=="unavailable" and lastCompletedAt then current="unavailable"
+  elseif lastCompletedAt then
+    local interval=X.Intel.EffectiveInterval()
+    current=age>math.max(10,3*interval) and "stale" or "current"
+  end
+  return {lastAttemptAt=lastAttemptAt,lastCompletedAt=lastCompletedAt,age=age,state=current,reason=why,generation=completedGeneration}
+end
+
 local function Notify()
   revision = revision + 1
+  ObserverRefresh()
   if X.SupportChanged then pcall(X.SupportChanged) end
   if X.UpdateMinimapStatus then X.UpdateMinimapStatus() end
   -- Consumers can re-read after the queue has been committed. No dependency
@@ -73,7 +103,11 @@ function S.Publish(entries, n)
   for i = n + 1, count do ClearRow(rows[i]) end
   count, state, reason, partial = n, current, why, incomplete
   expiring, expirySpell, expiryName, expiryEnd = pending, spell, name, ends
-  if changed then Notify() end
+  local now=Now()
+  completedGeneration=completedGeneration+1
+  if now and (not lastCompletedAt or now>=lastCompletedAt) then lastCompletedAt,badClock=now,false else badClock=true end
+  if X.CommitCoverageEvidence then X.CommitCoverageEvidence(completedGeneration,now) end
+  if changed then Notify() else ObserverRefresh() end
   if pulse and X.VisualBuffAlert then X.VisualBuffAlert() end
 end
 

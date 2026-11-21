@@ -12,6 +12,29 @@ The [Forever Player Guide](editions/forever/README.md) describes the current
 workflow. Release history and its verification evidence remain in the
 [changelog](editions/forever/CHANGELOG.md) and [feature reference](editions/forever/FEATURES.md).
 
+## Optional Coverage Views and Supplies
+
+`/br matrix` opens a read-only player-by-buff coverage grid. Player and buff
+pages keep the view bounded; select a player to explain their eligibility.
+`/br selfstrip` toggles a separate fixed-position personal buff status display.
+Its symbols show confirmed (`+`), missing (`!`), unknown (`?`) and not applicable
+(`-`). These are observations, not the header's tracking toggles or cast buttons.
+Paused/stale evidence is explicitly marked and never presented as fresh absence.
+
+`/br supplies` opens optional reagent restocking. It starts disabled with no
+targets. Enter a supported reagent item ID and a target quantity (0 removes
+the target), then set copper and item caps. At a merchant, **Refresh Preview**
+lists safe purchases. **Confirm Next Purchase** authorizes only the first
+listed reagent row. A new review is required before another purchase; an API
+request is reported as pending, not proof that the items arrived.
+
+Quotes are invalidated by merchant, inventory, money or combat changes.
+Extended-currency items and unreadable API results are refused. Purchases round
+down to whole merchant bundles, honor stock/gold/target limits, and conservatively
+use empty general bag slots without assuming spare capacity in existing stacks.
+Opening a panel, changing settings and visiting a merchant never buys anything.
+The view and restock controls are also available in **Settings → Readiness**.
+
 ## Download and Install
 
 1. Download the Forever ZIP from the [latest GitHub release](https://github.com/SeanShaffer88/BuffRadar/releases/latest)

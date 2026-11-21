@@ -83,6 +83,12 @@ Section 'Translations'
 & $py -I (Join-Path $here 'localecheck.py') $lua $locales
 if ($LASTEXITCODE -ne 0) { $failed += 'translations' }
 
+Section 'Visible localization callsites'
+& $py -I (Join-Path $here 'localization_callsites.py')
+if ($LASTEXITCODE -ne 0) { $failed += 'visible localization callsites' }
+& $py -I (Join-Path $here 'test_localization_callsites.py')
+if ($LASTEXITCODE -ne 0) { $failed += 'visible localization fixtures' }
+
 Section 'Lua pattern arguments'
 & $py -I (Join-Path $here 'test_localecheck.py')
 if ($LASTEXITCODE -ne 0) { $failed += 'locale regression fixtures' }

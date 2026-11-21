@@ -1,0 +1,42 @@
+{
+  "BuffRadar.lua": {
+    "|cffaaaaaa#%d %.3f %s: %s|r": "Markup-only or numeric diagnostic trace format."
+  },
+  "Config.lua": {
+    "CLICK BuffRadarGroupButton:LeftButton": "Binding identifier passed to a keybinding API, not displayed prose.",
+    "BUFFRADAR_TOGGLE": "Binding identifier passed to a keybinding API, not displayed prose.",
+    "BUFFRADAR_MUTE": "Binding identifier passed to a keybinding API, not displayed prose."
+  },
+  "Minimap.lua": {
+    "|cff33ccffBuff|rRadar": "Product or edition proper name."
+  },
+  "Recaps.lua": {
+    "/br ready hide": "Literal command syntax with no ordinary explanatory prose."
+  },
+  "Slash.lua": {
+    "BLESSINGS": "Fixed machine state, setting key or API identifier in diagnostic output.",
+    "Forever": "Product or edition proper name.",
+    "Retail": "Product or edition proper name.",
+    "n/a": "Fixed machine state, setting key or API identifier in diagnostic output.",
+    "none": "Fixed machine state, setting key or API identifier in diagnostic output.",
+    "auto": "Fixed machine state, setting key or API identifier in diagnostic output.",
+    "on": "Fixed machine state, setting key or API identifier in diagnostic output.",
+    "off": "Fixed machine state, setting key or API identifier in diagnostic output.",
+    "unknown": "Fixed machine state, setting key or API identifier in diagnostic output.",
+    "ActionButtonUseKeyDown": "Fixed machine state, setting key or API identifier in diagnostic output.",
+    "ALL": "Fixed machine state, setting key or API identifier in diagnostic output.",
+    "/br throttle [on|off]": "Literal command syntax with no ordinary explanatory prose.",
+    "  /br rebuff <sec> | scale <n> | reset": "Literal command syntax with no ordinary explanatory prose.",
+    "  /br buffs | toggle <KEY>": "Literal command syntax with no ordinary explanatory prose.",
+    "  /br rowgap <0-8> | iconsize <0|10-24>": "Literal command syntax with no ordinary explanatory prose.",
+    "BuffRadar — Discord — ": "Product and external service proper names, followed by localized Copy action.",
+    "BuffRadar — /br history — ": "Product name and literal command identifier, followed by localized Copy action."
+  },
+  "Status.lua": {
+    "/br status [export]": "Literal command syntax with no ordinary explanatory prose."
+  },
+  "Window.lua": {
+    "|cff00ff00": "Markup-only or numeric diagnostic trace format.",
+    "|r": "Markup-only or numeric diagnostic trace format."
+  }
+}

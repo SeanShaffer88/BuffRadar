@@ -11,6 +11,28 @@ Your character comes first by default.
 
 ## Current Forever Workflow
 
+### Coverage Views and Confirmed Restocking
+
+Open `/br matrix` for a paged, read-only player-by-buff grid, or toggle
+`/br selfstrip` for stable personal buff status slots. Both use completed scan
+observations and label unavailable, unknown and stale readings. They do not
+cast, and the existing header icons continue to control tracking separately.
+Optional panel positions follow **Remember Settings and Ready Check positions**.
+
+Open `/br supplies` and opt in to restock previews. Set supported reagent item
+IDs, target quantities, a copper spending cap and an item cap. Targets start
+empty; a quantity of 0 removes one. **Refresh Preview** at a merchant shows the
+exact proposed units and cost. **Confirm Next Purchase** buys only the next
+quoted reagent row; refresh and review again for another purchase. Caps apply
+to each confirmation. Nothing purchases automatically, and requested purchases
+are reported as pending until the player checks their bags.
+
+The adapter rejects unknown prices/counts, unsupported tuple shapes, alternative
+currencies and changed quotes. It rounds quantities down to merchant bundles
+and uses empty general bag slots conservatively. Combat, merchant closure or
+inventory/money updates invalidate confirmation. Live client behavior remains
+**Unverified**; offline mock checks cannot establish merchant API behavior.
+
 1. **Set up discovery.** Run `/br wizard` to review a starting setup and
    `/br plates` for readable friendly nameplates outside your group.
    Group, target and mouseover checks also contribute. `/br nearby` explains

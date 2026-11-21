@@ -6,6 +6,7 @@ Reports the first Lua error of each step plus anything the addon printed as
 an error. Usage: python -I smoke51.py STUB.lua ADDON.lua
 """
 import sys
+sys.stdout.reconfigure(encoding="utf-8")
 from pathlib import Path
 from lupa import lua51
 
@@ -15,6 +16,10 @@ lua.execute(open(stub_path, encoding="utf-8").read())
 audit_tests = lua.execute(Path(__file__).with_name("audit51.lua").read_text(encoding="utf-8"))
 support_tests = lua.execute(Path(__file__).with_name("support51.lua").read_text(encoding="utf-8"))
 audit_tests = lua.eval("function(a,b) return function(...) a(...); b(...) end end")(audit_tests, support_tests)
+for module in ("core-eight51.lua", "views-supplies51.lua", "ui-eight51.lua"):
+    path = Path(__file__).with_name(module)
+    extra = lua.execute(path.read_text(encoding="utf-8"))
+    audit_tests = lua.eval("function(a,b) return function(...) a(...); b(...) end end")(audit_tests, extra)
 
 harness = lua.eval(r"""function(sources, withTimer, noTemplates, forever, german, auditTests)
 local chat = {}
@@ -347,10 +352,21 @@ local function chatSince(n, needle)
   for i = n + 1, #chat do if chat[i]:find(needle, 1, true) then return true end end
   return false
 end
+local function localizedMatch(text,key,...)
+  local args={...}; for i=#args+1,12 do args[i]=987654321 end
+  local rendered=string.format(NS.X.L[key],unpack(args))
+  local pattern=rendered:gsub("([%%%^%$%(%)%.%[%]%*%+%-%?])","%%%1")
+  pattern=pattern:gsub("987654321",".-")
+  return text and text:find(pattern)~=nil
+end
+local function chatTemplate(n,key,...)
+  for i=n+1,#chat do if localizedMatch(chat[i],key,...) then return true end end
+  return false
+end
 step("edition detected", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("debug")
-  local want = env.__forever and "Forever edition" or "Retail edition"
+  local want = env.__forever and "Forever" or "Retail"
   assert(chatSince(n, want), "/br debug didn't report " .. want)
   if env.__forever then
     assert(chatSince(n, "Power Word: Fortitude: 2 rank(s) known"), "Forever rank table not built")
@@ -364,7 +380,7 @@ step("edition buff set", function()
   if env.__forever then
     assert(chatSince(n, "FORTITUDE") and chatSince(n, "INNER_FIRE") and chatSince(n, "DIVINE_SPIRIT"),
       "Forever priest buffs missing from /br buffs")
-    assert(chatSince(n, "SHADOWGUARD  -  Shadowguard (you)  [|cff00ff00on|r]"),
+    assert(chatSince(n, ("SHADOWGUARD  -  Shadowguard (you)  [|cff00ff00"..NS.X.L["On"].."|r]")),
       "Shadowguard missing from /br buffs or not on by default")
     assert(not chatSince(n, "SKYFURY"), "retail buff listed on Forever")
   else
@@ -478,14 +494,14 @@ step("options page button opens settings (and closes the options panel)", functi
   local page = env.__settings.registered.frame
   local opened = false
   for _, f in ipairs(env.__frames) do
-    if f.scripts.OnClick and f.text == "Open BuffRadar settings" then f.scripts.OnClick(f, "LeftButton"); opened = true end
+    if f.scripts.OnClick and f.text == NS.X.L["Open BuffRadar settings"] then f.scripts.OnClick(f, "LeftButton"); opened = true end
   end
   assert(opened, "button not found")
   assert(env.BuffRadarConfig.shown, "settings window not shown")
   assert(not env.SettingsPanel.shown, "options panel still shown")
   -- clicking again must keep it open (forceShow), not toggle it closed
   for _, f in ipairs(env.__frames) do
-    if f.scripts.OnClick and f.text == "Open BuffRadar settings" then f.scripts.OnClick(f, "LeftButton") end
+    if f.scripts.OnClick and f.text == NS.X.L["Open BuffRadar settings"] then f.scripts.OnClick(f, "LeftButton") end
   end
   assert(env.BuffRadarConfig.shown, "second click closed the settings window")
 end)
@@ -555,7 +571,7 @@ step("pull timer: probe counts sightings; flash fires with casts outstanding (1.
   firePull("START_TIMER", 2, 10, 10)
   assert(NS.X.pull ~= nil, "pull state not set with pullflash on and casts outstanding")
   local found
-  for _, line in ipairs(chat) do if line:find("Pull in 10s", 1, true) then found = line end end
+  for _, line in ipairs(chat) do if localizedMatch(line,"Pull in %ds (%s) -- %d casts still needed.",10,"countdown") then found = line end end
   assert(found, "no countdown line printed: " .. table.concat(chat, " | "))
   firePull("START_TIMER", 2, 0, 0)
   assert(NS.X.pull == nil, "zero timer did not cancel the pull state")
@@ -1798,10 +1814,10 @@ step("coverage line: progress and per-buff counts (1.4.0)", function()
   refresh()
   local cover
   for _, fs in ipairs(env.__fontstrings) do
-    if type(fs.text) == "string" and fs.text:find("fully buffed", 1, true) then cover = fs.text end
+    if type(fs.text) == "string" and localizedMatch(fs.text,"%d/%d fully buffed") then cover = fs.text end
   end
   assert(cover, "no coverage line rendered")
-  assert(cover:find("1/3 fully buffed", 1, true), "coverage progress wrong: " .. cover)
+  assert(localizedMatch(cover,"%d/%d fully buffed",1,3), "coverage progress wrong: " .. cover)
   assert(cover:find("Skyfury 1/3", 1, true), "per-buff coverage wrong: " .. cover)
   O.Aura = nil
   cleanup()
@@ -1861,7 +1877,7 @@ step("/br announce posts the missing list to party chat (1.4.0)", function()
   env.SlashCmdList.BUFFRADAR("announce")
   assert(#env.__sent == 1, "announce sent " .. #env.__sent .. " messages")
   assert(env.__sent[1].chattype == "PARTY", "announce channel: " .. tostring(env.__sent[1].chattype))
-  assert(env.__sent[1].msg:find("missing buffs", 1, true), "announce text: " .. env.__sent[1].msg)
+  assert(env.__sent[1].msg:find(NS.X.L["BuffRadar -- missing buffs: "],1,true), "announce text: " .. env.__sent[1].msg)
   assert(env.__sent[1].msg:find("Aaron", 1, true), "announce missing Aaron: " .. env.__sent[1].msg)
   cleanup()
 end)
@@ -1951,7 +1967,7 @@ step("ready check reports who is missing buffs (1.4.0)", function()
   refresh()
   local n = #chat
   fire("READY_CHECK")
-  assert(chatSince(n, "Ready check: 3 people are missing buffs"), "no ready-check summary")
+  assert(chatTemplate(n,"Ready check: %d %s missing buffs (%d buffs needed). /br announce posts the list.",3,NS.X.L["people are"]), "no ready-check summary")
   cleanup()
 end)
 step("local ready-check view retains independent coverage and exact responses", function()
@@ -2012,7 +2028,7 @@ step("group reports respect ignored players and chat refusal", function()
     env.C_ChatInfo.SendChatMessage = function() error("chat denied") end
     local before, chatBefore = #env.__sent, #chat
     X.Announce()
-    assert(#env.__sent == before and chatSince(chatBefore, "missing buffs"),
+    assert(#env.__sent == before and chatSince(chatBefore,NS.X.L["BuffRadar -- missing buffs: "]),
       "refused modern chat did not keep report local")
     assert(not X.SendGroupReport(string.rep("a", 256)), "oversized report reached chat API")
   end)
@@ -2045,7 +2061,7 @@ step("coverage reports ignore cast restrictions and preserve bound rows", functi
     env.IsSpellInRange = function() return 0 end
     env.GetSpellCooldown = function() return env.GetTime(), 180 end
     fire("READY_CHECK")
-    assert(chatSince(last, "2 people are missing buffs"), "cast restrictions hid known missing buffs")
+    assert(chatTemplate(last,"Ready check: %d %s missing buffs (%d buffs needed). /br announce posts the list.",2,NS.X.L["people are"]), "cast restrictions hid known missing buffs")
     O.Aura = function(u)
       if u == "party1" then error("unreadable aura") end
       if u == "player" then return { expirationTime = env.GetTime() + 600 } end
@@ -2056,14 +2072,14 @@ step("coverage reports ignore cast restrictions and preserve bound rows", functi
     end
     last = #chat
     fire("READY_CHECK")
-    assert(chatSince(last, "1 person is missing buffs")
-      and chatSince(last, "could not be verified for 1 player"), "ready report lost mixed known/unknown coverage")
-    assert(not chatSince(last, "all checked buffs are present"), "unverified player counted as buffed")
+    assert(chatTemplate(last,"Ready check: %d %s missing buffs (%d buffs needed). /br announce posts the list.",1,NS.X.L["person is"])
+      and chatTemplate(last,"Buff coverage could not be verified for %d player.",1), "ready report lost mixed known/unknown coverage")
+    assert(not chatSince(last,NS.X.L["all checked buffs are present."]), "unverified player counted as buffed")
     O.Aura = function() return { expirationTime = env.GetTime() + 5 } end
     O.AuraList = nil
     last = #chat
     fire("READY_CHECK")
-    assert(chatSince(last, "all checked buffs are present"), "a present aura inside the rebuff window counted as missing")
+    assert(chatSince(last,NS.X.L["all checked buffs are present."]), "a present aura inside the rebuff window counted as missing")
   end)
   cleanup()
   db.roleFilter, db.castMethod, db.includeSelf, db.assumeRange = oldFilter, oldCast, oldInclude, oldAssume
@@ -2085,7 +2101,7 @@ step("a buff that vanishes is flagged as expired (1.4.0)", function()
   assert(row.tag and row.tag.shown and type(row.tag.text) == "string" and #row.tag.text > 0,
     "expired tag not shown: " .. tostring(row.tag and row.tag.text))
   if not env.__german then
-    assert(row.tag.text == "a buff just expired", "expired tag text: " .. tostring(row.tag.text))
+    assert(row.tag.text == NS.X.L["a buff just expired"], "expired tag text: " .. tostring(row.tag.text))
   end
   cleanup()
 end)
@@ -2199,7 +2215,7 @@ step("settings export/import round-trip (1.4.0)", function()
   d.enabled.CUSTOM_TEST = false
   d.rebuffPer.CUSTOM_TEST = 77
   d.ignored.Zed = true
-  env.SlashCmdList.BUFFRADAR("export")
+  NS.X.ShowExport(NS.X.Export(),false)
   local f = assert(env.BuffRadarExportFrame, "export frame not created")
   assert(f.shown, "export window not shown")
   local text = f.editBox.text
@@ -2336,7 +2352,7 @@ step("cast sync: another user's cast sinks the player (1.5.0)", function()
   local row3 = env.BuffRadarRow3
   assert(row3 and row3.entry and row3.entry.handled, "handled flag not set on Aaron's entry")
   if not env.__german then
-    assert(row3.tag and row3.tag.shown and row3.tag.text == "being buffed",
+    assert(row3.tag and row3.tag.shown and row3.tag.text == NS.X.L["being buffed"],
       "handled tag wrong: " .. tostring(row3.tag and row3.tag.text))
   end
   cleanup()
@@ -2539,7 +2555,7 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
     local revision = scopedPayload(plan.msg):match("^COORD;1;PLAN;[%d.]+;([%d.]+);")
     inbound("ACK;" .. revision, "Zed-TestRealm")
     slash("coordinate status")
-    assert(chat[#chat]:find("Awaiting acknowledgement", 1, true), "unassigned member forged an acknowledgement")
+    assert(chat[#chat]:find(NS.X.L["Awaiting acknowledgement"], 1, true), "unassigned member forged an acknowledgement")
     inbound("ACK;" .. revision)
     local acknowledged
     for _, row in ipairs(X.CoordinationSnapshot().sent) do
@@ -2547,7 +2563,7 @@ step("caster coordination checks roster authority, drafts, acceptance and acknow
     end
     assert(acknowledged, "snapshot omitted accepted acknowledgement")
     slash("coordinate status")
-    assert(chat[#chat]:find("Acknowledged", 1, true), "expected caster did not acknowledge the outbox revision")
+    assert(chat[#chat]:find(NS.X.L["Acknowledged"], 1, true), "expected caster did not acknowledge the outbox revision")
 
     local currentTime, deadline = O.GetTime, env.GetTime() + 181
     O.GetTime = function() return deadline end
@@ -2609,12 +2625,12 @@ step("Forever caster coordination panel sends reviewed actions and drops obsolet
     X.OpenAssignments()
     env.BuffRadarAssignments.coordinationButton:Click()
     local view = env.BuffRadarCasterCoordination
-    assert(view and view:IsVisible() and view.participation:GetText() == "Opt In", "panel could not open while opted out")
+    assert(view and view:IsVisible() and view.participation:GetText() == NS.X.L["Opt In"], "panel could not open while opted out")
     view.participation:Click()
-    assert(view.participation:GetText() == "Opt Out" and view.request:IsVisible(), "leader controls did not open")
+    assert(view.participation:GetText() == NS.X.L["Opt Out"] and view.request:IsVisible(), "leader controls did not open")
     model.reports = { { name = "Aaron", keys = { "FORTITUDE" } }, { name = "Zed" } }
     view.request:Click()
-    assert(view.rows[1].detail:GetText() == "FORTITUDE" and view.rows[2].detail:GetText() == "No response",
+    assert(view.rows[1].detail:GetText() == "FORTITUDE" and view.rows[2].detail:GetText() == NS.X.L["No response"],
       "reports did not distinguish replies")
     view.need:SetText("FORTITUDE")
     view.add:Click()
@@ -2624,7 +2640,7 @@ step("Forever caster coordination panel sends reviewed actions and drops obsolet
       "review did not show the draft and publication action")
     view.publish:Click()
     view.tabs.delivery:Click()
-    assert(view.rows[1].detail:GetText() == "Acknowledged", "delivery did not reflect the acknowledgement")
+    assert(view.rows[1].detail:GetText() == NS.X.L["Acknowledged"], "delivery did not reflect the acknowledgement")
 
     view.tabs.reports:Click()
     view.need:SetText("STALE")
@@ -2688,27 +2704,27 @@ step("Forever subgroup panel previews drafts, preserves modes and rejects stale 
     env.BuffRadarRaidCoverage.subgroupButton:Click()
     local view = env.BuffRadarSubgroupResponsibilities
     assert(view and view:IsVisible() and not env.BuffRadarRaidCoverage:IsVisible(), "coverage launcher did not open the panel")
-    assert(view.scope:GetText() == "All Groups" and view.rows[1].detail:GetText():find("Prayer of Fortitude", 1, true),
+    assert(view.scope:GetText() == NS.X.L["All Groups"] and view.rows[1].detail:GetText():find("Prayer of Fortitude", 1, true),
       "unrestricted preview omitted the group option")
     view.buff:Click()
     assert(view.rows[1].title:GetText():find("Zed", 1, true), "buff selector did not change the preview")
     view.buff:Click()
     view.groups[2]:SetChecked(false)
     view.groups[2]:Click()
-    assert(writes == 0 and view.scope:GetText() == "Selected Groups"
-      and view.rows[1].title:GetText():find("Outside Selected Groups", 1, true)
-      and view.rows[1].detail:GetText():find("fallback", 1, true), "draft changed the saved duty or omitted fallback status")
+    assert(writes == 0 and view.scope:GetText() == NS.X.L["Selected Groups"]
+      and view.rows[1].title:GetText():find(NS.X.L["Outside Selected Groups"], 1, true)
+      and view.rows[1].detail:GetText():find(NS.X.L["fallback"], 1, true), "draft changed the saved duty or omitted fallback status")
     view.groups[2]:SetChecked(true)
     view.groups[2]:Click()
-    assert(view.scope:GetText() == "Selected Groups" and view.apply:IsEnabled(), "explicit eight became unrestricted")
+    assert(view.scope:GetText() == NS.X.L["Selected Groups"] and view.apply:IsEnabled(), "explicit eight became unrestricted")
     view.apply:Click()
     assert(writes == 1 and saved.FORTITUDE[2], "apply did not save the explicit group list")
     view.none:Click()
-    assert(writes == 1 and view.scope:GetText() == "No Groups", "No Groups did not stage an empty selection")
+    assert(writes == 1 and view.scope:GetText() == NS.X.L["No Groups"], "No Groups did not stage an empty selection")
     view.apply:Click()
     assert(writes == 2 and saved.FORTITUDE and not next(saved.FORTITUDE), "empty restriction was not saved")
     view.all:Click()
-    assert(view.scope:GetText() == "All Groups" and saved.FORTITUDE, "All Groups did not stage unrestricted mode")
+    assert(view.scope:GetText() == NS.X.L["All Groups"] and saved.FORTITUDE, "All Groups did not stage unrestricted mode")
     saved.FORTITUDE = { [3] = true }
     view.apply:Click()
     assert(writes == 2 and saved.FORTITUDE[3] and view.notice:GetText():find("changed", 1, true),
@@ -2765,7 +2781,7 @@ step("chat request tags the asker (1.5.0)", function()
   end
   assert(row and row.entry.asked, "asker not tagged")
   if not env.__german then
-    assert(row.tag and row.tag.text == "asked for a buff",
+    assert(row.tag and row.tag.text == NS.X.L["asked for a buff"],
       "ask tag text: " .. tostring(row.tag and row.tag.text))
   end
   cleanup()
@@ -2777,10 +2793,10 @@ step("joining a group prints a one-line summary (1.5.0)", function()
   local n = #chat
   fire("GROUP_ROSTER_UPDATE")
   timerTick()  -- runs the delayed digest on timer clients
-  assert(chatSince(n, "Joined a group: 3 people are missing buffs"), "no join summary printed")
+  assert(chatTemplate(n,"%s: %d %s missing buffs (%d buffs needed).",NS.X.L["Joined a group"],3,NS.X.L["people are"]), "no join summary printed")
   local n2 = #chat
   fire("CHALLENGE_MODE_START")
-  assert(chatSince(n2, "Run starting: 3 people are missing buffs"), "no run-start summary")
+  assert(chatTemplate(n2,"%s: %d %s missing buffs (%d buffs needed).",NS.X.L["Run starting"],3,NS.X.L["people are"]), "no run-start summary")
   cleanup()
 end)
 step("role filter: chips and /br filter narrow the window (1.5.0)", function()
@@ -2955,7 +2971,7 @@ step("cast queue: next row tagged after a cast lands (1.6.0)", function()
   assert(tagged, "no row tagged as up next")
   assert(tagged == env.BuffRadarRow1, "up-next tag not on the top row")
   if not env.__german then
-    assert(tagged.tag and tagged.tag.text == "up next",
+    assert(tagged.tag and tagged.tag.text == NS.X.L["up next"],
       "queue tag text: " .. tostring(tagged.tag and tagged.tag.text))
   end
   cleanup()
@@ -2970,7 +2986,7 @@ step("shipped presets set window and behavior only (1.6.0)", function()
     "solo preset not applied")
   local n = #chat
   env.SlashCmdList.BUFFRADAR("preset bogus")
-  assert(chatSince(n, "Usage: /br preset raid|dungeon|solo"), "bad preset not rejected")
+  assert(chatSince(n, NS.X.L["Usage: /br preset raid|dungeon|solo"]), "bad preset not rejected")
   db.sortMode, db.groupCast, db.groupOnly, db.showOutOfRange = "name", false, false, false
 end)
 step("custom watched spells join the list (1.6.0)", function()
@@ -3065,7 +3081,7 @@ step("buff assignments from the leader tag and sink rows (1.6.0)", function()
   assert(aRow2 and aRow2.entry.theirs, "leader assignment not marked")
   assert(aIdx and zIdx and aIdx > zIdx, "assigned rows did not sink")
   if not env.__german then
-    assert(aRow2.tag and aRow2.tag.text == "assigned elsewhere",
+    assert(aRow2.tag and aRow2.tag.text == NS.X.L["assigned elsewhere"],
       "assign tag text: " .. tostring(aRow2.tag and aRow2.tag.text))
   end
   env.UnitIsGroupLeader = nil
@@ -3170,7 +3186,7 @@ step("ready-check summary auto-posts for leaders (1.7.0)", function()
   fire("READY_CHECK")
   local posted
   for i = s0 + 1, #env.__sent do
-    if env.__sent[i].msg:find("BuffRadar ready check:", 1, true) then posted = env.__sent[i] end
+    if localizedMatch(env.__sent[i].msg,"BuffRadar ready check: %d %s missing buffs (%d buffs needed).%s") then posted = env.__sent[i] end
   end
   assert(posted, "ready-check summary not posted to group chat")
   assert(posted.chattype == "PARTY", "posted to wrong channel: " .. tostring(posted.chattype))
@@ -3314,10 +3330,10 @@ step("instance-entry reminder fires once per entry (1.7.0)", function()
   local n0 = #chat
   env.IsInInstance = function() return true, "party" end
   fire("ZONE_CHANGED_NEW_AREA")
-  assert(chatSince(n0, "Entered the dungeon with buffs missing"), "no entry reminder")
+  assert(chatTemplate(n0,"Entered the %s with buffs missing: %d %s still need buffs (%d buffs needed).",NS.X.L["dungeon"]), "no entry reminder")
   local n1 = #chat
   fire("ZONE_CHANGED_NEW_AREA")
-  assert(not chatSince(n1, "Entered the dungeon"), "entry reminder repeated while inside")
+  assert(not chatTemplate(n1,"Entered the %s with buffs missing: %d %s still need buffs (%d buffs needed).",NS.X.L["dungeon"]), "entry reminder repeated while inside")
   env.IsInInstance = function() return false, "none" end
   fire("ZONE_CHANGED_NEW_AREA")
   cleanup()
@@ -3334,7 +3350,7 @@ step("group expiry warning counts holders inside five minutes (1.7.0)", function
   refresh()
   local line
   for _, fs in ipairs(env.__fontstrings) do
-    if type(fs.text) == "string" and fs.text:find("<5m on 3/", 1, true) then line = fs.text end
+    if type(fs.text) == "string" and localizedMatch(fs.text,"%s <5m on %d/%d",nil) then line = fs.text end
   end
   assert(line, "coverage line has no expiry warning")
   env.__over.Aura = nil
@@ -3437,7 +3453,7 @@ step("color themes set the window colors (1.8.0)", function()
   assert(db.theme == "crimson", "theme not stored")
   assert(db.bgColor[1] == 0.08 and db.bgColor[2] == 0.02 and db.bgColor[3] == 0.02,
     "theme background not applied")
-  assert(chatSince(n, "Theme: Crimson"), "no theme message")
+  assert(chatTemplate(n,"Theme: %s","Crimson"), "no theme message")
   local frame = env.BuffRadarFrame
   assert(frame.borderColor and frame.borderColor[1] == 0.75,
     "theme border not applied to the window")
@@ -3477,7 +3493,7 @@ step("window palette presets use their approved colors and labels", function()
   for _, palette in ipairs(palettes) do
     local n = #chat
     slash("theme " .. palette[1]:upper())
-    assert(db.theme == palette[1] and chatSince(n, "Theme: " .. palette[2]), "wrong palette selection")
+    assert(db.theme == palette[1] and chatTemplate(n,"Theme: %s",palette[2]), "wrong palette selection")
     for component = 1, 3 do
       assert(db.bgColor[component] == palette[3][component] / 255
           and appliedBackground[component] == db.bgColor[component]
@@ -3491,11 +3507,11 @@ step("window palette presets use their approved colors and labels", function()
   slash("theme parchment")
   for _, palette in ipairs(palettes) do
     button.scripts.OnClick(button)
-    assert(db.theme == palette[1] and button:GetText() == "Theme: " .. palette[2],
+    assert(db.theme == palette[1] and button:GetText() == string.format(NS.X.L["Theme: %s"],palette[2]),
       "settings skipped or mislabeled " .. palette[1])
   end
   button.scripts.OnClick(button)
-  assert(db.theme == "ui.auto" and button:GetText() == "Theme: Auto",
+  assert(db.theme == "ui.auto" and button:GetText() == string.format(NS.X.L["Theme: %s"],NS.X.L["Auto"]),
     "settings omitted Auto or changed its compact label")
   button.scripts.OnClick(button)
   assert(db.theme == "midnight", "settings omitted the original first theme on wrap")
@@ -3531,7 +3547,7 @@ step("window palettes survive reload and profile round trips without masking sav
   slash("theme ui.foreverforge")
   local exported = assert(X.Export())
   assert(exported:match("^BR1;") and X.SaveProfile("PaletteRegression"), "could not export the palette")
-  local shared = assert(X.ProfileShareText("PaletteRegression"))
+  local shared = assert(X.ProfileShareText("PaletteRegression", "full"))
   assert(shared:find("\nBR2;", 1, true), "the named palette profile did not use BR2")
   slash("theme midnight")
   assert(X.Import(exported) and db.theme == "ui.foreverforge"
@@ -3567,7 +3583,7 @@ step("Auto theme opts in and uses exact loaded addon folders with stable priorit
     assert(db.theme == "midnight" and queries == 0, "manual/default theme opted in or probed addons")
     local n = #chat
     slash("theme auto")
-    assert(db.theme == "ui.auto" and chatSince(n, "Theme: Auto (ElvUI)"), "slash alias did not select and describe Auto")
+    assert(db.theme == "ui.auto" and chatTemplate(n,"Theme: %s",X.ThemeLabel(true)), "slash alias did not select and describe Auto")
     assert(#X.AUTO_THEME_ADDONS == #expected, "automatic addon catalog has unexpected entries")
     for i, palette in ipairs(expected) do
       local name, id = palette[1], palette[2]
@@ -3687,7 +3703,7 @@ step("Auto theme profile imports choose a local palette and keep historical save
       "explicit Auto did not preserve underlying manual color")
     local br1 = assert(X.Export())
     assert(br1:match("^BR1;") and X.SaveProfile("AutoPaletteRegression"), "could not save Auto profile")
-    local br2 = assert(X.ProfileShareText("AutoPaletteRegression"))
+    local br2 = assert(X.ProfileShareText("AutoPaletteRegression", "full"))
     assert(br2:find("\nBR2;", 1, true), "Auto named profile did not use BR2")
 
     loaded = "ReforgedUI"
@@ -3833,7 +3849,7 @@ step("Auto Theme Priority repairs saved orders and round trips through old and n
     assert(order:match("^ui%.ellesmereui,ui%.elvui,") and X.autoThemeAddon == "EllesmereUI", "could not set test priority")
     local export = assert(X.Export())
     assert(export:find(";autoThemePriority=", 1, true) and X.SaveProfile("ThemeOrderRegression"), "priority was not exportable")
-    local shared = assert(X.ProfileShareText("ThemeOrderRegression"))
+    local shared = assert(X.ProfileShareText("ThemeOrderRegression", "full"))
     assert(shared:find("\nBR2;", 1, true) and shared:find(";autoThemePriority=", 1, true), "BR2 did not serialize order")
     local oldExport = export:gsub(";autoThemePriority=[^;]*", "", 1)
     local oldShared = (shared:gsub(";autoThemePriority=[^;]*", "", 1)):gsub("ThemeOrderRegression", "ThemeOrderLegacy", 1)
@@ -3866,10 +3882,9 @@ step("Auto theme save snapshots effective colors and cancel restores the prior s
   local ok, err = pcall(function()
     local loaded, picker = "AnoUI", nil
     env.C_AddOns = { IsAddOnLoaded = function(name) return name == loaded, name == loaded end }
-    env.ColorPickerFrame = {
-      SetupColorPickerAndShow = function(_, args) picker = args end,
-      GetColorRGB = function() return 0.7, 0.6, 0.5 end,
-    }
+    env.ColorPickerFrame = env.CreateFrame("Frame")
+    env.ColorPickerFrame.SetupColorPickerAndShow = function(self,args) picker=args;self:Show() end
+    env.ColorPickerFrame.GetColorRGB = function() return 0.7,0.6,0.5 end
     db.customThemes = {}
     slash("theme forest")
     slash("theme ui.auto")
@@ -4646,14 +4661,14 @@ step("focus watch line reports the focus target (1.8.0)", function()
   refresh()
   local found
   for _, fs in ipairs(env.__fontstrings) do
-    if type(fs.text) == "string" and fs.text:find("Focus Focusdude: needs", 1, true) then found = fs.text end
+    if type(fs.text) == "string" and localizedMatch(fs.text,"Focus %s: needs %s","Focusdude") then found = fs.text end
   end
   assert(found, "focus line not shown for an unbuffed focus")
   env.SlashCmdList.BUFFRADAR("focus")
   refresh()
   local still
   for _, fs in ipairs(env.__fontstrings) do
-    if fs.shown and type(fs.text) == "string" and fs.text:find("Focus Focusdude", 1, true) then still = fs.text end
+    if fs.shown and type(fs.text) == "string" and localizedMatch(fs.text,"Focus %s: needs %s","Focusdude") then still = fs.text end
   end
   assert(not still, "focus line stayed after the setting went off")
   cleanup()
@@ -4677,7 +4692,7 @@ step("group pets get their own rows (1.8.0)", function()
   local set = shownRows().partypet1
   assert(set, "Aaron's pet not listed")
   assert(set["Power Word: Fortitude"], "pet not offered Fortitude")
-  assert(set.row.tag.text == "pet" or set.row.tag.text == "Begleiter",
+  assert(set.row.tag.text == NS.X.L["pet"] or set.row.tag.text == "Begleiter",
     "pet row not tagged: " .. tostring(set.row.tag.text))
   local marker = 7
   env.issecretvalue = function(v) return v == 7 end
@@ -4704,7 +4719,7 @@ step("aura and aspect watch toggles (1.8.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("aura")
   if not env.__forever then
-    assert(chatSince(n, "Forever edition"), "aura watch not refused on retail")
+    assert(chatSince(n,"Forever"), "aura watch not refused on retail")
     assert(not db.auraWatch, "aura watch stored on retail")
     return
   end
@@ -4762,7 +4777,7 @@ step("drinking healers are tagged and counted (1.8.0)", function()
   refresh()
   local set = shownRows().party1
   assert(set, "the drinking priest is not listed")
-  assert(set.row.tag.text == "drinking" or set.row.tag.text == "trinkt gerade",
+  assert(set.row.tag.text == NS.X.L["drinking"] or set.row.tag.text == "trinkt gerade",
     "drinking tag missing: " .. tostring(set.row.tag.text))
   local line
   for _, fs in ipairs(env.__fontstrings) do
@@ -4786,7 +4801,7 @@ step("per-buff context limits where a buff is offered (1.8.0)", function()
   assert(db.buffContext[key] == "instance", "context not stored")
   local n = #chat
   env.SlashCmdList.BUFFRADAR("buffs")
-  assert(chatSince(n, "[instance only]"), "buff list does not show the context")
+  assert(chatSince(n,"["..string.format(NS.X.L["%s only"],"instance").."]"), "buff list does not show the context")
   refresh()  -- the party is in the open world, not an instance
   local set = shownRows().party1
   assert(not set or not set[spell], "buff still offered outside its context")
@@ -4864,7 +4879,7 @@ end)
 step("a single profile can be shared and imported (1.8.0)", function()
   local db = env.BuffRadarDB
   env.SlashCmdList.BUFFRADAR("profile save shareme")
-  env.SlashCmdList.BUFFRADAR("profile share shareme")
+  NS.X.ShowExport(assert(NS.X.ProfileShareText("shareme","full")),false)
   local text = env.BuffRadarExportFrame.editBox.text
   assert(type(text) == "string" and text:find("BuffRadar profile: shareme", 1, true),
     "share text has no header: " .. tostring(text))
@@ -4932,7 +4947,7 @@ step("Behavior ignore-list hint clears the consumables checkbox", function()
   local cfg = env.BuffRadarConfig
   local hint
   for _, font in ipairs(env.__fontstrings) do
-    if type(font.text) == "string" and font.text:find("Right-click any name in the BuffRadar window", 1, true) then
+    if type(font.text) == "string" and font.text:find(NS.X.L["Right-click any name in the BuffRadar window to ignore that player; manage the list on the Ignore & Stats tab."],1,true) then
       hint = font
       break
     end
@@ -4957,7 +4972,7 @@ step("settings controls and long labels stay within their columns", function()
   assert(cfg.pullFlashCheck.points[1][3] <= cfg.fastAuraCheck.points[1][3] - 30,
     "pull-timer checkbox must clear the wrapped Fast Aura label")
   for _, control in ipairs(NS.X.cfgReg) do
-    if control.w.text == "Reset buff order" then
+    if control.w.text == NS.X.L["Reset buff order"] then
       local anchor = control.w.points[1]
       assert(anchor[1] == "TOPLEFT" and anchor[3] == -346,
         "reset buff order belongs beside its rebuff settings, above the footer")
@@ -5124,7 +5139,7 @@ step("class and role assignment table supports mouse, keyboard and settings sear
     assert(option:IsVisible() and option.option, "known targeted buffs were not offered")
     assert(picker.closeButton:IsVisible() and not panel.closeButton:IsVisible(),
       "the grid close button can compete with the picker close button")
-    assert(picker.backButton:IsVisible() and picker.backButton:GetText() == "Done",
+    assert(picker.backButton:IsVisible() and picker.backButton:GetText() == NS.X.L["Done"],
       "immediate picker had no Done action")
     advanceTo(option)
     input.scripts.OnEnterPressed(input)
@@ -5200,7 +5215,7 @@ step("assignment preview opens, pages without scanning, and closes with settings
     assert(preview:IsVisible() and scans == 1 and preview.rows[1].name == "Member1",
       "preview did not open with a roster snapshot")
     assert(preview.rows[1].description:find("Thorns", 1, true), "preview detail omitted a spell")
-    assert(preview.rows[2].detail:GetText() == "Player details unavailable", "unreadable row implied buff coverage")
+    assert(preview.rows[2].detail:GetText() == NS.X.L["Player details unavailable"], "unreadable row implied buff coverage")
     slash("config navigate")
     local input = cfg.navInput
     local function advanceTo(widget)
@@ -5390,7 +5405,7 @@ step("blocker shortcuts stage, review, recheck and refresh the exact edit", func
     end
     activate(blockers.rows[1].edit)
     local picker = assignments.picker
-    assert(picker:IsVisible() and picker.backButton:IsVisible() and picker.backButton:GetText() == "Cancel"
+    assert(picker:IsVisible() and picker.backButton:IsVisible() and picker.backButton:GetText() == NS.X.L["Cancel"]
       and picker.class == "DRUID" and picker.slot == "ALL",
       "shortcut did not open the inherited All Roles picker")
     activate(picker.defaultButton)
@@ -5642,8 +5657,7 @@ step("global settings search crosses tabs, pages deterministically, and never ch
   for _, entry in ipairs(results) do
     tabs[entry.tab] = true
     if previous then
-      local a, b = cfg.tabBtns[previous.tab].navigation.order, cfg.tabBtns[entry.tab].navigation.order
-      assert(a < b or (a == b and previous.order < entry.order), "search order is unstable")
+      assert(previous.order < entry.order, "search registration order is unstable")
     end
     previous = entry
   end
@@ -5759,11 +5773,11 @@ step("death recap snapshots the group when you die (1.9.0)", function()
   refresh()
   local n = #chat
   fire("PLAYER_DEAD")
-  assert(chatSince(n, "Death recap:"), "no death recap printed")
+  assert(chatTemplate(n,"Death recap: %d %s missing buffs (%d buffs needed) when you died:"), "no death recap printed")
   assert(chatSince(n, "Aaron"), "death recap does not name Aaron")
   local n2 = #chat
   env.SlashCmdList.BUFFRADAR("death show")
-  assert(chatSince(n2, "Death recap from your last death:"), "last recap not reprinted")
+  assert(chatSince(n2, NS.X.L["Death recap from your last death:"]), "last recap not reprinted")
   env.SlashCmdList.BUFFRADAR("death")
   assert(db.deathRecap == false, "death recap not toggled off")
   env.SlashCmdList.BUFFRADAR("death")
@@ -5791,32 +5805,32 @@ step("post-wipe report fires after a real wipe (1.9.0)", function()
   t = t + 20
   local n = #chat
   fire("PLAYER_REGEN_ENABLED")
-  assert(not chatSince(n, "Wipe report"), "report fired for a single death")
+  assert(not chatTemplate(n,"Wipe report: %d of %d died. %s"), "report fired for a single death")
   -- Deaths alone are insufficient without a recorded fight.
   dead.party2 = true
   X.combatStart = nil
   local missingStart = #chat
   fire("PLAYER_REGEN_ENABLED")
-  local reportedWithoutStart = chatSince(missingStart, "Wipe report:")
+  local reportedWithoutStart = chatTemplate(missingStart,"Wipe report: %d of %d died. %s")
   fire("PLAYER_REGEN_DISABLED")
   t = t + 7
   local shortFight = #chat
   fire("PLAYER_REGEN_ENABLED")
-  local reportedForShortFight = chatSince(shortFight, "Wipe report:")
+  local reportedForShortFight = chatTemplate(shortFight,"Wipe report: %d of %d died. %s")
   -- Both party members dead after a fight at the minimum duration: a wipe.
   fire("PLAYER_REGEN_DISABLED")
   t = t + 8
   local n2 = #chat
   fire("PLAYER_REGEN_ENABLED")
-  assert(chatSince(n2, "Wipe report: 2 of 3 died."), "no wipe report after the wipe")
-  assert(chatSince(n2, "1 person is missing buffs"),
+  assert(chatTemplate(n2,"Wipe report: %d of %d died. %s",2,3), "no wipe report after the wipe")
+  assert(chatTemplate(n2,"%d %s missing buffs (%d buffs needed):",1,NS.X.L["person is"]),
     "wipe report should list the survivor's missing buffs")
   local duplicateEnd = #chat
   fire("PLAYER_REGEN_ENABLED")
-  local reportedTwice = chatSince(duplicateEnd, "Wipe report:")
+  local reportedTwice = chatTemplate(duplicateEnd,"Wipe report: %d of %d died. %s")
   local n3 = #chat
   env.SlashCmdList.BUFFRADAR("wipe show")
-  assert(chatSince(n3, "Wipe report from the last wipe:"), "last wipe report not reprinted")
+  assert(chatSince(n3, NS.X.L["Wipe report from the last wipe:"]), "last wipe report not reprinted")
   O.GetTime = nil
   O.UnitIsDeadOrGhost = nil
   X.combatStart = oldStart
@@ -5842,11 +5856,11 @@ step("raid wipe counts the player raid token once", function()
     local last = #chat
     X.combatStart = env.GetTime() - 8
     X.WipeCheck()
-    assert(not chatSince(last, "Wipe report:"), "two unique raid deaths triggered a wipe")
+    assert(not chatTemplate(last,"Wipe report: %d of %d died. %s"), "two unique raid deaths triggered a wipe")
     dead.raid3 = true
     X.combatStart = env.GetTime() - 8
     X.WipeCheck()
-    assert(chatSince(last, "Wipe report: 3 of 6 died."), "raid wipe roster double-counted the local player")
+    assert(chatTemplate(last,"Wipe report: %d of %d died. %s",3,6), "raid wipe roster double-counted the local player")
   end)
   cleanup()
   env.IsInRaid, env.GetNumGroupMembers, db.wipeReport, X.combatStart = oldRaid, oldNum, oldWipe, oldStart
@@ -5910,14 +5924,14 @@ step("coverage parts, tooltip levels, names, row colors (1.10.0)", function()
     end
     return false
   end
-  assert(coverHas("0/3 fully buffed"), "coverage progress not shown")
+  assert(coverHas(string.format(NS.X.L["%d/%d fully buffed"],0,3)), "coverage progress not shown")
   env.SlashCmdList.BUFFRADAR("cover progress off")
   assert(db.coverParts.progress == false, "cover part not stored")
   refresh()
-  assert(not coverHas("0/3 fully buffed"), "coverage progress still shown after off")
+  assert(not coverHas(string.format(NS.X.L["%d/%d fully buffed"],0,3)), "coverage progress still shown after off")
   env.SlashCmdList.BUFFRADAR("cover progress on")
   refresh()
-  assert(coverHas("0/3 fully buffed"), "coverage progress did not come back")
+  assert(coverHas(string.format(NS.X.L["%d/%d fully buffed"],0,3)), "coverage progress did not come back")
   -- Tooltip levels on Aaron's row.
   local function findRow()
     for i = 1, 15 do
@@ -6404,19 +6418,19 @@ step("coverage uptime scores the run (1.6.0)", function()
   refresh()  -- everyone is missing buffs: the full-scan share is 0%
   local n = #chat
   env.SlashCmdList.BUFFRADAR("uptime")
-  assert(chatSince(n, "Coverage uptime this run: 0%"), "uptime not 0% while buffs are missing")
+  assert(chatTemplate(n,"Coverage uptime this run: %d%%",0), "uptime not 0% while buffs are missing")
   env.__over.Aura = function(u, name) return { expirationTime = env.GetTime() + 600 } end
   env.SlashCmdList.BUFFRADAR("uptime reset")
   for i = 1, 12 do refresh() end
   local cover
   for _, fs in ipairs(env.__fontstrings) do
-    if type(fs.text) == "string" and fs.text:find("Uptime 100%%") then cover = fs.text end
+    if type(fs.text) == "string" and localizedMatch(fs.text,"Uptime %d%%",100) then cover = fs.text end
   end
   assert(cover, "coverage line shows no 100% uptime after full scans")
   fire("CHALLENGE_MODE_START")  -- a new run resets the score
   local n2 = #chat
   env.SlashCmdList.BUFFRADAR("uptime")
-  assert(chatSince(n2, "no grouped scans yet"), "uptime not reset at run start")
+  assert(chatSince(n2,NS.X.L["Coverage uptime: no grouped scans yet this run."]), "uptime not reset at run start")
   env.__over.Aura = nil
   cleanup()
 end)
@@ -6433,7 +6447,7 @@ step("auto profile switches with the context (1.6.0)", function()
   local n = #chat
   fire("ZONE_CHANGED_NEW_AREA")
   assert(db.scale == 1.5, "dungeon auto profile did not apply (scale " .. tostring(db.scale) .. ")")
-  assert(chatSince(n, "Auto profile for dungeon: dset"), "auto profile load not announced")
+  assert(chatTemplate(n,"Auto profile for %s: %s","dungeon","dset"), "auto profile load not announced")
   env.IsInInstance = function() return false, "none" end
   fire("ZONE_CHANGED_NEW_AREA")  -- solo now: no mapping, scale stays
   assert(db.scale == 1.5, "solo context unexpectedly changed settings")
@@ -6450,10 +6464,10 @@ step("auto profile switches with the context (1.6.0)", function()
   env.IsInInstance = function() return true, "party" end
   local failure = #chat
   fire("ZONE_CHANGED_NEW_AREA")
-  assert(chatSince(failure, "could not load 'Missing'"), "failed auto profile did not explain the failure")
+  assert(chatTemplate(failure,"Auto profile for %s could not load '%s': %s","dungeon","Missing"), "failed auto profile did not explain the failure")
   failure = #chat
   fire("ZONE_CHANGED_NEW_AREA")
-  assert(not chatSince(failure, "could not load 'Missing'"), "failed auto profile repeated during same visit")
+  assert(not chatTemplate(failure,"Auto profile for %s could not load '%s': %s","dungeon","Missing"), "failed auto profile repeated during same visit")
   env.IsInInstance = function() return false, "none" end
   fire("ZONE_CHANGED_NEW_AREA")
   env.SlashCmdList.BUFFRADAR("autoprofile dungeon clear")
@@ -6600,7 +6614,7 @@ step("Forever nearby blessing complement respects caster ownership and explicit 
       "world option affected a grouped recipient")
 
     assert(X.SaveProfile("ComplementAudit"), "could not save complement setting")
-    local shared = assert(X.ProfileShareText("ComplementAudit"))
+    local shared = assert(X.ProfileShareText("ComplementAudit", "full"))
     assert(shared:find(";blessingComplement=1;", 1, true), "BR2 did not serialize the opt-in")
     assert(not X.ProfileImport(shared:gsub("blessingComplement=1", "blessingComplement=maybe")),
       "BR2 accepted a malformed complement setting")
@@ -6738,7 +6752,7 @@ step("single-target buff dropping off its holder alerts once (1.5.0)", function(
   local n = #chat
   O.Aura = nil  -- gone, and tank 1 is still standing there
   refresh()
-  assert(chatSince(n, "Earth Shield dropped off Tank1."), "no drop alert printed")
+  assert(chatTemplate(n,"%s dropped off %s.","Earth Shield","Tank1"), "no drop alert printed")
   local n2 = #chat
   refresh()  -- still gone: the alert must not repeat
   assert(not chatSince(n2, "dropped off"), "drop alert repeated for the same drop")
@@ -6750,22 +6764,22 @@ step("/br why explains listing decisions (1.15.0)", function()
   refresh()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("why Aaron")
-  assert(chatSince(n, "Aaron is on the list"), "why did not report Aaron listed")
-  assert(chatSince(n, ", missing:"), "why did not name the missing buffs")
+  assert(chatTemplate(n,"%s is on the list (row %s), missing: %s.","Aaron"), "why did not report Aaron listed")
+  assert(chatTemplate(n,"%s is on the list (row %s), missing: %s.","Aaron"), "why did not name the missing buffs")
   local O = env.__over
   O.Aura = function(u, name) return { expirationTime = env.GetTime() + 600 } end
   n = #chat
   env.SlashCmdList.BUFFRADAR("why Aaron")
-  assert(chatSince(n, "already has every buff"), "why did not report Aaron fully buffed")
+  assert(chatTemplate(n,"%s already has every buff you can give them.","Aaron"), "why did not report Aaron fully buffed")
   O.Aura = nil
   env.SlashCmdList.BUFFRADAR("ignore Aaron")
   n = #chat
   env.SlashCmdList.BUFFRADAR("why Aaron")
-  assert(chatSince(n, "ignore list"), "why did not report the ignore")
+  assert(chatTemplate(n,"%s is on your ignore list, so they are never listed. /br unignore %s undoes it.","Aaron","Aaron"), "why did not report the ignore")
   env.SlashCmdList.BUFFRADAR("unignore Aaron")
   n = #chat
   env.SlashCmdList.BUFFRADAR("why Nobody")
-  assert(chatSince(n, "no readable player matches"), "why did not report an unknown name")
+  assert(chatTemplate(n,"Why: no readable player matches '%s'. Target or mouse over them, or enable friendly nameplates with /br plates.","Nobody"), "why did not report an unknown name")
   cleanup()
 end)
 step("/br why finds nearby and mouseover players and disambiguates names", function()
@@ -6786,13 +6800,13 @@ step("/br why finds nearby and mouseover players and disambiguates names", funct
   refresh()
   local before, tally = #chat, X.tally
   env.SlashCmdList.BUFFRADAR("why Aaron")
-  assert(chatSince(before, "more than one player"), "ambiguous short name was chosen")
+  assert(chatSince(before,NS.X.L["Why: more than one player matches. Use their full name, including realm."]), "ambiguous short name was chosen")
   before = #chat
   env.SlashCmdList.BUFFRADAR("why Aaron-OtherRealm")
-  assert(chatSince(before, "Aaron is on the list"), "friendly nameplate was not resolved")
+  assert(chatTemplate(before,"%s is on the list (row %s), missing: %s.","Aaron"), "friendly nameplate was not resolved")
   before = #chat
   env.SlashCmdList.BUFFRADAR("why Nearby")
-  assert(chatSince(before, "Nearby is on the list"), "mouseover did not resolve")
+  assert(chatTemplate(before,"%s is on the list (row %s), missing: %s.","Nearby"), "mouseover did not resolve")
   assert(X.tally == tally, "listing diagnostic rebuilt live scan state")
   cleanup()
 end)
@@ -6862,22 +6876,22 @@ step("Forever nearby diagnostics update their own panel and verify explicit name
     event(panel, "PLAYER_TARGET_CHANGED")
     local reason = panel.details:GetText()
     assert(panel.targetDirty and reason:find("Aaron", 1, true) and reason:find("DPS rule", 1, true)
-      and reason:find("None", 1, true) and X.tally == tally and #chat == n,
+      and reason:find(NS.X.L["None"], 1, true) and X.tally == tally and #chat == n,
       "the read-only target diagnosis lost the matched party unit or its explicit role rule")
     panel.togglePlates:Click()
     assert(writes == 1 and panel.togglePlates:IsShown() and panel.message:GetText() ~= "",
       "a refused nameplate write was accepted")
     allow = true
     panel.togglePlates:Click()
-    assert(writes == 3 and panel.togglePlates:GetText() == "Disable Friendly Nameplates"
+    assert(writes == 3 and panel.togglePlates:GetText() == NS.X.L["Disable Friendly Nameplates"]
       and panel.restorePlates:IsShown() and panel.nameplates:GetText() == "Friendly nameplates: On",
       "a verified nameplate write did not update the panel")
     panel.plateStyle:Click()
-    assert(vars[X.friendlyPlateNamesCVar] == "1" and panel.plateStyle:GetText() == "Show Friendly Health Bars",
+    assert(vars[X.friendlyPlateNamesCVar] == "1" and panel.plateStyle:GetText() == NS.X.L["Show Friendly Health Bars"],
       "names-only control did not update the native style")
     panel.restorePlates:Click()
     assert(not panel.restorePlates:IsShown() and vars.nameplateShowAll == "0" and vars[X.friendlyPlateNamesCVar] == "0"
-      and panel.togglePlates:GetText() == "Enable Friendly Nameplates", "restore did not return the panel and CVars to baseline")
+      and panel.togglePlates:GetText() == NS.X.L["Enable Friendly Nameplates"], "restore did not return the panel and CVars to baseline")
     assert(#chat == n and X.tally == tally, "the plate controls posted chat or rebuilt the queue synchronously")
     vars.nameplateShowFriendlyPlayers = nil
     event(panel, "CVAR_UPDATE")
@@ -6928,7 +6942,7 @@ step("pull countdown shows on the coverage line (1.15.0)", function()
   NS.X.Refresh()  -- not refresh(): that drains queued timers, ending the pull
   local found
   for _, fs in ipairs(env.__fontstrings) do
-    if type(fs.text) == "string" and fs.text:find("Pull in ", 1, true) then found = fs.text end
+    if type(fs.text) == "string" and localizedMatch(fs.text,"Pull in %ds") then found = fs.text end
   end
   assert(found, "no pull countdown on the coverage line")
   pf.scripts.OnEvent(pf, "START_TIMER", 2, 0, 0)  -- zero cancels
@@ -7258,10 +7272,10 @@ step("Forever assignment preview and why explain winning rules without changing 
     end
     local mage, warrior = preview()
     assert(mage.name == "Aaron-TestRealm" and mage.rule:find("DPS rule", 1, true)
-      and mage.rule:find("None", 1, true) and #mage.buffs == 0, "preview ignored explicit None")
+      and mage.rule:find(NS.X.L["None"], 1, true) and #mage.buffs == 0, "preview ignored explicit None")
     local details = table.concat(warrior.groupDetails or {}, "\n")
     assert(details:find("Prayer of Fortitude would reach Aaron-TestRealm", 1, true)
-      and details:find("DPS rule", 1, true) and details:find("None", 1, true),
+      and details:find("DPS rule", 1, true) and details:find(NS.X.L["None"], 1, true),
       "preview lost the group spell, blocking member, or winning rule: " .. details)
     assert(groupButton:GetAttribute("unit") == "party2"
       and groupButton:GetAttribute("spell") == "Power Word: Fortitude", "blocked group key did not use single-target cast")
@@ -7293,7 +7307,7 @@ step("Forever assignment preview and why explain winning rules without changing 
     local exists = O.UnitExists
     O.UnitExists = function(unit) if unit ~= "party1" then return exists(unit) end error("protected existence") end
     mage, warrior = preview()
-    assert(mage.rule == "Rule unavailable" and mage.status == "Player details unavailable" and not mage.evaluated,
+    assert(mage.rule == NS.X.L["Rule unavailable"] and mage.status == NS.X.L["Player details unavailable"] and not mage.evaluated,
       "preview claimed unreadable member was evaluated")
     assert(warrior.group and warrior.group:find("roster information is unavailable", 1, true)
       and not warrior.group:find("Aaron", 1, true) and not warrior.group:find("party1", 1, true),
@@ -7484,7 +7498,7 @@ step("Forever Raid Preparation checklist keeps live detail identity and pages re
     input.scripts.OnEnterPressed(input)
     assert(view.rows[3].heading:GetText() == "Food missing" and view.rows[4].heading:GetText() == "Flask unavailable",
       "keyboard did not expand the member's checks")
-    assert(cfg.navStatus:GetText():find("Collapse details", 1, true), "expanded action was not named to keyboard users")
+    assert(cfg.navStatus:GetText():find(NS.X.L["Collapse details"], 1, true), "expanded action was not named to keyboard users")
     table.insert(model.members, 8, table.remove(model.members, 2))
     fire("GROUP_ROSTER_UPDATE")
     if env.__timers then X.QueueAssignmentPreviewRefresh() end
@@ -7605,7 +7619,7 @@ step("Forever subgroup duties constrain casts and preparation reports the whole 
       "unknown subgroup did not explain its fallback")
     env.IsSpellInRange = function() return 0 end
     local out = X.PreviewSubgroupDuty("FORTITUDE", { [1] = true })
-    assert(not out.members[1].fallback and not out.members[1].spell and out.members[1].detail == "Out of cast range",
+    assert(not out.members[1].fallback and not out.members[1].spell and out.members[1].detail == NS.X.L["Out of cast range"],
       "preview showed a cast or fallback for an out-of-range member")
     env.IsSpellInRange = function() return 1 end
     group = 2
@@ -7929,7 +7943,7 @@ step("Forever outdoor Thorns shares cast eligibility and persists as an opt-in",
     assert(checked, "group report did not agree with the outdoor cast queue")
     local before = #chat
     slash("why Aaron")
-    assert(chatSince(before, "Thorns: Any Class Outdoors"), "why omitted the widening rule")
+    assert(chatSince(before, NS.X.L["Thorns: Any Class Outdoors"]), "why omitted the widening rule")
     cfg:Hide()
 
     instance, kind = true, "party"
@@ -8169,7 +8183,7 @@ step("coverage line notes a buff on cooldown (1.5.0)", function()
   refresh()
   local cover
   for _, fs in ipairs(env.__fontstrings) do
-    if type(fs.text) == "string" and fs.text:find("fully buffed", 1, true) then cover = fs.text end
+    if type(fs.text) == "string" and localizedMatch(fs.text,"%d/%d fully buffed") then cover = fs.text end
   end
   env.GetSpellCooldown = nil
   O.Aura = nil
@@ -8178,7 +8192,7 @@ step("coverage line notes a buff on cooldown (1.5.0)", function()
   -- While Skyfury is on cooldown nobody counts as missing it (it can't be
   -- cast), so the count reads complete -- with the cooldown flagged.
   assert(cover:find("Skyfury 3/3", 1, true), "coverage counts wrong: " .. cover)
-  assert(cover:find("(~3m cd)", 1, true), "no cooldown note on the coverage line: " .. cover)
+  assert(localizedMatch(cover," (~%dm cd)",3), "no cooldown note on the coverage line: " .. cover)
 end)
 step("flight-path pause (1.5.0)", function()
   local cleanup = partyOfTwo("X")
@@ -8191,7 +8205,7 @@ step("flight-path pause (1.5.0)", function()
   assert(not shownRows().party1, "party still listed on a flight path")
   local found
   for _, fs in ipairs(env.__fontstrings) do
-    if fs.text == "Paused on a flight path." or fs.text == "Auf einer Flugroute pausiert." then found = true end
+    if fs.text == NS.X.L["Paused on a flight path."] or fs.text == "Auf einer Flugroute pausiert." then found = true end
   end
   assert(found, "flight-path pause message not shown")
   env.UnitOnTaxi = nil
@@ -8220,7 +8234,7 @@ step("/br reset and resetpos clear only the current window position", function()
       command .. " changed unrelated settings")
     local anchor = env.BuffRadarFrame.points[1]
     assert(anchor[1] == "TOPLEFT" and anchor[3] == "LEFT" and anchor[4] == 40, command .. " did not reanchor the window")
-    assert(chatSince(n, command == "reset" and "Position reset." or "default spot"), "no " .. command .. " message")
+    assert(chatSince(n,NS.X.L[command == "reset" and "Position reset." or "Window position reset to the default spot."]), "no " .. command .. " message")
   end
   db.point, db.pointByChar, db.charPoint = point, byChar, charPoint
   db.width, db.castsTotal, db.profiles = width, casts, profiles
@@ -8228,15 +8242,15 @@ end)
 step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
-  assert(chatSince(n, "BuffRadar self-test"), "no self-test header")
+  assert(chatSince(n,NS.X.L["BuffRadar self-test -- paste this whole block into a bug report:"]), "no self-test header")
   assert(chatSince(n, "dbVersion 23"), "self-test missing dbVersion")
-  assert(chatSince(n, "role filter"), "self-test missing the 1.5.0 state line")
-  assert(chatSince(n, "custom spells"), "self-test missing the 1.6.0 state line")
-  assert(chatSince(n, "weapon watch"), "self-test missing the 1.7.0 state line")
-  assert(chatSince(n, "grow up"), "self-test missing the 1.8.0 state line")
-  assert(chatSince(n, "two columns"), "self-test missing the 1.9.0 state line")
-  assert(chatSince(n, "saved themes"), "self-test missing the 1.10.0 state line")
-  assert(chatSince(n, "buff SKYFURY") or chatSince(n, "buff FORTITUDE"), "self-test lists no buffs")
+  assert(chatTemplate(n,"  sync %s · requests %s · role filter %s · profiles %d · idle fade %s"), "self-test missing the 1.5.0 state line")
+  assert(chatTemplate(n,"  pill %s · queue tag %s · consumables %s · custom spells %d · buddy split %s · uptime %s"), "self-test missing the 1.6.0 state line")
+  assert(chatTemplate(n,"  readypost %s · pinned %s · weapon watch %s · entry reminder %s · throttle %s · covering %d · history %d"), "self-test missing the 1.7.0 state line")
+  assert(chatTemplate(n,"  grow up %s · assume range %s · theme %s · find %s · bars %s · markers %s · focus %s · pets %s · aura %s · world %s · drink %s · offenders %d"), "self-test missing the 1.8.0 state line")
+  assert(chatTemplate(n,"  two columns %s · death recap %s · wipe report %s · wizard seen %s"), "self-test missing the 1.9.0 state line")
+  assert(chatTemplate(n,"  view %s · saved themes %d · row gap %d · icons %s · tooltips %s · buff order %d · click-through %s"), "self-test missing the 1.10.0 state line")
+  assert(chatTemplate(n,"  buff %s: %s (spell %s, %s)","SKYFURY") or chatTemplate(n,"  buff %s: %s (spell %s, %s)","FORTITUDE"), "self-test lists no buffs")
 end)
 step("corner grips scale the window (1.11.0)", function()
   local db = env.BuffRadarDB
@@ -8293,22 +8307,22 @@ step("1.12.0 diagnostics: apicheck, buffcheck, perf, settings diff", function()
   assert(chatSince(n, "weapon-enchant candidates"), "no weapon-enchant discovery line")
   n = #chat
   env.SlashCmdList.BUFFRADAR("buffcheck")
-  assert(chatSince(n, "Buff check"), "no buffcheck result")
+  assert((chatSince(n,NS.X.L["Buff check needs C_Spell.GetSpellName or GetSpellInfo; neither exists on this client."]) or chatTemplate(n,"Buff check: all %d spell ids in the buff table exist on this client.") or chatTemplate(n,"Buff check: %d of %d spell ids are unknown here (data may still be loading -- retry in a few seconds):")), "no buffcheck result")
   n = #chat
   env.SlashCmdList.BUFFRADAR("perf")
-  assert(chatSince(n, "Perf:"), "no perf line")
+  assert(chatSince(n,NS.X.L["Perf: CPU timing unavailable (needs debugprofilestop)."]) or chatTemplate(n,"Perf: addon memory %.0f KB") or chatTemplate(n,"Perf: %s · %d samples · CPU average %.2f ms · last %.2f ms · worst %.2f ms"), "no perf line")
   local s = X.Export()
   n = #chat
   env.SlashCmdList.BUFFRADAR("diff " .. s)
-  assert(chatSince(n, "changes nothing"), "identical string reported a change")
+  assert(chatTemplate(n,"%s changes nothing."), "identical string reported a change")
   local changed = s:gsub("scale=[%d%.]+", "scale=1.5", 1)
   n = #chat
   env.SlashCmdList.BUFFRADAR("diff " .. changed)
-  assert(chatSince(n, "would change 1 setting") and chatSince(n, "scale:"), "diff missed the scale change")
+  assert(chatSince(n, string.format(NS.X.L["%s: %d preference changes"],NS.X.L["That string"],1)) and chatSince(n, "scale:"), "diff missed the scale change")
   env.SlashCmdList.BUFFRADAR("profile save dtest")
   n = #chat
   env.SlashCmdList.BUFFRADAR("profile diff dtest")
-  assert(chatSince(n, "changes nothing"), "profile diff of a fresh profile")
+  assert(chatTemplate(n,"%s changes nothing."), "profile diff of a fresh profile")
   env.SlashCmdList.BUFFRADAR("profile delete dtest")
 end)
 step("cast counter fits a narrow window instead of being cut off", function()
@@ -8421,7 +8435,7 @@ step("1.12.0 badges: update pending (combat) and data hidden (secret)", function
   local function HasTitleMark(mark)
     for _, label in ipairs(env.__fontstrings) do
       local text = label:GetText()
-      if type(text) == "string" and text:find("|cff33ccffBuff|rRadar", 1, true) == 1
+      if type(text) == "string" and text:find(NS.X.L["|cff33ccffBuff|rRadar"], 1, true) == 1
           and text:find(mark, 1, true) then return true end
     end
   end

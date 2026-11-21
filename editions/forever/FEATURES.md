@@ -9,6 +9,20 @@ TOC remains a test fixture; 1.7.0 was the last Retail release.
 
 ## Current Workflow
 
+- **Optional coverage views:** `/br matrix` presents bounded player/buff pages
+  from committed scan evidence; `/br selfstrip` reports personal aura status in
+  fixed slots. Symbols and text distinguish confirmed, missing, unknown and
+  not-applicable results. Neither view casts or changes the tracking toggles.
+- **Confirmed reagent restocking:** `/br supplies` offers opt-in, supported-item
+  targets and per-confirmation copper/unit caps. Review a merchant quote and
+  explicitly confirm its next row. Quote changes cancel consent. Only gold
+  prices and safely bounded quantities are supported; bag estimates use empty
+  general slots. A request is not treated as confirmed inventory delivery.
+
+**Verification:** original Lua 5.1 offline regressions cover read-only models,
+quote mutation/staleness, bundles, caps, unknown data and no-purchase paths.
+Actual merchant behavior and native rendering remain **Unverified**.
+
 - **Setup and discovery:** `/br wizard` reviews a starting configuration;
   `/br plates` enables friendly nameplate discovery and `/br nearby` diagnoses it.
 - **Casting:** click a row, bind **Cast next buff** with `/br key`, or create

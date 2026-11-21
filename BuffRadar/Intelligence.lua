@@ -151,6 +151,10 @@ function I.ScanTicks(groupSize)
   return lastTicks
 end
 
+function I.EffectiveInterval()
+  return (db and db.scanThrottle and lastTicks or 1) * X.Core.UpdateInterval
+end
+
 function I.PaceText()
   return string.format(L["Periodic scan: %.1fs · Latency: %s"], (db.scanThrottle and lastTicks or 1) * X.Core.UpdateInterval,
     latency and string.format(L["%d ms"], math.floor(latency)) or L["Unknown"])
@@ -178,6 +182,7 @@ end
 
 function X.SettingsChanged(changed)
   local lite = changed.liteMode
+  if X.Views and (changed.matrixView or changed.selfStatusStrip or changed.profile) then pcall(X.Views.Refresh) end
   if changed.forecastSeconds or lite then
     I.ForgetAlerts()
     if not I.ForecastEnabled() then
@@ -197,13 +202,16 @@ function X.SettingsChanged(changed)
     if not db.sync then X.StopCoordination() end
   end
   if changed.forecastSeconds or changed.pullFlash or lite or changed.smartPriority or changed.scanThrottle
-    or changed.profile then X.Core.QueueRefresh() end
+    or changed.profile or changed.matrixView or changed.selfStatusStrip then X.Core.QueueRefresh() end
 end
 
 function X.SetPreference(key, value)
-  if db[key] == value then return end
+  if X.Preferences then return X.Preferences.Set(key,value,"other") end
+  if db[key] == value then return true end
+  if X.Settings.SaveState()=="future" then return false,"future" end
   db[key] = value
   X.SettingsChanged({ [key] = true })
+  return true
 end
 
 function I.SetForecast(seconds)

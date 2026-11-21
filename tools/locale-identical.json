@@ -8,7 +8,19 @@
     "%d ms": "Numeric SI unit pattern",
     "Auto (%s)": "Common automatic-mode abbreviation with format",
     "Auto": "Common automatic-mode abbreviation",
-    "%s: %s -> %s": "Pure formatting pattern"
+    "%s: %s -> %s": "Pure formatting pattern",
+    "target|macro": "Literal command syntax; machine command names and options must remain unchanged.",
+    "%s  |cff888888%s|r": "Format placeholders, markup and SI seconds unit only; no ordinary prose.",
+    "target|id|macro|rank": "Literal command syntax; machine command names and options must remain unchanged.",
+    "  rank = /cast Name(Rank N)": "Literal command syntax; machine command names and options must remain unchanged.",
+    "%ds": "Format placeholders, markup and SI seconds unit only; no ordinary prose.",
+    "%s · %s · %ds": "Format placeholders, markup and SI seconds unit only; no ordinary prose.",
+    "|cff33ccffBuff|rRadar": "BuffRadar product name with its canonical color markup.",
+    "  /br minimapstatus · /br visual · /br lite · /br stats memory · /br status [export] · /br feedback": "Literal command syntax; machine command names and options must remain unchanged.",
+    "Minimal": "Established German technical adjective: Minimal.",
+    "%s · %s": "Format placeholders, markup and SI seconds unit only; no ordinary prose.",
+    "  /br forecast [seconds|off|timer] · /br smartprio · /br debuff · /br readiness": "Literal command syntax; machine command names and options must remain unchanged.",
+    "Standard": "Established German technical adjective: Standard."
   },
   "esES": {
     "%d ms": "Numeric SI unit pattern",
@@ -17,7 +29,19 @@
     "Auto": "Common automatic-mode abbreviation",
     "Auto (%s)": "Common automatic-mode abbreviation with format",
     "DPS": "Established gaming acronym",
-    "Personal": "Spanish adjective"
+    "Personal": "Spanish adjective",
+    "target|macro": "Literal command syntax; machine command names and options must remain unchanged.",
+    "%s  |cff888888%s|r": "Format placeholders, markup and SI seconds unit only; no ordinary prose.",
+    "target|id|macro|rank": "Literal command syntax; machine command names and options must remain unchanged.",
+    "  rank = /cast Name(Rank N)": "Literal command syntax; machine command names and options must remain unchanged.",
+    "%ds": "Format placeholders, markup and SI seconds unit only; no ordinary prose.",
+    "%s · %s · %ds": "Format placeholders, markup and SI seconds unit only; no ordinary prose.",
+    "|cff33ccffBuff|rRadar": "BuffRadar product name with its canonical color markup.",
+    "  /br minimapstatus · /br visual · /br lite · /br stats memory · /br status [export] · /br feedback": "Literal command syntax; machine command names and options must remain unchanged.",
+    "|cffff4040error:|r %s": "The same spelling is idiomatic Spanish for this term: |cffff4040error:|r %s.",
+    "%s · %s": "Format placeholders, markup and SI seconds unit only; no ordinary prose.",
+    "  /br forecast [seconds|off|timer] · /br smartprio · /br debuff · /br readiness": "Literal command syntax; machine command names and options must remain unchanged.",
+    "Macro": "The same spelling is idiomatic Spanish for this term: Macro."
   },
   "frFR": {
     "%d ms": "Numeric SI unit pattern",
@@ -27,11 +51,40 @@
     "DPS": "Established gaming acronym",
     "Tank": "Established French role term",
     "Raids": "Established French gaming term",
-    "combat": "French noun"
+    "combat": "French noun",
+    "target|macro": "Literal command syntax; machine command names and options must remain unchanged.",
+    "%s  |cff888888%s|r": "Format placeholders, markup and SI seconds unit only; no ordinary prose.",
+    "Coordination": "The same spelling is idiomatic French for this term: Coordination.",
+    "target|id|macro|rank": "Literal command syntax; machine command names and options must remain unchanged.",
+    "raid": "The same spelling is idiomatic French for this term: raid.",
+    "  rank = /cast Name(Rank N)": "Literal command syntax; machine command names and options must remain unchanged.",
+    "%ds": "Format placeholders, markup and SI seconds unit only; no ordinary prose.",
+    "%s · %s · %ds": "Format placeholders, markup and SI seconds unit only; no ordinary prose.",
+    "|cff33ccffBuff|rRadar": "BuffRadar product name with its canonical color markup.",
+    "raids": "The same spelling is idiomatic French for this term: raids.",
+    "  /br minimapstatus · /br visual · /br lite · /br stats memory · /br status [export] · /br feedback": "Literal command syntax; machine command names and options must remain unchanged.",
+    "Minimal": "The same spelling is idiomatic French for this term: Minimal.",
+    "instances": "The same spelling is idiomatic French for this term: instances.",
+    "%s · %s": "Format placeholders, markup and SI seconds unit only; no ordinary prose.",
+    "  /br forecast [seconds|off|timer] · /br smartprio · /br debuff · /br readiness": "Literal command syntax; machine command names and options must remain unchanged.",
+    "Macro": "The same spelling is idiomatic French for this term: Macro.",
+    "%s · Page %d/%d": "Page is also the French noun; remaining content is formatting.",
+    "violet": "Violet is the French color name as well."
   },
   "ruRU": {
     "%s: %s": "Pure formatting pattern",
-    "%s: %s -> %s": "Pure formatting pattern"
+    "%s: %s -> %s": "Pure formatting pattern",
+    "target|macro": "Literal command syntax; machine command names and options must remain unchanged.",
+    "%s  |cff888888%s|r": "Format placeholders, markup and SI seconds unit only; no ordinary prose.",
+    "target|id|macro|rank": "Literal command syntax; machine command names and options must remain unchanged.",
+    "|cff33ccffBuff|rRadar": "BuffRadar product name with its canonical color markup.",
+    "%s · %s": "Format placeholders, markup and SI seconds unit only; no ordinary prose."
   },
-  "zhCN": {}
+  "zhCN": {
+    "target|macro": "Literal command syntax; machine command names and options must remain unchanged.",
+    "%s  |cff888888%s|r": "Format placeholders, markup and SI seconds unit only; no ordinary prose.",
+    "target|id|macro|rank": "Literal command syntax; machine command names and options must remain unchanged.",
+    "|cff33ccffBuff|rRadar": "BuffRadar product name with its canonical color markup.",
+    "%s · %s": "Format placeholders, markup and SI seconds unit only; no ordinary prose."
+  }
 }

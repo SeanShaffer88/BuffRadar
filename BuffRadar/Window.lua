@@ -666,7 +666,7 @@ local function Row_OnEnter(self)
     end
     table_sort(names)
     if #names > 0 then
-      GameTooltip:AddLine("Also castable by: " .. table.concat(names, ", "), 0.7, 0.7, 0.7, true)
+      GameTooltip:AddLine(string.format(L["Also castable by: %s"], table.concat(names, ", ")), 0.7, 0.7, 0.7, true)
     end
   end
   GameTooltip:Show()
@@ -729,10 +729,10 @@ local function IgnoreRowPlayer(self, button, down)
     local k = Ignore.Key(who)
     if X.session[k] then
       X.session[k] = nil
-      Print("No longer ignoring " .. who .. " for this session.")
+      Print(string.format(L["No longer ignoring %s for this session."], who))
     else
       X.session[k] = true
-      Print("Ignoring " .. who .. " for this session only (not saved).")
+      Print(string.format(L["Ignoring %s for this session only (not saved)."], who))
     end
     if QueueRefresh then QueueRefresh() end
     return
@@ -741,10 +741,10 @@ local function IgnoreRowPlayer(self, button, down)
     -- (a row still showing an ignored player: it drops off on the next refresh)
     local removed = Ignore.Remove(who)
     if #removed == 0 and short then removed = Ignore.Remove(short) end
-    Print("No longer ignoring " .. table.concat(removed, ", ") .. ".")
+    Print(string.format(L["No longer ignoring %s."], table.concat(removed, ", ")))
   else
     local ok, err = Ignore.Add(who)
-    if ok then Print("Ignoring " .. who .. ". Undo with /br unignore " .. who .. " or on the Ignore & Stats tab.")
+    if ok then Print(string.format(L["Ignoring %s. Undo with /br unignore %s or on the Ignore & Stats tab."], who, who))
     elseif err then Print(err) end
   end
   if QueueRefresh then QueueRefresh() end
@@ -1731,15 +1731,15 @@ local function AppendBuffCoverage(parts)
       -- blindly.
       local left = core.CooldownLeft(b.name)
       if left > 5 then
-        seg = seg .. (left >= 60 and string_format(" (~%dm cd)", math_floor(left / 60 + 0.5))
-                      or string_format(" (~%ds cd)", math_floor(left + 0.5)))
+        seg = seg .. (left >= 60 and string_format(L[" (~%dm cd)"], math_floor(left / 60 + 0.5))
+                      or string_format(L[" (~%ds cd)"], math_floor(left + 0.5)))
       end
       parts[#parts + 1] = seg
     end
   end
   local tb = X.tally.BLESSINGS
   if tb and tb.total > 0 then
-    parts[#parts + 1] = string_format("Blessings %d/%d", tb.total - tb.miss, tb.total)
+    parts[#parts + 1] = string_format(L["Blessings %d/%d"], tb.total - tb.miss, tb.total)
   end
 end
 
@@ -1769,7 +1769,7 @@ local function CoverageRoster()
     local short = (p.name:match("^[^%-]+") or p.name)
     for cname, exp in pairs(X.cover) do
       if exp > nowC and X.SameUser(p.name, cname) then
-        short = short .. " (away)" break
+        short = short .. " (" .. L["Away"] .. ")" break
       end
     end
     local hk = Ignore.Key(p.name:match("^[^%-]+") or p.name)
@@ -1794,7 +1794,7 @@ local function ExpiringGroupBuffs()
         if def.key == worstKey then nm = def.name break end
       end
     end
-    return string_format("%s <5m on %d/%d", nm, worstSoon, worstTotal)
+    return string_format(L["%s <5m on %d/%d"], nm, worstSoon, worstTotal)
   end
 end
 
@@ -1805,7 +1805,7 @@ local function RenderCoverage(entries, n)
   end
   local parts = {}
   if CoverOn("progress") then
-    parts[#parts + 1] = string_format("%d/%d fully buffed", X.tallyUnits - X.tallyMissingUnits, X.tallyUnits)
+    parts[#parts + 1] = string_format(L["%d/%d fully buffed"], X.tallyUnits - X.tallyMissingUnits, X.tallyUnits)
   end
   if CoverOn("buffs") then AppendBuffCoverage(parts) end
   if db.consumables then
@@ -1825,7 +1825,7 @@ local function RenderCoverage(entries, n)
     if X.tallyMissingUnits == 0 then X.upFull = X.upFull + 1 end
   end
   if X.upTotal >= 10 and CoverOn("uptime") then
-    parts[#parts + 1] = string_format("Uptime %d%%",
+    parts[#parts + 1] = string_format(L["Uptime %d%%"],
       math_floor(100 * X.upFull / X.upTotal + 0.5))
   end
   if db.sync and CoverOn("roster") then parts[#parts + 1] = CoverageRoster() end
@@ -1850,7 +1850,7 @@ local function RenderCoverage(entries, n)
   -- pulls — the group waits for them, not the other way round.
   if db.drinkWatch and not db.liteMode and CoverOn("drink") and (X.drinkHealers or 0) > 0 then
     parts[#parts + 1] = X.drinkHealers == 1 and "Healer drinking"
-      or string_format("%d healers drinking", X.drinkHealers)
+      or string_format(L["%d healers drinking"], X.drinkHealers)
   end
   -- Pull countdown (1.15.0): while a pull timer runs (Extras tracks it
   -- in X.pull), the coverage line itself counts down -- the part of the
@@ -1859,7 +1859,7 @@ local function RenderCoverage(entries, n)
   -- the moment the timer ends, so the number never goes stale.
   if X.pull and X.pull.endsAt then
     local left = math_ceil(X.pull.endsAt - GetTime())
-    if left > 0 then parts[#parts + 1] = string_format("Pull in %ds", left) end
+    if left > 0 then parts[#parts + 1] = string_format(L["Pull in %ds"], left) end
   end
   SetTextIfChanged(coverText, table.concat(parts, "  ·  "))
   SetShownIfChanged(coverText, #parts > 0)
@@ -2109,7 +2109,7 @@ end
 local function BuildCloseControl()
   title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   title:SetPoint("TOPLEFT", 9, -7)
-  title:SetText("|cff33ccffBuff|rRadar")
+  title:SetText(L["|cff33ccffBuff|rRadar"])
 
   local close = X.PanelWidget("Button", nil, frame, "UIPanelCloseButton")
   closeButton = close
@@ -2122,7 +2122,7 @@ local function BuildCloseControl()
     if X.PlayerSuspended() or InCombatLockdown() or (db.clickThrough and db.locked) then return end
     db.hidden = true; core.SetSessionShow(false)
     frame:Hide()
-    Print("Hidden. Type /br to show it again.")
+    Print(L["Hidden. Type /br to show it again."])
   end)
   frame:HookScript("OnEnter", X.UpdateFade)
   frame:HookScript("OnLeave", X.UpdateFade)
@@ -2180,10 +2180,15 @@ local function BuildFooter()
   gear:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 20, 6)
   gear:SetNormalTexture("Interface\\Buttons\\UI-OptionsButton")
   gear:SetHighlightTexture("Interface\\Buttons\\UI-OptionsButton", "ADD")
-  gear:SetScript("OnClick", function() if X.OpenConfig then X.OpenConfig() end end)
+  gear:RegisterForClicks("LeftButtonUp","RightButtonUp")
+  gear:SetScript("OnClick", function(_,button)
+    if button=="RightButton" and X.Daily then X.Daily.Open()
+    elseif X.OpenConfig then X.OpenConfig() end
+  end)
   gear:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     GameTooltip:AddLine(L["BuffRadar settings"])
+    GameTooltip:AddLine(L["Right-click: Daily Tasks"])
     GameTooltip:Show()
   end)
   gear:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2279,9 +2284,9 @@ local function BuildToggleBar()
     b:SetScript("OnEnter", function(self)
       if not self.buffKey then return end
       GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-      GameTooltip:AddLine(self.buffName or self.buffKey)
-      GameTooltip:AddLine(IsOn(self.buffKey, self.buffDefault) and "On -- click to turn off"
-        or "Off -- click to turn on", 0.7, 0.7, 0.7)
+      GameTooltip:AddLine(self.buffName   or   self.buffKey)
+      GameTooltip:AddLine(IsOn(self.buffKey, self.buffDefault)   and   L["On -- click to turn off"]
+          or   L["Off -- click to turn on"], 0.7, 0.7, 0.7)
       GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2301,9 +2306,11 @@ local function BuildToggleBar()
     b.fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     b.fs:SetAllPoints(b)
     b.fs:SetJustifyH("CENTER")
-    b.fs:SetText(cd[2])
+    b.fs:SetText(L[cd[2]])
+    b.fs:SetWordWrap(false)
+    b.fs:SetWidth(cd[3])
     b:SetScript("OnClick", function(self)
-      db.roleFilter = self.roleKey
+      if not X.SetPreference("roleFilter",self.roleKey,"ui") then return end
       X.RefreshChips()
       if QueueRefresh then QueueRefresh() end
     end)
@@ -2342,9 +2349,9 @@ local function BuildResizeControls()
       GameTooltip:SetOwner(self, right and "ANCHOR_RIGHT" or "ANCHOR_LEFT")
       GameTooltip:AddLine(L["Drag to resize the window"])
       GameTooltip:AddLine(string.format("%d%%%s", math_floor((db.scale or 1) * 100 + 0.5),
-        db.scalePerSpec and (X.spec and ("  (scale saved for " .. X.spec .. ")") or "  (per-spec scale on)") or ""),
+        db.scalePerSpec and (X.spec and string.format(L["  (scale saved for %s)"],X.spec) or L["  (per-spec scale on)"]) or ""),
         0.8, 0.8, 0.8)
-      if db.gripSnap ~= false then GameTooltip:AddLine("Hold Shift to snap to 75 / 100 / 125 / 150%", 0.6, 0.6, 0.6) end
+      if db.gripSnap ~= false then GameTooltip:AddLine(L["Hold Shift to snap to 75 / 100 / 125 / 150%"], 0.6, 0.6, 0.6) end
       GameTooltip:Show()
     end)
     g:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2367,7 +2374,7 @@ local function BuildResizeControls()
   edge:SetScript("OnMouseUp", function(self) EndEdgeDrag(self) end)
   edge:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
-    GameTooltip:AddLine("Drag to change the width")
+    GameTooltip:AddLine(L["Drag to change the width"])
     GameTooltip:Show()
   end)
   edge:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2382,7 +2389,7 @@ local function BuildFinder()
   findBar:SetHeight(16)
   local findLabel = findBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   findLabel:SetPoint("LEFT", 2, 0)
-  findLabel:SetText("Find:")
+  findLabel:SetText(L["Find:"])
   findEdit = X.PanelWidget("EditBox", nil, findBar, "InputBoxTemplate")
   findEdit:SetSize(130, 16)
   findEdit:SetPoint("LEFT", findLabel, "RIGHT", 6, 0)
@@ -2419,7 +2426,7 @@ local function BuildCastControls()
   macroNote:SetScript("OnClick", X.RecordBarMacroClick)
   local okNext, errNext = pcall(BuildNextButton)
   pcall(BuildGroupButton)
-  if not okNext then Print("|cffff4040keybind button unavailable:|r " .. tostring(errNext)) end
+  if not okNext then Print(string.format(L["|cffff4040keybind button unavailable:|r %s"], tostring(errNext))) end
 end
 
 local function BuildUI()
@@ -2521,11 +2528,11 @@ local function ToggleWindow()
   db.hidden = not db.hidden
   core.SetSessionShow(not db.hidden)
   if InCombatLockdown() then
-    Print(db.hidden and "Window will hide when combat ends." or "Window will show when combat ends.")
+    Print(db.hidden   and   L["Window will hide when combat ends."]   or   L["Window will show when combat ends."])
     return
   end
   if not db.hidden and db.groupOnly and not X.InGroup() then
-    Print("Window is set to show only in a party or raid.")
+    Print(L["Window is set to show only in a party or raid."])
   end
   X.Refresh()
 end

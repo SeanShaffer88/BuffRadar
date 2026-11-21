@@ -1212,9 +1212,9 @@ function X.InstanceCheck()
     local report = X.GroupBuffReport()
     local people = #report.people
     if people > 0 then
-      Print(string.format("Entered the %s with buffs missing: %d %s still need buffs (%d buffs needed).",
-        ctx == "dungeon" and "dungeon" or (ctx == "raid" and "raid" or "battleground"),
-        people, people == 1 and "person" or "people", report.buffs))
+      Print(string.format(L["Entered the %s with buffs missing: %d %s still need buffs (%d buffs needed)."],
+        ctx == "dungeon" and L["dungeon"] or (ctx == "raid" and L["raid"] or L["battleground"]),
+        people, people == 1 and L["person"] or L["people"], report.buffs))
     end
   end
   X.wasInside = inside
@@ -1227,9 +1227,9 @@ function X.JoinDigest(why)
   local report = X.GroupBuffReport()
   local people = #report.people
   if people == 0 then return end
-  Print(string.format("%s: %d %s missing buffs (%d buffs needed).",
-    why == "run" and "Run starting" or "Joined a group",
-    people, people == 1 and "person is" or "people are", report.buffs))
+  Print(string.format(L["%s: %d %s missing buffs (%d buffs needed)."],
+    why == "run" and L["Run starting"] or L["Joined a group"],
+    people, people == 1 and L["person is"] or L["people are"], report.buffs))
 end
 
 -- Roster events: only the step from solo to grouped triggers the join

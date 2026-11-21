@@ -8,8 +8,15 @@ from lupa import lua51
 REQUIRED = {"deDE", "esES", "frFR", "ruRU", "zhCN"}
 FORMAT = re.compile(r"%%|%[-+#0 ]*[0-9]*(?:\.[0-9]+)?[cdiouxXeEfgGqs]")
 COMMAND = re.compile(r"/br\s+([a-z][a-z0-9]*)\b")
+ROOT_COMMANDS = {'self', 'tagsymbols', 'why', 'buffassign', 'unignore', 'modclick', 'death', 'macro', 'iconsize', 'nearby', 'keybind', 'find', 'offenders', 'width', 'wizard', 'ignore', 'export', 'bg', 'filter', 'firstcast', 'undo', 'context', 'hide', 'resetpos', 'count', 'assign', 'view', 'motion', 'pullflash', 'rowgap', 'theme', 'text', 'tooltip', 'minimap', 'storage', 'worldbuff', 'sync', 'growup', 'alertsound', 'fade', 'fastaura', 'autohide', 'lock', 'matrix', 'requests', 'clickreg', 'uptime', 'daily', 'charpoint', 'rebuff', 'rangewatch', 'plates', 'selftest', 'specscale', 'config', 'rowcolor', 'weapon', 'ready', 'snap', 'resetcount', 'fallsound', 'bless', 'stats', 'twocol', 'prep', 'findbox', 'clickthrough', 'pin', 'help', 'markers', 'coverage', 'scale', 'prio', 'cover', 'soundfor', 'pvp', 'grouppair', 'groupcast', 'unsignore', 'throttle', 'enterflash', 'strip', 'options', 'bars', 'prefs', 'drink', 'signore', 'plan', 'history', 'readiness', 'digest', 'wipe', 'ignores', 'practice', 'clicks', 'quicksetup', 'custom', 'toggle', 'coordinate', 'announce', 'mana', 'counts', 'key', 'summary', 'settings', 'ignorelist', 'watch', 'import', 'show', 'consumables', 'sound', 'autoprofile', 'supplies', 'scroll', 'debug', 'sort', 'profile', 'cities', 'thornsoutdoors', 'aura', 'preset', 'assumerange', 'positions', 'pets', 'gamepad', 'pill', 'buffs', 'buddy', 'taxi', 'subgroup', 'mode', 'compact', 'focus', 'discord', 'readypost', 'support', 'selfstrip', 'reset', 'group'}
 # Actual machine options, never a greedy span of adjacent translated prose.
 OPTIONS = {
+    "custom": {"add", "remove", "list"},
+    "supplies": {"on", "off", "target", "limits", "preview"},
+    "profile": {"save", "load", "delete", "list", "share", "full"},
+    "prefs": {"undo"},
+    "view": {"people", "buffs"},
+    "cast": {"target", "id", "macro", "rank"},
     "coordinate": {"panel", "on", "off", "request", "need", "review", "publish", "status", "inbox", "accept", "decline"},
     "config": {"navigate", "narrate"}, "storage": {"delete", "profile", "ignore"},
     "theme": {"priority", "panel", "list", "up", "down", "reset"},
@@ -23,8 +30,13 @@ OPTIONS = {
 }
 
 
+MACHINE_WORDS = set().union(*OPTIONS.values()) | {"remove", "rank", "raid", "raids", "retail", "rankstep", "report", "role", "range", "reagents"}
+
 def english_table(path):
-    source = Path(path).read_text(encoding="utf-8-sig")
+    path = Path(path)
+    source = path.read_text(encoding="utf-8-sig")
+    if "local L = X.L" in source and path.name == "BuffRadar.lua":
+        source = path.with_name("Data.lua").read_text(encoding="utf-8-sig")
     match = re.search(r"^local L = (\{.*?^\})", source, re.S | re.M)
     if not match:
         raise ValueError("could not find English L table")
@@ -69,7 +81,7 @@ def markup(text):
         elif token == "|r":
             if not colors:
                 word = re.match(r"[A-Za-z]+", text[match.start() + 1:])
-                if word and word.group() in {"request", "review", "reset", "restore"}:
+                if word and word.group() in MACHINE_WORDS:
                     continue  # literal machine-option separators, not color resets
                 raise ValueError("unbalanced color close")
             colors -= 1
@@ -81,13 +93,15 @@ def markup(text):
     if colors:
         raise ValueError("unbalanced color open")
     stripped = re.sub(r"\|H[^|]*\|h[^|]*\|h|\|T[^|]*\|t|\|A[^|]*\|a", "", text)
-    if re.search(r"\|[HTA]", stripped):
-        raise ValueError("unbalanced hyperlink/texture markup")
+    for match in re.finditer(r"\|([HTAB][A-Za-z]*)", stripped):
+        if match.group(1) not in {"BUFF", "ALL", "NONE"}:
+            raise ValueError("unbalanced hyperlink/texture markup")
     return tokens
 
 
 def command_signature(text, source=None):
-    original, translated = list(COMMAND.finditer(source or text)), list(COMMAND.finditer(text))
+    original = [m for m in COMMAND.finditer(source or text) if m.group(1) in ROOT_COMMANDS]
+    translated = [m for m in COMMAND.finditer(text) if m.group(1) in ROOT_COMMANDS]
     result = []
     if [m.group(1) for m in original] != [m.group(1) for m in translated]:
         return [m.group(1) for m in translated], []
@@ -103,8 +117,12 @@ def command_signature(text, source=None):
                 break
         end = translated[index + 1].start() if index + 1 < len(translated) else len(text)
         words = re.findall(r"[A-Za-z][A-Za-z0-9]*", text[dst.end():end])
-        result.append([word for word in words if word in set(expected)])
-    return [m.group(1) for m in translated], result
+        result.append([word for word in words if word in allowed][:len(expected)])
+    plain = re.sub(r"\|c[0-9a-fA-F]{8}|\|r", "", text)
+    groups = re.findall(r"(?<![A-Za-z])[A-Za-z][A-Za-z0-9]*(?:\|[A-Za-z][A-Za-z0-9]*)+", plain) if '/br' in (source or text) else []
+    pipes = [[part for part in group.split('|') if not part.isupper()] for group in groups]
+    pipes = [group for group in pipes if group]
+    return [m.group(1) for m in translated], result, pipes
 
 
 def problems(english, pack, code, identical):

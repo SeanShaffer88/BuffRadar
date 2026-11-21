@@ -36,8 +36,8 @@ end
 function X.UpdateNearbyScanCount()
   if not nearby or not nearby:IsShown() or nearby.lastCount == X.playersSeen then return end
   nearby.lastCount = X.playersSeen
-  nearby.count:SetText(X.playersSeen == nil and L["Player nameplates seen on last scan: unavailable"]
-    or string.format(L["Player nameplates seen on last scan: %d"], X.playersSeen))
+  nearby.count:SetText(X.playersSeen == nil   and   L["Player nameplates seen on last scan: unavailable"]
+      or   string.format(L["Player nameplates seen on last scan: %d"], X.playersSeen))
 end
 
 local function UpdateNearbyTarget()
@@ -122,7 +122,7 @@ local function BuildNearby()
       if not mode then return end
       local message
       X.ChangeFriendlyNameplates(mode, function(line) message = line end)
-      f.message:SetText(message or "")
+      f.message:SetText(message   or   "")
     end)
     return btn
   end
@@ -355,7 +355,7 @@ function X.ApiCheck(export)
   else
     out("  Pull timers: none seen yet (start a /countdown or a boss-mod /pull in a group, then run this again)")
   end
-  if export then X.ShowExport(table.concat(lines, "\n"), false, "BuffRadar API check -- select all, copy") end
+  if export then X.ShowExport(table.concat(lines, "\n"), false, L["Copy Support Report"]) end
   return table.concat(lines, "\n")
 end
 
@@ -385,7 +385,7 @@ function X.IgnoreImport(text)
   if not added then return false, err end
   local seen = #names
   if X.Refresh then X.Refresh() end
-  return true, string.format("Ignore list: %d added, %d already there.", added, seen - added)
+  return true, string.format(L["Ignore list: %d added, %d already there."], added, seen - added)
 end
 
 ---------------------------------------------------------------------------
@@ -412,16 +412,16 @@ function X.BuffCheck()
       total = total + 1
       local known = SpellKnownToClient(pair[1])
       if known == nil then
-        Print("Buff check needs C_Spell.GetSpellName or GetSpellInfo; neither exists on this client.")
+        Print(L["Buff check needs C_Spell.GetSpellName or GetSpellInfo; neither exists on this client."])
         return
       end
       if not known then bad[#bad + 1] = string.format("%s (%s, id %d)", d.key, tostring(pair[2]), pair[1]) end
     end
   end
   if #bad == 0 then
-    Print(string.format("Buff check: all %d spell ids in the buff table exist on this client.", total))
+    Print(string.format(L["Buff check: all %d spell ids in the buff table exist on this client."], total))
   else
-    Print(string.format("Buff check: %d of %d spell ids are unknown here (data may still be loading -- retry in a few seconds):", #bad, total))
+    Print(string.format(L["Buff check: %d of %d spell ids are unknown here (data may still be loading -- retry in a few seconds):"], #bad, total))
     for _, line in ipairs(bad) do Print("  " .. line) end
   end
 end
@@ -433,18 +433,18 @@ function X.PerfReport()
   for _, key in ipairs({ "scan", "prepare", "import", "debuff", "combatDebuff" }) do
     local t = X.timings[key]
     if t.n > 0 then
-      Print(string.format("Perf: %s · %d samples · CPU average %.2f ms · last %.2f ms · worst %.2f ms",
+      Print(string.format(L["Perf: %s · %d samples · CPU average %.2f ms · last %.2f ms · worst %.2f ms"],
         key, t.n, t.total / t.n, t.last, t.max))
     end
   end
-  if not debugprofilestop then Print("Perf: CPU timing unavailable (needs debugprofilestop).") end
+  if not debugprofilestop then Print(L["Perf: CPU timing unavailable (needs debugprofilestop)."]) end
   local probe = X.auraProbe
   if probe and probe.seen then
-    Print(string.format("Perf: UNIT_AURA payloads %d · skipped by fast aura %d",
+    Print(string.format(L["Perf: UNIT_AURA payloads %d · skipped by fast aura %d"],
       probe.seen, probe.skipped or 0))
   end
   local kb = X.Intel.MemoryKB()
-  if kb then Print(string.format("Perf: addon memory %.0f KB", kb)) end
+  if kb then Print(string.format(L["Perf: addon memory %.0f KB"], kb)) end
   Print(X.Intel.PaceText())
 end
 
@@ -462,10 +462,10 @@ end
 function X.PrintDiff(text, label, named)
   local lines, err = X.SettingsDiff(text, named)
   if not lines then Print(err); return end
-  if #lines == 0 then Print((label or "That string") .. " changes nothing."); return end
-  Print(string.format("%s would change %d setting%s:", label or "That string", #lines, #lines == 1 and "" or "s"))
+  if #lines == 0 then Print(string.format(L["%s changes nothing."], (label  or  L["That string"]))); return end
+  Print(string.format(L["%s: %d preference changes"],label or L["That string"],#lines))
   for i = 1, math.min(#lines, 30) do Print("  " .. lines[i]) end
-  if #lines > 30 then Print(string.format("  ... and %d more", #lines - 30)) end
+  if #lines > 30 then Print(string.format(L["  ... and %d more"], #lines - 30)) end
 end
 
 ---------------------------------------------------------------------------
@@ -599,7 +599,7 @@ function X.PullStart(secs, source, owner, timerID, sender)
     membership = membership }
   X.pull = pull
   if flash then
-    Print(string.format("Pull in %ds (%s) -- %d casts still needed.", secs, source, casts))
+    Print(string.format(L["Pull in %ds (%s) -- %d casts still needed."], secs, source, casts))
     if X.Flash then X.Flash() end
   end
   if X.Intel.ForecastEnabled() then X.Core.QueueRefresh() end
@@ -669,14 +669,14 @@ end
 ---------------------------------------------------------------------------
 X.ext.apicheck = function(rest) X.ApiCheck(rest == "export") end
 X.ext.ignorelist = function(rest)
-  if rest == "export" then X.ShowExport(X.IgnoreExport(), false, "BuffRadar ignore list -- select all, copy")
-  elseif rest == "import" then X.ShowExport("", true, "BuffRadar -- paste an ignore-list string, then Import", "ignore")
-  else Print("Usage: /br ignorelist export | import") end
+  if rest == "export" then X.ShowExport(X.IgnoreExport(), false, L["Ignored players"])
+  elseif rest == "import" then X.ShowExport("", true, L["Ignored players"], "ignore")
+  else Print(L["Usage: /br ignorelist export | import"]) end
 end
 X.ext.buffcheck = function() X.BuffCheck() end
 X.ext.perf = function() X.PerfReport() end
 X.ext.diff = function(rest)
-  X.PrintDiff(rest, "That string")
+  X.PrintDiff(rest, L["That string"])
 end
 
 if X.supported then X.InitEditMode() end

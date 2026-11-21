@@ -1,0 +1,21 @@
+{
+  "Window.lua:chipDefs": [
+    "All",
+    "Tank",
+    "Heal",
+    "DPS"
+  ],
+  "Daily.lua:shareCounts": [
+    "Share Preferences",
+    "Ignored players",
+    "pinned"
+  ],
+  "Daily.lua:freshness": [
+    "No completed scan",
+    "Current",
+    "Scan stale",
+    "Scan paused",
+    "Unavailable",
+    "Unknown"
+  ]
+}

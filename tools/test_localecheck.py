@@ -18,7 +18,7 @@ class LocaleGateTests(unittest.TestCase):
         for code in ("frFR", "esES", "ruRU", "zhCN"):
             with self.subTest(locale=code):
                 pack = gate.locale_table(HERE.parent / f"BuffRadar/Locales/{code}.lua", code)
-                pack.pop(next(iter(english)))
+                pack.pop(next(iter(pack)))
                 self.assertTrue(any("missing:" in item for item in gate.problems(english, pack, code, allow)))
 
     def test_placeholder_order_and_literal_percent(self):
@@ -45,6 +45,20 @@ class LocaleGateTests(unittest.TestCase):
         source = "Caster plan from %s. Use /br coordinate inbox to review it."
         translated = "Plan de %s. Utilisez /br coordinate inbox pour le consulter."
         self.assertFalse(gate.problems({source: source}, {source: translated}, "test", {}))
+
+    def test_machine_alternatives_and_bare_command_prose(self):
+        for source, translated in (("Use /br to show it.", "Utilisez /br pour l’afficher."),
+            ("Use /br custom add|remove ID.", "Utilisez /br custom add|remove ID."),
+            ("Use /br prep [personal] for personal checks.", "Utilisez /br prep [personal] pour les contrôles personnels.")):
+            self.assertFalse(gate.problems({source:source},{source:translated},"test",{}))
+        for changed in ("Utilisez /br custom add|delete ID.","Utilisez /br premier."):
+            source="Use /br custom add|remove ID." if "custom" in changed else "Use /br firstcast."
+            self.assertTrue(gate.problems({source:source},{source:changed},"test",{}))
+
+    def test_all_literal_pipe_options_are_preserved(self):
+        for source, changed in (("Usage: /br sort name|role|distance|need", "Uso: /br sort name|role|distancia|need"),
+                                ("Use /br mode target|id|macro|rank", "Use /br mode target|id|macro|rango")):
+            self.assertTrue(gate.problems({source:source},{source:changed},"test",{}))
 
     def test_identical_english_requires_review(self):
         self.assertTrue(gate.problems({"Ready": "Ready"}, {"Ready": "Ready"}, "test", {}))

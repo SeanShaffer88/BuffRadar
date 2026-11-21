@@ -17,6 +17,8 @@ echo "== luacheck51";   "$PY" -I tools/luacheck51.py BuffRadar/*.lua BuffRadar/L
 echo "== lualimits";    for f in BuffRadar/*.lua; do "$PY" -I tools/lualimits.py "$f"; done
 echo "== localecheck";  "$PY" -I tools/localecheck.py BuffRadar/BuffRadar.lua BuffRadar/Locales
 echo "== locale regression fixtures"; "$PY" -I tools/test_localecheck.py
+echo "== visible localization callsites"; "$PY" -I tools/localization_callsites.py
+echo "== visible localization fixtures"; "$PY" -I tools/test_localization_callsites.py
 echo "== locale-first flows"; "$PY" -I tools/locale_flows51.py
 echo "== patterncheck"; "$PY" -I tools/patterncheck.py BuffRadar/*.lua BuffRadar/Locales/*.lua
 echo "== smoke";        "$PY" -I tools/smoke51.py tools/wowstub.lua BuffRadar/BuffRadar.lua

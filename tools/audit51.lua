@@ -584,14 +584,14 @@ return function(step, fresh, testClient, loadClient, forever)
     enter("First"); f.advance(0.40)
     joined, f.units.party1 = false, nil; f.event("GROUP_LEFT")
     enter("Second"); f.advance(1.11)
-    assert(mentions(f.messages, "Joined a group:") == 0)
+    assert(mentions(f.messages, f.X.L["Joined a group"]) == 0)
     f.advance(0.50)
-    assert(mentions(f.messages, "Joined a group:") == 1)
+    assert(mentions(f.messages, f.X.L["Joined a group"]) == 1)
     joined, f.units.party1 = false, nil; f.event("GROUP_LEFT")
     enter("Third")
     enter("Changed"); enter("Third")
     f.advance(2)
-    assert(mentions(f.messages, "Joined a group:") == 1, "a retired membership printed a delayed digest")
+    assert(mentions(f.messages, f.X.L["Joined a group"]) == 1, "a retired membership printed a delayed digest")
   end)
 
   step("audit: chat reports distinguish refusal, submission and delivery uncertainty", function()
@@ -608,7 +608,7 @@ return function(step, fresh, testClient, loadClient, forever)
     c.SendChatMessage = function() return false end
     n = #f.messages; f.slash("announce")
     assert(mentions(f.messages, L["The game did not accept the send."], n) == 1
-      and mentions(f.messages, "missing buffs:", n) == 1 and mentions(f.messages, accepted, n) == 0)
+      and mentions(f.messages, L["BuffRadar -- missing buffs: "], n) == 1 and mentions(f.messages, accepted, n) == 0)
     c.SendChatMessage = function() error("chat refused") end
     assert(not X.SendGroupReport("Local"))
     local calls = 0

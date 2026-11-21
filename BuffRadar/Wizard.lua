@@ -50,7 +50,7 @@ function X.WizardPage(n)
     local field = n == 1 and "activity" or "role"
     for i, option in ipairs(n == 1 and activities or roles) do
       local button, id, label = w.choice[i], option[1], option[2]
-      button:SetText((w.draft[field] == id and "+ " or "") .. L[label])
+      button:SetText((w.draft[field] == id   and   "+ "   or   "") .. L[label])
       button:SetScript("OnClick", function()
         w.draft[field], w.draft[field .. "Label"] = id, label
         X.WizardPage(n + 1)
@@ -230,7 +230,7 @@ function X.CheckRange()
     local g = e.guid
     if g and X.farPrev[g] and not e.pet then
       local name = X.farPrev[g] == true and e.name or X.farPrev[g]
-      Print(string_format("%s is in range now and still needs a buff.", name))
+      Print(string_format(L["%s is in range now and still needs a buff."], name))
       PlayAlert("new")
     end
   end
@@ -281,11 +281,11 @@ function X.Why(name)
   try("mouseover", false)
   for i = 1, #PLATES do try(PLATES[i], false) end
   if ambiguous then
-    Print("Why: more than one player matches. Use their full name, including realm.")
+    Print(L["Why: more than one player matches. Use their full name, including realm."])
     return
   end
   if not selected then
-    Print("Why: no readable player matches '" .. name .. "'. Target or mouse over them, or enable friendly nameplates with /br plates.")
+    Print(string.format(L["Why: no readable player matches '%s'. Target or mouse over them, or enable friendly nameplates with /br plates."], name))
     return
   end
   X.ExplainPlayer(selected, Print)
@@ -309,18 +309,18 @@ function X.ExplainPlayer(selected, emit, showUnknown)
   end
   if Ignore.Has(full, short) then
     printInactiveRule()
-    emit(disp .. " is on your ignore list, so they are never listed. /br unignore " .. disp .. " undoes it.")
+    emit(string.format(L["%s is on your ignore list, so they are never listed. /br unignore %s undoes it."], disp, disp))
     return
   end
   if X.SessionHas(full, short) then
     printInactiveRule()
-    emit(disp .. " is ignored for this session only (Shift+right-click on a row). It clears when you reload.")
+    emit(string.format(L["%s is ignored for this session only (Shift+right-click on a row). It clears when you reload."], disp))
     return
   end
   local valid, isSelf = Valid(unit)
   if not valid then
     printInactiveRule()
-    emit(disp .. " can't be buffed right now (dead, offline, in combat, charmed or in another phase), so they are not listed.")
+    emit(string.format(L["%s can't be buffed right now (dead, offline, in combat, charmed or in another phase), so they are not listed."], disp))
     return
   end
   local allMiss, miss = {}, {}
@@ -331,14 +331,14 @@ function X.ExplainPlayer(selected, emit, showUnknown)
   X.scanUnit = nil
   if n == 0 then
     if unknown then
-      emit(disp .. ": buff information is unavailable.")
+      emit(string.format(L["%s: buff information is unavailable."], disp))
     elseif #detail.cooldown > 0 then
-      emit(disp .. " needs " .. table.concat(detail.cooldown, ", ") .. ", but those spells are on cooldown.")
+      emit(string.format(L["%s needs %s, but those spells are on cooldown."], disp, table.concat(detail.cooldown, ", ")))
     elseif not checked then
-      emit(disp .. (detail.assignment and ": no enabled buffs apply under the selected class or role assignment."
-        or ": no enabled buffs apply to this player."))
+      emit(disp .. (detail.assignment   and   L[": no enabled buffs apply under the selected class or role assignment."]
+          or   L[": no enabled buffs apply to this player."]))
     else
-      emit(disp .. " already has every buff you can give them.")
+      emit(string.format(L["%s already has every buff you can give them."], disp))
     end
     return
   end
@@ -348,41 +348,40 @@ function X.ExplainPlayer(selected, emit, showUnknown)
     if rangeUnknown and (inRange > 0 or rankLimited) then emit(L["Range could not be confirmed; the list may be incomplete."]) end
   end
   if inRange == 0 then
-    emit(disp .. " needs " .. table.concat(allMiss, ", ") .. (rankLimited
-      and ", but no learned rank fits their level, or another needed spell is out of range."
-      or rangeUnknown
-      and ", but the game could not confirm cast range. Move closer and check again."
-      or " but none are in cast range; move closer before buffing."))
+    emit(string.format(L["%s needs %s%s"], disp, table.concat(allMiss, ", "), (rankLimited
+       and  L[", but no learned rank fits their level, or another needed spell is out of range."]
+       or  rangeUnknown
+       and  L[", but the game could not confirm cast range. Move closer and check again."]
+       or  L[" but none are in cast range; move closer before buffing."])))
     return
   end
   if guid and X.failedTargets[guid] and X.failedTargets[guid] > GetTime() then
     local failure = X.lastTargetCastProblem
-    emit(disp .. " was temporarily skipped after a failed cast."
-      .. (failure and failure.guid == guid and " " .. failure.message or "") .. " Try again in a few seconds.")
+    emit(string.format(L["%s was temporarily skipped after a failed cast.%s Try again in a few seconds."], disp, (failure  and  failure.guid == guid  and  " " .. failure.message  or  "")))
     return
   end
   for i = 1, core.EntryCount() do
     if guid and entries[i].guid == guid then
       local visibility = X.QueueVisibility(entries, i)
       if visibility == "visible" then
-        emit(disp .. " is on the list (row " .. i .. "), missing: " .. table.concat(miss, ", ") .. ".")
+        emit(string.format(L["%s is on the list (row %s), missing: %s."], disp, i, table.concat(miss, ", ")))
       elseif visibility == "overflow" then
-        emit(disp .. " is outside the visible rows. " .. L["Use the mouse wheel to see more rows."])
+        emit(string.format(L["%s is outside the visible rows. %s"], disp, L["Use the mouse wheel to see more rows."]))
       else
-        emit(disp .. " needs " .. table.concat(miss, ", ") .. " and is collected, but the row is not shown -- the role filter under the title is the usual reason.")
+        emit(string.format(L["%s needs %s and is collected, but the row is not shown -- the role filter under the title is the usual reason."], disp, table.concat(miss, ", ")))
       end
       return
     end
   end
   if X.search and X.search ~= "" and not (disp:lower():find(X.search, 1, true)) then
-    emit(disp .. " needs " .. table.concat(miss, ", ") .. ", but the name finder ('" .. X.search .. "') hides them. Clear the finder text to see everyone.")
+    emit(string.format(L["%s needs %s, but the name finder ('%s') hides them. Clear the finder text to see everyone."], disp, table.concat(miss, ", "), X.search))
     return
   end
   if not guid then
-    emit(disp .. ": the game did not expose a readable player identity. Target them and check again.")
+    emit(string.format(L["%s: the game did not expose a readable player identity. Target them and check again."], disp))
     return
   end
-  emit(disp .. " is not on the list right now; they need: " .. table.concat(miss, ", ") .. ".")
+  emit(string.format(L["%s is not on the list right now; they need: %s."], disp, table.concat(miss, ", ")))
 end
 
 function X.ExplainCurrentTarget(emit)
@@ -486,7 +485,7 @@ function X.CheckDrops()
       if not Single.holder[key] and prev.unit and X.UnitPresent(prev.unit) and lookup then
         local aura, definitive = X.QueryNamedAura(lookup, prev.unit, Single.spell[key] or key, "HELPFUL|PLAYER")
         if definitive and not aura then
-          Print(string_format("%s dropped off %s.", Single.spell[key] or key, prev.name))
+          Print(string_format(L["%s dropped off %s."], Single.spell[key] or key, prev.name))
           PlayAlert("drop")
           X.Flash()
         else
@@ -506,7 +505,7 @@ end
 function X.HistoryText()
   local h = db.history or {}
   if #h == 0 then
-    return "No casts recorded yet. Buffs you cast through BuffRadar will be listed here."
+    return L["No casts recorded yet — buffs you cast through BuffRadar will be listed here."]
   end
   local lines = {}
   for i = #h, 1, -1 do
@@ -524,10 +523,10 @@ end
 -- Stats export (1.8.0): the cast statistics as copyable text.
 function X.StatsText()
   local lines = { "BuffRadar cast statistics" }
-  lines[#lines + 1] = string_format("Casts: %d this session, %d all-time",
+  lines[#lines + 1] = string_format(L["Casts: %d this session, %d all-time"],
     X.sessionCasts, db.castsTotal or 0)
   if X.upTotal > 0 then
-    lines[#lines + 1] = string_format("Coverage uptime this run: %d%% (%d of %d scans fully buffed)",
+    lines[#lines + 1] = string_format(L["Coverage uptime this run: %d%% (%d of %d scans fully buffed)"],
       math_floor(100 * X.upFull / X.upTotal + 0.5), X.upFull, X.upTotal)
   end
   local srows = {}
@@ -574,7 +573,7 @@ function X.DiscordText()
   end
   if note then lines[#lines + 1] = note end
   if X.upTotal >= 10 then
-    lines[#lines + 1] = string_format("Coverage uptime this run: %d%%",
+    lines[#lines + 1] = string_format(L["Coverage uptime this run: %d%%"],
       math_floor(100 * X.upFull / X.upTotal + 0.5))
   end
   return table.concat(lines, "\n")
@@ -771,7 +770,7 @@ function X.ShowExport(text, forImport, titleText, mode)
     f.accept = button("Review import", 145, "BOTTOMRIGHT", -98, function()
       if f.importMode ~= "ignore" then ReviewImport(f); return end
       local ok, msg = X.IgnoreImport(f.editBox:GetText())
-      Print(msg)
+      Print(L[msg])
       if ok then f.completed = true; f:Hide() end
     end)
     f:SetScript("OnHide", function()
@@ -783,10 +782,11 @@ function X.ShowExport(text, forImport, titleText, mode)
     if UISpecialFrames then UISpecialFrames[#UISpecialFrames + 1] = "BuffRadarExportFrame" end
     f:Hide()
   end
+  f.dailyInputContentGeneration=(f.dailyInputContentGeneration or 0)+1
   f.importMode, f.importing, f.completed = mode or "settings", forImport, nil
   f.pasteTitle = titleText or L[forImport and "Paste a legacy BR1 settings copy, then review."
     or "Legacy BR1 settings copy (select all, copy)"]
-  f.editBox:SetText(text or "")
+  f.editBox:SetText(text   or   "")
   f.accept:SetText(L[f.importMode == "ignore" and "Import" or "Review import"])
   f:Show()
   ShowPaste(f, forImport and true or false)
