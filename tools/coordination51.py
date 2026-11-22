@@ -124,6 +124,9 @@ CLIENT = r"""function(name, guid, withTimer)
     slash = function(command) env.SlashCmdList.BUFFRADAR("coordinate " .. command) end,
     toggleSync = function() env.SlashCmdList.BUFFRADAR("sync") end,
     snapshot = function() return ns.X.CoordinationSnapshot() end,
+    peerSnapshot = function() return ns.X.SyncPeerSnapshot() end,
+    readonlyCoordination = function() return ns.X.CoordinationSnapshot(true) end,
+    supportReport = function() return ns.X.Support.Report() end,
     holder = function(key) return ns.X.CoordinatedHolder(key) end,
     manualHolder = function(key) return ns.X.assign[key] end,
     drain = function()
@@ -802,6 +805,58 @@ def legacy_packets(stub, sources):
     print("PASS: Forever ignores legacy unscoped and v2 coordination traffic")
 
 
+def peer_status(stub, sources):
+    party = Party(stub, sources)
+    a, b = party.a, party.b
+    party.opt_in(a, b)
+    a.action("request")
+    request = party.packet(a, "COORD;1;REQ;")
+    party.deliver(request, b)
+    questions = party.capture(b)
+    check(len(questions) == 1 and questions[0].message.startswith("SYNC;3;Q;"), "missing proof challenge")
+    check(b.api.peerSnapshot().counts.awaiting == 1, "pending proof not shown")
+    for _ in range(2):
+        b.api.peerSnapshot()
+        b.api.readonlyCoordination()
+        report = b.api.supportReport()
+        check("Alia" not in report and "Bren" not in report and "sync.awaiting=1" in report,
+              "support report leaked names or lost typed summary")
+    check(not party.capture(b), "reading peer/support diagnostics sent traffic")
+    for proof in party.answer(questions[0], a):
+        party.deliver(proof, b)
+    check(b.api.peerSnapshot().counts.verified == 1, "proof not shown as verified")
+    party.capture(a)
+    party.capture(b)
+    party.update(a, True, 1001, "GROUP_ROSTER_UPDATE")
+    party.capture(a)
+    party.capture(b)
+    party.update(a, False, 1002, "GROUP_ROSTER_UPDATE")
+    party.capture(a)
+    warm = party.roster_challenge(b)
+    check(b.api.peerSnapshot().counts.awaiting == 1, "roster warmup status missing")
+    b.api.advance(1005)
+    party.capture(b)
+    check(b.api.peerSnapshot().counts.retrying == 1, "automatic retry not shown")
+    b.api.advance(1009)
+    party.capture(b)
+    check(b.api.peerSnapshot().counts.unverified == 1, "exhausted verification still pending")
+    incompatible = replace(warm, sender=a.name + "-TestRealm", message=warm.message.replace("SYNC;3;", "SYNC;4;", 1))
+    party.deliver(replace(incompatible, sender="Outsider-TestRealm"), b)
+    party.deliver(replace(incompatible, channel="WHISPER"), b)
+    party.deliver(replace(incompatible, message=incompatible.message.replace(";4;", ";garbage;", 1)), b)
+    check(b.api.peerSnapshot().counts.incompatible == 0, "unauthenticated protocol observation affected status")
+    party.deliver(incompatible, b)
+    check(b.api.peerSnapshot().counts.incompatible == 1, "scoped incompatible protocol missing")
+    party.capture(b)
+    party.update(b, False, 1010, clients=(b,))  # Identity changed before its event arrives.
+    check(b.api.peerSnapshot().counts.unverified == 1 and not b.api.readonlyCoordination().active,
+          "unprocessed leader change retained trusted peer/session status")
+    check(not party.capture(b), "stale identity read sent a challenge")
+    party.update(b, False, 1011, "PARTY_LEADER_CHANGED", clients=(b,))
+    check(b.api.peerSnapshot().counts.incompatible == 0, "scope change retained incompatible observation")
+    print("PASS: peer diagnostics are pure, scoped, private, and distinguish proof/retry/timeout/protocol states")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stub", type=Path)
@@ -825,6 +880,7 @@ def main():
     retry_without_native_timer(stub, sources)
     expired_roster_challenge(stub, sources)
     legacy_packets(stub, sources)
+    peer_status(stub, sources)
     return 0
 
 

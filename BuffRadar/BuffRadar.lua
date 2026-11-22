@@ -95,6 +95,7 @@ _G["BINDING_NAME_CLICK BuffRadarNextButton:LeftButton"] = L["Cast next buff"]
 _G["BINDING_NAME_CLICK BuffRadarGroupButton:LeftButton"] = L["Cast next group buff"]
 BINDING_NAME_BUFFRADAR_TOGGLE = L["Show / hide window"]
 BINDING_NAME_BUFFRADAR_MUTE = L["Mute / unmute sound"]
+BINDING_NAME_BUFFRADAR_ACTIONS = L["Open Actions"]
 
 ---------------------------------------------------------------------------
 -- API helpers (tolerant of old and new client APIs)
@@ -4783,6 +4784,7 @@ driver:SetScript("OnEvent", function(self, event, arg1, ...)
   end
   if event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN" then
     if arg1 == ADDON then
+      if X.Support then X.Support.RecordFault(event == "ADDON_ACTION_BLOCKED" and "blocked" or "forbidden") end
       Print(string_format(L["|cffff4040the game blocked a BuffRadar action|r (%s)"],event .. ": " .. tostring((...))))
     end
     return

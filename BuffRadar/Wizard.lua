@@ -160,6 +160,7 @@ end
 -- Apply a color theme (1.8.0). Defined here because it needs
 -- ApplyAppearance, which only exists from this point on.
 function X.ApplyTheme(name)
+  if X.CancelThemePreview then X.CancelThemePreview() end
   if name and name:lower() == "auto" and not X.SavedTheme(name) then name = X.AUTO_THEME_ID end
   local t = X.ThemeDef(name)
   if not t then return false end
@@ -176,6 +177,7 @@ end
 -- Save the current look (background + the border now in effect) as one
 -- of your themes (1.10.0). Returns the name, or nil plus a reason.
 function X.SaveTheme(name)
+  if X.CancelThemePreview then X.CancelThemePreview() end
   name = (name or ""):match("^%s*(.-)%s*$")
   if X.THEMES[name:lower()] or name:lower() == "custom" then return nil, "taken" end
   if not name:match("^[%w%-]+$") or #name > 24 then return nil, "name" end
@@ -196,6 +198,7 @@ function X.SaveTheme(name)
 end
 
 function X.DeleteTheme(name)
+  if X.CancelThemePreview then X.CancelThemePreview() end
   if not db or not name then return false end
   for i, t in ipairs(db.customThemes or {}) do
     if t.name:lower() == name:lower() then

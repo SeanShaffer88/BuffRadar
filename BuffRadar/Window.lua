@@ -40,6 +40,15 @@ local rowHeight, topHeight = ROW_H, HEADER_H
 local titleLayoutState, titleKey, geometryPending, appearancePending, flashPending
 local currentAlpha, pillPeek, groupWrapped
 local lastCounterSession, lastCounterTotal, lastCounterRoom
+local themePreview
+
+local function OwnsThemePreview(owner)
+  return owner and owner == themePreview and db == owner.db
+    and X.Preferences.Generation() == owner.generation
+    and not InCombatLockdown() and not X.PlayerSuspended() and X.Settings.SaveState() ~= "future"
+    and db.theme == owner.theme and db.autoThemePriority == owner.priority
+    and db.bgColor[1] == owner.color[1] and db.bgColor[2] == owner.color[2] and db.bgColor[3] == owner.color[3]
+end
 
 -- Widget writes only when the value actually changes (no redundant redraws).
 local function SetTextIfChanged(fs, text)
@@ -930,6 +939,7 @@ function X.ThemeOrder()
 end
 
 function X.EffectiveTheme()
+  if OwnsThemePreview(themePreview) then return X.ThemeCandidate(themePreview.selected) end
   if db and db.theme == X.AUTO_THEME_ID then
     return X.THEMES[X.autoThemeResolved or "midnight"]
   end
@@ -943,6 +953,8 @@ function X.ThemeBorder()
 end
 
 function X.ThemeBackground()
+  local candidate = OwnsThemePreview(themePreview) and X.ThemeCandidate(themePreview.selected)
+  if candidate then return candidate.bg end
   if db and db.theme == X.AUTO_THEME_ID then
     return X.EffectiveTheme().bg
   end
@@ -952,7 +964,7 @@ end
 function X.ThemeLabel(detail)
   if db and db.theme == X.AUTO_THEME_ID then
     if detail then
-      return string_format(L["Auto (%s)"], X.EffectiveTheme().label)
+      return string_format(L["Auto (%s)"], X.THEMES[X.autoThemeResolved or "midnight"].label)
     end
     return L["Auto"]
   end
@@ -993,7 +1005,7 @@ function X.AutoThemeStatus()
     return string_format(L["Auto is off. Current theme: %s."], X.ThemeLabel())
   end
   if not X.autoThemeAddon then return L["No supported UI addon is loaded. Using Midnight."] end
-  return string_format(L["Selected: %s (%s)"], X.EffectiveTheme().label, X.autoThemeAddon)
+  return string_format(L["Selected: %s (%s)"], X.THEMES[X.autoThemeResolved or "midnight"].label, X.autoThemeAddon)
 end
 
 -- Grow-up (1.8.0): normally the window hangs from its top-left corner and
@@ -1167,9 +1179,11 @@ do
     return loaded == true and Readable(finished) and finished == true
   end
 
-  function X.ResolveAutoTheme()
+  function X.ThemeCandidate(name)
+    if name == "custom" and db then return { label = L["Custom theme"], bg = db.bgColor, border = { 0.35, 0.55, 0.8 } } end
+    if name ~= X.AUTO_THEME_ID then return X.ThemeDef(name) end
     local resolved, selectedAddon
-    if db and db.theme == X.AUTO_THEME_ID then
+    if db then
       resolved = "midnight"
       local isLoaded = _G.C_AddOns and _G.C_AddOns.IsAddOnLoaded
       if type(isLoaded) ~= "function" then isLoaded = _G.IsAddOnLoaded end
@@ -1182,8 +1196,22 @@ do
         end
       end
     end
+    return X.THEMES[resolved or "midnight"], selectedAddon
+  end
+
+  function X.ResolveAutoTheme()
+    local resolved, selectedAddon
+    if db and db.theme == X.AUTO_THEME_ID then
+      local candidate
+      candidate, selectedAddon = X.ThemeCandidate(X.AUTO_THEME_ID)
+      for id, definition in pairs(X.THEMES) do if definition == candidate then resolved = id; break end end
+    end
     if X.autoThemeResolved == resolved and X.autoThemeAddon == selectedAddon then
       if X.RefreshAutoThemePriority then X.RefreshAutoThemePriority() end
+      if themePreview then
+        ApplyAppearance()
+        if X.RefreshThemePreview then X.RefreshThemePreview() end
+      end
       return false
     end
     X.autoThemeResolved, X.autoThemeAddon = resolved, selectedAddon
@@ -1191,6 +1219,52 @@ do
     if X.RefreshConfig then X.RefreshConfig() end
     return true
   end
+
+  function X.CancelThemePreview(owner)
+    if not themePreview or (owner and owner ~= themePreview) then return false end
+    themePreview = nil
+    ApplyAppearance()
+    return true
+  end
+
+  function X.BeginThemePreview()
+    X.CancelThemePreview()
+    if not db or InCombatLockdown() or X.PlayerSuspended() or X.Settings.SaveState() == "future" then return end
+    themePreview = { db = db, generation = X.Preferences.Generation(), theme = db.theme,
+      priority = db.autoThemePriority, color = { db.bgColor[1], db.bgColor[2], db.bgColor[3] }, selected = db.theme }
+    return themePreview
+  end
+
+  function X.ThemePreviewState(owner)
+    owner = owner or themePreview
+    if not OwnsThemePreview(owner) then X.CancelThemePreview(owner); return end
+    local candidate, selectedAddon = X.ThemeCandidate(owner.selected)
+    if not candidate then X.CancelThemePreview(owner); return end
+    return { id = owner.selected, label = candidate.label, bg = candidate.bg, border = candidate.border, addon = selectedAddon }
+  end
+
+  function X.PreviewTheme(owner, name)
+    if not OwnsThemePreview(owner) or type(name) ~= "string" or not X.ThemeCandidate(name) then return false end
+    owner.selected = name
+    ApplyAppearance()
+    return true
+  end
+
+  function X.ApplyThemePreview(owner)
+    if not owner then return false end
+    local candidate = X.ThemePreviewState(owner)
+    if not candidate then return false end
+    local changes = { theme = candidate.id }
+    if candidate.id ~= X.AUTO_THEME_ID then changes.bgColor = { candidate.bg[1], candidate.bg[2], candidate.bg[3] } end
+    themePreview = nil
+    local ok = X.Preferences.Transaction(changes, "ui")
+    X.ResolveAutoTheme()
+    ApplyAppearance()
+    if X.RefreshConfig then X.RefreshConfig() end
+    return ok
+  end
+
+  X.OnDBLoaded(function() X.CancelThemePreview() end)
 end
 
 local function ApplyRowWheel()
@@ -2182,13 +2256,15 @@ local function BuildFooter()
   gear:SetHighlightTexture("Interface\\Buttons\\UI-OptionsButton", "ADD")
   gear:RegisterForClicks("LeftButtonUp","RightButtonUp")
   gear:SetScript("OnClick", function(_,button)
-    if button=="RightButton" and X.Daily then X.Daily.Open()
+    if button=="LeftButton" and IsShiftKeyDown and IsShiftKeyDown() and X.OpenActions then X.OpenActions()
+    elseif button=="RightButton" and X.Daily then X.Daily.Open()
     elseif X.OpenConfig then X.OpenConfig() end
   end)
   gear:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     GameTooltip:AddLine(L["BuffRadar settings"])
     GameTooltip:AddLine(L["Right-click: Daily Tasks"])
+    GameTooltip:AddLine(L["Shift-left-click: Actions"])
     GameTooltip:Show()
   end)
   gear:SetScript("OnLeave", function() GameTooltip:Hide() end)

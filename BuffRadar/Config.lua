@@ -1,7 +1,7 @@
 -- BuffRadar - settings window, controls and keyboard navigation.
 -- Copyright (C) 2026 Malikor. GPLv3 or later.
 
-local _, ns = ...
+local addonName, ns = ...
 local X = ns.X
 local core = X.Core
 X.cfgReg = {}
@@ -33,6 +33,7 @@ local SelectTab
 local CONFIG_WIDTH, CONFIG_HEIGHT = 600, 610
 local NATIVE_TAB_DEPTH = 30  -- 32-unit native tabs start 2 units above the bottom edge
 local K = {}  -- keyboard navigation and speech are opt-in for this settings session
+local Actions = { definitions = {}, byID = {} }
 local navigationHelp = L["Tab or Shift-Tab moves. Enter or Space selects. Arrows adjust. F1 toggles speech. Escape exits."]
 
 function K.Register(widget, panel, label, role, value, adjust)
@@ -54,6 +55,8 @@ function K.Available(entry)
 end
 
 function K.Modal()
+  if cfg.actionWhyPanel and cfg.actionWhyPanel:IsVisible() then return cfg.actionWhyPanel end
+  if cfg.themePreviewPanel and cfg.themePreviewPanel:IsVisible() then return cfg.themePreviewPanel end
   if cfg.dailyOptions and cfg.dailyOptions:IsVisible() then return cfg.dailyOptions end
   if cfg.themePriorityPanel and cfg.themePriorityPanel:IsVisible() then return cfg.themePriorityPanel end
   local assignments = cfg.assignmentPanel
@@ -90,8 +93,9 @@ function K.Controls()
       if widget and K.Available(widget.navigation) then found[#found + 1] = widget.navigation end
     end
     append(cfg.searchBox)
+    for _, button in ipairs(cfg.searchModes or {}) do append(button) end
     for _, row in ipairs(cfg.searchRows) do append(row) end
-    append(cfg.searchPrev); append(cfg.searchNext); append(cfg.searchToggle)
+    append(cfg.searchPrev); append(cfg.searchNext); append(cfg.searchToggle); append(cfg.actionsToggle)
     return found
   end
   local modal = K.Modal()
@@ -116,7 +120,7 @@ function K.Controls()
   end)
   for _, entry in ipairs(controls) do entries[#entries + 1] = entry end
   if not modal then
-    for _, widget in ipairs({ cfg.searchToggle, cfg.searchBox, cfg.closeButton }) do
+    for _, widget in ipairs({ cfg.searchToggle, cfg.actionsToggle, cfg.searchBox, cfg.closeButton }) do
       if K.Available(widget.navigation) then entries[#entries + 1] = widget.navigation end
     end
   end
@@ -331,7 +335,9 @@ function K.Build()
   input:SetScript("OnEscapePressed", function()
     local picker = cfg.assignmentPanel and cfg.assignmentPanel.picker
     local modal = K.Modal()
-    if cfg.themePriorityPanel and modal == cfg.themePriorityPanel then modal.closeButton:Click()
+    if cfg.actionWhyPanel and modal == cfg.actionWhyPanel then modal:Hide()
+    elseif cfg.themePreviewPanel and modal == cfg.themePreviewPanel then modal.cancel:Click()
+    elseif cfg.themePriorityPanel and modal == cfg.themePriorityPanel then modal.closeButton:Click()
     elseif picker and modal == picker then picker.closeButton:Click()
     else K.Stop() end
   end)
@@ -381,6 +387,7 @@ local function RegisterSearch(widget, panel, label)
 end
 
 local function SearchAvailable(entry)
+  if entry.kind == "action" then return true end
   if not entry.tab or entry.label == "" or not entry.w:IsShown() then return false end
   for _, panel in ipairs(entry.path) do
     if panel.searchFilter and not panel.searchFilter(entry.w) then return false end
@@ -402,7 +409,7 @@ function X.CfgAlias(widget, aliases)
   end
 end
 
-function X.CfgSearch(query)
+function X.CfgSearch(query, mode)
   local results, scores, tokens = {}, {}, {}
   if query==nil then query="" end
   if type(query) ~= "string" or #query > 80 then return results end
@@ -411,10 +418,14 @@ function X.CfgSearch(query)
     if #tokens == 12 then return results end
     tokens[#tokens + 1] = token
   end
-  for _, entry in ipairs(X.cfgReg) do
+  local entries = {}
+  if mode ~= "actions" then for _, entry in ipairs(X.cfgReg) do entries[#entries + 1] = entry end end
+  if mode ~= "settings" then for _, entry in ipairs(Actions.definitions) do entries[#entries + 1] = entry end end
+  for _, entry in ipairs(entries) do
     if SearchAvailable(entry) then
       local label = SearchKey(entry.label)
-      local base = entry.keys .. " " .. SearchKey(cfg.tabBtns[entry.tab]:GetText())
+      local group = entry.kind == "action" and L[entry.category] or cfg.tabBtns[entry.tab]:GetText()
+      local base = entry.keys .. " " .. SearchKey(group)
       local haystack = base .. " " .. table.concat(entry.aliases or {}, " ")
       local match, labelOnly = true, true
       for _, token in ipairs(tokens) do
@@ -502,21 +513,31 @@ end
 local function UpdateSearch()
   local query = cfg.searchBox:GetText() or ""
   X.CfgFilter(query)
-  cfg.searchResults = query ~= "" and X.CfgSearch(query) or {}
+  cfg.searchResults = (query ~= "" or cfg.searchMode == "actions") and X.CfgSearch(query, cfg.searchMode) or {}
   local count, pageSize = #cfg.searchResults, #cfg.searchRows
   cfg.searchPage = math_min(cfg.searchPage or 1, math.max(1, math.ceil(count / pageSize)))
   for i, row in ipairs(cfg.searchRows) do
     local entry = cfg.searchResults[(cfg.searchPage - 1) * pageSize + i]
     row.entry = entry
     if entry then
-      local enabled = not entry.w.IsEnabled or entry.w:IsEnabled()
-      row:SetText(cfg.tabBtns[entry.tab]:GetText() .. " > " .. entry.label .. (enabled   and   ""   or   (" — " .. L["Unavailable"])))
+      if entry.kind == "action" then
+        local state = X.ActionState(entry.id)
+        row.actionReason = state.available and L["Ready"] or state.reason
+        row:SetText(L[entry.category] .. " > " .. entry.label .. "  " .. entry.command .. "\n" .. row.actionReason)
+      else
+        local enabled = not entry.w.IsEnabled or entry.w:IsEnabled()
+        row:SetText(cfg.tabBtns[entry.tab]:GetText() .. " > " .. entry.label .. (enabled and "" or (" — " .. L["Unavailable"])))
+        row.actionReason = nil
+      end
     end
     row:SetShown(entry ~= nil)
   end
-  cfg.searchHint:SetText(query == ""   and   L["Find settings across all tabs"]
-      or   count == 0   and   L["No settings match this search."]   or   string.format(L["Matches: %d"], count))
-  cfg.searchResultsPanel:SetShown(query ~= "")
+  cfg.searchHint:SetText(query == "" and cfg.searchMode ~= "actions" and L["Find settings and actions"]
+      or count == 0 and L["No settings or actions match this search."] or string.format(L["Matches: %d"], count))
+  cfg.searchResultsPanel:SetShown(query ~= "" or cfg.searchMode == "actions")
+  for _, button in ipairs(cfg.searchModes or {}) do
+    if button.mode == (cfg.searchMode or "all") then button:LockHighlight() else button:UnlockHighlight() end
+  end
   if cfg.searchPage > 1 then cfg.searchPrev:Enable() else cfg.searchPrev:Disable() end
   if cfg.searchPage * pageSize < count then cfg.searchNext:Enable() else cfg.searchNext:Disable() end
 end
@@ -526,9 +547,10 @@ local function CloseSearch()
   cfg.searchBox:ClearFocus()
   cfg.searchBox:SetText("")
   cfg.searchPage = 1
+  cfg.searchMode = "all"
   cfg.searchResultsPanel:Hide()
   X.CfgFilter("")
-  cfg.searchHint:SetText(L["Find settings across all tabs"])
+  cfg.searchHint:SetText(L["Find settings and actions"])
   cfg.searchFooter:Hide()
   if K.active and not K.edit then cfg.navStatus:Show() end
 end
@@ -645,6 +667,8 @@ end
 
 local function OpenColorPicker()
   if InCombatLockdown() or X.Settings.SaveState()=="future" then return end
+  if cfg.themePreviewPanel then cfg.themePreviewPanel:Hide() end
+  X.CancelThemePreview()
   K.Stop()
   local picker=ColorPickerFrame
   if picker.buffRadarColorOwner then picker.buffRadarColorOwner.finish(true) end
@@ -765,16 +789,23 @@ end
 SelectTab = function(key)
   CloseSearch()
   cfg.curTab = key
+  if cfg.themePreviewPanel then cfg.themePreviewPanel:Hide() end
   if cfg.themePriorityPanel then cfg.themePriorityPanel:Hide() end
   if cfg.displayPanel then cfg.displayPanel:Hide() end
   if cfg.blessingPanel then cfg.blessingPanel:Hide() end
   if cfg.assignmentPanel then cfg.assignmentPanel:Hide() end
   if cfg.dailyOptions then cfg.dailyOptions:Hide() end
+  if cfg.actionWhyPanel then cfg.actionWhyPanel:Hide() end
   for k, panel in pairs(cfg.panels) do panel:SetShown(k == key) end
   if cfg.searchToggle and cfg.panels[key] then
     cfg.searchToggle:ClearAllPoints()
     cfg.searchToggle:SetPoint("TOPRIGHT", cfg.panels[key], "TOPRIGHT", -8, -4)
     cfg.searchToggle:Show()
+    if cfg.actionsToggle then
+      cfg.actionsToggle:ClearAllPoints()
+      cfg.actionsToggle:SetPoint("RIGHT", cfg.searchToggle, "LEFT", -4, 0)
+      cfg.actionsToggle:Show()
+    end
   end
   if cfg.nativeTabs then
     PanelTemplates_SetTab(cfg, cfg.tabBtns[key]:GetID())
@@ -2494,7 +2525,7 @@ end
 function AssignmentUI.UpdateCoordination(view)
   local model, lines = view.model, {}
   local leader = model.active == true and model.leader == true
-  if view.tab ~= "inbox" and not leader then view.tab, view.page = "inbox", 1 end
+  if view.tab ~= "inbox" and view.tab ~= "peers" and not leader then view.tab, view.page = "inbox", 1 end
   local tab = view.tab
   local pending = model.pending
   local status = model.reason and L[model.reason]
@@ -2504,7 +2535,7 @@ function AssignmentUI.UpdateCoordination(view)
   view.tabs.inbox:SetText(pending   and   L["Inbox"] .. " (1)"   or   L["Inbox"])
   if model.active or model.available then view.participation:Enable() else view.participation:Disable() end
   for key, button in pairs(view.tabs) do
-    button:SetShown(model.active == true and (key == "inbox" or leader))
+    button:SetShown(key == "peers" or model.active == true and (key == "inbox" or leader))
     if key == tab then button:Disable() else button:Enable() end
   end
   view.request:SetShown(leader and tab == "reports")
@@ -2521,7 +2552,15 @@ function AssignmentUI.UpdateCoordination(view)
   view.decline:SetShown(tab == "inbox" and pending ~= nil)
   if pending and pending.reviewed then view.accept:Enable() else view.accept:Disable() end
 
-  if model.active and tab == "reports" then
+  if tab == "peers" then
+    local labels = { verified=L["Verified"], awaiting=L["Awaiting verification reply"],
+      retrying=L["Retrying verification"], unverified=L["Not verified / no response"], incompatible=L["Incompatible protocol"] }
+    for _, peer in ipairs(view.peers.members) do
+      lines[#lines + 1] = { title=peer.name, detail=labels[peer.status] }
+    end
+    if #lines == 0 then lines[1] = { title=L["No peers available for verification."] } end
+    view.notice:SetText(L["Peer verification is separate from plan delivery and buff coverage."])
+  elseif model.active and tab == "reports" then
     if model.reportRequest then
       for _, report in ipairs(model.reports or {}) do
         local keys = report.keys
@@ -2576,7 +2615,8 @@ end
 
 function AssignmentUI.RefreshCoordination(view)
   if not view:IsVisible() or InCombatLockdown() or X.PlayerSuspended() then return end
-  local model = X.CoordinationSnapshot()
+  local model = X.CoordinationSnapshot(view.tab == "peers")
+  view.peers = X.SyncPeerSnapshot()
   local before = view.model
   if before and before.generation ~= model.generation then
     view.page = 1
@@ -2586,6 +2626,8 @@ function AssignmentUI.RefreshCoordination(view)
   view.model = model
   AssignmentUI.UpdateCoordination(view)
   local deadline = model.nextRefreshAt
+  local peerDeadline = view.peers.nextRefreshAt
+  if peerDeadline and (not deadline or peerDeadline < deadline) then deadline = peerDeadline end
   if view.deadline == deadline then return end
   view.deadline, view.refreshTicket = deadline, nil
   if deadline and C_Timer and C_Timer.After then
@@ -2628,14 +2670,14 @@ function AssignmentUI.BuildCoordination(panel)
   view.participation:SetPoint("TOPRIGHT", -16, -39)
   view.tabs = {}
   local sections = { { "reports", L["Reports"] }, { "draft", L["Draft"] },
-    { "delivery", L["Delivery"] }, { "inbox", L["Inbox"] } }
+    { "delivery", L["Delivery"] }, { "inbox", L["Inbox"] }, { "peers", L["Peers"] } }
   for index, section in ipairs(sections) do
     local key = section[1]
-    local tab = MakeButton(view, section[2], 124, function()
+    local tab = MakeButton(view, section[2], 102, function()
       view.tab, view.page = key, 1
       AssignmentUI.RefreshCoordination(view)
     end)
-    tab:SetPoint("TOPLEFT", 16 + (index - 1) * 132, -77)
+    tab:SetPoint("TOPLEFT", 16 + (index - 1) * 110, -77)
     view.tabs[key] = tab
   end
   local function move(delta)
@@ -2717,7 +2759,7 @@ function AssignmentUI.BuildCoordination(panel)
   return view
 end
 
-function X.OpenCoordination()
+function X.OpenCoordination(tab)
   if not CLASSIC_FEATURES or X.PlayerSuspended() or InCombatLockdown() then return end
   X.OpenAssignments()
   local panel = cfg.assignmentPanel
@@ -2729,7 +2771,7 @@ function X.OpenCoordination()
   if panel.practice then panel.practice:Hide() end
   panel.coordination = panel.coordination or AssignmentUI.BuildCoordination(panel)
   local view = panel.coordination
-  view.tab, view.page = "reports", 1
+  view.tab, view.page = tab == "peers" and "peers" or "reports", 1
   view:Show()
   AssignmentUI.RefreshCoordination(view)
   if view.model and view.model.pending then
@@ -2940,6 +2982,228 @@ do
     X.RefreshAutoThemePriority()
     if K.active then K.Move(1) end
   end
+end
+
+do
+  function X.RefreshThemePreview()
+    local panel = cfg and cfg.themePreviewPanel
+    if not panel or not panel:IsVisible() then return end
+    local state = X.ThemePreviewState(panel.owner)
+    if not state then panel:Hide(); return end
+    panel.choice:SetText(state.id == X.AUTO_THEME_ID and L["Auto"] or state.label)
+    panel.status:SetText(state.id == X.AUTO_THEME_ID and (state.addon
+      and string.format(L["Selected: %s (%s)"], state.label, state.addon)
+      or L["No supported UI addon is loaded. Using Midnight."]) or state.label)
+    panel.sample:SetBackdropColor(state.bg[1], state.bg[2], state.bg[3], 1)
+    panel.sample:SetBackdropBorderColor(state.border[1], state.border[2], state.border[3], 1)
+    if K.active and K.current == panel.choice.navigation then K.Focus(K.current) end
+  end
+
+  local function BuildThemePreview()
+    local panel = AssignmentUI.CreatePanel(cfg, "BuffRadarThemePreview", 540, 300, cfg:GetFrameLevel() + 9)
+    panel.searchTab, panel.searchOpen = "look", function() X.OpenThemePreview() end
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 18, -14)
+    title:SetText(L["Theme Preview"])
+    local help = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    help:SetPoint("TOPLEFT", 18, -44)
+    help:SetPoint("TOPRIGHT", -18, -44)
+    help:SetJustifyH("LEFT")
+    help:SetText(L["Preview changes the window. Settings stay unchanged until Apply."])
+    local function move(delta)
+      local state = X.ThemePreviewState(panel.owner)
+      if not state then panel:Hide(); return end
+      local order, selected = X.ThemeOrder(), 1
+      order[#order + 1] = "custom"
+      for index, name in ipairs(order) do if name == state.id then selected = index end end
+      X.PreviewTheme(panel.owner, order[(selected - 1 + delta) % #order + 1])
+      X.RefreshThemePreview()
+    end
+    panel.previous = MakeButton(panel, L["Previous theme"], 122, function() move(-1) end)
+    panel.previous:SetPoint("TOPLEFT", 18, -85)
+    panel.next = MakeButton(panel, L["Next theme"], 122, function() move(1) end)
+    panel.next:SetPoint("TOPRIGHT", -18, -85)
+    panel.choice = CreateFrame("Button", nil, panel)
+    panel.choice:SetPoint("TOPLEFT", 150, -85)
+    panel.choice:SetSize(240, 22)
+    local choiceLabel = panel.choice:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    choiceLabel:SetAllPoints(panel.choice)
+    panel.choice.SetText = function(_, value) choiceLabel:SetText(value) end
+    panel.choice.GetText = function() return choiceLabel:GetText() end
+    K.Register(panel.choice, panel, L["Theme"], "choice", function() return panel.choice:GetText() end, move)
+    panel.choice:SetScript("OnClick", function() move(1) end)
+    panel.statusRow = CreateFrame("Button", nil, panel)
+    panel.statusRow:SetPoint("TOPLEFT", 18, -119)
+    panel.statusRow:SetSize(504, 24)
+    panel.status = panel.statusRow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    panel.status:SetAllPoints(panel.statusRow)
+    panel.status:SetJustifyH("LEFT")
+    K.Register(panel.statusRow, panel, L["Theme Preview"], "detail", function() return panel.status:GetText() end)
+    panel.sample = X.PanelWidget("Frame", nil, panel, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    panel.sample:SetSize(504, 76)
+    panel.sample:SetPoint("TOPLEFT", 18, -151)
+    panel.sample:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12 })
+    local sample = panel.sample:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    sample:SetPoint("TOPLEFT", 14, -12)
+    sample:SetText(addonName .. "\n" .. L["Missing buff"])
+    panel.apply = MakeButton(panel, L["Apply"], 108, function()
+      X.ApplyThemePreview(panel.owner)
+      panel:Hide()
+    end)
+    panel.apply:SetPoint("BOTTOMRIGHT", -138, 18)
+    panel.cancel = MakeButton(panel, L["Cancel"], 108, function() panel:Hide() end)
+    panel.cancel:SetPoint("BOTTOMRIGHT", -18, 18)
+    AssignmentUI.CloseButton(panel, function() panel:Hide() end)
+    panel:HookScript("OnHide", function()
+      X.CancelThemePreview(panel.owner)
+      panel.owner = nil
+      if cfg:IsVisible() and cfg.curTab == "look" then
+        cfg.searchToggle:Show()
+        if K.active then K.Focus(cfg.themeBtn.navigation) end
+      end
+    end)
+    if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarThemePreview") end
+    return panel
+  end
+
+  function X.OpenThemePreview()
+    if InCombatLockdown() or X.PlayerSuspended() or X.Settings.SaveState() == "future" then return end
+    local picker = ColorPickerFrame
+    if picker and picker.buffRadarColorOwner then picker.buffRadarColorOwner.finish(true); picker:Hide() end
+    OpenConfig(true)
+    SelectTab("look")
+    cfg.themePreviewPanel = cfg.themePreviewPanel or BuildThemePreview()
+    local panel = cfg.themePreviewPanel
+    panel.owner = X.BeginThemePreview()
+    if not panel.owner then return end
+    cfg.searchToggle:Hide()
+    panel:Show()
+    X.RefreshThemePreview()
+    if K.active then K.Move(1) end
+  end
+end
+
+-- Fixed launchers share the real panels and diagnostics. Search never runs code.
+function X.ActionState(id)
+  local action = type(id) == "string" and Actions.byID[id]
+  local reason
+  if not action then reason = L["Unknown action."]
+  elseif not X.supported then reason = L["BuffRadar requires the Forever package on Interface 16001. Casting is disabled."]
+  elseif not X.GetDB() then reason = L["Settings not loaded yet."]
+  elseif X.PlayerSuspended() then reason = L["Unavailable while dead or disconnected."]
+  elseif InCombatLockdown() then reason = L["Can't do that during combat."]
+  elseif action.writable and X.Settings.SaveState() == "future" then
+    reason = L["Unavailable with settings from a newer addon version."]
+  elseif action.id == "preparation" and not AssignmentUI.PreparationAvailable("players") then
+    reason = X.GetDB().liteMode and L["Raid Preparation is paused in Lite mode."]
+      or L["Join a party or raid to use Raid Preparation."]
+  end
+  return { available = reason == nil, reason = reason, id = action and action.id }
+end
+
+function Actions.OpenWhy()
+  OpenConfig(true)
+  SelectTab(cfg.curTab or "look")
+  local panel = cfg.actionWhyPanel
+  if not panel then
+    panel = AssignmentUI.CreatePanel(cfg, "BuffRadarWhyAction", 510, 200, cfg:GetFrameLevel() + 10)
+    cfg.actionWhyPanel = panel
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 18, -16)
+    title:SetText(L["Why This Buff?"])
+    local hint = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hint:SetPoint("TOPLEFT", 18, -49)
+    hint:SetWidth(474)
+    hint:SetJustifyH("LEFT")
+    hint:SetWordWrap(true)
+    hint:SetText(L["Enter a player name. The explanation is printed locally in chat."])
+    panel.name = X.PanelWidget("EditBox", nil, panel, "InputBoxTemplate")
+    panel.name:SetSize(300, 22)
+    panel.name:SetPoint("TOPLEFT", 22, -92)
+    panel.name:SetAutoFocus(false)
+    panel.name:SetMaxLetters(80)
+    local function explain()
+      if not X.ActionState("why").available then return end
+      local name = panel.name:GetText()
+      if type(name) ~= "string" or #name > 80 then return end
+      name = name:match("^%s*(.-)%s*$")
+      if name == "" or name:find("[%c|]") then
+        Print(L["Enter a player name without control characters or formatting."])
+        return
+      end
+      X.Why(name)
+      panel.name:ClearFocus()
+    end
+    panel.name:SetScript("OnEnterPressed", explain)
+    panel.name:SetScript("OnEscapePressed", function() panel:Hide() end)
+    K.RegisterEdit(panel.name, panel, L["Player name"])
+    panel.explain = MakeButton(panel, L["Explain"], 150, explain)
+    panel.explain:SetPoint("BOTTOMLEFT", 18, 20)
+    panel.cancel = MakeButton(panel, L["Cancel"], 150, function() panel:Hide() end)
+    panel.cancel:SetPoint("BOTTOMRIGHT", -18, 20)
+    AssignmentUI.CloseButton(panel, function() panel:Hide() end)
+    panel:HookScript("OnHide", function()
+      panel.name:ClearFocus()
+      panel.name:SetText("")
+      if K.active and cfg:IsVisible() then K.Move(1) end
+    end)
+    if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarWhyAction") end
+  end
+  panel:Show()
+end
+
+function Actions.Profiles()
+  OpenConfig(true)
+  SelectTab("data")
+  if not Actions.keyboard then cfg.profileBox:SetFocus() end
+end
+
+function Actions.Add(id, category, label, command, writable, run)
+  local entry = { kind = "action", id = id, category = category, label = label, command = command,
+    writable = writable, run = run, keys = SearchKey(label .. " " .. command), order = 100000 + #Actions.definitions }
+  Actions.definitions[#Actions.definitions + 1] = entry
+  Actions.byID[id] = entry
+end
+Actions.Add("why", "Inspect", L["Why This Buff?"], "/br why <name>", false, Actions.OpenWhy)
+Actions.Add("preparation", "Inspect", L["Raid Preparation"], "/br prep", false, function() X.OpenRaidPreparation(false) end)
+Actions.Add("coverage", "Inspect", L["Raid Coverage"], "/br coverage", false, function() X.OpenRaidCoverage() end)
+Actions.Add("preview", "Inspect", L["Assignment Preview"], "/br buffassign preview", true, function() X.OpenAssignments(true) end)
+Actions.Add("peers", "Inspect", L["Peer Status"], "/br coordinate panel", false, function() X.OpenCoordination("peers") end)
+Actions.Add("assignments", "Manage", L["Class & Role Assignments"], "/br buffassign", true, function() X.OpenAssignments() end)
+Actions.Add("subgroups", "Manage", L["Subgroup Responsibilities"], "/br subgroup panel", true, function() X.OpenSubgroupResponsibilities() end)
+Actions.Add("profiles", "Manage", L["Profiles"], "/br profile", true, Actions.Profiles)
+Actions.Add("recent", "Manage", L["Recent Changes"], "/br prefs", true, function() X.Daily.Recent() end)
+Actions.Add("themes", "Manage", L["Theme Preview"], "/br theme preview", true, function() X.OpenThemePreview() end)
+Actions.Add("nearby", "Troubleshoot", L["Nearby Diagnostics"], "/br nearby", false, function() X.OpenNearbyDiagnostics() end)
+Actions.Add("firstcast", "Troubleshoot", L["First Cast Guide"], "/br firstcast", false, function() X.Support.Open() end)
+Actions.Add("support", "Troubleshoot", L["Copy Support Report"], "/br support", false, function() X.Support.ShowReport() end)
+Actions.Add("selftest", "Troubleshoot", L["Self-Test"], "/br selftest", false, function() X.SelfTest() end)
+
+function X.RunAction(id)
+  local state = X.ActionState(id)
+  if not state.available then
+    if cfg and cfg.searchFooter:IsShown() then UpdateSearch() end
+    Print(state.reason)
+    return false
+  end
+  local keyboard, narrate = K.active, K.narrate
+  K.Stop(true)
+  if cfg then CloseSearch() end
+  Actions.keyboard = keyboard
+  local ok = pcall(Actions.byID[id].run)
+  Actions.keyboard = nil
+  if not ok then
+    Print(L["Action could not be opened."])
+    if keyboard and cfg and cfg:IsVisible() then K.Start(narrate) end
+    return false
+  end
+  -- Standalone dialogs own their input. Only restore settings navigation when
+  -- the destination is an actual settings panel, not a separate report window.
+  if keyboard and cfg and cfg:IsVisible() and (K.Modal() or id == "profiles" or id == "selftest") then
+    K.Start(narrate)
+    if id == "profiles" then K.Focus(cfg.profileBox.navigation) end
+  end
+  return true
 end
 
 function AssignmentUI.BuildReadinessSettings(panel)
@@ -3376,10 +3640,7 @@ local function BuildConfig()
   cfg.wizardBtn:SetPoint("TOPLEFT", 134, -232)
 
   cfg.themeBtn = MakeButton(look, L["Theme: Midnight"], 170, function()
-    local order = X.ThemeOrder()
-    local cur = 1
-    for i, k in ipairs(order) do if k:lower() == (db.theme or ""):lower() then cur = i end end
-    X.ApplyTheme(order[cur % #order + 1])
+    X.OpenThemePreview()
   end)
   cfg.themeBtn:SetPoint("TOPLEFT", 250, -336)
   cfg.themeBtn.navigation.label = L["Theme"]
@@ -4032,7 +4293,7 @@ local function BuildConfig()
   Tip(cfg.twoColCheck, L["Two columns when the list is long"], L["With more than 8 people on the list, the rows split into two side-by-side columns and the window widens, instead of growing one tall column. Same as /br twocol."])
   Tip(cfg.themeBtn, function()
     return db.theme == X.AUTO_THEME_ID   and   X.ThemeLabel(true)   or   L["Color theme"]
-  end, L["Click to cycle the built-in and saved window color themes. Picking a custom background color afterwards switches back to a custom theme. Use /br theme to list theme names."])
+  end, L["Preview built-in, saved, and Auto themes. Apply saves the choice; Cancel keeps your current theme. /br theme preview opens this panel."])
   Tip(cfg.saveThemeBtn, L["Save as theme"], L["Saves the window's current background and border colors as your own theme, so it joins the theme cycle. It is named automatically; /br theme save <name> saves under your own name, /br theme delete <name> removes one. Up to 4 saved themes."])
   Tip(cfg.gapSlider, L["Row spacing"], L["Extra empty space between the rows, 0 to 8. The window grows to fit. Same as /br rowgap <0-8>."])
   Tip(cfg.iconSlider, L["Buff icon size"], L["How big the missing-buff icons on each row are, 10 to 24. At 0 the size is automatic (16, or 12 in compact rows). Same as /br iconsize <0|10-24>."])
@@ -4218,7 +4479,7 @@ local function BuildConfig()
   searchBox:SetSize(180, 20)
   searchBox:SetPoint("LEFT")
   searchBox:SetAutoFocus(false)
-  searchBox:SetMaxLetters(30)
+  searchBox:SetMaxLetters(80)
   local searchHint = footer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   searchHint:SetPoint("LEFT", searchBox, "RIGHT", 8, 0)
   cfg.searchHint = searchHint
@@ -4231,7 +4492,7 @@ local function BuildConfig()
     K.Focus(cfg.searchRows[1].entry and cfg.searchRows[1].navigation or cfg.searchBox.navigation)
   end)
   searchBox:SetScript("OnEscapePressed", CloseSearch)
-  K.RegisterEdit(searchBox, cfg, L["Find settings across all tabs"], function()
+  K.RegisterEdit(searchBox, cfg, L["Find settings and actions"], function()
     return cfg.searchHint:GetText()
   end)
   cfg.searchBox = searchBox
@@ -4246,11 +4507,15 @@ local function BuildConfig()
     end
   end)
   cfg.searchToggle = searchToggle
-  K.Register(searchToggle, cfg, L["Find settings across all tabs"], "button")
-  Tip(cfg.searchToggle, L["Find"], L["Find settings across all tabs"])
+  K.Register(searchToggle, cfg, L["Find settings and actions"], "button")
+  Tip(cfg.searchToggle, L["Find"], L["Find settings and actions"])
+  cfg.actionsToggle = MakeButton(cfg, L["Actions"], 80, function() X.OpenActions() end)
+  cfg.actionsToggle.navigation.panel = cfg
+  searchToggle:HookScript("OnHide", function() cfg.actionsToggle:Hide() end)
+  searchToggle:HookScript("OnShow", function() cfg.actionsToggle:Show() end)
   local results = X.PanelWidget("Frame", nil, cfg, BackdropTemplateMixin and "BackdropTemplate" or nil)
   results:SetPoint("BOTTOMLEFT", cfg, "BOTTOMLEFT", 14, 38)
-  results:SetSize(572, 210)
+  results:SetSize(572, 342)
   results:SetFrameLevel(cfg:GetFrameLevel() + 25)
   if results.SetBackdrop then
     results:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8",
@@ -4259,18 +4524,33 @@ local function BuildConfig()
     results:SetBackdropBorderColor(0.35, 0.55, 0.8, 1)
   end
   cfg.searchResultsPanel, cfg.searchRows = results, {}
+  cfg.searchModes = {}
+  for index, mode in ipairs({ { "all", L["All"] }, { "settings", L["Settings"] }, { "actions", L["Actions"] } }) do
+    local button = MakeButton(results, mode[2], 104, function()
+      cfg.searchMode, cfg.searchPage = mode[1], 1
+      UpdateSearch()
+    end)
+    button:SetPoint("TOPLEFT", 14 + (index - 1) * 110, -10)
+    button.mode, button.navigation.panel = mode[1], cfg
+    cfg.searchModes[#cfg.searchModes + 1] = button
+  end
   for i = 1, 5 do
     local row = MakeButton(results, "", 544, function()
       local entry = cfg.searchRows[i].entry
-      if not entry or InCombatLockdown() or X.PlayerSuspended() then return end
+      if not entry then return end
+      if entry.kind == "action" then X.RunAction(entry.id); return end
+      if InCombatLockdown() or X.PlayerSuspended() then return end
       local narrate = K.narrate
       SelectTab(entry.tab)
       RefreshConfig()
       for index = #entry.path, 1, -1 do entry.path[index].searchOpen() end
       if entry.w:IsVisible() and entry.w.navigation then K.Start(narrate); K.Focus(entry.w.navigation) end
     end)
-    row:SetPoint("TOPLEFT", 14, -12 - (i - 1) * 32)
-    K.Register(row, cfg, function() return row:GetText() end, "button")
+    row:SetSize(544, 52)
+    row:SetPoint("TOPLEFT", 14, -42 - (i - 1) * 52)
+    local text = row:GetFontString()
+    if text then text:SetWordWrap(true); text:SetWidth(532) end
+    K.Register(row, cfg, function() return row:GetText() end, "button", function() return row.actionReason end)
     row:Hide()
     cfg.searchRows[i] = row
   end
@@ -4304,8 +4584,10 @@ local function BuildConfig()
   cfg:HookScript("OnHide", function()
     K.Stop(true)
     CloseSearch()
+    if cfg.themePreviewPanel then cfg.themePreviewPanel:Hide() end
     if cfg.themePriorityPanel then cfg.themePriorityPanel:Hide() end
     if cfg.assignmentPanel then cfg.assignmentPanel:Hide() end
+    if cfg.actionWhyPanel then cfg.actionWhyPanel:Hide() end
   end)
   cfg:RegisterEvent("DISPLAY_SIZE_CHANGED")
   cfg:RegisterEvent("UI_SCALE_CHANGED")
@@ -4314,8 +4596,10 @@ local function BuildConfig()
     if event == "PLAYER_REGEN_DISABLED" then
       K.Stop(true)
       CloseSearch()
+      if cfg.themePreviewPanel then cfg.themePreviewPanel:Hide() end
       if cfg.themePriorityPanel then cfg.themePriorityPanel:Hide() end
       if cfg.assignmentPanel then cfg.assignmentPanel:Hide() end
+      if cfg.actionWhyPanel then cfg.actionWhyPanel:Hide() end
     elseif cfg:IsShown() then ApplyConfigScale() end
   end)
   for _,button in ipairs({resetLook,prioReset,cfg.themeBtn,cfg.soundBtn,cfg.sortBtn,cfg.tooltipBtn,cfg.trimBtn}) do
@@ -4402,6 +4686,7 @@ RefreshConfig = function()
     cfg.themeBtn:SetText(string.format(L["Theme: %s"], X.ThemeLabel()))
   end
   X.RefreshAutoThemePriority()
+  X.RefreshThemePreview()
   if cfg.petsCheck then cfg.petsCheck:Update() end
   if cfg.auraCheck then cfg.auraCheck:Update() end
   if cfg.worldCheck then cfg.worldCheck:Update() end
@@ -4531,8 +4816,21 @@ function X.OpenSettingsSearch()
   if K.Modal() then
     SelectTab(cfg.curTab or "look")
   end
+  cfg.searchMode = "all"
   OpenSearch()
 end
+
+function X.OpenActions()
+  if X.PlayerSuspended() or InCombatLockdown() then return false end
+  X.OpenSettingsSearch()
+  cfg.searchMode, cfg.searchPage = "actions", 1
+  cfg.searchBox:SetText("")
+  UpdateSearch()
+  OpenSearch()
+  return true
+end
+
+function BuffRadar_OpenActions() return X.OpenActions() end  -- optional Bindings.xml launcher
 
 function X.OpenSettingsNavigation(narrate)
   if X.PlayerSuspended() or InCombatLockdown() then

@@ -85,9 +85,11 @@ for key in pairs(env) do initialGlobals[key] = true end
 local addonGlobals = {
   BuffRadarDB = true, BuffRadarAPI = true,
   BuffRadar_ToggleWindow = true, BuffRadar_ToggleSound = true,
+  BuffRadar_OpenActions = true,
   SLASH_BUFFRADAR1 = true, SLASH_BUFFRADAR2 = true,
   BINDING_HEADER_BUFFRADAR = true, BINDING_CATEGORY_BUFFRADAR = true,
   BINDING_NAME_BUFFRADAR_TOGGLE = true, BINDING_NAME_BUFFRADAR_MUTE = true,
+  BINDING_NAME_BUFFRADAR_ACTIONS = true,
   ["BINDING_NAME_CLICK BuffRadarNextButton:LeftButton"] = true,
   ["BINDING_NAME_CLICK BuffRadarGroupButton:LeftButton"] = true,
 }
@@ -2602,11 +2604,16 @@ end)
 step("Forever caster coordination panel sends reviewed actions and drops obsolete controls", function()
   if not env.__forever then return end
   local X = NS.X
-  local snapshot, coordinate = X.CoordinationSnapshot, X.Coordinate
+  local snapshot, coordinate, peerSnapshot = X.CoordinationSnapshot, X.Coordinate, X.SyncPeerSnapshot
   local model = { available = true, generation = 1, token = 11, leader = true }
   local actions = {}
   local ok, err = pcall(function()
-    X.CoordinationSnapshot = function() return model end
+    local readOnly
+    X.CoordinationSnapshot = function(read) readOnly=read; return model end
+    X.SyncPeerSnapshot = function() return { members={ {name="Aaron",status="verified"},
+      {name="Bela",status="awaiting"}, {name="Cato",status="retrying"},
+      {name="Dena",status="unverified"}, {name="Eryn",status="incompatible"},
+      {name="Fara",status="verified"} } } end
     X.Coordinate = function(action, arg, token)
       assert(token == model.token, "panel did not forward current action token")
       actions[#actions + 1] = action
@@ -2626,6 +2633,17 @@ step("Forever caster coordination panel sends reviewed actions and drops obsolet
     env.BuffRadarAssignments.coordinationButton:Click()
     local view = env.BuffRadarCasterCoordination
     assert(view and view:IsVisible() and view.participation:GetText() == NS.X.L["Opt In"], "panel could not open while opted out")
+    assert(view.tabs.peers:IsVisible(), "peer diagnostics require plan opt-in")
+    view.tabs.peers:Click()
+    assert(readOnly and view.rows[1].detail:GetText()==X.L["Verified"]
+      and view.rows[2].detail:GetText()==X.L["Awaiting verification reply"]
+      and view.rows[3].detail:GetText()==X.L["Retrying verification"]
+      and view.rows[4].detail:GetText()==X.L["Not verified / no response"]
+      and view.rows[5].detail:GetText()==X.L["Incompatible protocol"]
+      and not view.publish:IsVisible() and #actions==0, "peer rows lost state or issued plan actions")
+    view.next:Click()
+    assert(view.rows[1].title:GetText()=="Fara", "peer pagination lost roster entries")
+    view.tabs.inbox:Click()
     view.participation:Click()
     assert(view.participation:GetText() == NS.X.L["Opt Out"] and view.request:IsVisible(), "leader controls did not open")
     model.reports = { { name = "Aaron", keys = { "FORTITUDE" } }, { name = "Zed" } }
@@ -2647,7 +2665,7 @@ step("Forever caster coordination panel sends reviewed actions and drops obsolet
     model = { available = true, active = true, leader = false, generation = 2, token = 22,
       pending = { name = "Aaron", keys = { "FORTITUDE" }, reviewed = false } }
     X.QueueCoordinationRefresh()
-    assert(not view.tabs.draft:IsVisible() and not view.publish:IsVisible() and view.need:GetText() == "",
+    assert(view.tabs.peers:IsVisible() and not view.tabs.draft:IsVisible() and not view.publish:IsVisible() and view.need:GetText() == "",
       "authority change left stale leader controls or input")
     assert(view.rows[1].title:GetText():find("Aaron", 1, true) and not view.accept:IsEnabled(),
       "incoming plan lacked sender or allowed unreviewed acceptance")
@@ -2665,7 +2683,7 @@ step("Forever caster coordination panel sends reviewed actions and drops obsolet
     cfg:GetScript("OnEvent")(cfg, "PLAYER_REGEN_DISABLED")
     assert(not view:IsVisible(), "coordination panel stayed visible in combat")
   end)
-  X.CoordinationSnapshot, X.Coordinate = snapshot, coordinate
+  X.CoordinationSnapshot, X.Coordinate, X.SyncPeerSnapshot = snapshot, coordinate, peerSnapshot
   env.__combat = false
   env.BuffRadarConfig:Hide()
   fire("PLAYER_REGEN_ENABLED")
@@ -3508,15 +3526,25 @@ step("window palette presets use their approved colors and labels", function()
     assert(restored.theme == palette[1], "sanitizer discarded " .. palette[1])
   end
   slash("theme parchment")
-  for _, palette in ipairs(palettes) do
+  local function nextTheme()
+    local before = db.theme
     button.scripts.OnClick(button)
+    local preview = assert(env.BuffRadarThemePreview)
+    preview.next:Click()
+    assert(db.theme == before, "preview changed saved theme before Apply")
+    preview.apply:Click()
+  end
+  for _, palette in ipairs(palettes) do
+    nextTheme()
     assert(db.theme == palette[1] and button:GetText() == string.format(NS.X.L["Theme: %s"],palette[2]),
       "settings skipped or mislabeled " .. palette[1])
   end
-  button.scripts.OnClick(button)
+  nextTheme()
   assert(db.theme == "ui.auto" and button:GetText() == string.format(NS.X.L["Theme: %s"],NS.X.L["Auto"]),
     "settings omitted Auto or changed its compact label")
-  button.scripts.OnClick(button)
+  nextTheme()
+  assert(db.theme == "custom", "settings omitted custom colors")
+  nextTheme()
   assert(db.theme == "midnight", "settings omitted the original first theme on wrap")
   frame.SetBackdropColor = setBackdropColor
   if not wasOpen then env.BuffRadarConfig:Hide() end
@@ -5654,7 +5682,7 @@ step("global settings search crosses tabs, pages deterministically, and never ch
   local X = NS.X
   local cfg = env.BuffRadarConfig
   env.SlashCmdList.BUFFRADAR("config find")
-  local results = X.CfgSearch("")
+  local results = X.CfgSearch("", "settings")
   assert(#results > 5, "global registry did not include hidden-tab controls")
   local tabs, previous = {}, nil
   for _, entry in ipairs(results) do
@@ -5677,7 +5705,7 @@ step("global settings search crosses tabs, pages deterministically, and never ch
   env.SlashCmdList.BUFFRADAR("config find")
   cfg.searchBox:SetText("unlikely_search_912"); cfg.searchBox.scripts.OnTextChanged(cfg.searchBox)
   assert(#cfg.searchResults == 0 and not cfg.searchRows[1]:IsShown()
-    and cfg.searchHint:GetText() == X.L["No settings match this search."], "no-results state retained a stale selectable row")
+    and cfg.searchHint:GetText() == X.L["No settings or actions match this search."], "no-results state retained a stale selectable row")
   local label = cfg.tabBtns.look:GetText()
   cfg.searchBox:SetText(label); cfg.searchBox.scripts.OnTextChanged(cfg.searchBox)
   assert(#cfg.searchResults > 5 and cfg.searchPage == 1)

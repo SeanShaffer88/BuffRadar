@@ -9,4 +9,7 @@
     <Binding name="BUFFRADAR_MUTE" category="BUFFRADAR">
         BuffRadar_ToggleSound()
     </Binding>
+    <Binding name="BUFFRADAR_ACTIONS" category="BUFFRADAR">
+        BuffRadar_OpenActions()
+    </Binding>
 </Bindings>

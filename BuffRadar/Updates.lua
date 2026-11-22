@@ -4,9 +4,9 @@ local _, ns = ...
 local X=ns.X
 local U={}
 X.Updates=U
-local items={"Copy assignment rules with a reviewed destination.",
-  "Import only the settings sections you choose.",
-  "Review previous settings and restore ordinary preferences locally."}
+local items={"Search settings and actions without memorizing commands.",
+  "Check peer verification and copy a private support report.",
+  "Preview themes before applying or cancelling changes."}
 function U.Model()
   return {version=X.Recovery.Version(),contentRevision=1,items={items[1],items[2],items[3]}}
 end

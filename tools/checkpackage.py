@@ -16,6 +16,7 @@ BINDINGS = {
     "CLICK BuffRadarGroupButton:LeftButton": "",
     "BUFFRADAR_TOGGLE": "BuffRadar_ToggleWindow()",
     "BUFFRADAR_MUTE": "BuffRadar_ToggleSound()",
+    "BUFFRADAR_ACTIONS": "BuffRadar_OpenActions()",
 }
 
 

@@ -424,6 +424,7 @@ do
       local nonce = NewSyncNonce()
       if not X.Broadcast("SYNC;3;B;" .. current.digest .. ";" .. nonce) then return false end
       current.priorWarmNonce, current.warmNonce, current.warmExpires = current.warmNonce, nonce, now + 3
+      current.warmBroadcasts = (current.warmBroadcasts or 0) + 1
       return true
     end
 
@@ -468,6 +469,46 @@ do
 
     function X.RunDueSyncWarmupRetry()
       RetrySyncWarmup(scope)
+    end
+
+    -- Observation only: opening diagnostics must not challenge peers or create a session.
+    function X.SyncPeerSnapshot()
+      local result = { available = false, members = {}, counts = { verified=0, awaiting=0, retrying=0, unverified=0, incompatible=0 } }
+      if not CLASSIC_FEATURES or not db or not db.sync then return result end
+      local members, identity = CoordinationRoster()
+      local me, now = CoordinationGUID("player"), GetTime()
+      if not members or not me or not members[me] then return result end
+      result.available = true
+      local current = scope and scope.identity == identity and scope or nil
+      local function deadline(time)
+        if time and time >= now and (not result.nextRefreshAt or time < result.nextRefreshAt) then
+          result.nextRefreshAt = time + 0.01
+        end
+      end
+      for guid, member in pairs(members) do
+        if guid ~= me then
+          local peer = current and current.peers[guid]
+          local status = "unverified"
+          if peer and peer.incompatible then status = "incompatible"
+          elseif peer and peer.epoch then status = "verified"
+          else
+            if current and current.warmExpires and now <= current.warmExpires then
+              status = (current.warmBroadcasts or 0) > 1 and "retrying" or "awaiting"
+              deadline(current.warmExpires)
+            end
+            for _, pending in ipairs(peer and peer.pending or {}) do
+              if now <= pending.expires then
+                if status == "unverified" then status = "awaiting" end
+                deadline(pending.expires)
+              end
+            end
+          end
+          result.members[#result.members + 1] = { name=member.name, status=status }
+          result.counts[status] = result.counts[status] + 1
+        end
+      end
+      table_sort(result.members, function(a, b) return a.name < b.name end)
+      return result
     end
 
     local function UpdateSyncScope(force)
@@ -637,7 +678,7 @@ do
       end
     end
 
-    function X.CoordinationSnapshot()
+    function X.CoordinationSnapshot(readOnly)
       local snapshot = { generation = generation, token = token, reports = {}, sent = {} }
       if not CLASSIC_FEATURES then
         snapshot.reason = "Caster Coordination is available in WoW: Forever."
@@ -645,6 +686,13 @@ do
       end
       if not db or not db.sync or not SyncChannel() or InCombatLockdown() or X.PlayerSuspended() then
         snapshot.reason = "Caster Coordination needs cast sync and a group outside combat."
+        return snapshot
+      end
+      if readOnly then
+        local members, identity = CoordinationRoster()
+        snapshot.available = members ~= nil
+        snapshot.active = active ~= nil and active.identity == identity
+        snapshot.leader = snapshot.active and X.AmLead()
         return snapshot
       end
       local session, members = Session()
@@ -957,7 +1005,23 @@ do
     end
 
     function X.HandleScopedSync(version, rest, channel, source, now)
-      if not CLASSIC_FEATURES or version ~= "3" then return end
+      if not CLASSIC_FEATURES then return end
+      if version ~= "3" then
+        -- A silent member is not incompatible. Require a bounded scoped packet
+        -- from a current member on the current group channel before showing it.
+        if channel ~= SyncChannel() or not version:match("^[1-9]%d?$") then return end
+        local digest = rest:match("^;[DQP];([%da-f]+);[%da-f]+;[^;]+;.+$")
+          or rest:match("^;B;([%da-f]+);[%da-f]+$")
+        local unit = digest and #digest == 16 and OtherSyncSender(source, channel)
+        local sender = unit and CoordinationGUID(unit)
+        local members, identity = CoordinationRoster()
+        if not sender or not scope or scope.identity ~= identity or scope.digest ~= digest or not members[sender] then return end
+        local peer = scope.peers[sender] or {}
+        peer.incompatible = true
+        scope.peers[sender] = peer
+        NotifyCoordination()
+        return
+      end
       local kind, digest, epoch, field, payload = rest:match("^;([DQP]);([%da-f]+);([%da-f]+);([^;]+);(.+)$")
       if not kind then
         digest, field = rest:match("^;B;([%da-f]+);([%da-f]+)$")
@@ -986,6 +1050,7 @@ do
       local peer = current.peers[sender] or {}
       local warmActive = current.warmExpires and now <= current.warmExpires
       if kind == "B" then
+        peer.incompatible = nil
         if peer.warmReplyAt and now - peer.warmReplyAt < 1 then return end
         local answered = peer.warmReplies or {}
         for _, nonce in ipairs(answered) do if nonce == field then return end end
@@ -996,6 +1061,7 @@ do
           current.peers[sender] = peer
         end
       elseif kind == "Q" then
+        peer.incompatible = nil
         if epoch == current.epoch and peer.answered ~= field and SyncControl("P", current, epoch, field, sender) then
           peer.answered = field
           current.peers[sender] = peer
@@ -1015,7 +1081,7 @@ do
         -- Accept only traffic it produced after answering the new challenge.
         local window = pending and pending.window or { high = 0, floor = 0 }
         if current.requireProofFloor then window.floor = proofFloor end
-        peer.epoch, peer.window, peer.pending = epoch, window, nil
+        peer.epoch, peer.window, peer.pending, peer.incompatible = epoch, window, nil, nil
         current.peers[sender] = peer
         if pending then
           table_sort(pending.packets, function(a, b) return a.seq < b.seq end)
@@ -1023,8 +1089,10 @@ do
             if packet.seq > window.floor then ApplyScopedPacket(packet, unit, name, senderKey, now) end
           end
         end
+        NotifyCoordination()
       else
         if #field > 10 or not field:match("^[1-9]%d*$") or not ScopedPayload(payload) then return end
+        peer.incompatible = nil
         local seq = tonumber(field)
         local packet = { payload = payload, generation = generation, seq = seq }
         if peer.epoch == epoch then

@@ -49,10 +49,15 @@ return function(step, fresh)
     local allowed, seen = {}, {}
     for _, key in ipairs({ "client.interface", "settings.schema", "profiles.count", "buffs.supported",
       "discovery.actionable", "discovery.expiring", "cast.successSerial", "errors.unclassified",
-      "timing.scan.samples", "timing.scan.lastMs" }) do allowed[key]="number" end
+      "timing.scan.samples", "timing.scan.lastMs", "errors.scan", "errors.blocked", "errors.forbidden",
+      "sync.verified", "sync.awaiting", "sync.retrying", "sync.unverified", "sync.incompatible" }) do allowed[key]="number" end
     for _, key in ipairs({ "addon.supported", "settings.includeSelf", "settings.groupOnly", "settings.hidden",
       "settings.groupCast", "settings.modClick", "settings.assignmentEnabled", "settings.sync",
-      "discovery.partial", "report.truncated" }) do allowed[key]="boolean" end
+      "discovery.partial", "report.truncated", "sync.available" }) do allowed[key]="boolean" end
+    local themes, addons = {custom=true}, {}
+    for _, id in ipairs(X.THEME_ORDER) do themes[id]=true end
+    for _, entry in ipairs(X.AUTO_THEME_ADDONS) do addons[entry[1]]=true end
+    allowed["theme.selected"], allowed["theme.resolved"], allowed["theme.addon"] = themes, themes, addons
     allowed["client.version"], allowed["addon.version"], allowed["client.build"]="version","version","digits"
     allowed["client.locale"]={enUS=true,enGB=true,deDE=true,frFR=true,esES=true,ruRU=true,zhCN=true}
     allowed["addon.edition"]={Forever=true,Retail=true}
@@ -104,6 +109,25 @@ return function(step, fresh)
     assert(report:find("client.version=unknown",1,true) and report:find("profiles.count=unknown",1,true)
       and not report:find("Name-Realm",1,true))
     X.Support.Open(); X.Support.Close()
+  end)
+
+  step("support: typed fault counts and sync summaries never include peer or error text", function()
+    local f=fresh({},true)
+    local X=f.X
+    local secret="PrivateFriend-Realm private error text"
+    f.event("ADDON_ACTION_BLOCKED","OtherAddon",secret)
+    f.event("ADDON_ACTION_BLOCKED","BuffRadar",secret)
+    f.event("ADDON_ACTION_FORBIDDEN","BuffRadar",secret)
+    X.Support.RecordFault(secret)
+    X.SyncPeerSnapshot=function() return { available=true, members={{name=secret}},
+      counts={verified=2,awaiting=1,retrying=0,unverified=3,incompatible=0} } end
+    f.db.theme=secret; X.autoThemeAddon=secret; X.autoThemeResolved=secret
+    local report=X.Support.Report()
+    assert(not report:find(secret,1,true) and report:find("errors.blocked=1",1,true)
+      and report:find("errors.forbidden=1",1,true) and report:find("sync.verified=2",1,true)
+      and report:find("theme.selected=unknown",1,true))
+    X.SyncPeerSnapshot=function() error(secret) end
+    assert(X.Support.Report():find("sync.verified=unknown",1,true))
   end)
 
   step("support: only a fresh correlated user success confirms one active guide", function()
