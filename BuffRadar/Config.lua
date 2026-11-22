@@ -1,7 +1,7 @@
 -- BuffRadar - settings window, controls and keyboard navigation.
 -- Copyright (C) 2026 Malikor. GPLv3 or later.
 
-local _, ns = ...
+local addonName, ns = ...
 local X = ns.X
 local core = X.Core
 X.cfgReg = {}
@@ -54,6 +54,7 @@ function K.Available(entry)
 end
 
 function K.Modal()
+  if cfg.themePreviewPanel and cfg.themePreviewPanel:IsVisible() then return cfg.themePreviewPanel end
   if cfg.dailyOptions and cfg.dailyOptions:IsVisible() then return cfg.dailyOptions end
   if cfg.themePriorityPanel and cfg.themePriorityPanel:IsVisible() then return cfg.themePriorityPanel end
   local assignments = cfg.assignmentPanel
@@ -331,7 +332,8 @@ function K.Build()
   input:SetScript("OnEscapePressed", function()
     local picker = cfg.assignmentPanel and cfg.assignmentPanel.picker
     local modal = K.Modal()
-    if cfg.themePriorityPanel and modal == cfg.themePriorityPanel then modal.closeButton:Click()
+    if cfg.themePreviewPanel and modal == cfg.themePreviewPanel then modal.cancel:Click()
+    elseif cfg.themePriorityPanel and modal == cfg.themePriorityPanel then modal.closeButton:Click()
     elseif picker and modal == picker then picker.closeButton:Click()
     else K.Stop() end
   end)
@@ -645,6 +647,8 @@ end
 
 local function OpenColorPicker()
   if InCombatLockdown() or X.Settings.SaveState()=="future" then return end
+  if cfg.themePreviewPanel then cfg.themePreviewPanel:Hide() end
+  X.CancelThemePreview()
   K.Stop()
   local picker=ColorPickerFrame
   if picker.buffRadarColorOwner then picker.buffRadarColorOwner.finish(true) end
@@ -765,6 +769,7 @@ end
 SelectTab = function(key)
   CloseSearch()
   cfg.curTab = key
+  if cfg.themePreviewPanel then cfg.themePreviewPanel:Hide() end
   if cfg.themePriorityPanel then cfg.themePriorityPanel:Hide() end
   if cfg.displayPanel then cfg.displayPanel:Hide() end
   if cfg.blessingPanel then cfg.blessingPanel:Hide() end
@@ -2494,7 +2499,7 @@ end
 function AssignmentUI.UpdateCoordination(view)
   local model, lines = view.model, {}
   local leader = model.active == true and model.leader == true
-  if view.tab ~= "inbox" and not leader then view.tab, view.page = "inbox", 1 end
+  if view.tab ~= "inbox" and view.tab ~= "peers" and not leader then view.tab, view.page = "inbox", 1 end
   local tab = view.tab
   local pending = model.pending
   local status = model.reason and L[model.reason]
@@ -2504,7 +2509,7 @@ function AssignmentUI.UpdateCoordination(view)
   view.tabs.inbox:SetText(pending   and   L["Inbox"] .. " (1)"   or   L["Inbox"])
   if model.active or model.available then view.participation:Enable() else view.participation:Disable() end
   for key, button in pairs(view.tabs) do
-    button:SetShown(model.active == true and (key == "inbox" or leader))
+    button:SetShown(key == "peers" or model.active == true and (key == "inbox" or leader))
     if key == tab then button:Disable() else button:Enable() end
   end
   view.request:SetShown(leader and tab == "reports")
@@ -2521,7 +2526,15 @@ function AssignmentUI.UpdateCoordination(view)
   view.decline:SetShown(tab == "inbox" and pending ~= nil)
   if pending and pending.reviewed then view.accept:Enable() else view.accept:Disable() end
 
-  if model.active and tab == "reports" then
+  if tab == "peers" then
+    local labels = { verified=L["Verified"], awaiting=L["Awaiting verification reply"],
+      retrying=L["Retrying verification"], unverified=L["Not verified / no response"], incompatible=L["Incompatible protocol"] }
+    for _, peer in ipairs(view.peers.members) do
+      lines[#lines + 1] = { title=peer.name, detail=labels[peer.status] }
+    end
+    if #lines == 0 then lines[1] = { title=L["No peers available for verification."] } end
+    view.notice:SetText(L["Peer verification is separate from plan delivery and buff coverage."])
+  elseif model.active and tab == "reports" then
     if model.reportRequest then
       for _, report in ipairs(model.reports or {}) do
         local keys = report.keys
@@ -2576,7 +2589,8 @@ end
 
 function AssignmentUI.RefreshCoordination(view)
   if not view:IsVisible() or InCombatLockdown() or X.PlayerSuspended() then return end
-  local model = X.CoordinationSnapshot()
+  local model = X.CoordinationSnapshot(view.tab == "peers")
+  view.peers = X.SyncPeerSnapshot()
   local before = view.model
   if before and before.generation ~= model.generation then
     view.page = 1
@@ -2586,6 +2600,8 @@ function AssignmentUI.RefreshCoordination(view)
   view.model = model
   AssignmentUI.UpdateCoordination(view)
   local deadline = model.nextRefreshAt
+  local peerDeadline = view.peers.nextRefreshAt
+  if peerDeadline and (not deadline or peerDeadline < deadline) then deadline = peerDeadline end
   if view.deadline == deadline then return end
   view.deadline, view.refreshTicket = deadline, nil
   if deadline and C_Timer and C_Timer.After then
@@ -2628,14 +2644,14 @@ function AssignmentUI.BuildCoordination(panel)
   view.participation:SetPoint("TOPRIGHT", -16, -39)
   view.tabs = {}
   local sections = { { "reports", L["Reports"] }, { "draft", L["Draft"] },
-    { "delivery", L["Delivery"] }, { "inbox", L["Inbox"] } }
+    { "delivery", L["Delivery"] }, { "inbox", L["Inbox"] }, { "peers", L["Peers"] } }
   for index, section in ipairs(sections) do
     local key = section[1]
-    local tab = MakeButton(view, section[2], 124, function()
+    local tab = MakeButton(view, section[2], 102, function()
       view.tab, view.page = key, 1
       AssignmentUI.RefreshCoordination(view)
     end)
-    tab:SetPoint("TOPLEFT", 16 + (index - 1) * 132, -77)
+    tab:SetPoint("TOPLEFT", 16 + (index - 1) * 110, -77)
     view.tabs[key] = tab
   end
   local function move(delta)
@@ -2938,6 +2954,105 @@ do
     cfg.searchToggle:Hide()
     cfg.themePriorityPanel:Show()
     X.RefreshAutoThemePriority()
+    if K.active then K.Move(1) end
+  end
+end
+
+do
+  function X.RefreshThemePreview()
+    local panel = cfg and cfg.themePreviewPanel
+    if not panel or not panel:IsVisible() then return end
+    local state = X.ThemePreviewState(panel.owner)
+    if not state then panel:Hide(); return end
+    panel.choice:SetText(state.id == X.AUTO_THEME_ID and L["Auto"] or state.label)
+    panel.status:SetText(state.id == X.AUTO_THEME_ID and (state.addon
+      and string.format(L["Selected: %s (%s)"], state.label, state.addon)
+      or L["No supported UI addon is loaded. Using Midnight."]) or state.label)
+    panel.sample:SetBackdropColor(state.bg[1], state.bg[2], state.bg[3], 1)
+    panel.sample:SetBackdropBorderColor(state.border[1], state.border[2], state.border[3], 1)
+    if K.active and K.current == panel.choice.navigation then K.Focus(K.current) end
+  end
+
+  local function BuildThemePreview()
+    local panel = AssignmentUI.CreatePanel(cfg, "BuffRadarThemePreview", 540, 300, cfg:GetFrameLevel() + 9)
+    panel.searchTab, panel.searchOpen = "look", function() X.OpenThemePreview() end
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 18, -14)
+    title:SetText(L["Theme Preview"])
+    local help = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    help:SetPoint("TOPLEFT", 18, -44)
+    help:SetPoint("TOPRIGHT", -18, -44)
+    help:SetJustifyH("LEFT")
+    help:SetText(L["Preview changes the window. Settings stay unchanged until Apply."])
+    local function move(delta)
+      local state = X.ThemePreviewState(panel.owner)
+      if not state then panel:Hide(); return end
+      local order, selected = X.ThemeOrder(), 1
+      order[#order + 1] = "custom"
+      for index, name in ipairs(order) do if name == state.id then selected = index end end
+      X.PreviewTheme(panel.owner, order[(selected - 1 + delta) % #order + 1])
+      X.RefreshThemePreview()
+    end
+    panel.previous = MakeButton(panel, L["Previous theme"], 122, function() move(-1) end)
+    panel.previous:SetPoint("TOPLEFT", 18, -85)
+    panel.next = MakeButton(panel, L["Next theme"], 122, function() move(1) end)
+    panel.next:SetPoint("TOPRIGHT", -18, -85)
+    panel.choice = CreateFrame("Button", nil, panel)
+    panel.choice:SetPoint("TOPLEFT", 150, -85)
+    panel.choice:SetSize(240, 22)
+    local choiceLabel = panel.choice:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    choiceLabel:SetAllPoints(panel.choice)
+    panel.choice.SetText = function(_, value) choiceLabel:SetText(value) end
+    panel.choice.GetText = function() return choiceLabel:GetText() end
+    K.Register(panel.choice, panel, L["Theme"], "choice", function() return panel.choice:GetText() end, move)
+    panel.choice:SetScript("OnClick", function() move(1) end)
+    panel.statusRow = CreateFrame("Button", nil, panel)
+    panel.statusRow:SetPoint("TOPLEFT", 18, -119)
+    panel.statusRow:SetSize(504, 24)
+    panel.status = panel.statusRow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    panel.status:SetAllPoints(panel.statusRow)
+    panel.status:SetJustifyH("LEFT")
+    K.Register(panel.statusRow, panel, L["Theme Preview"], "detail", function() return panel.status:GetText() end)
+    panel.sample = X.PanelWidget("Frame", nil, panel, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    panel.sample:SetSize(504, 76)
+    panel.sample:SetPoint("TOPLEFT", 18, -151)
+    panel.sample:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12 })
+    local sample = panel.sample:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    sample:SetPoint("TOPLEFT", 14, -12)
+    sample:SetText(addonName .. "\n" .. L["Missing buff"])
+    panel.apply = MakeButton(panel, L["Apply"], 108, function()
+      X.ApplyThemePreview(panel.owner)
+      panel:Hide()
+    end)
+    panel.apply:SetPoint("BOTTOMRIGHT", -138, 18)
+    panel.cancel = MakeButton(panel, L["Cancel"], 108, function() panel:Hide() end)
+    panel.cancel:SetPoint("BOTTOMRIGHT", -18, 18)
+    AssignmentUI.CloseButton(panel, function() panel:Hide() end)
+    panel:HookScript("OnHide", function()
+      X.CancelThemePreview(panel.owner)
+      panel.owner = nil
+      if cfg:IsVisible() and cfg.curTab == "look" then
+        cfg.searchToggle:Show()
+        if K.active then K.Focus(cfg.themeBtn.navigation) end
+      end
+    end)
+    if UISpecialFrames then table.insert(UISpecialFrames, "BuffRadarThemePreview") end
+    return panel
+  end
+
+  function X.OpenThemePreview()
+    if InCombatLockdown() or X.PlayerSuspended() or X.Settings.SaveState() == "future" then return end
+    local picker = ColorPickerFrame
+    if picker and picker.buffRadarColorOwner then picker.buffRadarColorOwner.finish(true); picker:Hide() end
+    OpenConfig(true)
+    SelectTab("look")
+    cfg.themePreviewPanel = cfg.themePreviewPanel or BuildThemePreview()
+    local panel = cfg.themePreviewPanel
+    panel.owner = X.BeginThemePreview()
+    if not panel.owner then return end
+    cfg.searchToggle:Hide()
+    panel:Show()
+    X.RefreshThemePreview()
     if K.active then K.Move(1) end
   end
 end
@@ -3376,10 +3491,7 @@ local function BuildConfig()
   cfg.wizardBtn:SetPoint("TOPLEFT", 134, -232)
 
   cfg.themeBtn = MakeButton(look, L["Theme: Midnight"], 170, function()
-    local order = X.ThemeOrder()
-    local cur = 1
-    for i, k in ipairs(order) do if k:lower() == (db.theme or ""):lower() then cur = i end end
-    X.ApplyTheme(order[cur % #order + 1])
+    X.OpenThemePreview()
   end)
   cfg.themeBtn:SetPoint("TOPLEFT", 250, -336)
   cfg.themeBtn.navigation.label = L["Theme"]
@@ -4032,7 +4144,7 @@ local function BuildConfig()
   Tip(cfg.twoColCheck, L["Two columns when the list is long"], L["With more than 8 people on the list, the rows split into two side-by-side columns and the window widens, instead of growing one tall column. Same as /br twocol."])
   Tip(cfg.themeBtn, function()
     return db.theme == X.AUTO_THEME_ID   and   X.ThemeLabel(true)   or   L["Color theme"]
-  end, L["Click to cycle the built-in and saved window color themes. Picking a custom background color afterwards switches back to a custom theme. Use /br theme to list theme names."])
+  end, L["Preview built-in, saved, and Auto themes. Apply saves the choice; Cancel keeps your current theme. /br theme preview opens this panel."])
   Tip(cfg.saveThemeBtn, L["Save as theme"], L["Saves the window's current background and border colors as your own theme, so it joins the theme cycle. It is named automatically; /br theme save <name> saves under your own name, /br theme delete <name> removes one. Up to 4 saved themes."])
   Tip(cfg.gapSlider, L["Row spacing"], L["Extra empty space between the rows, 0 to 8. The window grows to fit. Same as /br rowgap <0-8>."])
   Tip(cfg.iconSlider, L["Buff icon size"], L["How big the missing-buff icons on each row are, 10 to 24. At 0 the size is automatic (16, or 12 in compact rows). Same as /br iconsize <0|10-24>."])
@@ -4304,6 +4416,7 @@ local function BuildConfig()
   cfg:HookScript("OnHide", function()
     K.Stop(true)
     CloseSearch()
+    if cfg.themePreviewPanel then cfg.themePreviewPanel:Hide() end
     if cfg.themePriorityPanel then cfg.themePriorityPanel:Hide() end
     if cfg.assignmentPanel then cfg.assignmentPanel:Hide() end
   end)
@@ -4314,6 +4427,7 @@ local function BuildConfig()
     if event == "PLAYER_REGEN_DISABLED" then
       K.Stop(true)
       CloseSearch()
+      if cfg.themePreviewPanel then cfg.themePreviewPanel:Hide() end
       if cfg.themePriorityPanel then cfg.themePriorityPanel:Hide() end
       if cfg.assignmentPanel then cfg.assignmentPanel:Hide() end
     elseif cfg:IsShown() then ApplyConfigScale() end
@@ -4402,6 +4516,7 @@ RefreshConfig = function()
     cfg.themeBtn:SetText(string.format(L["Theme: %s"], X.ThemeLabel()))
   end
   X.RefreshAutoThemePriority()
+  X.RefreshThemePreview()
   if cfg.petsCheck then cfg.petsCheck:Update() end
   if cfg.auraCheck then cfg.auraCheck:Update() end
   if cfg.worldCheck then cfg.worldCheck:Update() end

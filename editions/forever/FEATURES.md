@@ -208,7 +208,9 @@ each needs in-game evidence or a sharper definition, recorded in
 - **Color themes** (`/br theme`): choose a built-in window palette, save your
   own, or select Auto to match a loaded UI addon. **Auto Theme Priority**
   (`/br theme priority panel`) sets the order and shows the selected addon. A
-  hand-picked background color selects Custom.
+  hand-picked background color selects Custom. The Theme button or
+  `/br theme preview` previews a palette without changing saved settings;
+  Apply saves it and Cancel restores the previous appearance.
 - **Raid target markers** (`/br markers`): rows show the raid
   marker currently on that player.
 - **Group pets** (`/br pets`): party/raid pets get rows when
@@ -487,7 +489,9 @@ stays hidden on those characters.
   then confirms a user-triggered cast only through the normal attributed success
   path. Closing/reopening starts a fresh attempt; combat pauses guidance.
 - **Private support report:** `/br support` opens a local copy dialog containing
-  a bounded typed technical report. Names, profile labels, macro bodies, history
+  a bounded typed technical report with delivery state, relevant settings,
+  error counts, peer verification counts, and the selected theme.
+  Names, profile labels, macro bodies, history
   and raw errors are excluded. Nothing is sent or copied to the clipboard
   automatically. Both actions are also in **Readiness** settings.
 - **Cast counter** for this session and all-time, plus per-spell cast

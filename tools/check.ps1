@@ -119,6 +119,14 @@ Section 'Caster Coordination (two fake game clients)'
 & $py -I (Join-Path $here 'coordination51.py') (Join-Path $here 'wowstub.lua') $lua
 if ($LASTEXITCODE -ne 0) { $failed += 'two-client coordination' }
 
+Section 'Offline relog (fresh fake game clients)'
+& $py -I (Join-Path $here 'relog51.py') (Join-Path $here 'wowstub.lua') $lua
+if ($LASTEXITCODE -ne 0) { $failed += 'offline relog' }
+
+Section 'Theme preview (fake game client)'
+& $py -I (Join-Path $here 'theme_preview51.py') --addon $lua
+if ($LASTEXITCODE -ne 0) { $failed += 'theme preview' }
+
 Section 'Packaging regression tests'
 & $py -I (Join-Path $here 'test_package.py')
 if ($LASTEXITCODE -ne 0) { $failed += 'packaging regression tests' }

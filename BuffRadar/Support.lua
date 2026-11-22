@@ -9,6 +9,11 @@ local state, reason, frame = "inactive", "inactive", nil
 local controls, focus = {}, 0
 local awaiting, inputPaused = false, false
 local ownedModal
+local faultCounts = { blocked=0, forbidden=0 }
+
+function G.RecordFault(kind)
+  if faultCounts[kind] then faultCounts[kind] = math.min(1000000, faultCounts[kind] + 1) end
+end
 
 local function Readable(value) return X.Readable(value) end
 local function Number(value)
@@ -254,6 +259,21 @@ function G.Report()
   put("guide.state", Enum(state, { inactive=true, discovering=true, blocked=true, ready=true, awaiting_user_cast=true, confirmed=true, paused=true }))
   put("cast.successSerial", X.CastSuccessSerial())
   put("errors.unclassified", Number(X.ScanFaultCount()))
+  put("errors.scan", Number(X.ScanFaultCount()))
+  put("errors.blocked", faultCounts.blocked)
+  put("errors.forbidden", faultCounts.forbidden)
+  local peers = Data(X.SyncPeerSnapshot)
+  local peerCounts = Data(function() return Field(peers, "counts") end)
+  put("sync.available", Bool(Field(peers, "available")))
+  for _, key in ipairs({ "verified", "awaiting", "retrying", "unverified", "incompatible" }) do
+    put("sync." .. key, Number(Field(peerCounts, key)))
+  end
+  local themes, addons = { custom=true }, {}
+  for _, id in ipairs(X.THEME_ORDER) do themes[id] = true end
+  for _, entry in ipairs(X.AUTO_THEME_ADDONS) do addons[entry[1]] = true end
+  put("theme.selected", Enum(Field(db, "theme"), themes))
+  put("theme.resolved", Enum(X.autoThemeResolved, themes))
+  put("theme.addon", Enum(X.autoThemeAddon, addons))
   local timing = X.timings and Data(function() return rawget(X.timings, "scan") end) or {}
   local samples = Number(Field(timing, "n"))
   put("timing.scan.samples", samples)

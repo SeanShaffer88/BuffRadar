@@ -4783,6 +4783,7 @@ driver:SetScript("OnEvent", function(self, event, arg1, ...)
   end
   if event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN" then
     if arg1 == ADDON then
+      if X.Support then X.Support.RecordFault(event == "ADDON_ACTION_BLOCKED" and "blocked" or "forbidden") end
       Print(string_format(L["|cffff4040the game blocked a BuffRadar action|r (%s)"],event .. ": " .. tostring((...))))
     end
     return

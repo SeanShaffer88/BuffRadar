@@ -190,7 +190,9 @@ aura and Hunter aspect reminders with `/br aura`.
   review a draft, publish duties, and track acknowledgements. Casters can
   review, accept, or decline an incoming plan. Acknowledgements are shown
   separately from buff coverage. Plans clear when the roster or leadership
-  changes. Run `/br coordinate` for the available commands.
+  changes. The **Peers** tab shows verification, pending replies, retries,
+  no response, and incompatible protocols independently of plan acceptance.
+  Run `/br coordinate` for the available commands.
 - **Cast sync and handoff.** `/br sync` shares successful cast status with
   other BuffRadar users in the group. `/br assign` lets leaders and
   assistants assign casters to buffs. Leaders, assistants, and Paladins can use
@@ -232,7 +234,9 @@ aura and Hunter aspect reminders with `/br aura`.
   opacity, border, and themes. Choose a built-in palette or save up to four
   custom themes. Select **Auto** to match a loaded UI addon, then open
   **Auto Theme Priority** on the Window tab to reorder matches and see the
-  selected addon. Show class colors, realm names,
+  selected addon. The Theme button or `/br theme preview` previews palettes
+  before saving; **Apply** saves the choice and **Cancel** restores the look.
+  Show class colors, realm names,
   raid markers, duration bars, or colored marks for tanks, assignments,
   expiry, and the buddy split. Trim long names and select minimal,
   standard, or full tooltips with buff durations where available.
@@ -264,7 +268,8 @@ Use `/br firstcast` for a session-local guide through discovery and cast readine
 It waits for a cast you activate through the existing list, binding or managed
 macro, and confirms only an attributed success. It never casts automatically.
 `/br support` opens a local copy window with allowlisted technical settings,
-aggregate counts, readiness and categorized errors. It excludes player names,
+aggregate counts, readiness, categorized errors, peer verification counts,
+and the selected theme. It excludes player names,
 profile labels, history, macro text and raw errors, and sends nothing. Both
 actions are available in the **Readiness** settings tab.
 

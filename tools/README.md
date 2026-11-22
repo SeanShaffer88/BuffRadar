@@ -46,6 +46,18 @@ Python environment, use:
 & 'C:\path\to\brlua\Scripts\python.exe' -I tools/coordination51.py tools/wowstub.lua BuffRadar/BuffRadar.lua
 ```
 
+Run only the offline relog checks with the same Python environment:
+
+```powershell
+& 'C:\path\to\brlua\Scripts\python.exe' -I tools/relog51.py tools/wowstub.lua BuffRadar/BuffRadar.lua
+```
+
+This starts separate Lua clients. Only plain saved settings, native macro slots,
+bindings, and action-bar references cross the restart boundary. Frames, queues,
+timers, and addon closures are recreated. The checks cover graceful logout and
+abrupt restart, macro newline handling, changed recipients, bindings, empty
+queues, and Auto theme resolution against the new client's loaded addons.
+
 ## First time (or if the tools went missing)
 
 ```powershell
@@ -73,6 +85,8 @@ then — just run `-Setup` again.
 | **Packaging regressions** (`test_package.py`) | Rebuilds from independent source trees and checks repeat bytes, version/tag rejection, link and path refusal, source drift, archive metadata, checksums and exact bindings. |
 | **Forever package** | If a ZIP for the current version exists in `dist\`, checks its bytes against the current source, TOC metadata, declared Lua load order, and XML bindings in a Forever mock, including `/br selftest` version readback. CI builds and checks the archive on every PR. |
 | **Two-client coordination** (`coordination51.py`) | Loads two independent Forever mock clients. Relays their real plan, cast, and session-proof packets. Checks plan acceptance, bidirectional cast sync, and replay rejection across roster and leadership changes. |
+| **Offline relog** (`relog51.py`) | Restarts into a separate Lua runtime using copied durable game data. Checks settings, managed macros, bindings, rebuilt queue targets, and Auto themes without carrying transient addon state across clients. |
+| **Theme preview** (`theme_preview51.py`) | Checks transient rendering, Apply and Cancel, Auto candidate resolution, conflicting edits, combat invalidation, and the keyboard-accessible preview panel. |
 
 ## Limits of the fake game client
 

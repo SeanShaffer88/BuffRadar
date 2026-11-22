@@ -8,6 +8,14 @@ ns.X = X
 
 -- Canonical English UI catalog, translated once before consumers initialize.
 local L = {
+  ["Peers"] = "Peers",
+  ["Verified"] = "Verified",
+  ["Awaiting verification reply"] = "Awaiting verification reply",
+  ["Retrying verification"] = "Retrying verification",
+  ["Not verified / no response"] = "Not verified / no response",
+  ["Incompatible protocol"] = "Incompatible protocol",
+  ["No peers available for verification."] = "No peers available for verification.",
+  ["Peer verification is separate from plan delivery and buff coverage."] = "Peer verification is separate from plan delivery and buff coverage.",
   ["Selected Sections"] = "Selected Sections",
 
   ["Whole Profile"] = "Whole Profile",
@@ -1401,6 +1409,12 @@ local L = {
   ["Unknown key. Use /br buffs to see keys."] = "Unknown key. Use /br buffs to see keys.",
   ["Blessing assigned to another Paladin"] = "Blessing assigned to another Paladin",
   ["Restock targets are limited to supported reagents."] = "Restock targets are limited to supported reagents.",
+  ["Theme Preview"] = "Theme Preview",
+  ["Preview changes the window. Settings stay unchanged until Apply."] = "Preview changes the window. Settings stay unchanged until Apply.",
+  ["Previous theme"] = "Previous theme",
+  ["Next theme"] = "Next theme",
+  ["Missing buff"] = "Missing buff",
+  ["Preview built-in, saved, and Auto themes. Apply saves the choice; Cancel keeps your current theme. /br theme preview opens this panel."] = "Preview built-in, saved, and Auto themes. Apply saves the choice; Cancel keeps your current theme. /br theme preview opens this panel.",
   ["Theme: Midnight"] = "Theme: Midnight",
   ["Theme: %s"] = "Theme: %s",
   ["No custom spells. /br custom add <spell ID> watches one."] = "No custom spells. /br custom add <spell ID> watches one.",

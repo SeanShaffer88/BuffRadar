@@ -1077,7 +1077,9 @@ local function HandleSlash(msg)
     end
   elseif cmd == "theme" then
     local m = rest:lower()
-    if m == "" or m == "list" then
+    if m == "preview" then
+      X.OpenThemePreview()
+    elseif m == "" or m == "list" then
       local parts = {}
       for _, k in ipairs(X.ThemeOrder()) do
         local current = (db.theme or ""):lower() == k:lower()
