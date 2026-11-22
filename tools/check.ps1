@@ -131,6 +131,10 @@ Section 'Actions search (fake game client)'
 & $py -I (Join-Path $here 'actions51.py') --addon $lua
 if ($LASTEXITCODE -ne 0) { $failed += 'actions search' }
 
+Section 'Battleground and blessing diagnostics (fake game client)'
+& $py -I (Join-Path $here 'diagnostics51.py') --addon $lua
+if ($LASTEXITCODE -ne 0) { $failed += 'battleground and blessing diagnostics' }
+
 Section 'Packaging regression tests'
 & $py -I (Join-Path $here 'test_package.py')
 if ($LASTEXITCODE -ne 0) { $failed += 'packaging regression tests' }

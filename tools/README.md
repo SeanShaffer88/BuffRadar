@@ -88,6 +88,7 @@ then — just run `-Setup` again.
 | **Offline relog** (`relog51.py`) | Restarts into a separate Lua runtime using copied durable game data. Checks settings, managed macros, bindings, rebuilt queue targets, and Auto themes without carrying transient addon state across clients. |
 | **Theme preview** (`theme_preview51.py`) | Checks transient rendering, Apply and Cancel, Auto candidate resolution, conflicting edits, combat invalidation, and the keyboard-accessible preview panel. |
 | **Actions search** (`actions51.py`) | Checks action categories, settings filters, paged results, read-only availability, activation guards, command equivalents, argument forms, keyboard navigation, narration and the optional Actions binding. |
+| **Battleground and blessing diagnostics** (`diagnostics51.py`) | Checks pause explanations, exact combat/PvP flags, cached blessing knowledge, selection precedence and complement reasons, unknown API values, report privacy, and isolated reads on success and error. |
 
 ## Limits of the fake game client
 

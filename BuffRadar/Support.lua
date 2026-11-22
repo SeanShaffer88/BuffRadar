@@ -244,10 +244,38 @@ function G.Report()
   put("settings.castMethod", Enum(Field(db, "castMethod"), { target=true, rank=true, id=true, macro=true }))
   put("settings.sortMode", Enum(Field(db, "sortMode"), { name=true, need=true, role=true, distance=true }))
   put("settings.roleFilter", Enum(Field(db, "roleFilter"), { ALL=true, TANK=true, HEALER=true, DAMAGER=true }))
+  for _, key in ipairs({ "pauseInBG", "pauseInCities", "pauseTaxi", "avoidPvP", "blessingComplement" }) do
+    put("settings." .. key, Bool(Field(db, key)))
+  end
+  local context = Data(X.DiagnosticContext)
+  put("context.instance", Enum(Field(context, "instance"), {none=true,party=true,raid=true,pvp=true,arena=true}))
+  local pauseCodes = {none=true,city=true,battleground=true,taxi=true,low_mana=true}
+  put("pause.policy", Enum(Field(context, "policy"), pauseCodes))
+  put("pause.blocker", Enum(Field(context, "blocker"), {none=true,city=true,battleground=true,taxi=true,
+    low_mana=true,dead=true,combat=true,no_buffs=true}))
+  for _, key in ipairs({ "dead", "combat", "pvp" }) do put("player." .. key, Bool(Field(context, key))) end
+  put("player.class", Enum(Field(context, "class"), {WARRIOR=true,PALADIN=true,HUNTER=true,ROGUE=true,
+    PRIEST=true,SHAMAN=true,MAGE=true,WARLOCK=true,DRUID=true}))
+  local knowledge = Data(X.BlessingKnowledge)
+  put("blessings.cacheReady", Bool(Field(knowledge, "cacheReady")))
+  local function bounded(value, maximum, positive)
+    local number = Number(value)
+    return number and number <= maximum and (not positive or number > 0) and number or nil
+  end
+  put("blessings.bookEntries", bounded(Field(knowledge, "bookEntries"), 5000))
+  local detected = Data(function() return Field(knowledge, "detected") end)
+  local ranks = Data(function() return Field(knowledge, "ranks") end)
+  local maximum = Data(function() return Field(knowledge, "maxRank") end)
+  -- Fixed schema keys: never serialize names or arbitrary keys returned by a snapshot.
+  for _, key in ipairs({ "KINGS", "MIGHT", "WISDOM", "SALVATION", "LIGHT", "SANCTUARY" }) do
+    put("blessings.detected." .. key, Bool(Field(detected, key)))
+    put("blessings.ranks." .. key, bounded(Field(ranks, key), 600))
+    put("blessings.maxRank." .. key, bounded(Field(maximum, key), 100, true))
+  end
   local countOK, profileCount = pcall(function() return X.ProfileCount() end)
   put("profiles.count", countOK and Number(profileCount) or nil)
-  local contextOK, context = pcall(function() return X.Context() end)
-  put("profiles.context", contextOK and Enum(context, { solo=true, world=true, dungeon=true, raid=true, pvp=true }) or "unknown")
+  local contextOK, profileContext = pcall(function() return X.Context() end)
+  put("profiles.context", contextOK and Enum(profileContext, { solo=true, world=true, dungeon=true, raid=true, pvp=true }) or "unknown")
   put("buffs.supported", BuffCount())
   local status, delivery = Data(X.Status.Diagnostics), Data(X.CastDelivery)
   put("discovery.state", Enum(Field(status, "state"), discoveryStates))

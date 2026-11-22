@@ -322,7 +322,7 @@ do
     local level = CLASSIC_FEATURES and X.ReadUnitNumber(UnitLevel, unit)
     for i = 1, #source do
       local inRange, estimated, unreadable
-      if X.RankTooLow(source[i], level, db.castMethod) then
+      if X.RankTooLow(source[i], level, db.castMethod, diagnostic) then
         rankLimited = true
       elseif isSelf then
         inRange = true
@@ -602,6 +602,26 @@ do
   function X.BlessingOwner(unit, names)
     return MergeOwner(NamedOwner(unit, names[1]), NamedOwner(unit, names[2]))
   end
+
+  -- Diagnostics get private scratch caches, then restore the scan's exact state.
+  -- Restoring only the unit markers would pair old markers with diagnostic data.
+  function X.WithDiagnosticReads(work, ...)
+    local oldScan, oldExpiry, oldComplete = scanCache, uncertainExpiry, complete
+    local oldOwners, oldOwnersComplete = owners, ownersComplete
+    local oldUnit, oldBlessingUnit, oldHidden = X.scanUnit, X.blessingScanUnit, X.hid
+    local oldRealm = X.Ignore.realm
+    scanCache, uncertainExpiry, complete, owners, ownersComplete = {}, {}, false, {}, false
+    X.scanUnit, X.blessingScanUnit = nil, nil
+    local function finish(ok, ...)
+      scanCache, uncertainExpiry, complete = oldScan, oldExpiry, oldComplete
+      owners, ownersComplete = oldOwners, oldOwnersComplete
+      X.scanUnit, X.blessingScanUnit, X.hid = oldUnit, oldBlessingUnit, oldHidden
+      X.Ignore.realm = oldRealm
+      if not ok then error((...), 0) end
+      return ...
+    end
+    return finish(pcall(work, ...))
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -778,6 +798,7 @@ local known, myBuffs, myBlessing, blessKnown, blessKeys = {}, {}, {}, {}, {}
 local ranks = {}   -- ranks[name] = { {rank=n, sub="Rank n", id=spellID}, ... } ascending
 local hasAnyBuff = false
 local bookCount = 0
+local bookCacheReady = false
 local sessionShow = false   -- user explicitly opened the window this session
 local lastError
 local scanFaults = 0
@@ -798,7 +819,7 @@ end
 
 -- Number of spellbook slots, from the modern skill-line API or legacy tabs; 0 = unknown.
 local function SpellbookSize()
-  local total = 0
+  local total, completeBook = 0, true
   if C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines and C_SpellBook.GetSpellBookSkillLineInfo then
     local ok, lines = pcall(C_SpellBook.GetNumSpellBookSkillLines)
     if ok and type(lines) == "number" then
@@ -806,9 +827,9 @@ local function SpellbookSize()
         local okI, info = pcall(C_SpellBook.GetSpellBookSkillLineInfo, t)
         if okI and type(info) == "table" then
           total = math_max(total, (info.itemIndexOffset or 0) + (info.numSpellBookItems or 0))
-        end
+        else completeBook = false end
       end
-    end
+    else completeBook = false end
   end
   if total == 0 and GetNumSpellTabs and GetSpellTabInfo then
     local ok, tabs = pcall(GetNumSpellTabs)
@@ -819,20 +840,21 @@ local function SpellbookSize()
       end
     end
   end
-  return total
+  return total, completeBook
 end
 
 local function ByRank(a, b) return a.rank < b.rank end
 
 function BuildBuffList()
+  bookCacheReady = false
   X.nameKeyStamp = nil -- custom buffs can change without changing the spellbook size
   wipe(known)
-  local total = SpellbookSize()
+  local total, completeBook = SpellbookSize()
   local probing = total == 0      -- size unknown: walk until the book clearly ends
   if probing then total = 600 end
   bookCount = 0
   wipe(ranks)
-  local misses = 0
+  local misses, bookComplete = 0, completeBook
   for i = 1, total do
     local ok, n, sub, id = pcall(BookInfo, i)
     if ok and n then
@@ -841,10 +863,13 @@ function BuildBuffList()
       bookCount = bookCount + 1
       if CLASSIC_FEATURES then  -- spell ranks: Forever only (retail has none)
         ranks[n] = ranks[n] or {}
-        local num = tonumber((sub or ""):match("(%d+)")) or 0
-        table.insert(ranks[n], { rank = num, sub = sub, id = id })
+        local rankText = Readable(sub) and type(sub) == "string" and sub or nil
+        local observed = rankText and tonumber(rankText:match("(%d+)")) or nil
+        local num = observed or 0
+        table.insert(ranks[n], { rank = num, sub = rankText, id = id, observedRank = observed })
       end
     else
+      if not ok or not probing then bookComplete = false end
       misses = misses + 1
       if probing and misses >= 30 then break end
     end
@@ -958,11 +983,38 @@ function BuildBuffList()
     X.watchNames, X.auraIds = watch, nil
   end
   hasAnyBuff = (#myBuffs > 0) or (CLASSIC_FEATURES and next(blessKnown) ~= nil)
+  bookCacheReady = bookCount > 0 and bookComplete
 end
 end -- BuildBuffList block
 
 function X.HasKnownBlessings()
   return CLASSIC_FEATURES and next(blessKnown) ~= nil
+end
+
+-- Cached spellbook evidence, never a request to scan or infer an unlearned spell.
+function X.BlessingKnowledge()
+  local result = { cacheReady = bookCacheReady, detected = {}, ranks = {}, maxRank = {} }
+  if not bookCacheReady then return result end
+  if bookCount >= 0 and bookCount <= 5000 then result.bookEntries = bookCount end
+  for _, key in ipairs(X.BLESSING_KEYS) do
+    local blessing = blessKnown[key]
+    result.detected[key] = blessing ~= nil
+    local list = blessing and ranks[blessing.name] or {}
+    if #list <= 600 then result.ranks[key] = #list end
+    local rank, completeRanks
+    completeRanks = #list > 0
+    for _, record in ipairs(list) do
+      local observed = record.observedRank
+      if type(observed) ~= "number" or not (observed > 0 and observed <= 100) then completeRanks = false
+      elseif not rank or observed > rank then rank = observed end
+    end
+    if completeRanks then result.maxRank[key] = rank end
+  end
+  return result
+end
+
+local function BlessingKey(blessing)
+  return blessing and blessing.priorityKey and blessing.priorityKey:match("^BLESS_(%u+)$") or nil
 end
 
 function X.BlessingOptions(class)
@@ -999,24 +1051,35 @@ function X.SetBlessingComplement(enabled)
   return true
 end
 
-function X.ComplementWorldBlessing(unit, class, preferred)
+function X.ComplementWorldBlessing(unit, class, preferred, detail)
   local owner = X.BlessingOwner(unit, preferred.names)
+  if detail then detail.preferredOwner = owner end
   if owner ~= "other" then
     -- With an unreadable caster, don't switch blessing or top up one that
     -- could belong to a different Paladin. Regular missing-aura checks stay in force.
+    if detail then detail.outcome = owner == "unknown" and "ownership_unknown" or "preferred_kept" end
     return preferred, owner == "unknown" and HasAny(unit, preferred.names, 0) == true
   end
-  local alternate, uncertain
+  local alternate, uncertain, alternatives = nil, nil, 0
   for _, key in ipairs(X.BLESSING_PRIORITY[class] or {}) do
     local blessing = blessKnown[key]
     if blessing and blessing.name ~= preferred.name then
+      alternatives = alternatives + 1
       local source = X.BlessingOwner(unit, blessing.names)
-      if source == "mine" then return blessing end -- keep our own alternate, even if an earlier one is now free
+      if source == "mine" then
+        if detail then detail.selected, detail.selectedName, detail.outcome = key, blessing.name, "own_alternate" end
+        return blessing -- keep our own alternate, even if an earlier one is now free
+      end
       if source == "absent" and not alternate then alternate = blessing end
       if source == "unknown" then uncertain = true end
     end
   end
-  if alternate and not uncertain then return alternate end
+  if alternate and not uncertain then
+    if detail then detail.selected, detail.selectedName, detail.outcome = BlessingKey(alternate), alternate.name, "alternate_available" end
+    return alternate
+  end
+  if detail then detail.outcome = uncertain and "ownership_unknown"
+    or alternatives == 0 and "no_known_alternative" or "all_alternatives_covered" end
   return preferred, true -- already covered; do not refresh another Paladin's copy
 end
 
@@ -1108,9 +1171,16 @@ function X.ResolveAssignment(class, role, proposal)
   return nil, "DEFAULT"
 end
 
-function X.BlessingForClass(class, unit, assignment, proposal, rosterMember)
+function X.BlessingForClass(class, unit, assignment, proposal, rosterMember, detail)
+  local function chosen(blessing, source, origin)
+    if detail then
+      detail.preferred, detail.selected, detail.source = BlessingKey(blessing), BlessingKey(blessing), origin
+      detail.preferredName, detail.selectedName = blessing and blessing.name, blessing and blessing.name
+    end
+    return blessing, source -- the nil second return permits world complement; preserve it
+  end
   local plan = X.blessPlan[class]
-  if plan and not plan.mine then return nil, "other" end
+  if plan and not plan.mine then return chosen(nil, "other", "plan_other") end
   if unit and X.blessingExceptions then
     local key = rosterMember and rosterMember.guid
     if not rosterMember then
@@ -1119,18 +1189,19 @@ function X.BlessingForClass(class, unit, assignment, proposal, rosterMember)
     end
     local exception = key and X.blessingExceptions[key]
     if proposal and proposal.kind == "exception" and proposal.guid == key then exception = proposal.value end
-    if exception then return blessKnown[exception], "exception" end
+    if exception then return chosen(blessKnown[exception], "exception", "exception") end
   end
-  if plan then return blessKnown[plan.key], "plan" end
+  if plan then return chosen(blessKnown[plan.key], "plan", "plan") end
   if assignment ~= nil then
     if assignment then
       for _, key in ipairs(X.BLESSING_KEYS) do
-        if assignment["BLESS_" .. key] then return blessKnown[key] end
+        if assignment["BLESS_" .. key] then return chosen(blessKnown[key], nil, "assignment") end
       end
     end
-    return nil
+    return chosen(nil, nil, "assignment")
   end
-  return blessKnown[db.blessingPreferences[class]] or myBlessing[class]
+  local preferred = blessKnown[db.blessingPreferences[class]]
+  return chosen(preferred or myBlessing[class], nil, preferred and "preference" or "default")
 end
 
 function X.AssignmentForUnit(class, unit, isGroup, isSelf, proposal, rosterMember)
@@ -1687,8 +1758,14 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
   end
 
   local bl, blessingSource
+  local blessingDetail = report == "why" and {} or nil
   if CLASSIC_FEATURES then
-    bl, blessingSource = X.BlessingForClass(class, (isGroup or isSelf) and unit, assignment, proposal, member)
+    bl, blessingSource = X.BlessingForClass(class, (isGroup or isSelf) and unit, assignment, proposal, member, blessingDetail)
+    if blessingDetail then
+      blessingDetail.complementScope = not db.blessingComplement and "off" or isGroup and "group"
+        or isSelf and "self" or (assignment ~= nil or blessingSource) and "explicit" or "eligible"
+      detail.blessingChoice = blessingDetail
+    end
   end
   if report == "why" then
     if blessingSource == "exception" then detail.blessing = L["Blessing: player exception"]
@@ -1715,7 +1792,7 @@ local function Missing(unit, out, isGroup, isSelf, report, detail)
     local covered
     if db.blessingComplement and not isGroup and isSelf == false and assignment == nil and not blessingSource then
       local preferred = bl
-      bl, covered = X.ComplementWorldBlessing(unit, class, preferred)
+      bl, covered = X.ComplementWorldBlessing(unit, class, preferred, blessingDetail)
       if report == "why" and bl ~= preferred then detail.blessing = L["Blessing: complement another Paladin"] end
     end
     local has, left = covered, nil
@@ -1765,38 +1842,53 @@ local RAID, PARTY, PLATES = {}, {}, {}
 for i = 1, 40 do RAID[i] = "raid" .. i; PLATES[i] = "nameplate" .. i end
 for i = 1, 4 do PARTY[i] = "party" .. i end
 
-local function Valid(unit)
-  -- Existence and "is a player" stay strict: a refusal there would let NPCs
-  -- onto the list. The flags below are permissive instead, because excluding a
-  -- player on an unreadable answer costs the whole feature, while listing one
-  -- who cannot be buffed costs a single failed cast with a clear error.
-  if X.ReadUnitBool(UnitExists, unit) ~= true then return false end
-  if X.ReadUnitBool(UnitIsPlayer, unit) ~= true then return false end
-  if X.ReadUnitBool(UnitIsDeadOrGhost, unit) == true then return false end
-  if X.ReadUnitBool(UnitIsConnected, unit) == false then return false end
-  -- Self is inherently assistable; some Classic clients reject this API check.
+local function Valid(unit, detail)
+  if detail then
+    local ok, flagged = pcall(UnitIsPVP, unit)
+    if ok and Readable(flagged) and type(flagged) == "boolean" then detail.recipientPvP = flagged end
+  end
+  local function reject(reason)
+    if detail then detail.rejection = reason end
+    return false
+  end
+  if X.ReadUnitBool(UnitExists, unit) ~= true then return reject("absent") end
+  if X.ReadUnitBool(UnitIsPlayer, unit) ~= true then return reject("not_player") end
+  if X.ReadUnitBool(UnitIsDeadOrGhost, unit) == true then return reject("dead") end
+  if X.ReadUnitBool(UnitIsConnected, unit) == false then return reject("offline") end
   local isSelf = X.IsSelf(unit)
-  if isSelf == nil then return false end
-  if not isSelf and X.ReadUnitBool(UnitCanAssist, "player", unit) == false then return false end
-  if not UnitAffectingCombat then return false end
+  if isSelf == nil then return reject("identity_unknown") end
+  if not isSelf and X.ReadUnitBool(UnitCanAssist, "player", unit) == false then return reject("hostile") end
+  if not UnitAffectingCombat then return reject("combat_unknown") end
   local okPlayer, playerCombat = pcall(UnitAffectingCombat, "player")
-  if not okPlayer or not Readable(playerCombat) or playerCombat ~= false then return false end
+  if detail and okPlayer and Readable(playerCombat) and type(playerCombat) == "boolean" then detail.playerCombat = playerCombat end
+  if not okPlayer or not Readable(playerCombat) or playerCombat ~= false then
+    return reject(okPlayer and Readable(playerCombat) and playerCombat == true and "player_combat" or "combat_unknown")
+  end
   local okUnit, unitCombat = pcall(UnitAffectingCombat, unit)
-  if not okUnit or not Readable(unitCombat) or unitCombat ~= false then return false end
+  if detail and okUnit and Readable(unitCombat) and type(unitCombat) == "boolean" then detail.recipientCombat = unitCombat end
+  if not okUnit or not Readable(unitCombat) or unitCombat ~= false then
+    return reject(okUnit and Readable(unitCombat) and unitCombat == true and "recipient_combat" or "combat_unknown")
+  end
   if UnitIsCharmed then
     local ok, charmed = pcall(UnitIsCharmed, unit)
-    if not ok or not Readable(charmed) or charmed ~= false then return false end
+    if not ok or not Readable(charmed) or charmed ~= false then return reject("charmed_or_unknown") end
   end
-  if _G.UnitInPhase then  -- a player in another phase can't be reached or buffed
-    if X.ReadUnitBool(_G.UnitInPhase, unit) == false then return false end
+  if _G.UnitInPhase then
+    if X.ReadUnitBool(_G.UnitInPhase, unit) == false then return reject("phase") end
   end
   if db.avoidPvP then
     local ok, flagged = pcall(UnitIsPVP, unit)
+    if detail and ok and Readable(flagged) and type(flagged) == "boolean" then detail.recipientPvP = flagged end
     if not ok or not Readable(flagged) or flagged ~= false then
       local okPlayerPvP, playerFlagged = pcall(UnitIsPVP, "player")
-      if not okPlayerPvP or not Readable(playerFlagged) or playerFlagged ~= true then return false end
+      if detail and okPlayerPvP and Readable(playerFlagged) and type(playerFlagged) == "boolean" then detail.playerPvP = playerFlagged end
+      if not okPlayerPvP or not Readable(playerFlagged) or playerFlagged ~= true then
+        return reject(ok and Readable(flagged) and flagged == true and okPlayerPvP
+          and Readable(playerFlagged) and playerFlagged == false and "pvp_filtered" or "pvp_unknown")
+      end
     end
   end
+  if detail then detail.rejection = "allowed" end
   return true, isSelf
 end
 
@@ -2851,7 +2943,8 @@ local function LevelLearned(id)
   if lvl and lvl > 0 then return lvl end
 end
 
-local function RankRequirement(record)
+local function RankRequirement(record, diagnostic)
+  if diagnostic then return record.learned or LevelLearned(record.id) end
   if not record.learned then record.learned = LevelLearned(record.id) end
   return record.learned
 end
@@ -2878,20 +2971,20 @@ local function CastText(name, pick)
   return name
 end
 
-function X.DefaultRank(spell, level)
+function X.DefaultRank(spell, level, diagnostic)
   local list = ranks[spell]
   if not list or not level or level <= 0 then return nil end
   for i = #list, 1, -1 do
     local record = list[i]
-    local requirement = RankRequirement(record)
+    local requirement = RankRequirement(record, diagnostic)
     if not requirement then return nil end
     if requirement - 10 <= level then return #list > 1 and record or nil end
   end
   return false
 end
 
-function X.RankTooLow(spell, level, method)
-  return CLASSIC_FEATURES and method ~= "macro" and X.DefaultRank(spell, level) == false
+function X.RankTooLow(spell, level, method, diagnostic)
+  return CLASSIC_FEATURES and method ~= "macro" and X.DefaultRank(spell, level, diagnostic) == false
 end
 
 function X.BindingRank(spell, unit, level, method)
@@ -4354,16 +4447,49 @@ local function FocusLine()
 end
 
 local function PauseReason()
-  if db.pauseInCities and InMajorCity() then return L["Paused in a major city."], true end
+  if db.pauseInCities and InMajorCity() then return L["Paused in a major city."], true, "city" end
   if db.pauseInBG then
     local instance = InInstanceNow()
-    if instance == "pvp" or instance == "arena" then return L["Paused in a battleground."], true end
+    if instance == "pvp" or instance == "arena" then return L["Paused in a battleground."], true, "battleground" end
   end
   if db.pauseTaxi and _G.UnitOnTaxi then
     local ok, onTaxi = pcall(_G.UnitOnTaxi, "player")
-    if ok and onTaxi then return L["Paused on a flight path."], true end
+    if ok and onTaxi then return L["Paused on a flight path."], true, "taxi" end
   end
-  if db.lowMana and db.lowMana > 0 and X.LowMana() then return L["Low mana -- buffing paused."] end
+  if db.lowMana and db.lowMana > 0 and X.LowMana() then return L["Low mana -- buffing paused."], nil, "low_mana" end
+  return nil, nil, "none"
+end
+
+-- Live context, kept separate from cached discovery results and recipient needs.
+function X.DiagnosticContext()
+  local function flag(api, ...)
+    if type(api) ~= "function" then return nil end
+    local ok, value = pcall(api, ...)
+    if ok and Readable(value) and type(value) == "boolean" then return value end
+  end
+  local context = { instance = "unknown", policy = "unknown", blocker = "unknown" }
+  local ok, inside, kind = pcall(function() return IsInInstance() end)
+  if ok and Readable(inside) and type(inside) == "boolean" then
+    if not inside then context.instance = "none"
+    elseif Readable(kind) and type(kind) == "string" and ({party=true,raid=true,pvp=true,arena=true})[kind] then context.instance = kind end
+  end
+  context.dead = flag(UnitIsDeadOrGhost, "player")
+  context.combat = flag(UnitAffectingCombat, "player")
+  context.pvp = flag(UnitIsPVP, "player")
+  context.class = X.UnitClassToken("player")
+  local lock = flag(InCombatLockdown)
+  local paused, _, _, policy = pcall(PauseReason)
+  if paused then context.policy = policy end
+  if context.policy == "none" then
+    if db.pauseInBG and context.instance == "unknown" then context.policy = "unknown" end
+    if db.pauseTaxi and flag(_G.UnitOnTaxi, "player") == nil then context.policy = "unknown" end
+  end
+  if X.playerDead == true or context.dead == true then context.blocker = "dead"
+  elseif context.combat == true or lock == true then context.blocker = "combat"
+  elseif not bookCacheReady or context.dead == nil or context.combat == nil or lock == nil or context.pvp == nil then context.blocker = "unknown"
+  elseif not hasAnyBuff then context.blocker = "no_buffs"
+  else context.blocker = context.policy end
+  return context
 end
 
 local function OfferGroupCast(n)

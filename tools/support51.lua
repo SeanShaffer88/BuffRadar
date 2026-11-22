@@ -54,6 +54,17 @@ return function(step, fresh)
     for _, key in ipairs({ "addon.supported", "settings.includeSelf", "settings.groupOnly", "settings.hidden",
       "settings.groupCast", "settings.modClick", "settings.assignmentEnabled", "settings.sync",
       "discovery.partial", "report.truncated", "sync.available" }) do allowed[key]="boolean" end
+    for _, key in ipairs({"settings.pauseInBG","settings.pauseInCities","settings.pauseTaxi","settings.avoidPvP","settings.blessingComplement","player.dead","player.combat","player.pvp","blessings.cacheReady"}) do allowed[key]="boolean" end
+    allowed["context.instance"]={none=true,party=true,raid=true,pvp=true,arena=true}
+    local pauses={none=true,city=true,battleground=true,taxi=true,low_mana=true}
+    allowed["pause.policy"]=pauses
+    allowed["pause.blocker"]={none=true,city=true,battleground=true,taxi=true,low_mana=true,dead=true,combat=true,no_buffs=true}
+    allowed["player.class"]={WARRIOR=true,PALADIN=true,HUNTER=true,ROGUE=true,PRIEST=true,SHAMAN=true,MAGE=true,WARLOCK=true,DRUID=true}
+    allowed["blessings.bookEntries"]="number"
+    for _, key in ipairs(X.BLESSING_KEYS) do
+      allowed["blessings.detected."..key]="boolean"
+      allowed["blessings.ranks."..key],allowed["blessings.maxRank."..key]="number","number"
+    end
     local themes, addons = {custom=true}, {}
     for _, id in ipairs(X.THEME_ORDER) do themes[id]=true end
     for _, entry in ipairs(X.AUTO_THEME_ADDONS) do addons[entry[1]]=true end

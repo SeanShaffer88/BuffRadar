@@ -26,5 +26,6 @@ echo "== coordination"; "$PY" -I tools/coordination51.py tools/wowstub.lua BuffR
 echo "== offline relog"; "$PY" -I tools/relog51.py tools/wowstub.lua BuffRadar/BuffRadar.lua
 echo "== theme preview"; "$PY" -I tools/theme_preview51.py --addon BuffRadar/BuffRadar.lua
 echo "== actions search"; "$PY" -I tools/actions51.py --addon BuffRadar/BuffRadar.lua
+echo "== battleground and blessing diagnostics"; "$PY" -I tools/diagnostics51.py --addon BuffRadar/BuffRadar.lua
 echo "== packaging regression tests"; "$PY" -I tools/test_package.py
 echo "Gate passed. Real luacheck 1.2.0: run tools/check.ps1 on Windows."

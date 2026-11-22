@@ -2,6 +2,17 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.19.1 — WoW: Forever
+
+- Add battleground, pause-setting, combat and PvP safety details to the private
+  Support report and local player explanations.
+- Show detected blessings separately from the preferred blessing, and explain
+  which assignment, plan or preference selected the offer.
+- Explain when blessing complement applies, why it is suppressed, and when an
+  unreadable aura or caster prevents a confident choice.
+- Cover diagnostic privacy, unknown API results and isolation from scan state
+  with offline regression checks.
+
 ## 1.19.0 — WoW: Forever
 
 - Find advanced actions alongside settings in search, or browse them from

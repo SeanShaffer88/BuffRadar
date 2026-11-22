@@ -283,9 +283,17 @@ It waits for a cast you activate through the existing list, binding or managed
 macro, and confirms only an attributed success. It never casts automatically.
 `/br support` opens a local copy window with allowlisted technical settings,
 aggregate counts, readiness, categorized errors, peer verification counts,
-and the selected theme. It excludes player names,
+and the selected theme. It also reports instance type, pause preferences,
+combat/PvP state and detected blessing families from the current spell cache.
+Unknown readings are marked unknown. It excludes player names,
 profile labels, history, macro text and raw errors, and sends nothing. Both
 actions are available in the **Readiness** settings tab.
+
+For battleground or blessing questions, use `/br why NAME` on a visible friendly
+player. It explains the current pause separately from that player's buff needs,
+and distinguishes a preferred blessing from the effective choice and any
+assignment, plan, preference or complement rule. Detected blessings are shown
+separately from class defaults. The output stays local in chat.
 
 | Feature | Controls and behavior |
 |---|---|

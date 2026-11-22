@@ -204,7 +204,7 @@ local function HandleSlash(msg)
   if not X.supported then Print(L["BuffRadar requires the Forever package on Interface 16001. Casting is disabled."]); return end
   if not db then Print(L["Settings not loaded yet."]); return end
   if (cmd == "" or cmd == "show" or cmd == "hide" or cmd == "announce"
-      or cmd == "summary" or cmd == "discord" or cmd == "why") and X.PlayerSuspended() then
+      or cmd == "summary" or cmd == "discord") and X.PlayerSuspended() then
     return
   end
   -- Read-only diagnostics use the current queue and must not rebuild it.
@@ -463,7 +463,7 @@ local function HandleSlash(msg)
     local names = {}
     for _, b in ipairs(myBuffs) do names[#names + 1] = b.name end
     for class, b in pairs(myBlessing) do names[#names + 1] = class .. "=" .. b.name end
-    Print(string.format(L["buffs found: %s"], (#names > 0  and  table.concat(names, ", ")  or  L["none"])))
+    Print(string.format(L["Buffs and class-default blessings: %s"], (#names > 0 and table.concat(names, ", ") or L["none"])))
     for _, b in ipairs(CLASSIC_FEATURES and myBuffs or {}) do  -- rank details: Forever only
       local list = ranks[b.name]
       if list and #list > 0 then

@@ -4066,7 +4066,7 @@ step("death suspends the window, settings and casts through release and combat e
     assert(not tooltip:IsShown(), "death left a BuffRadar tooltip visible")
     assert(not env.BuffRadarNextButton:GetAttribute("type") and not env.BuffRadarGroupButton:GetAttribute("type"),
       "death left a cast binding armed")
-    for _, command in ipairs({ "announce", "summary", "discord", "why Aaron" }) do
+    for _, command in ipairs({ "announce", "summary", "discord" }) do
       local before = #chat
       env.SlashCmdList.BUFFRADAR(command)
       assert(#chat == before, "suspended report still ran: " .. command)
