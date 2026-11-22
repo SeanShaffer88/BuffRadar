@@ -7,7 +7,24 @@ WoW: Forever (Interface 16001). For the short version see
 The shipping Forever TOC requires Interface 16001. The historical Retail
 TOC remains a test fixture; 1.7.0 was the last Retail release.
 
-## 1.17.0: Current Workflow
+## 1.18.0: Current Workflow
+
+- **Reviewed assignment copying:** copy a configured cell or row to a chosen
+  destination, review rule changes and current-group offers, then apply locally.
+  Default, None and custom values retain their distinct meanings.
+- **Section-only imports:** Whole Profile keeps complete import behavior;
+  Selected Sections applies Appearance, Alerts and/or Buff Rules while preserving
+  identities, connections, supplies and unselected settings. The whole input
+  validates before any selected fields are applied.
+- **Local preference recovery:** `/br recovery` reviews one bounded previous-settings
+  or pre-upgrade snapshot. Restore is explicit and leaves identities, profiles,
+  cast history and purchase authorization outside the snapshot.
+- **Three-item update notice:** dismiss the account-wide notice, open its Daily
+  Tasks link, or reopen it with `/br whatsnew`. Settings includes both links.
+- **Retained picker navigation:** normal assignment-picker edits are immediate;
+  Done, X and Escape preserve the selection and return to the grid. Blocker-draft
+  Cancel, X and Escape discard staged edits; review Back retains the draft.
+
 
 - **Optional coverage views:** `/br matrix` presents bounded player/buff pages
   from committed scan evidence; `/br selfstrip` reports personal aura status in

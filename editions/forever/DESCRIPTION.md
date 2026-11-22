@@ -44,21 +44,22 @@ come first.
   Russian and Simplified Chinese packs cover settings, help and visible
   status and error messages.
 
-## What's new in 1.17.0
+## What's new in 1.18.0
 
-Daily Tasks brings discovery, cast delivery and preparation together. Settings
-search understands localized intents, and completed-scan status distinguishes
-fresh observations from paused, stale or unavailable evidence.
+Copy an assignment cell or row to a chosen destination, review configured rules
+and current-group offers, then apply locally. Normal assignment-picker edits
+are immediate; Done, X and Escape retain the selection. Blocker-draft Cancel,
+X and Escape discard staged edits, while review Back retains the draft.
 
-Share preferences without player identities by default, or explicitly review a
-full backup. Recover recent ordinary-setting changes within the session;
-purchases, identities and network actions stay outside that history.
+Import a Whole Profile or choose Appearance, Alerts and Buff Rules separately.
+Selected Sections leave identities, connections, supplies and unselected settings
+unchanged, while the full input is validated before applying anything.
 
-Optional Coverage Matrix pages and a fixed Self Buff Status strip display
-read-only evidence without changing cast decisions. Reagent restocking starts
-disabled: configure supported targets and limits, review a merchant quote, then
-confirm one reagent row. Changed quotes cancel consent; no automatic purchases
-are made. All five locale packs include the new workflow and visible messages.
+`/br recovery` opens one bounded local preference restore point for review and
+explicit restoration. This is not a file backup: identities, profiles, cast
+history and purchase authorization are excluded. A dismissible three-item update
+notice links to Daily Tasks; reopen it with `/br whatsnew`. Both tools are also
+available from settings.
 
 ## Readiness
 

@@ -2,7 +2,7 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
-## Unreleased
+## 1.18.0 — WoW: Forever
 
 - Copy an assignment cell or row to an explicit destination, review configured
   rules and current-group changes, then apply locally.
@@ -12,8 +12,9 @@ All notable changes to BuffRadar are listed here. Newest first.
   addon upgrade; `/br recovery` opens a review before restoring.
 - Add a dismissible, three-item update notice with a Daily Tasks link and manual
   `/br whatsnew` access. Settings provides both recovery and update links.
-- Retain picker selections and the assignment grid through Done, X and Escape;
-  cover the Mage / All Roles / Thorns route with focused regressions.
+- Retain normal assignment-picker selections through Done, X and Escape.
+  Blocker-draft Cancel, X and Escape discard staged edits; review Back retains
+  the draft. Cover the Mage / All Roles / Thorns route with focused regressions.
 
 ## 1.17.0 — WoW: Forever
 
