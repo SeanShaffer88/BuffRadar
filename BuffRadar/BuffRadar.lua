@@ -1088,6 +1088,7 @@ end
 function X.ResolveAssignment(class, role, proposal)
   if not X.AssignmentEnabled() then return nil, "DEFAULT" end
   local row = db.buffAssignments[class]
+  if proposal and proposal.kind == "row" and proposal.class == class then row = proposal.values end
   if proposal and proposal.kind == "rule" and proposal.class == class then
     local slot = role or "WORLD"
     local roleCell, allCell = row and row[slot], row and row.ALL
@@ -3500,6 +3501,120 @@ function X.ReviewBlockerEdit(action, value)
   end
   table_sort(review.rows, function(a, b) return a.name < b.name end)
   return review
+end
+
+-- Configured-rule copies have their own bounded review, never blocker undo.
+do
+  local A, serial, pending = {}, 0, nil
+  X.AssignmentCopy=A
+  local function Ready()
+    if not CLASSIC_FEATURES or not db then return false,"unavailable" end
+    local state=X.Settings.SaveState();if state then return false,state end
+    if InCombatLockdown() or X.PlayerSuspended() then return false,"combat" end
+    return true
+  end
+  local function Selector(kind,value)
+    local copy=X.Recovery.Copy(value)
+    if type(copy)~="table" or type(copy.class)~="string" or not X.ValidAssignmentCell(copy.class,"ALL") then return end
+    for key in pairs(copy) do if key~="class" and (kind~="cell" or key~="slot") then return end end
+    if kind=="cell" and not X.ValidAssignmentCell(copy.class,copy.slot) then return end
+    return {class=copy.class,slot=copy.slot}
+  end
+  local function Row(class)
+    local row=db.buffAssignments[class] or {}
+    local copied=X.Recovery.Copy(row)
+    if not copied then return end
+    for slot,value in pairs(copied) do
+      if not X.ValidAssignmentCell(class,slot) or not SameSnapshot(value,X.CopyAssignment(value)) then return end
+    end
+    return copied
+  end
+  local function ValueKind(value) return value==nil and "default" or value==false and "none" or "custom" end
+  local function Build(kind,source,dest)
+    local sourceRow,destRow=Row(source.class),Row(dest.class)
+    if not sourceRow or not destRow then return nil,"invalid" end
+    local changes={}
+    local slots=kind=="cell" and {dest.slot} or X.ASSIGNMENT_SLOTS
+    for _,slot in ipairs(slots) do
+      local before=destRow[slot]
+      local after
+      if kind=="cell" then after=sourceRow[source.slot] else after=sourceRow[slot] end
+      if not SameSnapshot(before,after) then
+        changes[#changes+1]={class=dest.class,slot=slot,before=X.CopyAssignment(before),after=X.CopyAssignment(after),
+          beforeKind=ValueKind(before),afterKind=ValueKind(after)}
+      end
+    end
+    local proposal
+    if kind=="cell" then proposal={kind="rule",class=dest.class,slot=dest.slot,value=sourceRow[source.slot]}
+    else proposal={kind="row",class=dest.class,values=sourceRow} end
+    local roster,incomplete,raid={},false,false
+    if InGroup() then roster,incomplete,raid=ReviewRoster() end
+    local rows,state={}, {group=InGroup(),raid=raid,spec=X.spec,enabled=db.assignmentEnabled,
+      revision=X.blockerProfileRevision,members={}}
+    for guid,member in pairs(roster) do
+      local before,after={},{}
+      if member.eligible then
+        Missing(member.unit,before,true,member.isSelf,"assignmentReview",{member=member})
+        Missing(member.unit,after,true,member.isSelf,"assignmentReview",{member=member,proposal=proposal})
+      end
+      state.members[guid]={unit=member.unit,name=member.name,class=member.class,role=member.role,
+        manual=member.manual,eligible=member.eligible,isSelf=member.isSelf,before=before,after=after,
+        plan=X.blessPlan[member.class],exception=X.blessingExceptions and X.blessingExceptions[guid]}
+      local gains,losses=AddedOffers(before,after),AddedOffers(after,before)
+      if #gains>0 or #losses>0 then rows[#rows+1]={name=member.name,gains=gains,losses=losses} end
+    end
+    table_sort(rows,function(a,b) return a.name<b.name end)
+    local model={kind=kind,source=source,dest=dest,changes=changes,rows=rows,incomplete=incomplete}
+    local copied=X.Recovery.Copy({sourceRow=sourceRow,destRow=destRow,state=state,model=model})
+    if not copied then return nil,"limit" end
+    return copied
+  end
+  function A.Stage(kind,source,dest)
+    local ready,why=Ready();if not ready then return nil,why end
+    if kind~="cell" and kind~="row" then return nil,"invalid" end
+    source,dest=Selector(kind,source),Selector(kind,dest)
+    if not source or not dest then return nil,"invalid" end
+    local owned,reason=Build(kind,source,dest)
+    if not owned then return nil,reason end
+    serial=serial+1;owned.model.id=serial
+    owned.db,owned.generation=db,X.Preferences.Generation()
+    pending=owned
+    return X.Recovery.Copy(owned.model)
+  end
+  function A.Review(draft)
+    local ready,why=Ready();if not ready then return nil,why end
+    if type(draft)~="table" or not pending or not Readable(draft.id) or draft.id~=pending.model.id then return nil,"invalid" end
+    if pending.db~=db or pending.generation~=X.Preferences.Generation() then return nil,"generation" end
+    local old=pending.model
+    local current,reason=Build(old.kind,old.source,old.dest)
+    if not current then return nil,reason end
+    if current.model.incomplete then return nil,"unavailable" end
+    if not SameSnapshot(current.sourceRow,pending.sourceRow) or not SameSnapshot(current.destRow,pending.destRow)
+      or not SameSnapshot(current.state,pending.state) then return nil,"conflict" end
+    return X.Recovery.Copy(old)
+  end
+  function A.Apply(draft)
+    local reviewed,why=A.Review(draft);if not reviewed then return false,why end
+    local model=pending.model
+    local nextMap=X.Recovery.Copy(db.buffAssignments)
+    if not nextMap then return false,"limit" end
+    local row=nextMap[model.dest.class] or {}
+    for _,change in ipairs(model.changes) do row[change.slot]=X.CopyAssignment(change.after) end
+    nextMap[model.dest.class]=next(row) and row or nil
+    if not SameSnapshot(nextMap,X.CopyAssignments(nextMap)) then return false,"invalid" end
+    if #model.changes==0 then pending=nil;return true end
+    local oldMap,oldUndo,oldRevision,oldConflicts=db.buffAssignments,X.blockerUndo,X.blockerProfileRevision,X.assignmentGroupConflicts
+    db.buffAssignments=nextMap
+    X.blockerUndo,X.assignmentGroupConflicts=nil,nil
+    X.blockerProfileRevision=(X.blockerProfileRevision or 0)+1
+    local ok=pcall(X.SettingsChanged,{buffAssignments=true,profile=true})
+    if not ok then
+      db.buffAssignments,X.blockerUndo,X.blockerProfileRevision,X.assignmentGroupConflicts=oldMap,oldUndo,oldRevision,oldConflicts
+      pcall(X.SettingsChanged,{profile=true});return false,"invalid"
+    end
+    pending=nil;return true
+  end
+  X.OnDBLoaded(function() pending=nil end)
 end
 
 function X.ApplyBlockerEdit(action, value, previous)

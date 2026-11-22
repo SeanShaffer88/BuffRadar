@@ -74,6 +74,27 @@ check = lua.eval(r'''function(sources, locale)
   assert(X.Views.GetMatrixFrame():IsShown())
   X.Views.ToggleSelf();assert(X.Views.GetSelfFrame():IsShown())
   X.Supplies.Show();assert(X.Supplies.GetFrame():IsShown())
+  e.BuffRadarConfig:Hide()
+  X.SetAssignment('MAGE','ALL',{FORTITUDE=true})
+  X.Workflow.Copy('cell',{class='MAGE',slot='ALL'})
+  local copy=assert(X.Workflow.CopyFrame());assert(copy:IsShown() and copy.title:GetText()==pack['Review Assignment Copy'])
+  assert(copy.classButton:GetText():find(pack['Destination Class'],1,true));copy:Hide()
+  local live=X.GetDB();live.restorePoint={format=1,fromVersion='1.16.0',toVersion='1.17.0',preferences={scale=1}}
+  live.scale=1.2;X.Workflow.Recovery()
+  local restore=assert(X.Workflow.RecoveryFrame());assert(restore.title:GetText()==pack['Local Preference Restore Point'])
+  assert(restore.apply:GetText()==pack['Restore Reviewed Preferences']);restore:Hide()
+  X.Workflow.WhatsNew(true)
+  local notice=assert(X.Workflow.UpdatesFrame());assert(notice:IsShown() and notice.title:GetText()==pack["What's New in BuffRadar"])
+  local updates=X.Updates.Model();for index=1,3 do assert(notice.items[index]:GetText()==pack[updates.items[index]]) end
+  notice:Hide()
+  local sections=assert(X.Export());X.ShowExport(sections,true)
+  e.BuffRadarExportFrame.accept:Click();local imported=e.BuffRadarExportFrame
+  assert(imported.sectionMode:GetText()==pack['Whole Profile'])
+  imported.sectionMode:Click();assert(imported.sectionMode:GetText()==pack['Selected Sections'])
+  for key,label in pairs({appearance='Appearance',alerts='Alerts',buffrules='Buff Rules'}) do
+    assert(imported.sectionChecks[key].label:GetText()==pack[label])
+  end
+  assert(imported.apply:GetText()==pack['Apply Selected Sections']);imported:Hide()
   local profile=assert(X.Export())
   X.ShowExport(profile,true)
   e.BuffRadarExportFrame.accept:Click()
@@ -82,4 +103,4 @@ check = lua.eval(r'''function(sources, locale)
 end''')
 for locale in ("deDE", "frFR", "esES", "ruRU", "zhCN"):
     count = check(sources, locale)
-    print(f"{locale}: {count} localized keys; first-cast/report/search/setup/import-preview/daily/undo/share/matrix/self/supplies flows PASS")
+    print(f"{locale}: {count} localized keys; first-cast/report/search/setup/import-preview/daily/undo/share/matrix/self/supplies/copy/sections/recovery/updates flows PASS")

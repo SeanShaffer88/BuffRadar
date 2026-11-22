@@ -399,6 +399,92 @@ function X.Import(text)
   return true, L["Settings applied locally."]
 end
 
+-- Parse the complete original format before projecting any selected sections.
+do
+  local S, registry = {}, {appearance={},alerts={},buffrules={}}
+  X.ProfileSections=S
+  local definitions={
+    appearance="locked autoHide scale width cfgScale bgAlpha bgColor showTitle showBorder showCounter clickThrough showMinimap showStrip idleFade pill queueTag growUp theme autoThemePriority findBox durationBars raidMarkers twoCol compact textScale rowGap iconSize tooltipLevel viewMode classColors showRealm nameTrim scalePerSpec gripSnap tagSymbols reduceMotion charPoint coverParts rowColors specScales consumables",
+    alerts="playSound alertSound alertSounds muteInInstance enterFlash pullFlash fallSound watchDrop rangeWatch visualAlerts statusMinimap deathRecap",
+    buffrules="enabled rebuff rebuffPer buffPrio buffContext blessingPreferences buffAssignments assignmentEnabled thornsAnyClassOutdoors blessingComplement includeSelf avoidPvP castMethod clickReg groupOnly pauseInCities pauseInBG pauseTaxi groupCast groupCastMin sortMode lowMana roleFilter weaponWatch focusWatch pets auraWatch worldWatch drinkWatch scanThrottle fastAura modClick forecastSeconds smartPriority liteMode debuffWatch readinessAura assumeRange",
+  }
+  for section,keys in pairs(definitions) do
+    for key in keys:gmatch("%S+") do registry[section][key]=true end
+  end
+  local serial,pending=0,nil
+  function S.Registry() return X.Recovery.CopyProfile(registry) end
+  function S.Filter(patch,selection)
+    local copied=X.Recovery.CopyProfile(patch)
+    if type(copied)~="table" then return nil,"invalid" end
+    if selection==nil then return copied end -- explicit whole-profile mode
+    local selected=X.Recovery.CopyProfile(selection)
+    if type(selected)~="table" then return nil,"invalid" end
+    local any,out=false,{}
+    for section,value in pairs(selected) do
+      if not registry[section] or type(value)~="boolean" then return nil,"invalid" end
+      if value then
+        any=true
+        for key in pairs(registry[section]) do if copied[key]~=nil then out[key]=copied[key] end end
+      end
+    end
+    if not any or not next(out) then return nil,"empty" end
+    return out
+  end
+  local function Ready()
+    if not X.GetDB() then return false,"generation" end
+    local state=settings.SaveState();if state then return false,state end
+    if InCombatLockdown() or X.PlayerSuspended() then return false,"combat" end
+    return true
+  end
+  function S.Stage(text,selection)
+    local ready,why=Ready();if not ready then return nil,why end
+    if not X.Readable(text) or type(text)~="string" then return nil,"invalid" end
+    local ok,parsed=pcall(function()
+      if text:match("^BuffRadar profile: ") then
+        local shared=X.ParseSharedProfile(text)
+        return shared and shared.patch
+      end
+      return X.ParseSettingsImport(text)
+    end)
+    if not ok or not parsed then return nil,"invalid" end
+    local patch,reason=S.Filter(parsed,selection)
+    if not patch then return nil,reason end
+    local db,before=X.GetDB(),{}
+    for key in pairs(patch) do before[key]=db[key] end
+    before=X.Recovery.CopyProfile(before)
+    if not before then return nil,"limit" end
+    serial=serial+1
+    local keys={};for key in pairs(patch) do keys[#keys+1]=key end;table_sort(keys)
+    local model={id=serial,lines=X.ReviewSettings(patch),keys=keys,all=selection==nil,
+      identityIncluded=patch.ignored~=nil or patch.pinned~=nil}
+    pending={id=serial,db=db,generation=X.Preferences.Generation(),before=before,patch=patch,model=model}
+    return X.Recovery.CopyProfile(model)
+  end
+  function S.Review(draft)
+    local ready,why=Ready();if not ready then return nil,why end
+    if type(draft)~="table" or not pending or not X.Readable(draft.id) or draft.id~=pending.id then return nil,"invalid" end
+    if pending.db~=X.GetDB() or pending.generation~=X.Preferences.Generation() then return nil,"generation" end
+    local before={};for key in pairs(pending.patch) do before[key]=pending.db[key] end
+    before=X.Recovery.CopyProfile(before)
+    if not before or not X.Recovery.Equal(before,pending.before) then return nil,"conflict" end
+    return X.Recovery.CopyProfile(pending.model)
+  end
+  function S.Apply(draft)
+    local reviewed,why=S.Review(draft);if not reviewed then return false,why end
+    local owned=pending
+    local revision=X.blockerProfileRevision
+    local ok,result,reason=pcall(X.ApplyProfile,owned.patch)
+    if not ok or result==false then
+      for key,value in pairs(owned.before) do owned.db[key]=value end
+      X.blockerProfileRevision=revision
+      pcall(X.Ignore.Rebuild);pcall(X.SettingsChanged,{profile=true})
+      return false,reason or "invalid"
+    end
+    pending=nil;return true
+  end
+  X.OnDBLoaded(function() pending=nil end)
+end
+
 -- Buff plan strings (1.8.0): the group's plan — assignments, the
 -- blessing plan and the auto-profile map — as one copyable string, so a
 -- plan built on one character can be handed to another BuffRadar user.

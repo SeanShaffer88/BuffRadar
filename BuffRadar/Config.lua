@@ -989,6 +989,7 @@ function AssignmentUI.CreatePanel(parent, name, width, height, level)
   -- Modal children are searchable only with an explicit, context-free opener.
   -- Drafts, member pickers and review actions must keep their selected context.
   panel.searchBoundary = true
+  panel.configWorkflowHost=true
   panel:SetSize(width, height)
   panel:SetPoint("CENTER")
   panel:SetFrameLevel(level)
@@ -996,6 +997,7 @@ function AssignmentUI.CreatePanel(parent, name, width, height, level)
   local bg = panel:CreateTexture(nil, "BACKGROUND")
   bg:SetAllPoints(panel)
   bg:SetColorTexture(0.06, 0.065, 0.095, 1)
+  if X.DailyAPI then X.DailyAPI.RegisterHost(panel) end
   panel:Hide()
   return panel
 end
@@ -1013,7 +1015,7 @@ function X.OpenDailyOptions()
   OpenConfig(true); SelectTab("look")
   local p=cfg.dailyOptions
   if not p then
-    p=AssignmentUI.CreatePanel(cfg,"BuffRadarDailyOptions",540,260,cfg:GetFrameLevel()+8)
+    p=AssignmentUI.CreatePanel(cfg,"BuffRadarDailyOptions",540,300,cfg:GetFrameLevel()+8)
     p.searchTab="look"; p.searchOpen=X.OpenDailyOptions
     cfg.dailyOptions=p
     local title=p:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
@@ -1039,10 +1041,43 @@ function X.OpenDailyOptions()
     X.CfgAlias(share,{"/br export",L["share without names"]})
     local close=MakeButton(p,L["Close"],230,function() SelectTab("look") end)
     close:SetPoint("TOPLEFT",270,-185)
+    p.recovery=MakeButton(p,L["Local Preference Restore Point"],230,function() X.Workflow.Recovery(p,p.recovery) end)
+    p.recovery:SetPoint("TOPLEFT",18,-225)
+    X.CfgAlias(p.recovery,{"/br recovery"})
+    p.whatsnew=MakeButton(p,L["What's New"],230,function() X.Workflow.WhatsNew(true,p,p.whatsnew) end)
+    p.whatsnew:SetPoint("TOPLEFT",270,-225)
+    X.CfgAlias(p.whatsnew,{"/br whatsnew"})
   end
   cfg.panels.look:Hide(); cfg.searchToggle:Hide()
   p.matrix:Update(); p.selfStrip:Update(); p:Show()
   if K.active then K.Move(1) end
+end
+
+function X.HostWorkflow(parent,child,origin)
+  if not parent or not child or not X.DailyAPI or not parent.configWorkflowHost then return false end
+  X.DailyAPI.RegisterHost(parent,function(enabled)
+    if not enabled then
+      if K.active and parent:IsVisible() and not parent.dailyNavigationReturn then
+        parent.dailyNavigationReturn={entry=origin and origin.navigation or K.current,narrate=K.narrate}
+        K.Stop()
+      end
+    else
+      local back=parent.dailyNavigationReturn;parent.dailyNavigationReturn=nil
+      if back and parent:IsVisible() and cfg:IsVisible() and not InCombatLockdown() and not X.PlayerSuspended() then
+        K.Start(back.narrate)
+        if back.entry and K.InScope(back.entry) then K.Focus(back.entry) end
+      end
+    end
+  end)
+  X.DailyAPI.Suspend(parent,child)
+  return true
+end
+function X.WorkflowParent()
+  return cfg and cfg:IsVisible() and (K.Modal() or cfg) or nil
+end
+function X.ReleaseWorkflowNavigation() if K.active then K.Stop(true) end end
+function X.WorkflowModalBlocked()
+  return (cfg and cfg:IsShown()) or (X.wizardFrame and X.wizardFrame:IsShown()) or false
 end
 
 function AssignmentUI.BuildPicker(panel)
@@ -1054,7 +1089,11 @@ function AssignmentUI.BuildPicker(panel)
   picker.closeButton = AssignmentUI.CloseButton(picker, function() AssignmentUI.CancelEdit(picker, picker.blockers) end)
   if picker.SetPropagateKeyboardInput then
     picker:EnableKeyboard(true)
-    picker:HookScript("OnShow", function(self) self:SetPropagateKeyboardInput(true) end)
+    picker:HookScript("OnShow", function(self)
+      self:EnableKeyboard(not InCombatLockdown() and not X.PlayerSuspended()
+        and not (self.activeChild and self.activeChild:IsShown()))
+      if not InCombatLockdown() then self:SetPropagateKeyboardInput(true) end
+    end)
     picker:SetScript("OnKeyDown", function(self, key)
       if key == "ESCAPE" and not K.active and K.Modal() == self
         and not InCombatLockdown() and not X.PlayerSuspended() then
@@ -1112,6 +1151,14 @@ function AssignmentUI.BuildPicker(panel)
     AssignmentUI.OpenReview(picker, picker.blockers)
   end)
   picker.reviewButton:SetPoint("RIGHT", picker.backButton, "LEFT", -8, 0)
+  picker.copyCell=MakeButton(picker,L["Copy Cell…"],170,function()
+    X.Workflow.Copy("cell",{class=picker.class,slot=picker.slot},picker,picker.copyCell)
+  end)
+  picker.copyCell:SetPoint("TOPLEFT",16,-345)
+  picker.copyRow=MakeButton(picker,L["Copy Row…"],170,function()
+    X.Workflow.Copy("row",{class=picker.class},picker,picker.copyRow)
+  end)
+  picker.copyRow:SetPoint("TOPLEFT",194,-345)
   return picker
 end
 
@@ -1123,6 +1170,7 @@ function AssignmentUI.OpenPicker(panel, class, slot, blockers, action)
   if action then picker.draft = X.GetAssignment(class, slot) end
   picker.backButton:SetText(L[blockers and "Cancel" or "Done"])
   picker.reviewButton:SetShown(blockers ~= nil)
+  picker.copyCell:SetShown(blockers==nil);picker.copyRow:SetShown(blockers==nil)
   picker.hint:SetText(L[blockers and "Edit the draft, then review the changes before applying."
     or "Select spells for this cell. Changes apply immediately."])
   picker:SetFrameLevel(blockers and blockers:GetFrameLevel() + 5 or panel:GetFrameLevel() + 5)
@@ -3059,6 +3107,7 @@ local function BuildConfig()
   cfg:SetMovable(true)
   cfg:EnableMouse(true)
   cfg:HookScript("OnMouseDown", function() K.Stop() end)
+  if X.DailyAPI then cfg.configWorkflowHost=true;X.DailyAPI.RegisterHost(cfg) end
   cfg:RegisterForDrag("LeftButton")
   cfg:SetScript("OnDragStart", function(self)
     K.Stop()

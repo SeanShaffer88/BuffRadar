@@ -603,6 +603,7 @@ local function ReviewNamedProfile(f)
   ReviewText(f, lines)
 end
 
+local ConfigureSections
 local function ReviewImport(f)
   return X.Measure("import", function()
     local parse = f.importMode == "plan" and X.ParsePlanImport
@@ -623,6 +624,7 @@ local function ReviewImport(f)
       f.nameBox:Show()
       f.nameBox:SetText(draft.name)
       ReviewNamedProfile(f)
+      ConfigureSections(f)
       return
     end
     f.apply:SetText(L["Apply locally"])
@@ -641,6 +643,7 @@ local function ReviewImport(f)
       else lines[#lines + 1] = L["Group sharing is unavailable for this review."] end
     end
     ReviewText(f, lines)
+    ConfigureSections(f)
   end)
 end
 
@@ -683,7 +686,80 @@ local function ApplyImport(f, share)
   QueueRefresh()
 end
 
+ConfigureSections=function(f)
+  if f.importMode=="plan" then if f.sectionsPanel then f.sectionsPanel:Hide() end;return end
+  if not f.sectionsPanel then
+    local panel=CreateFrame("Frame",nil,f);panel:SetPoint("TOPLEFT",12,-35);panel:SetSize(520,105)
+    f.sectionsPanel=panel
+    local mode=X.PanelWidget("Button",nil,panel,"UIPanelButtonTemplate")
+    mode:SetSize(250,24);mode:SetPoint("TOPLEFT",0,0)
+    mode:SetScript("OnClick",function()
+      if not f:IsShown() or not f.draft or InCombatLockdown() or X.PlayerSuspended() then return end
+      f.sectionWhole=not f.sectionWhole;ReviewImport(f)
+    end)
+    f.sectionMode=mode;f.sectionChecks={}
+    for index,entry in ipairs({{"appearance","Appearance"},{"alerts","Alerts"},{"buffrules","Buff Rules"}}) do
+      local key,label=entry[1],entry[2]
+      local check=X.PanelWidget("CheckButton",nil,panel,"UICheckButtonTemplate")
+      check:SetSize(24,24);check:SetPoint("TOPLEFT",(index-1)*172,-30)
+      check.label=check:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+      check.label:SetPoint("LEFT",check,"RIGHT",2,0);check.label:SetWidth(140);check.label:SetJustifyH("LEFT");check.label:SetText(L[label])
+      check:SetScript("OnClick",function(self)
+        if not f:IsShown() or not f.draft or f.sectionWhole or InCombatLockdown() or X.PlayerSuspended() then return end
+        f.sectionSelection[key]=self:GetChecked()==true;ConfigureSections(f)
+      end)
+      check.dailyActivate=function()
+        check:SetChecked(not check:GetChecked());check:GetScript("OnClick")(check)
+      end
+      f.sectionChecks[key]=check
+    end
+    f.sectionHint=panel:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
+    f.sectionHint:SetPoint("TOPLEFT",0,-60);f.sectionHint:SetWidth(520);f.sectionHint:SetHeight(42)
+    f.sectionHint:SetJustifyH("LEFT");f.sectionHint:SetJustifyV("TOP");f.sectionHint:SetWordWrap(true)
+  end
+  f.dailyKeyboardPolicy=function(self)
+    return self.review:IsShown() and not self.editBox:IsShown() and self.sectionsPanel:IsShown()
+  end
+  X.DailyAPI.RegisterPanel(f)
+  f.buttons={f.sectionMode,f.sectionChecks.appearance,f.sectionChecks.alerts,f.sectionChecks.buffrules,
+    f.apply,f.back,f.cancel,f.closeButton}
+  f.sectionEpoch=(f.sectionEpoch or 0)+1
+  local epoch=f.sectionEpoch
+  f:SetSize(550,400);f.sectionsPanel:Show()
+  X.DailyAPI.Capture(f,true)
+  f.review:ClearAllPoints();f.review:SetPoint("TOPLEFT",12,-147);f.review:SetPoint("BOTTOMRIGHT",-12,65)
+  f.sectionMode:SetText(L[f.sectionWhole and "Whole Profile" or "Selected Sections"])
+  for key,check in pairs(f.sectionChecks) do check:SetChecked(f.sectionSelection[key]);check:SetEnabled(not f.sectionWhole) end
+  f.sectionHint:SetText(L["Whole Profile keeps the complete import. Selected Sections leave identities, connections and supplies unchanged."])
+  if f.sectionWhole then
+    f.sectionDraft=nil
+    local draft=f.draft
+    f.apply:SetScript("OnClick",function(self,...)
+      if f:IsShown() and f.sectionEpoch==epoch and f.draft==draft then f.wholeApply(self,...) end
+    end)
+    return
+  end
+  local selected={appearance=f.sectionSelection.appearance,alerts=f.sectionSelection.alerts,buffrules=f.sectionSelection.buffrules}
+  local model=X.ProfileSections.Stage(f.editBox:GetText(),selected)
+  f.sectionDraft=model;f.nameBox:Hide();f.share:Hide()
+  f.apply:SetText(L["Apply Selected Sections"]);f.apply:SetEnabled(model~=nil)
+  local lines=model and model.lines or {L["No sections selected."]}
+  if #lines==0 then lines={L["No settings or plan values would change."]} end
+  ReviewText(f,lines)
+  f.apply:SetScript("OnClick",function()
+    if not f:IsShown() or not f.apply:IsShown() or InCombatLockdown() or X.PlayerSuspended()
+      or f.sectionEpoch~=epoch or f.sectionDraft~=model or not model then return end
+    local ok=X.ProfileSections.Apply(model)
+    if ok then f.completed=true;f:Hide();QueueRefresh()
+    else f.sectionDraft=nil;f.apply:Disable();Print(L["The current values changed. Review again before applying."]) end
+  end)
+end
+
 local function ShowPaste(f, importing)
+  if f.wholeApply then f.apply:SetScript("OnClick",f.wholeApply) end
+  if X.DailyAPI then X.DailyAPI.Capture(f,false) end
+  if f.sectionsPanel then f.sectionsPanel:Hide() end
+  f:SetSize(550,275);f.sectionDraft=nil;f.sectionEpoch=(f.sectionEpoch or 0)+1
   f.draft, f.reviewDB, f.reviewPrior, f.profileLines = nil, nil, nil, nil
   f.title:SetText(f.pasteTitle)
   f.review:Hide()
@@ -701,6 +777,9 @@ function X.ShowExport(text, forImport, titleText, mode)
   if X.PlayerSuspended() then return end
   if InCombatLockdown() then Print(L["Can't open that during combat."]); return end
   local f = X.exportFrame
+  local inputParent=X.DailyAPI and X.DailyAPI.Modal()
+  if not inputParent and X.WorkflowParent then inputParent=X.WorkflowParent() end
+  if not inputParent and X.Daily then local host=X.Daily.Frame();if host and host:IsVisible() then inputParent=host end end
   if not f then
     f = X.PanelWidget("Frame", "BuffRadarExportFrame", UIParent,
                     BackdropTemplateMixin and "BackdropTemplate" or nil)
@@ -723,6 +802,7 @@ function X.ShowExport(text, forImport, titleText, mode)
     close:SetSize(22, 22)
     close:SetPoint("TOPRIGHT", 0, 0)
     close:SetScript("OnClick", function() f:Hide() end)
+    f.closeButton=close
     local eb = CreateFrame("EditBox", nil, f)
     eb:SetPoint("TOPLEFT", 12, -38)
     eb:SetPoint("BOTTOMRIGHT", -12, 38)
@@ -766,6 +846,7 @@ function X.ShowExport(text, forImport, titleText, mode)
     f.back = button("Edit paste", 135, "BOTTOMLEFT", 12, function() ShowPaste(f, true) end)
     f.share = button("Apply and share", 170, "BOTTOMRIGHT", -98, function() ApplyImport(f, true) end, 37)
     f.apply = button("Apply locally", 170, "BOTTOMRIGHT", -98, function() ApplyImport(f) end)
+    f.wholeApply=f.apply:GetScript("OnClick")
     f.cancel = button("Cancel", 80, "BOTTOMRIGHT", -12, function() f:Hide() end)
     f.accept = button("Review import", 145, "BOTTOMRIGHT", -98, function()
       if f.importMode ~= "ignore" then ReviewImport(f); return end
@@ -775,6 +856,7 @@ function X.ShowExport(text, forImport, titleText, mode)
     end)
     f:SetScript("OnHide", function()
       if f.importing and not f.completed then Print(L["Import canceled."]) end
+      f.sectionDraft=nil;f.sectionEpoch=(f.sectionEpoch or 0)+1
       f.draft, f.reviewDB, f.reviewPrior, f.importing, f.profileLines = nil, nil, nil, nil, nil
       f.editBox:ClearFocus()
       f.nameBox:ClearFocus()
@@ -782,6 +864,8 @@ function X.ShowExport(text, forImport, titleText, mode)
     if UISpecialFrames then UISpecialFrames[#UISpecialFrames + 1] = "BuffRadarExportFrame" end
     f:Hide()
   end
+  f.sectionWhole=true;f.sectionSelection={appearance=true,alerts=true,buffrules=true}
+  f.sectionDraft=nil;f.sectionEpoch=(f.sectionEpoch or 0)+1
   f.dailyInputContentGeneration=(f.dailyInputContentGeneration or 0)+1
   f.importMode, f.importing, f.completed = mode or "settings", forImport, nil
   f.pasteTitle = titleText or L[forImport and "Paste a legacy BR1 settings copy, then review."
@@ -790,6 +874,11 @@ function X.ShowExport(text, forImport, titleText, mode)
   f.accept:SetText(L[f.importMode == "ignore" and "Import" or "Review import"])
   f:Show()
   ShowPaste(f, forImport and true or false)
+  if X.DailyAPI and inputParent and inputParent~=f and inputParent:IsVisible() then
+    f:SetFrameLevel(inputParent:GetFrameLevel()+10)
+    if not (X.HostWorkflow and X.HostWorkflow(inputParent,f)) then X.DailyAPI.Suspend(inputParent,f) end
+    X.DailyAPI.SetModal(f)
+  end
 end
 
 function X.ShowSaveState(state)

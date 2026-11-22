@@ -67,11 +67,13 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
       if self.scripts.OnValueChanged then self.scripts.OnValueChanged(self, v) end end
     function methods.IsEnabled(self) return not self.disabled end
     function methods.Enable(self) self.disabled = nil end
+    function methods.SetEnabled(self, value) self.disabled = not value end
     function methods.Disable(self) self.disabled = true end
     function methods.Click(self)
       if self:IsEnabled() and self.scripts.OnClick then self.scripts.OnClick(self, "LeftButton") end
     end
-    function methods.GetFrameLevel() return 1 end
+    function methods.GetFrameLevel(self) return self.frameLevel or 1 end
+    function methods.SetFrameLevel(self,value) self.frameLevel=value end
     function methods.HasFocus(self) return env.__editFocus == self end
     function methods.ClearFocus(self)
       if not self:HasFocus() then return end
