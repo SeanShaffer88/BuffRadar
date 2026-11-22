@@ -117,7 +117,7 @@ as the situation calls for. When everyone is buffed, the list empties and
 gets out of your way. It costs nothing, asks for nothing, and never talks to
 anything outside the game.
 
-Version 1.17.0 · Interface 16001 · GPLv3.
+Version 1.18.0 · Interface 16001 · GPLv3.
 Field-tested through v1.15.33; v1.15.34 and later remain Unverified in game.
 
 **Forever-only from 1.8.0:** the Retail edition ended at 1.7.0 (dropped
@@ -128,7 +128,7 @@ targets the Forever client, and BuffRadar picks the Forever buff set when it loa
 
 **Docs:** [Features](FEATURES.md) · [Description](DESCRIPTION.md) · [Changelog](CHANGELOG.md)
 
-## Upgrading to 1.17.0
+## Upgrading to 1.18.0
 
 Back up `BuffRadarDB`'s SavedVariables file before upgrading. Existing valid
 settings upgrade to schema 23. A newer schema is left untouched; your
@@ -139,7 +139,7 @@ use `/br storage delete profile <name>` or `/br storage delete ignore <name>`
 to remove an entry from an over-limit save, then reload. Those commands
 can't edit a newer-schema save.
 
-`/br selftest` should report **1.17.0 · Forever edition · interface 16001**.
+`/br selftest` should report **1.18.0 · Forever edition · interface 16001**.
 An incompatible client won't start the cast UI or change your saved settings.
 
 Coverage Matrix, Self Buff Status and reagent restocking start disabled.
@@ -151,6 +151,30 @@ Sharing defaults to preferences without player identities. The recipient keeps
 their ignored players and named exceptions; choose the full-backup scope only
 when those identities should be included. Recent Changes can undo ordinary
 preferences from this session, but never purchases, identities or network actions.
+
+## Reviewed assignments, imports and recovery
+
+In the assignment picker, **Copy Cell…** or **Copy Row…** stages the configured
+rules for an explicit destination. Review the changed rules and current-group
+offers before applying. Default, None and custom selections remain distinct;
+Normal assignment-picker edits take effect immediately; Done, X and Escape
+retain the selection and return to the grid. In a blocker draft, Cancel, X and
+Escape discard staged edits; review Back returns to the staged editor.
+
+Import review defaults to **Whole Profile**, preserving the complete import.
+Choose **Selected Sections** to apply only Appearance, Alerts and/or Buff Rules.
+Partial imports leave identities, connections, supplies and unselected settings
+unchanged; the complete input is still validated before review.
+
+`/br recovery` previews one bounded local preference restore point before an
+explicit restore. It is not a file backup and excludes player identities,
+profiles, cast history and purchase authorization. Existing unmarked settings
+can provide a snapshot of previous preferences; a later addon upgrade replaces it
+with one pre-upgrade point. Keep a separate SavedVariables backup.
+
+`/br whatsnew` reopens the three-item update notice. Dismiss it or follow its
+Daily Tasks link; dismissal is shared across characters using the account save.
+Settings also provides recovery and update-notice links.
 
 ## Readiness
 
@@ -529,10 +553,11 @@ outside a capital, or turn off the default city pause with `/br cities`.
   zone and map ID BuffRadar sees.
 - **Cast counter:** the session count resets on login or `/reload`. The all-time count
   is shared by all your characters.
-- **Languages:** the main list, tooltips, minimap, and new review and safety
-  messages are translated in `Locales\deDE.lua`. Some Settings controls and
-  diagnostics remain English.
-  To add a language, copy that file — it explains how at the top.
+- **Languages:** German (`deDE`), French (`frFR`), Spanish (`esES`), Russian
+  (`ruRU`) and Simplified Chinese (`zhCN`) packs cover current interface text,
+  settings, help and review messages. Spell names and other game-provided content
+  come from the client. The [locale template](../../BuffRadar/Locales/deDE.lua)
+  documents translation-file conventions.
 
 ## Credits
 
