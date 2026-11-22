@@ -11,6 +11,20 @@ Your character comes first by default.
 
 ## Current Forever Workflow
 
+### Find Settings and Actions
+
+Choose **Actions** in Settings or enter `/br actions`. Search by a feature name,
+purpose, or slash command. All, Settings, and Actions filters share the same
+paged results, keyboard navigation, and narration. Unavailable actions remain
+readable and explain what prevents opening them.
+
+Inspect preparation, coverage, group eligibility, and peers; open assignment,
+subgroup, profile, recent-change, or theme screens; or copy a Support report and
+run diagnostics. **Why This Buff?** accepts a player name. Existing editors and
+confirmation steps still govern changes. Nothing casts or posts automatically.
+Shift-left-click the gear or assign the optional Actions keybind to open the
+same menu. Other gear clicks and slash commands keep their existing behavior.
+
 ### Coverage Views and Confirmed Restocking
 
 Open `/br matrix` for a paged, read-only player-by-buff grid, or toggle

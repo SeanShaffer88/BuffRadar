@@ -87,6 +87,7 @@ then — just run `-Setup` again.
 | **Two-client coordination** (`coordination51.py`) | Loads two independent Forever mock clients. Relays their real plan, cast, and session-proof packets. Checks plan acceptance, bidirectional cast sync, and replay rejection across roster and leadership changes. |
 | **Offline relog** (`relog51.py`) | Restarts into a separate Lua runtime using copied durable game data. Checks settings, managed macros, bindings, rebuilt queue targets, and Auto themes without carrying transient addon state across clients. |
 | **Theme preview** (`theme_preview51.py`) | Checks transient rendering, Apply and Cancel, Auto candidate resolution, conflicting edits, combat invalidation, and the keyboard-accessible preview panel. |
+| **Actions search** (`actions51.py`) | Checks action categories, settings filters, paged results, read-only availability, activation guards, command equivalents, argument forms, keyboard navigation, narration and the optional Actions binding. |
 
 ## Limits of the fake game client
 

@@ -95,6 +95,7 @@ _G["BINDING_NAME_CLICK BuffRadarNextButton:LeftButton"] = L["Cast next buff"]
 _G["BINDING_NAME_CLICK BuffRadarGroupButton:LeftButton"] = L["Cast next group buff"]
 BINDING_NAME_BUFFRADAR_TOGGLE = L["Show / hide window"]
 BINDING_NAME_BUFFRADAR_MUTE = L["Mute / unmute sound"]
+BINDING_NAME_BUFFRADAR_ACTIONS = L["Open Actions"]
 
 ---------------------------------------------------------------------------
 -- API helpers (tolerant of old and new client APIs)

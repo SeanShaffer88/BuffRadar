@@ -11,10 +11,12 @@ globals = {
   "BuffRadarAPI",                                     -- versioned read-only integration
   "BuffRadarDB",                                     -- saved variables (.toc)
   "BuffRadar_ToggleWindow", "BuffRadar_ToggleSound", -- called by Bindings.xml
+  "BuffRadar_OpenActions",
   "SLASH_BUFFRADAR1", "SLASH_BUFFRADAR2",            -- /br, /buffradar
   "SlashCmdList",                                    -- SlashCmdList.BUFFRADAR
   "BINDING_HEADER_BUFFRADAR", "BINDING_CATEGORY_BUFFRADAR",
   "BINDING_NAME_BUFFRADAR_TOGGLE", "BINDING_NAME_BUFFRADAR_MUTE",
+  "BINDING_NAME_BUFFRADAR_ACTIONS",
   "UISpecialFrames",                                 -- Esc closes the settings window
   "ColorPickerFrame",  -- older clients' color picker is set up through its fields
 }

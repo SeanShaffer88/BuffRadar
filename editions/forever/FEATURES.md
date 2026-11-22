@@ -7,7 +7,13 @@ WoW: Forever (Interface 16001). For the short version see
 The shipping Forever TOC requires Interface 16001. The historical Retail
 TOC remains a test fixture; 1.7.0 was the last Retail release.
 
-## 1.18.0: Current Workflow
+## 1.19.0: Current Workflow
+
+- **Searchable Actions:** `/br actions` and the Settings Actions button expose
+  inspection, management and troubleshooting alongside settings search. Filters,
+  slash equivalents and live availability reasons retain keyboard navigation and
+  narration. Argument-based actions open existing forms and reviewed editors.
+  Shift-left-click on the gear and an optional Actions keybind open the same UI.
 
 - **Reviewed assignment copying:** copy a configured cell or row to a chosen
   destination, review rule changes and current-group offers, then apply locally.

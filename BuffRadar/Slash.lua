@@ -183,6 +183,7 @@ local function HandleSlash(msg)
   syncState()
   local cmd, rest = (msg or ""):match("^%s*(%S*)%s*(.-)%s*$")
   cmd = (cmd or ""):lower()
+  if cmd == "actions" then X.OpenActions(); return end
   if cmd=="daily" or cmd=="prefs" then if X.ext[cmd] then X.ext[cmd](rest) end; return end
   if cmd=="matrix" then if X.Views then X.Views.ToggleMatrix() end; return end
   if cmd=="selfstrip" then if X.Views then X.Views.ToggleSelf() end; return end
@@ -1436,6 +1437,7 @@ local function HandleSlash(msg)
     Print(L["Commands:"])
     Print(L["  /br  - show/hide the window   (/br debug if it won't appear)"])
     Print(L["  /br config  - settings window   /br config find - search settings"])
+    Print(L["  /br actions - browse searchable actions"])
     Print(L["  /br config navigate - keyboard navigation   /br config narrate - keyboard navigation with speech"])
     Print(L["  /br macro  - create a 'BuffRadar' macro that casts the next buff"])
     Print(L["  /br key  - open Key Bindings to bind 'Cast next buff'"])

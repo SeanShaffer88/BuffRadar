@@ -240,6 +240,8 @@ def run(stub, sources, bindings):
                             check(result[0]=="party1", "rebuilt next binding lost its current cast target")
                     elif command=="BUFFRADAR_TOGGLE": check(b.db.hidden!=before_hidden, "toggle binding did not operate")
                     elif command=="BUFFRADAR_MUTE": check(b.db.playSound!=before_sound, "mute binding did not operate")
+                    elif command=="BUFFRADAR_ACTIONS":
+                        check(b.api.env.BuffRadarConfig.searchMode=="actions" and b.api.env.BuffRadarConfig.searchResultsPanel.IsVisible(b.api.env.BuffRadarConfig.searchResultsPanel), "Actions binding did not open the rebuilt menu")
                 check(b.db.rebuff==67 and b.db.rebuffPer.FORTITUDE==81, "nested preferences lost")
                 check(b.db.profiles.Relog and b.db.customThemes[1].name=="Relog", "profile/custom palette lost")
                 check(b.db.theme=="ui.auto" and b.db.autoThemePriority==saved[0]["autoThemePriority"], "Auto settings changed on relog")
@@ -273,7 +275,7 @@ def main():
     args=parser.parse_args()
     bindings={node.attrib["name"]: (node.text or "").strip()
               for node in ET.parse(args.addon.parent/"Bindings.xml").getroot()}
-    check(len(bindings)==4, "expected all four XML binding identities")
+    check(set(bindings)=={"CLICK BuffRadarNextButton:LeftButton", "CLICK BuffRadarGroupButton:LeftButton", "BUFFRADAR_TOGGLE", "BUFFRADAR_MUTE", "BUFFRADAR_ACTIONS"}, "expected all five XML binding identities")
     run(args.stub.read_text(encoding="utf-8-sig"), sources_for(args.addon), bindings)
 
 

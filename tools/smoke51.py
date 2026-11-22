@@ -85,9 +85,11 @@ for key in pairs(env) do initialGlobals[key] = true end
 local addonGlobals = {
   BuffRadarDB = true, BuffRadarAPI = true,
   BuffRadar_ToggleWindow = true, BuffRadar_ToggleSound = true,
+  BuffRadar_OpenActions = true,
   SLASH_BUFFRADAR1 = true, SLASH_BUFFRADAR2 = true,
   BINDING_HEADER_BUFFRADAR = true, BINDING_CATEGORY_BUFFRADAR = true,
   BINDING_NAME_BUFFRADAR_TOGGLE = true, BINDING_NAME_BUFFRADAR_MUTE = true,
+  BINDING_NAME_BUFFRADAR_ACTIONS = true,
   ["BINDING_NAME_CLICK BuffRadarNextButton:LeftButton"] = true,
   ["BINDING_NAME_CLICK BuffRadarGroupButton:LeftButton"] = true,
 }
@@ -5680,7 +5682,7 @@ step("global settings search crosses tabs, pages deterministically, and never ch
   local X = NS.X
   local cfg = env.BuffRadarConfig
   env.SlashCmdList.BUFFRADAR("config find")
-  local results = X.CfgSearch("")
+  local results = X.CfgSearch("", "settings")
   assert(#results > 5, "global registry did not include hidden-tab controls")
   local tabs, previous = {}, nil
   for _, entry in ipairs(results) do
@@ -5703,7 +5705,7 @@ step("global settings search crosses tabs, pages deterministically, and never ch
   env.SlashCmdList.BUFFRADAR("config find")
   cfg.searchBox:SetText("unlikely_search_912"); cfg.searchBox.scripts.OnTextChanged(cfg.searchBox)
   assert(#cfg.searchResults == 0 and not cfg.searchRows[1]:IsShown()
-    and cfg.searchHint:GetText() == X.L["No settings match this search."], "no-results state retained a stale selectable row")
+    and cfg.searchHint:GetText() == X.L["No settings or actions match this search."], "no-results state retained a stale selectable row")
   local label = cfg.tabBtns.look:GetText()
   cfg.searchBox:SetText(label); cfg.searchBox.scripts.OnTextChanged(cfg.searchBox)
   assert(#cfg.searchResults > 5 and cfg.searchPage == 1)

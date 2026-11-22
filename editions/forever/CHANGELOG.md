@@ -2,6 +2,23 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.19.0 — WoW: Forever
+
+- Find advanced actions alongside settings in search, or browse them from
+  Actions. See the matching slash command and why an action is unavailable.
+- Open Actions from Settings, `/br actions`, an optional keybind, or
+  Shift-left-click on the gear. Ordinary gear clicks keep their existing uses.
+- Open existing inspection, assignment, profile, and troubleshooting screens
+  without memorizing commands. Keyboard navigation and narration remain available.
+- Preview window themes before applying them. Cancel restores the previous
+  appearance; Apply creates one undoable preference change.
+- See peer verification, waiting replies, retries, and protocol mismatches in
+  Caster Coordination, separately from plan acceptance and buff coverage.
+- Include safe error counts, peer totals, and theme details in the local Support
+  report, with player names, raw errors, and user text excluded.
+- Add offline restart tests for settings, macros, bindings, queue recipients,
+  and Auto themes using independent Lua clients.
+
 ## 1.18.0 — WoW: Forever
 
 - Copy an assignment cell or row to an explicit destination, review configured

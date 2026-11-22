@@ -12,6 +12,20 @@ The [Forever Player Guide](editions/forever/README.md) describes the current
 workflow. Release history and its verification evidence remain in the
 [changelog](editions/forever/CHANGELOG.md) and [feature reference](editions/forever/FEATURES.md).
 
+## Find Settings and Actions
+
+Open **Actions** in Settings or use `/br actions` to browse inspection,
+management, and troubleshooting tools. Search by name, purpose, or slash command,
+and filter results to All, Settings, or Actions. Each action shows its command
+and availability; unavailable actions explain the reason and remain readable
+with keyboard navigation and narration.
+
+Actions open the existing screens and review steps for assignments, profiles,
+preparation, peer status, support reports, and themes. **Why This Buff?** asks
+for a player name. The optional Actions keybind or Shift-left-click on the
+gear opens the same menu. Existing slash commands and ordinary gear clicks
+remain available.
+
 ## Optional Coverage Views and Supplies
 
 `/br matrix` opens a read-only player-by-buff coverage grid. Player and buff

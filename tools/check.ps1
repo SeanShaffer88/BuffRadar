@@ -127,6 +127,10 @@ Section 'Theme preview (fake game client)'
 & $py -I (Join-Path $here 'theme_preview51.py') --addon $lua
 if ($LASTEXITCODE -ne 0) { $failed += 'theme preview' }
 
+Section 'Actions search (fake game client)'
+& $py -I (Join-Path $here 'actions51.py') --addon $lua
+if ($LASTEXITCODE -ne 0) { $failed += 'actions search' }
+
 Section 'Packaging regression tests'
 & $py -I (Join-Path $here 'test_package.py')
 if ($LASTEXITCODE -ne 0) { $failed += 'packaging regression tests' }

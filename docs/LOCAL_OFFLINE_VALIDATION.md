@@ -1,5 +1,8 @@
 # Local Offline Candidate
 
+Historical evidence for the local candidate before 1.19.0. The 1.19.0 release
+adds Actions search and a fifth binding; its verification is recorded separately.
+
 Base: `018ee2c` (1.18.0). Branch: `test/forever-offline-relog`.
 This candidate has no new release version, tag, or published assets.
 
