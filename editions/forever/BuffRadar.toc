@@ -16,6 +16,8 @@ Locales\zhCN.lua
 Forever.lua
 Data.lua
 SavedVariables.lua
+Recovery.lua
+Updates.lua
 BuffRadar.lua
 Intelligence.lua
 Preferences.lua
@@ -35,3 +37,4 @@ Support.lua
 Views.lua
 Supplies.lua
 Daily.lua
+Workflow.lua

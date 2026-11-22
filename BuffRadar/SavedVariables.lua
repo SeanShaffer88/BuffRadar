@@ -138,6 +138,8 @@ local DEFAULTS = {
   debuffRules = {},     -- bounded list of { spellID, unit, encounterID }
   matrixView = false, selfStatusStrip = false,
   restockEnabled = false, restockTargets = {}, restockSpendCap = 20000, restockUnitCap = 40,
+  lastSeenAddonVersion = "", updatesPendingVersion = "", updatesDismissedVersion = "",
+  restorePoint = {},
   readinessAura = 0,    -- optional personal consumable aura spell ID
   history = {},        -- last 50 casts through BuffRadar: { t, spell, who } (1.7.0)
   growUp = false,      -- the list grows upward from a fixed bottom edge (1.8.0)
@@ -161,6 +163,13 @@ local DEFAULTS = {
   customGroup = {},    -- your own group-cast pairs: spell name -> group spell name, /br grouppair (1.15.0)
   stats = {},          -- all-time casts per spell name: name -> count
 }
+
+-- One canonical allowlist shared by session recovery and pre-upgrade recovery.
+local ordinaryPreferences = {}
+for key in ("locked includeSelf avoidPvP autoHide rebuff scale width cfgScale castMethod clickReg bgAlpha showTitle showBorder playSound showCounter groupOnly pauseInCities groupCast groupCastMin sortMode alertSound clickThrough muteInInstance showMinimap lowMana roleFilter showStrip idleFade pill queueTag consumables weaponWatch enterFlash scanThrottle growUp theme autoThemePriority findBox durationBars raidMarkers focusWatch pets auraWatch worldWatch drinkWatch twoCol rowGap iconSize tooltipLevel viewMode classColors showRealm nameTrim scalePerSpec gripSnap tagSymbols reduceMotion rangeWatch assumeRange fastAura modClick pullFlash fallSound compact textScale charPoint pauseInBG pauseTaxi watchDrop forecastSeconds smartPriority statusMinimap visualAlerts liteMode debuffWatch readinessAura rememberPanelPositions matrixView selfStatusStrip restockEnabled restockSpendCap restockUnitCap bgColor enabled rebuffPer buffPrio alertSounds rowColors buffContext specScales restockTargets"):gmatch("%S+") do ordinaryPreferences[key]=true end
+local function PreferenceKeys()
+  local keys={};for key in pairs(ordinaryPreferences) do keys[key]=true end;return keys
+end
 
 local KNOWN_KEYS = { point = true, dbVersion = true }
 for k in pairs(DEFAULTS) do KNOWN_KEYS[k] = true end
@@ -417,6 +426,9 @@ local function CopyBuffPriority(value)
 end
 
 local TABLE_FIELDS = {
+  restorePoint = function(value)
+    return X.Recovery and X.Recovery.ValidateRecord(value) or {}
+  end,
   restockTargets = function(value)
     if getmetatable(value) or (issecretvalue and issecretvalue(value)) then return {} end
     return CopyMap(value,16,function(id,n)
@@ -531,6 +543,9 @@ local function CleanSetting(key, value, default)
   elseif type(value) ~= kind then
     return default
   elseif kind == "string" then
+    if key=="lastSeenAddonVersion" or key=="updatesPendingVersion" or key=="updatesDismissedVersion" then
+      if not X.Recovery or not X.Recovery.ValidVersion(value) then return default end
+    end
     if ENUMS[key] and not ENUMS[key][value] then return default end
     if key == "theme" and #value > 24 then return default end
     if key == "pinned" and (#value > 128 or value:find("[%z\1-\31\127|]")) then return default end
@@ -638,6 +653,10 @@ local function Load(migrate)
   local future = IsNumber(candidate.dbVersion) and candidate.dbVersion > DB_VERSION
   saveState = future and "future" or (DeliberateOverflow(candidate) and "overflow") or nil
   preserved = saveState == "overflow" and original or nil
+  if not saveState and X.Recovery then
+    local metadata=X.Recovery.BeforeNormalize(original,X.Recovery.Version(),{saveState=saveState})
+    if metadata then for key,value in pairs(metadata) do candidate[key]=value end end
+  end
   local saved = Sanitize(candidate)
   if future then saved.dbVersion = DB_VERSION end
   if migrate or future then Migrate(saved) end
@@ -656,6 +675,11 @@ X.GetDB = function() return db end
 X.OnDBLoaded = OnDBLoaded
 X.Settings = {
   Load = Load,
+  PreferenceKeys = PreferenceKeys,
+  NormalizePreference = function(key,value)
+    if not ordinaryPreferences[key] then return nil end
+    return CleanSetting(key,value,DEFAULTS[key])
+  end,
   Sanitize = Sanitize,
   PreparePatch = PreparePatch,
   CopyPoint = CopyPoint,

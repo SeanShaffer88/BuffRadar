@@ -2,6 +2,19 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## Unreleased
+
+- Copy an assignment cell or row to an explicit destination, review configured
+  rules and current-group changes, then apply locally.
+- Import a Whole Profile or selected Appearance, Alerts and Buff Rules sections.
+  Selected sections preserve identities, connections and supplies.
+- Keep one bounded local preference restore point for existing settings or an
+  addon upgrade; `/br recovery` opens a review before restoring.
+- Add a dismissible, three-item update notice with a Daily Tasks link and manual
+  `/br whatsnew` access. Settings provides both recovery and update links.
+- Retain picker selections and the assignment grid through Done, X and Escape;
+  cover the Mage / All Roles / Thorns route with focused regressions.
+
 ## 1.17.0 — WoW: Forever
 
 - Complete visible-message localization in German, French, Spanish, Russian

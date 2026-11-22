@@ -16,7 +16,7 @@ lua.execute(open(stub_path, encoding="utf-8").read())
 audit_tests = lua.execute(Path(__file__).with_name("audit51.lua").read_text(encoding="utf-8"))
 support_tests = lua.execute(Path(__file__).with_name("support51.lua").read_text(encoding="utf-8"))
 audit_tests = lua.eval("function(a,b) return function(...) a(...); b(...) end end")(audit_tests, support_tests)
-for module in ("core-eight51.lua", "views-supplies51.lua", "ui-eight51.lua"):
+for module in ("core-eight51.lua", "views-supplies51.lua", "ui-eight51.lua", "five-core51.lua", "five-ui51.lua"):
     path = Path(__file__).with_name(module)
     extra = lua.execute(path.read_text(encoding="utf-8"))
     audit_tests = lua.eval("function(a,b) return function(...) a(...); b(...) end end")(audit_tests, extra)
@@ -3400,6 +3400,9 @@ step("scan throttle halves the big-group rescan (1.7.0)", function()
 end)
 step("fallback event refresh coalesces within 100 ms in a throttled raid", function()
   if env.__ticker then return end
+  -- Isolate the background scheduler from a separately refreshed visible Daily observer.
+  local daily = NS.X.Daily and NS.X.Daily.Frame()
+  if daily then daily:Hide();assert(not daily:IsShown()) end
   local onUpdate = driver.scripts.OnUpdate
   local db = env.BuffRadarDB
   local oldCount, oldThrottle, oldCity = env.GetNumGroupMembers, db.scanThrottle, db.pauseInCities

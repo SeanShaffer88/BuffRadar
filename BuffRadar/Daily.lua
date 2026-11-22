@@ -6,6 +6,7 @@ local D = {}
 X.Daily = D
 local daily, review, generation = nil, nil, 0
 local modal
+local panels={}
 
 local function Label(parent, text, y, height)
   local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -15,15 +16,18 @@ local function Label(parent, text, y, height)
 end
 
 local function Capture(frame, enabled)
-  frame:EnableKeyboard(enabled and not InCombatLockdown()
-    and not (frame.activeChild and frame.activeChild:IsShown()))
+  enabled=enabled and not InCombatLockdown() and not X.PlayerSuspended()
+    and not (frame.activeChild and frame.activeChild:IsShown())
+  if frame.dailyKeyboardPolicy then enabled=enabled and frame.dailyKeyboardPolicy(frame) end
+  if frame.dailyCaptureAdapter then frame.dailyCaptureAdapter(enabled);return end
+  frame:EnableKeyboard(enabled)
   if not InCombatLockdown() then frame:SetPropagateKeyboardInput(true) end
 end
 
 -- One owner for every parent/child suspension; stale child hides never revive another view.
 local function SuspendForChild(parent,child,canClose)
   if not child or not child:IsShown() then
-    if parent:IsShown() and (not modal or modal==parent) then Capture(parent,true) end
+    if parent:IsVisible() and (not modal or modal==parent) then Capture(parent,true) end
     return
   end
   local token={}
@@ -39,8 +43,11 @@ local function SuspendForChild(parent,child,canClose)
     local frame=owner.parent
     if frame.activeChild~=self or frame.inputChildToken~=owner.token then return end
     frame.activeChild,frame.inputChildToken=nil,nil
-    if modal==self then modal=nil end
-    if frame:IsShown() and owner.generation==generation and owner.inputGeneration==frame.inputGeneration
+    if owner.generation~=generation or owner.inputGeneration~=frame.inputGeneration then return end
+    if modal==self or modal==nil then
+      modal=frame.dailyPanelRegistered and frame~=daily and frame:IsVisible() and frame or nil
+    end
+    if frame:IsVisible() and owner.generation==generation and owner.inputGeneration==frame.inputGeneration
       and (not modal or modal==frame) then Capture(frame,true) end
   end)
 end
@@ -65,6 +72,51 @@ local function CloseOwnedChild(frame)
   return true
 end
 
+local function RegisterPanel(frame)
+  if frame.dailyPanelRegistered then return end
+  frame.dailyPanelRegistered=true;frame.dailyHostRegistered=true
+  frame.focusIndex=frame.focusIndex or 0
+  frame.buttons=frame.buttons or {}
+  frame.buttonCount=frame.buttonCount or 0
+  frame:HookScript("OnShow",function(self)
+    if self.activeChild and self.activeChild:IsShown() then SuspendForChild(self,self.activeChild,false) end
+    Capture(self,true)
+  end)
+  frame:HookScript("OnHide",function(self)
+    local deferred=CloseOwnedChild(self)
+    Capture(self,false)
+    self.inputGeneration=(self.inputGeneration or 0)+1
+    if not deferred then self.activeChild,self.inputChildToken=nil,nil end
+  end)
+  frame:SetScript("OnKeyDown",function(self,key)
+    if InCombatLockdown() or X.PlayerSuspended() or (self.dailyKeyboardPolicy and not self.dailyKeyboardPolicy(self))
+      or (self.activeChild and self.activeChild:IsShown()) then return end
+    if key=="ESCAPE" then self:Hide()
+    elseif key=="TAB" then
+      local list=self.buttons
+      if list[self.focusIndex] then list[self.focusIndex]:UnlockHighlight() end
+      local delta=IsShiftKeyDown and IsShiftKeyDown() and -1 or 1
+      for _=1,#list do
+        self.focusIndex=(self.focusIndex-1+delta)%#list+1
+        if list[self.focusIndex]:IsShown() and list[self.focusIndex]:IsEnabled() then list[self.focusIndex]:LockHighlight(); break end
+      end
+    elseif key=="ENTER" or key=="SPACE" then
+      local button=self.buttons[self.focusIndex]
+      if button and button:IsShown() and button:IsEnabled() then
+        if button.dailyActivate then button.dailyActivate() else button:Click() end
+      end
+    else self:SetPropagateKeyboardInput(true); return end
+    self:SetPropagateKeyboardInput(false)
+  end)
+  frame:RegisterEvent("PLAYER_REGEN_DISABLED"); frame:RegisterEvent("PLAYER_REGEN_ENABLED")
+  frame:RegisterEvent("PLAYER_DEAD");frame:RegisterEvent("PLAYER_ALIVE")
+  panels[#panels+1]=frame
+  frame:HookScript("OnEvent",function(self,event)
+    if event=="PLAYER_ALIVE" and X.lifeCheckPending then self.lifeReturnPending=true end
+    Capture(self,self:IsShown() and (not modal or modal==self));D.Refresh()
+  end)
+end
+
 local function Panel(name, title, height)
   local frame = X.PanelWidget("Frame", name, UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
   frame:SetSize(480, height); frame:SetPoint("CENTER"); frame:SetClampedToScreen(true)
@@ -76,37 +128,7 @@ local function Panel(name, title, height)
     frame:SetBackdropColor(0.04,0.05,0.09,0.98)
   end
   frame.title=Label(frame,title,-16,24)
-  frame.focusIndex=0
-  frame.buttons={}
-  frame.buttonCount=0
-  frame:SetScript("OnShow",function(self)
-    if self.activeChild and self.activeChild:IsShown() then SuspendForChild(self,self.activeChild,false) end
-    Capture(self,true)
-  end)
-  frame:SetScript("OnHide",function(self)
-    local deferred=CloseOwnedChild(self)
-    Capture(self,false)
-    self.inputGeneration=(self.inputGeneration or 0)+1
-    if not deferred then self.activeChild,self.inputChildToken=nil,nil end
-  end)
-  frame:SetScript("OnKeyDown",function(self,key)
-    if InCombatLockdown() or (self.activeChild and self.activeChild:IsShown()) then return end
-    if key=="ESCAPE" then self:Hide()
-    elseif key=="TAB" then
-      local list=self.buttons
-      if list[self.focusIndex] then list[self.focusIndex]:UnlockHighlight() end
-      local delta=IsShiftKeyDown and IsShiftKeyDown() and -1 or 1
-      for _=1,#list do
-        self.focusIndex=(self.focusIndex-1+delta)%#list+1
-        if list[self.focusIndex]:IsShown() then list[self.focusIndex]:LockHighlight(); break end
-      end
-    elseif key=="ENTER" or key=="SPACE" then
-      if self.buttons[self.focusIndex] then self.buttons[self.focusIndex]:Click() end
-    else self:SetPropagateKeyboardInput(true); return end
-    self:SetPropagateKeyboardInput(false)
-  end)
-  frame:RegisterEvent("PLAYER_REGEN_DISABLED"); frame:RegisterEvent("PLAYER_REGEN_ENABLED")
-  frame:SetScript("OnEvent",function(self) Capture(self,self:IsShown() and (not modal or modal==self)); D.Refresh() end)
+  RegisterPanel(frame)
   if UISpecialFrames then table.insert(UISpecialFrames,name) end
   return frame
 end
@@ -134,6 +156,14 @@ local function Route(callback, target)
 end
 
 function D.Refresh()
+  if not X.PlayerSuspended() then
+    for _,frame in ipairs(panels) do
+      if frame.lifeReturnPending then
+        frame.lifeReturnPending=nil;Capture(frame,frame:IsVisible() and (not modal or modal==frame))
+      end
+    end
+  end
+  if X.Workflow and X.Workflow.Refresh then X.Workflow.Refresh() end
   if not daily or not daily:IsShown() then return end
   local f=X.Status.Freshness and X.Status.Freshness(GetTime()) or {state="never"}
   local states={never="No completed scan",current="Current",stale="Scan stale",paused="Scan paused",unavailable="Unavailable"}
@@ -148,6 +178,14 @@ function D.Refresh()
 end
 
 function D.Open()
+  -- A deliberate root navigation retires the prior owned modal chain first.
+  for _=1,8 do
+    local prior=modal
+    if not prior or prior==daily or not prior:IsShown() then break end
+    if InCombatLockdown() and prior.IsProtected and prior:IsProtected() then return end
+    prior:Hide()
+    if modal==prior then modal=nil end
+  end
   generation=generation+1; modal=nil
   if not daily then
     daily=Panel("BuffRadarDaily",L["Daily Tasks"],570)
@@ -180,6 +218,7 @@ function D.Open()
     daily:HookScript("OnHide",function() generation=generation+1; modal=nil end)
   end
   daily:Show(); Capture(daily,true); D.Refresh()
+  if X.Updates then X.Updates.Show() end
 end
 
 local function Review(title)
@@ -280,4 +319,21 @@ X.ext.prefs=function(rest)
     X.Print(L[ok and "Preference change undone." or "Undo refused. The current values or session changed."])
   else D.Recent() end
   return true
+end
+
+-- Private native-dialog host shared by workflow frames and settings adapters.
+X.DailyAPI={Panel=Panel,RegisterPanel=RegisterPanel,Label=Label,Button=Button,Capture=Capture,Suspend=SuspendForChild,
+  CloseOwned=CloseOwnedChild,Modal=function() return modal end,
+  SetModal=function(frame) modal=frame end}
+function X.DailyAPI.RegisterHost(frame,adapter)
+  frame.dailyCaptureAdapter=adapter
+  if frame.dailyHostRegistered then return end
+  frame.dailyHostRegistered=true
+  frame:HookScript("OnHide",function(self)
+    local deferred=CloseOwnedChild(self)
+    Capture(self,false)
+    self.inputGeneration=(self.inputGeneration or 0)+1
+    if not deferred then self.activeChild,self.inputChildToken=nil,nil end
+    self.dailyNavigationReturn=nil
+  end)
 end

@@ -4,8 +4,7 @@ local _, ns = ...
 local X = ns.X
 local P = {}
 X.Preferences = P
-local ordinary = {}
-for key in ("locked includeSelf avoidPvP autoHide rebuff scale width cfgScale castMethod clickReg bgAlpha showTitle showBorder playSound showCounter groupOnly pauseInCities groupCast groupCastMin sortMode alertSound clickThrough muteInInstance showMinimap lowMana roleFilter showStrip idleFade pill queueTag consumables weaponWatch enterFlash scanThrottle growUp theme autoThemePriority findBox durationBars raidMarkers focusWatch pets auraWatch worldWatch drinkWatch twoCol rowGap iconSize tooltipLevel viewMode classColors showRealm nameTrim scalePerSpec gripSnap tagSymbols reduceMotion rangeWatch assumeRange fastAura modClick pullFlash fallSound compact textScale charPoint pauseInBG pauseTaxi watchDrop forecastSeconds smartPriority statusMinimap visualAlerts liteMode debuffWatch readinessAura rememberPanelPositions matrixView selfStatusStrip restockEnabled restockSpendCap restockUnitCap bgColor enabled rebuffPer buffPrio alertSounds rowColors buffContext specScales restockTargets"):gmatch("%S+") do ordinary[key] = true end
+local ordinary = X.Settings.PreferenceKeys()
 local pass = { sync = true } -- compatibility: explicit existing opt-in, never undoable
 local sources = { ui=true, slash=true, slider=true, profile=true, reset=true, other=true }
 local history, bytes, serial, generation, active, capturing = {}, 0, 0, 0, nil, false
