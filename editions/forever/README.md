@@ -25,6 +25,26 @@ confirmation steps still govern changes. Nothing casts or posts automatically.
 Shift-left-click the gear or assign the optional Actions keybind to open the
 same menu. Other gear clicks and slash commands keep their existing behavior.
 
+### Diagnose Battleground Pauses and Blessing Choices
+
+Use `/br support` to copy the private technical report. It includes instance
+type, battleground pause preference, current blocker, player combat/PvP state,
+and detected blessing families from the current spell cache. Missing evidence
+is marked unknown; the report excludes player and caster names and raw errors.
+
+Use `/br why NAME` with a visible friendly player to explain the current pause
+separately from that player's buff needs. For Paladins it distinguishes all
+detected blessings from the preferred and effective choice, then explains
+assignment/plan/preference precedence and blessing complement decisions.
+Complement applies to nearby players outside your group; unreadable ownership
+cannot establish a safe alternative. Class defaults alone do not show every
+detected blessing.
+
+For a battleground report, capture the output while alive and out of combat and
+check **Pause in battlegrounds and arenas**. For a blessing report, also capture
+the learned spell ranks and **Blessings by Class** choices. These diagnostics
+observe current rules; changing a pause or assignment still requires your action.
+
 ### Coverage Views and Confirmed Restocking
 
 Open `/br matrix` for a paged, read-only player-by-buff grid, or toggle

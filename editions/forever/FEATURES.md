@@ -7,6 +7,15 @@ WoW: Forever (Interface 16001). For the short version see
 The shipping Forever TOC requires Interface 16001. The historical Retail
 TOC remains a test fixture; 1.7.0 was the last Retail release.
 
+## 1.19.1: Battleground and Blessing Diagnostics
+
+- `/br support` adds fixed instance, pause-preference, combat/PvP and cached
+  blessing-knowledge fields to the private technical report.
+- `/br why NAME` separates global pause/safety state from player buff needs and
+  explains preferred/effective blessings, precedence and complement decisions.
+- Unknown evidence remains unknown. Diagnostic aura reads are isolated from
+  normal scan state. No player/caster names or raw errors enter Support exports.
+
 ## 1.19.0: Current Workflow
 
 - **Searchable Actions:** `/br actions` and the Settings Actions button expose

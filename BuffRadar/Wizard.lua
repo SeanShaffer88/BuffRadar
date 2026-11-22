@@ -256,8 +256,55 @@ end
 
 -- /br why <name> (1.15.0): explain, in plain words, why a player is or
 -- is not on the list. Reuse cast eligibility rules without updating coverage tallies.
-function X.Why(name)
+local function DiagnosticWord(value)
+  return L[value == true and "Yes" or value == false and "No" or "Unknown"]
+end
+local diagnosticLabels = {
+  none="None", unknown="Unknown", party="Party", raid="Raid", pvp="Battleground", arena="Arena",
+  dead="Dead", combat="In combat", no_buffs="No cached buffs detected", city="Paused in a major city.",
+  battleground="Paused in a battleground.", taxi="Paused on a flight path.", low_mana="Low mana -- buffing paused.",
+  off="Off", group="Group", self="Self", explicit="Explicit assignment", eligible="Nearby players",
+  mine="Your blessing", other="Another Paladin", absent="Missing", preferred_kept="Preferred blessing retained",
+  own_alternate="Your existing alternative", alternate_available="Alternative available", no_known_alternative="No detected alternative",
+  all_alternatives_covered="All alternatives covered", ownership_unknown="Unknown blessing owner",
+  allowed="Allowed", not_player="Not a player", offline="Offline", identity_unknown="Unknown identity",
+  hostile="Not friendly", combat_unknown="Unknown combat state", player_combat="Player in combat",
+  recipient_combat="Recipient in combat", charmed_or_unknown="Charmed or unavailable", phase="Another phase",
+  pvp_filtered="Blocked by PvP protection", pvp_unknown="Unknown PvP state",
+  exception="Player exception", plan="Group plan", plan_other="Assigned to another Paladin",
+  assignment="Class or role assignment", preference="Class preference", default="Built-in class priority",
+}
+local function DiagnosticLabel(code) return L[diagnosticLabels[code] or "Unknown"] end
+local function ExplainContext(emit)
+  local context = X.DiagnosticContext()
+  emit(string_format(L["Context: %s | BG pause: %s | Current blocker: %s"], DiagnosticLabel(context.instance),
+    DiagnosticWord(db.pauseInBG), DiagnosticLabel(context.blocker)))
+  emit(string_format(L["Player: combat=%s | PvP flag=%s"], DiagnosticWord(context.combat), DiagnosticWord(context.pvp)))
+  if context.blocker ~= "none" then emit(L["Buff needs below are informational and separate from the current pause or blocker."]) end
+  local knowledge, detected = X.BlessingKnowledge(), {}
+  for _, key in ipairs(X.BLESSING_KEYS) do
+    if knowledge.detected[key] then detected[#detected + 1] = key end
+  end
+  emit(string_format(L["Detected blessings (cached): %s | Spellbook entries: %s"],
+    knowledge.cacheReady and (#detected > 0 and table.concat(detected, ", ") or L["None"]) or L["Unknown"],
+    knowledge.bookEntries or L["Unknown"]))
+  return context
+end
+local function ExplainBlessing(detail, emit)
+  local choice = detail.blessingChoice
+  if not choice then return end
+  emit(string_format(L["Blessing choice: preferred=%s | effective=%s | source=%s"],
+    choice.preferredName or L["None"], choice.selectedName or L["None"], DiagnosticLabel(choice.source)))
+  local scope = DiagnosticLabel(choice.complementScope or "off")
+  emit(string_format(L["Complement: %s | scope=%s | preferred owner=%s | outcome=%s"],
+    DiagnosticWord(db.blessingComplement), scope,
+    DiagnosticLabel(choice.preferredOwner), DiagnosticLabel(choice.outcome)))
+  if choice.outcome == "ownership_unknown" then emit(L["Blessing ownership is unavailable; an alternative cannot be confirmed."]) end
+end
+
+local function Why(name)
   if not db then return end
+  local context = ExplainContext(Print)
   local want = (name or ""):lower()
   if want == "" then return end
   local selected, best, ambiguous
@@ -291,10 +338,16 @@ function X.Why(name)
     Print(string.format(L["Why: no readable player matches '%s'. Target or mouse over them, or enable friendly nameplates with /br plates."], name))
     return
   end
-  X.ExplainPlayer(selected, Print)
+  X.ExplainPlayer(selected, Print, nil, context)
 end
 
-function X.ExplainPlayer(selected, emit, showUnknown)
+function X.Why(name)
+  local ok = pcall(X.WithDiagnosticReads, function() return Why(name) end)
+  if not ok then Print(L["Diagnostic information is unavailable. Please try again."]) end
+end
+
+local function ExplainPlayer(selected, emit, showUnknown, context)
+  if not context then ExplainContext(emit) end
   local unit, full, short, isGroup, guid = selected.unit, selected.full, selected.short, selected.group, selected.guid
   local disp = short or full
   local function printRule(detail)
@@ -320,7 +373,10 @@ function X.ExplainPlayer(selected, emit, showUnknown)
     emit(string.format(L["%s is ignored for this session only (Shift+right-click on a row). It clears when you reload."], disp))
     return
   end
-  local valid, isSelf = Valid(unit)
+  local eligibility = {}
+  local valid, isSelf = Valid(unit, eligibility)
+  emit(string_format(L["Recipient: combat=%s | PvP flag=%s | eligibility=%s"],
+    DiagnosticWord(eligibility.recipientCombat), DiagnosticWord(eligibility.recipientPvP), DiagnosticLabel(eligibility.rejection)))
   if not valid then
     printInactiveRule()
     emit(string.format(L["%s can't be buffed right now (dead, offline, in combat, charmed or in another phase), so they are not listed."], disp))
@@ -330,8 +386,7 @@ function X.ExplainPlayer(selected, emit, showUnknown)
   local detail = { cooldown = {}, cooldowns = {} }
   local n, unknown, checked = Missing(unit, allMiss, isGroup, isSelf, "why", detail)
   printRule(detail)
-  -- The fallback aura index is rebuilt on demand after a diagnostic scan.
-  X.scanUnit = nil
+  ExplainBlessing(detail, emit)
   if n == 0 then
     if unknown then
       emit(string.format(L["%s: buff information is unavailable."], disp))
@@ -385,6 +440,11 @@ function X.ExplainPlayer(selected, emit, showUnknown)
     return
   end
   emit(string.format(L["%s is not on the list right now; they need: %s."], disp, table.concat(miss, ", ")))
+end
+
+function X.ExplainPlayer(selected, emit, showUnknown, context)
+  local ok = pcall(X.WithDiagnosticReads, function() return ExplainPlayer(selected, emit, showUnknown, context) end)
+  if not ok then emit(L["Diagnostic information is unavailable. Please try again."]) end
 end
 
 function X.ExplainCurrentTarget(emit)
