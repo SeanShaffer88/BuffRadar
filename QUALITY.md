@@ -7,7 +7,7 @@ code is Unverified in game like everything since 1.3.2, so no dimension may
 honestly move yet; what grew is the evidence base (corpus 174→184 steps,
 185 German) and the shipped share of the enhancement program (10→20 of 50).
 Re-checked again at the close of 1.8.0 (same day): **scores unchanged** for
-the same reason; the evidence base grew to 237 steps (238 German), the
+the same reason; the evidence base grew to 247 steps (238 German), the
 program stands at 40 of 50, and the product is Forever-only from 1.8.0.
 Re-checked at the close of 1.9.0 (same day): **scores unchanged** for the
 same reason; the evidence base grew to 241 steps (242 German), and the
@@ -68,7 +68,7 @@ are named below as waivers with owners and follow-ups, not hidden.
 |---|---|---|---|
 | Correctness (14) | 5 | Pass | Full gate green (Lua 5.1 compile, luacheck 0/0, locale, trial run × 7 fake-client setups, 0 errors) and every release through 1.15.31 passed in game (SEAN, 2026-11-16). |
 | Security & privacy (12) | 4 | Pass | Risk Tier 0: no network, no credentials, no data leaves the client; SavedVariables are local settings/stats only. Addon comms ride the game's group channel on one prefix; assignment/blessing-plan messages are trust-gated (leader/assistant; paladin for blessings). `SECURITY.md` present. |
-| Robustness (11) | 4 | Pass | SavedVariables v2→v23 migration and detached nested validation are smoke-tested, including future/over-limit preservation and explicit recovery; handlers are pcall-wrapped so one bad event can't kill the addon. |
+| Robustness (11) | 4 | Pass | SavedVariables v2→v24 migration and detached nested validation are smoke-tested, including future/over-limit preservation and explicit recovery; handlers are pcall-wrapped so one bad event can't kill the addon. |
 | Feature completeness (9) | 4 | Pass | Core purpose complete. The approved 50-item program is **complete** with **nothing parked**: 44 shipped by 1.9.0, three duplicates replaced in-batch (#23, #10, #15), and the three parked items built later (#8 and #19 in 1.14.0, #33 in 1.15.0). Three further suggestion lists are done except one platform limit recorded in `docs/SUGGESTIONS.md` (#13: the game does not let addons auto-cast, so out-of-range players get a notice instead). Not 5: that limit. |
 | Performance (8) | 4 | Pass (waiver closed 2026-11-16) | Budget defined 2026-11-16 (`docs/DECISIONS.md`) and enforced by the trial run on every push: a worst-case scan (every player missing every buff) reads ≤8 auras per player, grows linearly from 20 to 40 players, and averages <5 ms in the fake client (measured: ~5.75 reads per player, ~0.7 ms for 40 players). Scans are event-driven, coalesced to one per 0.1 s and ticked every 0.4 s; rows are pooled. Not 5: the in-game target (`/br perf` average ≤2 ms, worst ≤8 ms in a 40-player raid) has no field numbers yet. |
 | Maintainability (7) | 3 | **Waiver** (minor) | The TOC refactor moves window refresh, secure widgets, minimap, and the save schema out of the core. `BuffRadar.lua` is now ~5,300 lines, down from ~7,600 before the refactor; `Config.lua` is still ~4,100. All files compile with Lua 5.1's local and upvalue limits enforced. A Forever field test of the secure cast path is still required. |

@@ -17,7 +17,7 @@ cast decisions, and `Window.lua` and `Minimap.lua` own their frames and caches.
 Keep implementation state local and share entry points through the addon table.
 `BuffRadarAPI` is a versioned, read-only external interface, not a module bridge.
 Every feature is reachable through `/br` as well as through its settings control
-where it has one. SavedVariables are versioned (`dbVersion`, currently 23) with
+where it has one. SavedVariables are versioned (`dbVersion`, currently 24) with
 migration smoke fixtures; keep those fixtures in sync with format changes.
 Never overwrite a newer schema with an older addon. Bound saved collections
 at their writers as well as at load, and preserve over-limit user profiles

@@ -74,8 +74,24 @@ local function PositionMinimapButton()
   minimapBtn:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * rx, math.sin(angle) * ry)
 end
 
+local function UpdateAngleFromCursor(self)
+  if X.PlayerSuspended() or not db then return end
+  local mx, my = Minimap:GetCenter()
+  if not mx or not my then return end
+  local cx, cy = GetCursorPosition()
+  local scale = (Minimap.GetEffectiveScale and Minimap:GetEffectiveScale()) or 1
+  cx, cy = cx / scale, cy / scale
+  local rx, ry = MinimapRadii()
+  local atan2 = math.atan2 or math.atan
+  db.minimapAngle = math.deg(atan2((cy - my) / ry, (cx - mx) / rx)) % 360
+  PositionMinimapButton()
+end
+
 local function StopMinimapDrag(self)
-  self:SetScript("OnUpdate", nil)
+  if self and self.dragging then
+    self.dragging = nil
+    UpdateAngleFromCursor(self)
+  end
 end
 
 local function RefreshMinimapButton()
@@ -139,20 +155,10 @@ local function BuildMinimapButton()
   -- right-click-for-settings in the tooltip never fired.
   b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   b:SetScript("OnClick", OnClick)
-  local function DragUpdate(self)
-    if X.PlayerSuspended() or not db then StopMinimapDrag(self); return end
-    local mx, my = Minimap:GetCenter()
-    if not mx or not my then return end
-    local cx, cy = GetCursorPosition()
-    local scale = (Minimap.GetEffectiveScale and Minimap:GetEffectiveScale()) or 1
-    cx, cy = cx / scale, cy / scale
-    local rx, ry = MinimapRadii()
-    local atan2 = math.atan2 or math.atan
-    db.minimapAngle = math.deg(atan2((cy - my) / ry, (cx - mx) / rx)) % 360
-    PositionMinimapButton()
-  end
+  -- Drag is event-only: the final cursor position is read on DragStop/Hide,
+  -- not by a per-frame loop. The angle lands when the mouse is released.
   b:SetScript("OnDragStart", function(self)
-    if db and not X.PlayerSuspended() and self:IsVisible() then self:SetScript("OnUpdate", DragUpdate) end
+    if db and not X.PlayerSuspended() and self:IsVisible() then self.dragging = true end
   end)
   b:SetScript("OnDragStop", StopMinimapDrag)
   b:SetScript("OnHide", StopMinimapDrag)

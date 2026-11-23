@@ -170,7 +170,8 @@ local function BuildNearby()
 end
 
 function X.OpenNearbyDiagnostics()
-  if not X.classic or X.PlayerSuspended() or InCombatLockdown() then return end
+  if not X.classic or X.PlayerSuspended() or not X.SecureActionAllowed() then return end
+  if X.DiagnosticsPaused and X.DiagnosticsPaused() then return end
   nearby = nearby or BuildNearby()
   nearby.lastCount = false  -- a new opening should render even without a completed scan
   nearby:Show()
@@ -255,6 +256,7 @@ local WANT = {
 }
 
 function X.ApiCheck(export)
+  if X.DiagnosticsPaused and X.DiagnosticsPaused() then return end
   local ver, build, _, iface = GetBuildInfo()
   local lines = {}
   local function out(text, plain)
@@ -403,6 +405,7 @@ local function SpellKnownToClient(id)
 end
 
 function X.BuffCheck()
+  if X.DiagnosticsPaused and X.DiagnosticsPaused() then return end
   local bad, total = {}, 0
   for _, d in ipairs(X.BUFF_DEFS or {}) do
     local ids = {}
@@ -430,6 +433,7 @@ end
 -- /br perf: scan cost and memory, so the budgets have in-game evidence.
 ---------------------------------------------------------------------------
 function X.PerfReport()
+  if X.DiagnosticsPaused and X.DiagnosticsPaused() then return end
   for _, key in ipairs({ "scan", "prepare", "import", "debuff", "combatDebuff" }) do
     local t = X.timings[key]
     if t.n > 0 then
@@ -452,6 +456,9 @@ end
 -- Settings diff: what applying a settings string would change.
 ---------------------------------------------------------------------------
 function X.SettingsDiff(text, named)
+  if X.DiagnosticsPaused and X.DiagnosticsPaused() then
+    return nil, L["Diagnostics are paused in Performance Mode."]
+  end
   if type(text) ~= "string" then return nil, L["Paste a complete, valid BuffRadar settings export."] end
   local patch
   if named or text:match("^BR2;") then patch = X.ParseProfile(text) else patch = X.ParseSettingsImport(text) end

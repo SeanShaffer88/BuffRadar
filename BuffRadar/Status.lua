@@ -125,9 +125,57 @@ function S.Description()
 end
 
 function S.Summary()
-  return { version = 1, revision = revision, state = state, reason = reason, partial = partial,
+  return { version = 1, bridge = 2, revision = revision, state = state, reason = reason, partial = partial,
     actionable = count, expiring = expiring,
     firstExpiry = expiryEnd and { spell = expirySpell, name = expiryName, endsAt = expiryEnd } or nil }
+end
+
+-- A compact, name-free display model. The addon remains the queue engine;
+-- an external display only renders these fields and re-reads on the event.
+local function GetDisplay()
+  local colors = {
+    covered = { 0.2, 0.85, 0.35 }, attention = { 1, 0.78, 0.25 },
+    critical = { 1, 0.25, 0.2 }, unknown = { 0.65, 0.65, 0.75 }, unavailable = { 0.45, 0.45, 0.5 },
+  }
+  local marks = { covered = "+", attention = "!", critical = "!!", unknown = "?", unavailable = "-" }
+  return { version = 2, revision = revision, state = state, reason = reason, partial = partial,
+    actionable = count, expiring = expiring, label = S.Description(),
+    text = marks[state] or "-", color = colors[state] or colors.unavailable,
+    firstExpiry = expiryEnd and { spell = expirySpell, endsAt = expiryEnd } or nil }
+end
+
+-- Predefined custom-trigger import snippets. They are plain Lua strings, so
+-- no serializer, compressor, library or network dependency is added.
+local IMPORT_STRINGS = {
+  state = [[-- BuffRadar display bridge: event BUFFRADAR_STATUS_CHANGED
+function()
+  local api = BuffRadarAPI
+  if not api or api.version ~= 1 or not api.GetDisplay then return false end
+  local display = api.GetDisplay()
+  aura_env.display = display
+  return display.state == "attention" or display.state == "critical"
+end]],
+  critical = [[-- BuffRadar display bridge: event BUFFRADAR_STATUS_CHANGED
+function()
+  local api = BuffRadarAPI
+  if not api or api.version ~= 1 or not api.GetDisplay then return false end
+  local display = api.GetDisplay()
+  aura_env.display = display
+  return display.state == "critical"
+end]],
+  count = [[-- BuffRadar display bridge: event BUFFRADAR_STATUS_CHANGED
+function()
+  local api = BuffRadarAPI
+  if not api or api.version ~= 1 or not api.GetDisplay then return "" end
+  local display = api.GetDisplay()
+  aura_env.display = display
+  return display.actionable > 0 and tostring(display.actionable) or display.text
+end]],
+}
+local function CopyImportStrings()
+  local out = {}
+  for key, value in pairs(IMPORT_STRINGS) do out[key] = value end
+  return out
 end
 
 local function CopyRow(row)
@@ -154,7 +202,26 @@ local function GetUnit(unit)
 end
 
 -- Public, versioned integration only. Addon modules use the private namespace.
-BuffRadarAPI = { version = 1, GetStatus = GetStatus, GetUnit = GetUnit, GetSummary = S.Summary }
+-- version stays 1 for existing consumers; bridge=2 adds the display model.
+BuffRadarAPI = { version = 1, bridge = 2, GetStatus = GetStatus, GetUnit = GetUnit,
+  GetSummary = S.Summary, GetDisplay = GetDisplay, GetImportStrings = CopyImportStrings,
+  GetImportString = function(kind) return IMPORT_STRINGS[kind] end }
+
+X.ext.bridge = function(rest)
+  if rest ~= "" then X.Print(L["Usage: /br bridge"]); return true end
+  if X.DiagnosticsPaused and X.DiagnosticsPaused() then return true end
+  local strings = CopyImportStrings()
+  local lines = {}
+  for _, key in ipairs({ "state", "critical", "count" }) do
+    lines[#lines + 1] = "-- " .. key .. " --"
+    lines[#lines + 1] = strings[key]
+  end
+  if #lines == 0 then X.Print(L["No display bridge snippets are available."]); return true end
+  local text = table.concat(lines, "\n\n")
+  if X.ShowExport then X.ShowExport(text, false, L["Copy display bridge snippets"])
+  else X.Print(L["Display bridge snippets"]) end
+  return true
+end
 
 X.ext.status = function(rest)
   if rest ~= "" and rest:lower() ~= "export" then X.Print("/br status [export]"); return true end

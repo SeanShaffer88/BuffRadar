@@ -80,17 +80,11 @@ CLIENT = r'''function(withTimer, other, otherGUID, covered, loaded, newline)
     slash=function(text) env.SlashCmdList.BUFFRADAR(text) end,
     refresh=function()
       now=now+10
-      if withTimer then
-        for _=1,64 do
-          local index
-          for i,t in ipairs(timers) do if t.deadline<=now then index=i; break end end
-          if not index then break end
-          table.remove(timers,index).callback()
-        end
-      else
-        for _,f in ipairs(env.__frames) do
-          if f.events and f.events.PLAYER_ENTERING_WORLD and f.scripts.OnUpdate then f.scripts.OnUpdate(f,10) end
-        end
+      for _=1,64 do
+        local index
+        for i,t in ipairs(timers) do if t.deadline<=now then index=i; break end end
+        if not index then break end
+        table.remove(timers,index).callback()
       end
       ns.X.Refresh()
     end,

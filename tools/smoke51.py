@@ -178,7 +178,7 @@ step("login fallback sanitizes without migrating and later loads replace the liv
   client.BuffRadarDB = replacement
   onEvent(startup, "ADDON_LOADED", "BuffRadar")
   assert(replacement.dbVersion == 9 and not replacement.wizardSeen, "migration edited the input table")
-  assert(X.GetDB() == client.BuffRadarDB and X.GetDB().dbVersion == 23 and X.GetDB().wizardSeen,
+  assert(X.GetDB() == client.BuffRadarDB and X.GetDB().dbVersion == 24 and X.GetDB().wizardSeen,
     "normal load did not migrate and publish detached settings")
   assert(not X.Ignore.Has("BeforeLogin", "BeforeLogin"), "ignore index retained a replaced save")
   X.ApplyGeometry()
@@ -199,7 +199,7 @@ local fire = function(ev, ...)
 end
 step("ADDON_LOADED", function()
   fire("ADDON_LOADED", "BuffRadar")
-  assert(NS.X.GetDB() == env.BuffRadarDB and env.BuffRadarDB.dbVersion == 23, "live settings were not published")
+  assert(NS.X.GetDB() == env.BuffRadarDB and env.BuffRadarDB.dbVersion == 24, "live settings were not published")
   local pullFrame = NS.X.pullFrame
   if not NS.X.ApiCheck then return end -- not in the Retail TOC
   assert(pullFrame and pullFrame.events.ADDON_LOADED, "pull listener missing at startup")
@@ -247,12 +247,12 @@ step("minimap button follows both axes after the map is resized", function()
   env.GetCursorPosition = function() return 655, 505 end
   assert(not button:GetScript("OnUpdate"), "idle minimap has a frame update")
   button:GetScript("OnDragStart")(button)
-  button:GetScript("OnUpdate")(button)
+  assert(button.dragging and not button:GetScript("OnUpdate"), "minimap drag installed a frame update")
   button:GetScript("OnDragStop")(button)
-  assert(not button:GetScript("OnUpdate"), "minimap update survived drag release")
+  assert(not button.dragging and not button:GetScript("OnUpdate"), "minimap drag did not stop cleanly")
   button:GetScript("OnDragStart")(button)
   button:Hide()
-  assert(not button:GetScript("OnUpdate"), "minimap update survived hide")
+  assert(not button.dragging and not button:GetScript("OnUpdate"), "minimap drag survived hide")
   local angle = db.minimapAngle
   map.GetWidth, map.GetHeight, db.minimapAngle, env.GetCursorPosition = oldWidth, oldHeight, oldAngle, oldCursor
   NS.X.RefreshMinimapButton()
@@ -344,8 +344,6 @@ end
 local timerTick = function()
   runQueued()
   if env.__ticker then env.__ticker() end
-  local f = driver.scripts.OnUpdate
-  if f then f(driver, 1) end
 end
 step("refresh tick", timerTick)
 
@@ -474,7 +472,10 @@ step("fire every settings control", function()
     if type(nm) ~= "string" then nm = "" end
     local isBar = nm:sub(1, 14) == "BuffRadarStrip" or nm:sub(1, 13) == "BuffRadarChip"
       or nm == "BuffRadarPill"
-    if f.scripts.OnClick and f ~= driver and not isBar then f.scripts.OnClick(f, "LeftButton", false) end
+    local isModePreference = f.preferenceKey == "simpleMode" or f.preferenceKey == "performanceMode"
+    if f.scripts.OnClick and f ~= driver and not isBar and not isModePreference then
+      f.scripts.OnClick(f, "LeftButton", false)
+    end
     if f.scripts.OnEnter then f.scripts.OnEnter(f) end
     if f.scripts.OnLeave then f.scripts.OnLeave(f) end
     if f.scripts.OnEditFocusLost then
@@ -543,7 +544,6 @@ step("UNIT_AURA on an NPC nameplate / boss / pet: no refresh", function()
   local n = refreshesDuring(function()
     fire("UNIT_AURA", "nameplate3"); fire("UNIT_AURA", "boss1"); fire("UNIT_AURA", "partypet1")
     runQueued()
-    if not env.__timers then local f = driver.scripts.OnUpdate; if f then f(driver, 0) end end
   end)
   -- with C_Timer nothing may be queued; with the fallback, no refresh may be pending
   if env.__timers then assert(n == 0, "untracked unit refreshed (" .. n .. ")") end
@@ -695,7 +695,11 @@ step("fast aura: unwatched payload skipped, watched payload refreshes (1.14.0)",
   local skipped0 = probe.skipped or 0
   fire("UNIT_AURA", "player", { addedAuras = { { name = "Unwatched Proc", auraInstanceID = 9002 } } })
   probe = NS.X.auraProbe
-  assert(probe and (probe.skipped or 0) == skipped0 + 1, "unwatched payload was not skipped")
+  assert(probe and (probe.skipped or 0) == skipped0 + 1,
+    "unwatched payload was not skipped: fast=" .. tostring(env.BuffRadarDB.fastAura)
+      .. " skipped=" .. tostring(probe and probe.skipped) .. " before=" .. tostring(skipped0)
+      .. " queue=" .. tostring(#env.__timers) .. " simple=" .. tostring(env.BuffRadarDB.simpleMode)
+      .. " supported=" .. tostring(NS.X.supported) .. " last=" .. tostring(chat[#chat]))
   assert(#env.__timers == 0, "skipped payload queued a refresh")
   assert(not NS.X.auraIds.player, "unwatched aura created a cache bucket")
   local watchedName = next(NS.X.watchNames or {})
@@ -781,21 +785,17 @@ step("paused in a city: steady tick does nothing", function()
   timerTick()                      -- the event refresh notices the city
   local n = refreshesDuring(function()
     if env.__ticker then env.__ticker() end
-    local f = driver.scripts.OnUpdate
-    if f then f(driver, 1) end
   end)
   assert(n == 0, "tick refreshed while paused (" .. n .. ")")
 end)
-step("leaving the city: event refresh runs, ticks resume", function()
+step("leaving the city refreshes on the zone event, not on a periodic scan", function()
   env.__zone = "Elwynn Forest"
   local n1 = refreshesDuring(function() fire("ZONE_CHANGED_NEW_AREA"); timerTick() end)
   assert(n1 >= 1, "zone change didn't refresh")
   local n2 = refreshesDuring(function()
     if env.__ticker then env.__ticker() end
-    local f = driver.scripts.OnUpdate
-    if f then f(driver, 1) end
   end)
-  assert(n2 >= 1, "ticks didn't resume after leaving the city")
+  assert(n2 == 0, "UI ticker performed a periodic player scan")
 end)
 step("protected (secret) GUID / name from the game: no error", function()
   -- A secret stand-in: comparing or concatenating it throws, like the game's.
@@ -897,7 +897,7 @@ local function twoTanks()
   for _, name in ipairs(savedIgnored) do env.SlashCmdList.BUFFRADAR("unignore " .. name) end
   return function() for k in pairs(O) do O[k] = nil end end
 end
-local function refresh() timerTick(); fire("UNIT_AURA", "nameplate1"); timerTick() end
+local function refresh() timerTick(); NS.X.Refresh(); timerTick() end
 
 step("Earth Shield: offered to one tank at a time (retail)", function()
   if env.__forever then return end  -- Forever's Earth Shield table is unchanged from 1.2.4
@@ -1418,7 +1418,7 @@ step("combat targets and caster are never eligible", function()
   O.UnitAffectingCombat = function(u) return u == "player" end
   refresh()
   assert(not shownRows().party1 and not shownRows().party2,
-    "targets remained listed while the caster was in combat")
+    "targets remained listed while the caster is in combat")
   O.UnitAffectingCombat = nil
   cleanup()
 end)
@@ -1668,6 +1668,8 @@ step("Forever event order correlates exact identity and consumes a GUID once", f
   fire("PLAYER_REGEN_DISABLED")
   sent("after-combat"); done("after-combat")
   assert(db.castsTotal == initial + 5, "unconfirmed intent survived combat entry")
+  env.__combat = false
+  fire("PLAYER_REGEN_ENABLED")
   X.ResetCastTracking()
   env.C_Spell = original
   cleanup()
@@ -1901,7 +1903,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 23, "dbVersion not migrated to 23: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 24, "dbVersion not migrated to 24: " .. tostring(d.dbVersion))
   assert(d.assignmentEnabled == false and next(d.buffAssignments) == nil, "migration activated assignments")
   assert(next(d.blessingPreferences) == nil, "existing character got a blessing override")
   assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
@@ -1925,7 +1927,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 23 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 24 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
   -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
@@ -1933,22 +1935,22 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = { dbVersion = 9 }
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 23 and d.wizardSeen == true,
+  assert(d.dbVersion == 24 and d.wizardSeen == true,
     "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
   d.dbVersion, d.assignmentEnabled, d.thornsAnyClassOutdoors = 18, true, nil
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 23 and d.thornsAnyClassOutdoors == false and d.assignmentEnabled,
+  assert(d.dbVersion == 24 and d.thornsAnyClassOutdoors == false and d.assignmentEnabled,
     "v18 settings did not gain an opt-in Thorns default while preserving assignments")
   d.dbVersion, d.autoThemePriority, d.theme = 19, nil, "ui.auto"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 23 and d.theme == "ui.auto" and d.autoThemePriority == "",
+  assert(d.dbVersion == 24 and d.theme == "ui.auto" and d.autoThemePriority == "",
     "v19 migration changed Auto opt-in or failed to default the priority order")
   d.dbVersion, d.blessingComplement, d.plateRestore = 20, nil, nil
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 23 and d.blessingComplement == false and not next(d.plateRestore) and d.assignmentEnabled,
+  assert(d.dbVersion == 24 and d.blessingComplement == false and not next(d.plateRestore) and d.assignmentEnabled,
     "v20 migration turned on a new feature or lost an existing preference")
   d.blessingComplement = true
   d.plateRestore = { nameplateShowFriends = false, nameplateShowAll = true,
@@ -3416,43 +3418,23 @@ step("scan throttle halves the big-group rescan (1.7.0)", function()
   env.SlashCmdList.BUFFRADAR("throttle")
   assert(db.scanThrottle == false, "throttle not toggled off")
 end)
-step("fallback event refresh coalesces within 100 ms in a throttled raid", function()
+step("delayed event refreshes coalesce without a recurring ticker", function()
   if env.__ticker then return end
-  -- Isolate the background scheduler from a separately refreshed visible Daily observer.
-  local daily = NS.X.Daily and NS.X.Daily.Frame()
-  if daily then daily:Hide();assert(not daily:IsShown()) end
-  local onUpdate = driver.scripts.OnUpdate
-  local db = env.BuffRadarDB
-  local oldCount, oldThrottle, oldCity = env.GetNumGroupMembers, db.scanThrottle, db.pauseInCities
-  local oldTime = env.__over.GetTime
-  env.__over.GetTime = function() return 100000 end -- no recent combat recovery
-  local calls = 0
-  env.GetNumGroupMembers = function() calls = calls + 1; return 25 end
-  db.scanThrottle, db.pauseInCities = true, true
-  onUpdate(driver, 1)  -- settle any queued refresh and restart the steady cycle
-  local refreshes = env.__zoneCalls
-  calls = 0
-  for _ = 1, 40 do onUpdate(driver, 0.01) end
-  local firstHalfReads = calls
-  fire("UNIT_AURA", "player")
-  local steps, beforeEarly = 0, env.__zoneCalls
-  while steps < 45 and env.__zoneCalls == beforeEarly do
-    steps = steps + 1
-    if steps == 4 then fire("UNIT_AURA", "player") end
-    onUpdate(driver, 0.01)
-  end
-  local early = beforeEarly == refreshes and env.__zoneCalls == refreshes + 1
-  local readsAtEvent = calls
-  for _ = 1, 40 do onUpdate(driver, 0.01) end
-  local nextHalfReads, noExtraRefresh = calls, env.__zoneCalls == refreshes + 1
-  env.GetNumGroupMembers, db.scanThrottle, db.pauseInCities, env.__over.GetTime = oldCount, oldThrottle, oldCity, oldTime
+  local oldZone = env.__zone
+  env.__zone = "Elwynn Forest"
   timerTick()
-  assert(early and steps >= 10 and steps <= 11,
-    ("fallback event took %d ms after 40 frames; group API calls %d/%d/%d")
-      :format(steps * 10, firstHalfReads, readsAtEvent, nextHalfReads))
-  assert(noExtraRefresh and firstHalfReads == 1 and readsAtEvent <= 2 and nextHalfReads - readsAtEvent == 1,
-    ("fallback performed redundant work; group API calls %d/%d/%d")
-      :format(firstHalfReads, readsAtEvent, nextHalfReads))
+  local before = env.__zoneCalls
+  fire("UNIT_AURA", "player")
+  fire("GROUP_ROSTER_UPDATE")
+  fire("SPELL_UPDATE_COOLDOWN")
+  assert(#env.__timers == 1, "event burst scheduled more than one delayed refresh")
+  runQueued()
+  assert(env.__zoneCalls > before, "coalesced event refresh did not scan")
+  local stable = env.__zoneCalls
+  assert(not driver.scripts.OnUpdate, "core registered a frame update")
+  for _ = 1, 40 do if env.__ticker then env.__ticker() end end
+  assert(env.__zoneCalls == stable, "no-ticker setup performed a periodic player scan")
+  env.__zone = oldZone
 end)
 
 step("grow-up window anchors by its bottom edge (1.8.0)", function()
@@ -8274,7 +8256,7 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n,NS.X.L["BuffRadar self-test -- paste this whole block into a bug report:"]), "no self-test header")
-  assert(chatSince(n, "dbVersion 23"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 24"), "self-test missing dbVersion")
   assert(chatTemplate(n,"  sync %s · requests %s · role filter %s · profiles %d · idle fade %s"), "self-test missing the 1.5.0 state line")
   assert(chatTemplate(n,"  pill %s · queue tag %s · consumables %s · custom spells %d · buddy split %s · uptime %s"), "self-test missing the 1.6.0 state line")
   assert(chatTemplate(n,"  readypost %s · pinned %s · weapon watch %s · entry reminder %s · throttle %s · covering %d · history %d"), "self-test missing the 1.7.0 state line")
@@ -8297,21 +8279,21 @@ step("corner grips scale the window (1.11.0)", function()
   -- bottom-right: left edge fixed at 40, stub width 210 -> cursor 355 = x1.5
   env.GetCursorPosition = function() return 355, 0 end
   gr.scripts.OnMouseDown(gr, "LeftButton")
-  assert(gr.isSizing, "right grip did not start sizing")
-  gr.scripts.OnUpdate(gr)
-  assert(db.scale == 1.5 and frame.scaleV == 1.5, "right grip scale " .. tostring(db.scale))
-  env.GetCursorPosition = function() return 9999, 0 end
-  gr.scripts.OnUpdate(gr)
-  assert(db.scale == 2, "scale not clamped to 2: " .. tostring(db.scale))
+  assert(gr.isSizing and not gr.scripts.OnUpdate, "right grip did not start event-only sizing")
   gr.scripts.OnMouseUp(gr)
+  assert(db.scale == 1.5 and frame.scaleV == 1.5, "right grip scale " .. tostring(db.scale))
   assert(not gr.isSizing and not gr.scripts.OnUpdate, "right grip still sizing after release")
+  -- A second release at an extreme cursor clamps the scale.
+  gr.scripts.OnMouseDown(gr, "LeftButton")
+  env.GetCursorPosition = function() return 9999, 0 end
+  gr.scripts.OnMouseUp(gr)
+  assert(db.scale == 2, "scale not clamped to 2: " .. tostring(db.scale))
   -- bottom-left: right edge fixed at 250 -> cursor -65 = x1.5
   db.scale = 1
   frame.scaleV = 1
   env.GetCursorPosition = function() return -65, 0 end
   gl.scripts.OnMouseDown(gl, "LeftButton")
-  gl.scripts.OnUpdate(gl)
-  assert(db.scale == 1.5, "left grip scale " .. tostring(db.scale))
+  assert(gl.isSizing and not gl.scripts.OnUpdate, "left grip installed a frame update")
   gl.scripts.OnMouseUp(gl)
   assert(db.scale == 1.5 and not gl.isSizing, "left grip release")
   -- locked windows and combat refuse a drag
@@ -8983,9 +8965,10 @@ do
           if not index then break end
           table.remove(due, index)[2]()
         end
-        if tick then client.__ticker() end
+        if tick and type(client.__ticker) == "function" then client.__ticker() end
       else
-        startup.scripts.OnUpdate(startup, dt)
+        -- With no C_Timer the addon refreshes directly from relevant events;
+        -- advancing a mock clock must not synthesize a scan.
       end
     end
     event("ADDON_LOADED", "BuffRadar")
@@ -8996,6 +8979,38 @@ do
 
   auditTests(step, FeatureClient, TestClient, LoadClient, forever)
 
+  step("Simple Mode keeps one secure next-buff action and Performance Mode pauses diagnostics", function()
+    local f = FeatureClient({ dbVersion = 24, enabled = { FORTITUDE = true } }, true)
+    local c, X, db = f.client, f.X, f.db
+    local main, nextButton = c.BuffRadarFrame, c.BuffRadarNextButton
+    assert(main and nextButton and not db.simpleMode and not db.performanceMode, "default mode surface was not ready")
+    f.slash("simple on")
+    f.advance(0.11)
+    assert(db.simpleMode and nextButton.alpha == 1 and nextButton.mouseEnabled and nextButton.height == 26
+      and db.enabled.FORTITUDE, "Simple Mode did not preserve settings and expose its one-click action")
+    X.OpenConfig(true)
+    assert(c.BuffRadarConfig:IsShown() and c.BuffRadarConfig.tabBtns.look:IsShown()
+      and not c.BuffRadarConfig.tabBtns.alerts:IsShown() and c.BuffRadarConfig.simpleModeBtn:IsShown(),
+      "Simple Mode settings did not hide advanced tabs")
+    f.slash("simple off")
+    f.advance(0.11)
+    assert(not db.simpleMode and nextButton.alpha == 0 and not nextButton.mouseEnabled
+      and c.BuffRadarConfig.tabBtns.alerts:IsShown(), "Advanced settings did not return")
+    f.slash("performance on")
+    assert(db.performanceMode and X.DiagnosticsPaused(), "Performance Mode did not pause diagnostic entry points")
+    f.slash("performance off")
+    assert(not db.performanceMode and not X.DiagnosticsPaused(), "Performance Mode did not resume diagnostics")
+  end)
+
+  step("v23 migration keeps Simple and Performance Mode defaults explicit", function()
+    local migrated = FeatureClient({ dbVersion = 23, simpleMode = true, performanceMode = true })
+    assert(migrated.db.dbVersion == 24 and migrated.db.simpleMode and migrated.db.performanceMode,
+      "v23 mode preferences were not preserved")
+    local defaults = FeatureClient({ dbVersion = 23 })
+    assert(defaults.db.dbVersion == 24 and defaults.db.simpleMode == false
+      and defaults.db.performanceMode == false, "v23 did not receive safe mode defaults")
+  end)
+
   step("v21 upgrades to validated bounded readiness settings; named profiles leave local rules alone", function()
     local f = FeatureClient({ dbVersion = 21, forecastSeconds = 900, smartPriority = "true", readinessAura = -12,
       instancePriority = { [12] = "FORTITUDE", [11] = "NOT_A_BUFF", [0] = "FORTITUDE" },
@@ -9003,7 +9018,7 @@ do
         { spellID = 700, unit = "focus", encounterID = 99 }, { spellID = 701, unit = "target", encounterID = 0 },
         { spellID = math.huge, unit = "player", encounterID = 0 } } })
     local db, X = f.db, f.X
-    assert(db.dbVersion == 23 and db.forecastSeconds == 300 and not db.smartPriority
+    assert(db.dbVersion == 24 and db.forecastSeconds == 300 and not db.smartPriority
       and db.readinessAura == 0 and db.statusMinimap, "new scalar defaults or validation were wrong")
     assert(db.instancePriority[12] == "FORTITUDE" and not db.instancePriority[0] and not db.instancePriority[11]
       and #db.debuffRules == 1 and db.debuffRules[1].encounterID == 21, "invalid or duplicate rule survived sanitation")
@@ -9161,6 +9176,13 @@ do
     local snapshot = A.GetStatus()
     local row = assert(A.GetUnit("party1"))
     assert(snapshot.targets[1].guid == row.guid and row.missing[1] == f.mana, "API did not return the queued buff")
+    local display, bridges = A.GetDisplay(), A.GetImportStrings()
+    assert(display.version == 2 and display.color and display.text and display.label
+      and bridges.state:find("BUFFRADAR_STATUS_CHANGED", 1, true)
+      and bridges.critical:find("GetDisplay", 1, true) and bridges.count:find("actionable", 1, true),
+      "display bridge API did not return the versioned state and trigger snippets")
+    assert(not bridges.state:find("UnitName", 1, true) and not bridges.state:find("CastSpell", 1, true),
+      "display bridge exposed identity or a cast path")
     snapshot.targets[1].missing[1], row.name = "modified", "changed"
     f.units.nameplate1 = f.units.party1
     assert(A.GetUnit("nameplate1").missing[1] == f.mana and A.GetUnit("party1").name == "Alia",
@@ -9430,10 +9452,10 @@ retail_extras = retail_sources + [file for file in forever_sources if file[0] ==
 setups = [
     ("Retail: declared TOC (no Extras)", True, False, False, False, retail_sources),
     ("Retail + Extras: modern client (C_Timer, UI templates)", True, False, False, False, retail_extras),
-    ("Retail + Extras: fallback timer (OnUpdate)", False, False, False, False, retail_extras),
+    ("Retail + Extras: delayed callbacks, no ticker", False, False, False, False, retail_extras),
     ("Retail + Extras: no UI templates", True, True, False, False, retail_extras),
     ("Forever: modern client", True, False, True, False, forever_sources),
-    ("Forever: fallback timer, no UI templates", False, True, True, False, forever_sources),
+    ("Forever: delayed callbacks, no UI templates", False, True, True, False, forever_sources),
     ("Retail + Extras: German client (Locales/deDE.lua)", True, False, False, True, retail_extras),
 ]
 failed = False

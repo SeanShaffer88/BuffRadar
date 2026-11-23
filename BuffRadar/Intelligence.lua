@@ -1,4 +1,4 @@
--- BuffRadar - prediction, contextual priority and periodic scan policy.
+-- BuffRadar - prediction, contextual priority and event-driven scan policy.
 -- Copyright (C) 2026 Malikor. GPLv3 or later.
 
 local _, ns = ...
@@ -25,6 +25,32 @@ end
 
 function I.ForecastEnabled()
   return db and not db.liteMode and db.forecastSeconds > 0
+end
+
+-- Performance Mode is deliberately non-destructive: it suppresses optional
+-- work while preserving every saved preference, so turning it off restores
+-- the previous restock and diagnostic choices.
+function X.SimpleMode()
+  return db and db.simpleMode == true
+end
+
+function X.AdvancedHidden()
+  if not X.SimpleMode() then return false end
+  Print(L["Simple Mode hides advanced raid, assignment and diagnostic controls."])
+  return true
+end
+
+function X.PerformanceMode()
+  return db and db.performanceMode == true
+end
+
+function X.DiagnosticsPaused()
+  if X.AdvancedHidden() then return true end
+  if X.PerformanceMode() then
+    Print(L["Diagnostics are paused in Performance Mode."])
+    return true
+  end
+  return false
 end
 
 function I.InstanceID()
@@ -156,7 +182,8 @@ function I.EffectiveInterval()
 end
 
 function I.PaceText()
-  return string.format(L["Periodic scan: %.1fs · Latency: %s"], (db.scanThrottle and lastTicks or 1) * X.Core.UpdateInterval,
+  return string.format(L["Event-driven · UI sweep: %.1fs · Latency: %s"],
+    (db.scanThrottle and lastTicks or 1) * X.Core.UpdateInterval,
     latency and string.format(L["%d ms"], math.floor(latency)) or L["Unknown"])
 end
 
@@ -201,8 +228,22 @@ function X.SettingsChanged(changed)
     X.CheckLegacyAuthority(not db.sync)
     if not db.sync then X.StopCoordination() end
   end
+  if changed.simpleMode then
+    if X.ApplySimpleMode then X.ApplySimpleMode() end
+    if X.ApplyConfigMode then X.ApplyConfigMode() end
+  end
+  if changed.performanceMode then
+    if db.performanceMode then
+      if X.CloseNearbyDiagnostics then X.CloseNearbyDiagnostics() end
+      if X.CloseRaidPreparation then X.CloseRaidPreparation() end
+      local supplies = X.Supplies and X.Supplies.GetFrame and X.Supplies.GetFrame()
+      if supplies and supplies.Hide then supplies:Hide() end
+    end
+    if X.ApplyConfigMode then X.ApplyConfigMode() end
+  end
   if changed.forecastSeconds or changed.pullFlash or lite or changed.smartPriority or changed.scanThrottle
-    or changed.profile or changed.matrixView or changed.selfStatusStrip then X.Core.QueueRefresh() end
+    or changed.profile or changed.matrixView or changed.selfStatusStrip
+    or changed.simpleMode or changed.performanceMode then X.Core.QueueRefresh() end
 end
 
 function X.SetPreference(key, value)
@@ -310,6 +351,8 @@ local function Toggle(setting, label, usage)
   end
 end
 X.ext.lite = Toggle("liteMode", L["Lite mode: %s"], "/br lite [on|off]")
+X.ext.simple = Toggle("simpleMode", L["Simple Mode: %s"], "/br simple [on|off]")
+X.ext.performance = Toggle("performanceMode", L["Performance Mode: %s"], "/br performance [on|off]")
 X.ext.minimapstatus = Toggle("statusMinimap", L["Minimap status: %s"], "/br minimapstatus [on|off]")
 X.ext.visual = Toggle("visualAlerts", L["Visual alerts: %s"], "/br visual [on|off]")
 

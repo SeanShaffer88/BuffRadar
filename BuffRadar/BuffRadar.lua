@@ -53,7 +53,7 @@ BINDING_CATEGORY_BUFFRADAR = "BuffRadar"
 local NEXT_BINDING = "CLICK BuffRadarNextButton:LeftButton"
 local MACRO_NAME = "BuffRadar"
 
-local UPDATE_INTERVAL = 0.4
+local UPDATE_INTERVAL = 1.5  -- non-critical UI sweep only; scans are event-driven
 local SOUND_FILE = "Interface\\AddOns\\BuffRadar\\Media\\droplet.ogg"
 
 -- Runtime state used across the feature modules, not SavedVariables.
@@ -396,6 +396,54 @@ end
 
 function X.PlayerSuspended()
   return X.playerDead == true or X.ReadUnitBool(_G.UnitIsDeadOrGhost, "player") == true
+end
+
+-- One authoritative combat gate. InCombatLockdown() can lag the first edge
+-- event, so a latch is set from those events and released only after combat
+-- ends. UnitAffectingCombat covers the client race where the event arrives
+-- before lockdown. Every protected write and cast refresh consults this gate.
+local function CombatLocked()
+  local ok, locked = pcall(InCombatLockdown)
+  if not ok then return true end  -- unreadable combat state is treated as unsafe
+  return locked == true or locked == 1
+end
+function X.NoteCombatEdge(force)
+  if force or CombatLocked() or X.ReadUnitBool(_G.UnitAffectingCombat, "player") == true then
+    if not X.combatLatch then
+      X.combatLatch = true
+      if X.ClearKeybindCasts then pcall(X.ClearKeybindCasts) end
+      if X.SyncCastMacro then pcall(X.SyncCastMacro, true) end
+    end
+    if X.Status and X.Status.Unavailable then pcall(X.Status.Unavailable, "combat") end
+    return true
+  end
+  return false
+end
+function X.ReleaseCombatGate()
+  if X.combatLatch and not CombatLocked()
+      and X.ReadUnitBool(_G.UnitAffectingCombat, "player") ~= true then
+    X.combatLatch = false
+    return true
+  end
+  return false
+end
+function X.CombatSafe()
+  -- Unsupported-package mode still needs a read-only queue and diagnostics;
+  -- support only gates secure casting, never the observation/UI refresh path.
+  if not db then return false end
+  if CombatLocked()
+      or X.ReadUnitBool(_G.UnitAffectingCombat, "player") == true
+      or X.PlayerSuspended() then return false end
+  return true
+end
+function X.SecureWriteAllowed()
+  if not db or X.combatLatch or CombatLocked() then return false end
+  local state = X.Settings and X.Settings.SaveState and X.Settings.SaveState()
+  return not state
+end
+function X.SecureActionAllowed()
+  if X.supported == false or X.macroParked or X.PlayerSuspended() then return false end
+  return X.CombatSafe() and X.SecureWriteAllowed()
 end
 
 function X.ReadUnitNumber(api, ...)
@@ -3932,6 +3980,7 @@ local function UnitCastMacro(unit, text)
 end
 
 function Bind(btn, unit, spell, isSelf, pick, gspell, gpick, hadTarget)
+  if not X.SecureActionAllowed() then return end
   btn:SetAttribute("shift-type1", nil)
   btn:SetAttribute("shift-spell1", nil)
   btn:SetAttribute("shift-unit1", nil)
@@ -4576,7 +4625,10 @@ local function Refresh()
     if not refreshIdle or not X.playerDead then X.UpdatePlayerLife() end
     return
   end
-  if InCombatLockdown() then X.Status.Unavailable("combat"); return end
+  -- The combat-edge latch freezes the visible queue immediately. Outside the
+  -- latch, read-only eligibility still observes UnitAffectingCombat so stale
+  -- test/client flags can filter recipients without blocking the whole scan.
+  if X.combatLatch or CombatLocked() then X.Status.Unavailable("combat"); return end
   if X.HasHeldRow() then return end
   X.assignmentGroupConflicts = X.AssignmentEnabled() and next(db.buffAssignments) and {} or nil
   refreshIdle = false
@@ -4677,13 +4729,25 @@ function X.RefreshFault(err)
   end
 end
 
+local refreshRunning, refreshPending = false, false
 local function SafeRefresh()
-  local ok, err = X.Measure("scan", pcall, Refresh)
-  if not ok then X.RefreshFault(err) end
+  if refreshRunning then refreshPending = true; return end
+  refreshRunning = true
+  local passes = 0
+  repeat
+    refreshPending = false
+    passes = passes + 1
+    local ok, err = X.Measure("scan", pcall, Refresh)
+    if not ok then X.RefreshFault(err) end
+  until not refreshPending or passes >= 3
+  refreshRunning = false
 end
 
--- Steady refresh every UPDATE_INTERVAL via C_Timer; bursts of events (UNIT_AURA storms in
--- raids, nameplates popping in) collapse into a single refresh SOON_DELAY later.
+-- Event bursts (UNIT_AURA storms in raids, nameplates appearing, roster
+-- changes and cooldown updates) collapse into one refresh SOON_DELAY later.
+-- There is no per-frame loop and no periodic cast scan. A generous 1.5 s
+-- C_Timer ticker only maintains non-critical presentation state; when it
+-- observes a cooldown-state change it raises another event-driven refresh.
 -- How many players are in my group, me included (0 when solo)?
 local function GroupSize()
   if GetNumGroupMembers then
@@ -4696,80 +4760,89 @@ local function GroupSize()
   return party and party > 0 and party + 1 or 0
 end
 
--- Movement events and combat exit wake the steady ticker without delaying
--- event-driven refreshes. Scan policy is sampled at most once per cycle.
-local scanTicksRemaining = 0
+local UI_TICK_INTERVAL = UPDATE_INTERVAL
 local Soon, StartTicker
-if C_Timer and C_Timer.NewTicker and C_Timer.After then
-  -- Only the queued callback clears its own flag, so ticker refreshes can't spawn
-  -- extra parallel chains of queued refreshes.
-  local function QueuedRefresh()
-    refreshQueued = false
-    SafeRefresh()
-  end
+local scanTicksRemaining = 0  -- retained for adaptive UI-sweep policy and event resets
+local cooldownSweepState = {}
+
+local function QueuedRefresh()
+  refreshQueued = false
+  SafeRefresh()
+end
+
+if C_Timer and C_Timer.After then
+  -- Only the queued callback clears its own flag, so event bursts cannot spawn
+  -- parallel chains of refreshes.
   Soon = function()
     if refreshQueued then return end
     refreshQueued = true
     C_Timer.After(SOON_DELAY, QueuedRefresh)
   end
-  -- The steady tick catches what no event reports (players walking in and out
-  -- of range, buffs running low, cooldowns ending); it has nothing to do while
-  -- Refresh() reports idle, and in combat, when Refresh() can't run anyway.
-  local function TickRefresh()
-    if X.lifeCheckPending then
-      if X.ReadUnitBool(_G.UnitIsDeadOrGhost, "player") == false then X.UpdatePlayerLife() end
-    end
-    if X.playerDead then return end
-    if X.ExpireReadyCheck then X.ExpireReadyCheck() end
-    X.UpdateFade()
-    X.TickMinimapPulse()
-    if refreshIdle or InCombatLockdown() then return end
-    if db.scanThrottle and scanTicksRemaining > 0 then
-      scanTicksRemaining = scanTicksRemaining - 1
-      return
-    end
-    scanTicksRemaining = X.Intel.ScanTicks(GroupSize) - 1
-    SafeRefresh()
-  end
-  StartTicker = function()
-    if not ticker then ticker = C_Timer.NewTicker(UPDATE_INTERVAL, TickRefresh) end
-  end
 else
-  -- Fallback for clients without C_Timer: throttled accumulator, never per-frame work.
-  -- Event bursts have their own deadline and can refresh even while idle.
-  local elapsed, soonElapsed, interval = 0, nil, nil
-  StartTicker = function()
-    driver:SetScript("OnUpdate", function(_, dt)
-      elapsed = elapsed + dt
-      local eventPending = soonElapsed ~= nil
-      if eventPending then
-        soonElapsed = soonElapsed + dt
-        if soonElapsed < SOON_DELAY then return end
-      else
-        if elapsed < UPDATE_INTERVAL then return end
-        if not refreshIdle and not InCombatLockdown() then
-          if not db.scanThrottle then interval = UPDATE_INTERVAL end
-          interval = interval or UPDATE_INTERVAL * X.Intel.ScanTicks(GroupSize)
-          if elapsed < interval then return end
-        end
-      end
-      elapsed, soonElapsed, interval = 0, nil, nil
-      X.RunDueSyncWarmupRetry()
-      if X.lifeCheckPending then
-        if X.ReadUnitBool(_G.UnitIsDeadOrGhost, "player") == false then X.UpdatePlayerLife() end
-      end
-      if X.playerDead then return end
-      if X.ExpireReadyCheck then X.ExpireReadyCheck() end
-      if X.TickPull then X.TickPull() end
-      X.UpdateFade()
-      X.TickMinimapPulse()
-      if not InCombatLockdown() and (eventPending or not refreshIdle) then SafeRefresh() end
-    end)
-  end
+  -- A client without C_Timer.After still runs refreshes only from events. The
+  -- reentrancy guard above coalesces refreshes requested during a refresh.
   Soon = function()
-    soonElapsed = soonElapsed or 0
+    if refreshQueued then return end
+    if refreshRunning then refreshPending = true; return end
+    refreshQueued = true
+    QueuedRefresh()
   end
 end
+
+-- A cooldown sweep is display-only work. It reads the watched spellbook and
+-- asks for one coalesced refresh only when a spell's readiness actually flips.
+local function CooldownSweep()
+  if not db or not X.CombatSafe() then
+    if next(cooldownSweepState) then wipe(cooldownSweepState) end
+    return false
+  end
+  local changed, present, cache = false, {}, {}
+  for i = 1, #myBuffs do
+    local buff = myBuffs[i]
+    local name = buff and buff.name
+    if X.Readable(name) and type(name) == "string" and name ~= "" then
+      local ok, cooling = pcall(OnCooldown, name, cache)
+      cooling = ok and cooling and true or false
+      if cooldownSweepState[name] ~= cooling then changed = true end
+      present[name] = cooling
+    end
+  end
+  for name in pairs(cooldownSweepState) do
+    if present[name] == nil then changed = true end
+  end
+  wipe(cooldownSweepState)
+  for name, cooling in pairs(present) do cooldownSweepState[name] = cooling end
+  return changed
+end
+
+local function UITick()
+  if X.lifeCheckPending then
+    if X.ReadUnitBool(_G.UnitIsDeadOrGhost, "player") == false then X.UpdatePlayerLife() end
+  end
+  if X.ExpireReadyCheck then X.ExpireReadyCheck() end
+  X.UpdateFade()
+  X.TickMinimapPulse()
+  if X.RunDueSyncWarmupRetry then X.RunDueSyncWarmupRetry() end
+  if X.UpdateSimpleMode then X.UpdateSimpleMode() end
+  if X.CombatSafe() then
+    local sweep = true
+    if db and db.scanThrottle and scanTicksRemaining > 0 then
+      scanTicksRemaining = scanTicksRemaining - 1
+      sweep = false
+    else
+      local ticks = X.Intel and X.Intel.ScanTicks and X.Intel.ScanTicks(GroupSize) or 1
+      scanTicksRemaining = ticks - 1
+    end
+    if sweep and CooldownSweep() then Soon() end
+  end
+end
+
+StartTicker = function()
+  if not ticker and C_Timer and C_Timer.NewTicker then
+    ticker = C_Timer.NewTicker(UI_TICK_INTERVAL, UITick)
+  end
+end
+
 QueueRefresh = Soon
 
 -- Spellbook changes arrive in bursts (SPELLS_CHANGED can fire many times in a row):
@@ -4848,6 +4921,7 @@ else
     "CHAT_MSG_ADDON", "CHAT_MSG_WHISPER", "CHAT_MSG_SAY", "CHALLENGE_MODE_START",
     "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST", "PLAYER_FLAGS_CHANGED",
     "PLAYER_FOCUS_CHANGED", "PLAYER_STARTED_MOVING", "PLAYER_STOPPED_MOVING",
+    "SPELL_UPDATE_COOLDOWN", "ACTIONBAR_UPDATE_COOLDOWN", "UNIT_IN_RANGE_UPDATE", "UNIT_FLAGS",
     "ENCOUNTER_START", "ENCOUNTER_END", "UPDATE_INVENTORY_DURABILITY", "PLAYER_EQUIPMENT_CHANGED", "UNIT_PET",
   }) do
     pcall(driver.RegisterEvent, driver, ev)
@@ -4855,6 +4929,16 @@ else
 end
 
 driver:SetScript("OnEvent", function(self, event, arg1, ...)
+  if event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST" then
+    X.ReleaseCombatGate()
+  elseif event == "PLAYER_REGEN_DISABLED" or event == "ENCOUNTER_START"
+      or event == "CHALLENGE_MODE_START" then
+    X.NoteCombatEdge(true)
+  elseif event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_FLAGS_CHANGED"
+      or event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN"
+      or (event == "UNIT_FLAGS" and arg1 == "player") then
+    X.NoteCombatEdge()
+  end
   if not X.supported then
     if event == "PLAYER_LOGIN" or (event == "ADDON_LOADED" and arg1 == ADDON) then
       self:UnregisterAllEvents()
@@ -4921,8 +5005,10 @@ driver:SetScript("OnEvent", function(self, event, arg1, ...)
     if db and X.CastEvent(event, arg1, ...) then Soon() end
     return
   end
-  if event == "DISPLAY_SIZE_CHANGED" or event == "UI_SCALE_CHANGED" then
-    Soon() -- the secure viewport is resized only by an unlocked refresh
+  if event == "DISPLAY_SIZE_CHANGED" or event == "UI_SCALE_CHANGED"
+      or event == "SPELL_UPDATE_COOLDOWN" or event == "ACTIONBAR_UPDATE_COOLDOWN"
+      or event == "UNIT_IN_RANGE_UPDATE" or event == "UNIT_FLAGS" then
+    Soon() -- relevant client events replace periodic range/cooldown polling
     return
   elseif event == "PLAYER_STARTED_MOVING" or event == "PLAYER_STOPPED_MOVING" then
     scanTicksRemaining = 0
@@ -5151,7 +5237,7 @@ driver:SetScript("OnEvent", function(self, event, arg1, ...)
     X.Debuffs.Refresh()
   elseif event == "PLAYER_REGEN_ENABLED" then
     X.afterCombat = true  -- Refresh() pulses the border if work is waiting
-    if InCombatLockdown() then return end
+    if not X.CombatSafe() then return end
     scanTicksRemaining = 0
     X.Intel.WakeAfterCombat()
     X.Debuffs.Refresh()
