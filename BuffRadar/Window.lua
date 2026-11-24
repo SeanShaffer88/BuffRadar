@@ -30,6 +30,17 @@ local frame, title, countText, emptyText, overflowText, combatText, nextBtn, cov
 local footerText, focusText, gear, closeButton, nextPreview, nearbyButton
 local bar, stripButtons, chipButtons, stripState, findBar, findEdit
 local grip, leftGrip, widthHandle, groupBtn, pill
+local simpleApplied, simpleNextLabel, simpleNextTexture
+local advancedFrameNames = {
+  "BuffRadarNearbyDiagnostics", "BuffRadarSupplies", "BuffRadarFirstCast",
+  "BuffRadarWizard", "BuffRadarExportFrame", "BuffRadarDebuffWatch",
+  "BuffRadarReadyCheck", "BuffRadarBlessingPreferences", "BuffRadarDailyOptions",
+  "BuffRadarAssignmentPicker", "BuffRadarPractice", "BuffRadarBlockerExceptionEditor",
+  "BuffRadarAssignmentBlockers", "BuffRadarAssignmentRoleEditor", "BuffRadarAssignmentPreview",
+  "BuffRadarRaidCoverage", "BuffRadarRaidPreparation", "BuffRadarSubgroupResponsibilities",
+  "BuffRadarCasterCoordination", "BuffRadarAssignments", "BuffRadarAutoThemePriority",
+  "BuffRadarThemePreview", "BuffRadarWhyAction",
+}
 local rows, built = {}, false
 local rowMouseButtons, rowLeftPress = {}, nil
 local viewport, viewportCount, rowOffset
@@ -113,14 +124,14 @@ function X.RefreshChips()
 end
 
 -- Idle fade: while the mouse is elsewhere the whole window goes partly
--- see-through; moving the mouse over it brings it back. Polled from the
--- refresh ticker (no per-frame work).
+-- see-through; moving the mouse over it brings it back. Event handlers and
+-- the 1.5 s non-critical UI sweep update it; there is no per-frame work.
 function X.UpdateFade()
   if not frame or not db then return end
   local close = closeButton
   local over = (frame.IsMouseOver and frame:IsMouseOver())
     or (close and close:IsShown() and close.IsMouseOver and close:IsMouseOver())
-  if close and not InCombatLockdown() then
+  if close and X.SecureWriteAllowed() then
     local visible = frame:IsShown() and over and not (db.clickThrough and db.locked)
       and not X.PlayerSuspended()
     if visible then
@@ -265,7 +276,7 @@ local function PlaceSavedPosition()
 end
 
 local function RestorePosition()
-  if InCombatLockdown() then return end
+  if not X.SecureWriteAllowed() then return end
   if not pcall(PlaceSavedPosition) then
     ClearSavedPoint()
     PlaceSavedPosition()
@@ -279,14 +290,14 @@ function X.SaveCharacterPoint(key)
 end
 
 function X.ResetWindowPosition()
-  if InCombatLockdown() then return false end
+  if not X.SecureWriteAllowed() then return false end
   ClearSavedPoint()
   if frame then RestorePosition() end
   return true
 end
 
 local function InstallCombatDriver(button, snippet)
-  if not RegisterStateDriver then return false end
+  if not RegisterStateDriver or not X.SecureWriteAllowed() then return false end
   local ok, accepted = pcall(button.SetAttribute, button, "_onstate-combat", snippet)
   if not ok or accepted == false then return false end
   ok, accepted = pcall(RegisterStateDriver, button, "combat", "[@player,dead][combat] combat; nocombat")
@@ -297,7 +308,7 @@ end
 -- It casts on press when "ActionButtonUseKeyDown" is on and on release otherwise, so one
 -- key press = one cast. It clears itself after each use and whenever combat starts.
 local function ApplyNextRegistration()
-  if not nextBtn or InCombatLockdown() then return end
+  if not nextBtn or not X.SecureActionAllowed() then return end
   if GetCVarBool and GetCVarBool("ActionButtonUseKeyDown") then
     nextBtn:RegisterForClicks("LeftButtonDown")
   else
@@ -315,7 +326,7 @@ end
 local nextWrapped, nextCombatDriver = false, false
 
 local function ClearNext()
-  if not nextBtn or InCombatLockdown() then return end
+  if not nextBtn or not X.SecureWriteAllowed() then return end
   nextBtn.entry = nil
   if nextBtn.isClear then return end  -- already disarmed: skip protected writes
   nextBtn:SetAttribute("type", nil)
@@ -331,7 +342,7 @@ local function ClearNext()
 end
 
 local function ClearGroup()
-  if not groupBtn or InCombatLockdown() then return end
+  if not groupBtn or not X.SecureWriteAllowed() then return end
   groupBtn.entry = nil
   if groupBtn.isClear then return end  -- already disarmed: skip the protected writes
   groupBtn:SetAttribute("type", nil)
@@ -343,7 +354,7 @@ local function ClearGroup()
 end
 
 local function DisarmStaleKeybind(button, mouseButton, clear)
-  if mouseButton == "LeftButton" and not InCombatLockdown() and button:GetAttribute("type")
+  if mouseButton == "LeftButton" and X.SecureWriteAllowed() and button:GetAttribute("type")
       and not X.RowTargetMatches(button.entry) then
     clear()
     if QueueRefresh then QueueRefresh() end
@@ -383,7 +394,7 @@ local function BindGroupCached(btn, unit, spell, guid)
 end
 
 local function ClearRowCast(btn)
-  if InCombatLockdown() then return end
+  if not X.SecureWriteAllowed() then return end
   btn:SetAttribute("type", nil)
   btn:SetAttribute("spell", nil)
   btn:SetAttribute("unit", nil)
@@ -489,6 +500,18 @@ local function BuildNextButton()
   nextBtn:SetAlpha(0)
   nextBtn:EnableMouse(false)
   nextBtn:Show()
+  simpleNextTexture = nextBtn:CreateTexture(nil, "BACKGROUND")
+  simpleNextTexture:SetAllPoints(nextBtn)
+  if simpleNextTexture.SetColorTexture then simpleNextTexture:SetColorTexture(0.08, 0.32, 0.46, 0.95) end
+  simpleNextTexture:Hide()
+  simpleNextLabel = nextBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  simpleNextLabel:SetPoint("CENTER", 0, 0)
+  simpleNextLabel:SetText(L["Cast next buff"])
+  simpleNextLabel:Hide()
+  if RegisterStateDriver then
+    local ok, accepted = pcall(RegisterStateDriver, nextBtn, "visibility", "[@player,dead][combat] hide; show")
+    nextBtn.simpleVisibilityDriver = ok and accepted ~= false
+  end
   ApplyNextRegistration()
   -- Secure snippets clear the button the instant combat starts and right after each use.
   -- Leave casting disarmed if the client cannot install combat clearing.
@@ -724,7 +747,7 @@ local function RegisterRowClicks(b)
 end
 
 local function IgnoreRowPlayer(self, button, down)
-  if button ~= "RightButton" or InCombatLockdown() then return end
+  if button ~= "RightButton" or not X.SecureWriteAllowed() then return end
   -- With AnyUp+AnyDown registered, OnClick fires twice per physical click;
   -- toggle on exactly one phase (release, unless casts trigger on press).
   if down ~= (db.clickReg == "down") then return end
@@ -760,7 +783,7 @@ local function IgnoreRowPlayer(self, button, down)
 end
 
 local function ValidateRowClick(self, button, down)
-  if button == "LeftButton" and not InCombatLockdown() and self:GetAttribute("type") then
+  if button == "LeftButton" and X.SecureWriteAllowed() and self:GetAttribute("type") then
     local press = not down and rowLeftPress
     local changed = press and (press.row ~= self or press.guid ~= self.bGuid
       or press.unit ~= self.bUnit or press.spell ~= self.bSpell)
@@ -1109,7 +1132,7 @@ end
 
 local function ApplyGeometry()
   if not frame then return end
-  if InCombatLockdown() then
+  if not X.SecureWriteAllowed() then
     geometryPending = true  -- lands at PLAYER_REGEN_ENABLED; the title says so meanwhile (1.12.0)
     UpdateTitleMarks()
     return
@@ -1125,7 +1148,7 @@ end
 
 local function ApplyAppearance()
   if not frame then return end
-  if InCombatLockdown() then
+  if not X.SecureWriteAllowed() then
     appearancePending = true
     return
   end
@@ -1217,6 +1240,7 @@ do
     X.autoThemeResolved, X.autoThemeAddon = resolved, selectedAddon
     ApplyAppearance()
     if X.RefreshConfig then X.RefreshConfig() end
+    if X.RefreshAutoThemePriority then X.RefreshAutoThemePriority() end
     return true
   end
 
@@ -1229,7 +1253,7 @@ do
 
   function X.BeginThemePreview()
     X.CancelThemePreview()
-    if not db or InCombatLockdown() or X.PlayerSuspended() or X.Settings.SaveState() == "future" then return end
+    if not db or not X.SecureWriteAllowed() or X.PlayerSuspended() then return end
     themePreview = { db = db, generation = X.Preferences.Generation(), theme = db.theme,
       priority = db.autoThemePriority, color = { db.bgColor[1], db.bgColor[2], db.bgColor[3] }, selected = db.theme }
     return themePreview
@@ -1268,7 +1292,7 @@ do
 end
 
 local function ApplyRowWheel()
-  if not frame or InCombatLockdown() then return end
+  if not frame or not X.SecureWriteAllowed() then return end
   local enabled = (viewportCount or 0) > visibleLimit and not (db.clickThrough and db.locked)
   if rowWheelEnabled == enabled then return end
   rowWheelEnabled = enabled
@@ -1278,7 +1302,7 @@ end
 
 local function ClearRowViewport()
   viewport, rowOffset, viewportCount = nil, nil, nil
-  if frame and not InCombatLockdown() then
+  if frame and X.SecureWriteAllowed() then
     ApplyRowWheel()
     SetShownIfChanged(overflowText, false)
   end
@@ -1291,7 +1315,7 @@ end
 -- whenever the lock or the setting changes.
 function X.ApplyClickThrough()
   if not frame or not db then return end
-  if InCombatLockdown and InCombatLockdown() then return end
+  if not X.SecureWriteAllowed() then return end
   local mouse = not (db.clickThrough and db.locked)
   if frame.EnableMouse then frame:EnableMouse(mouse) end
   for i = 1, MAX_ROWS do
@@ -1308,7 +1332,7 @@ end
 -- Compact rows, text scale and column layout. Re-anchoring secure rows
 -- must wait until combat ends.
 function X.ApplyRowLayout()
-  if not frame or InCombatLockdown() then return end
+  if not frame or not X.SecureWriteAllowed() then return end
   titleLayoutState = db.showTitle
   local h = db.compact and 16 or ROW_H
   local header = db.showTitle and HEADER_H or 0
@@ -1621,7 +1645,7 @@ function X.AbortWindowScan()
   for _, row in ipairs(rows) do row.entry, row.guid = nil, nil end
   rowLeftPress = nil
   wipe(rowMouseButtons)
-  if InCombatLockdown() then return end -- secure combat drivers own clearing here
+  if not X.SecureWriteAllowed() then return end -- secure combat drivers own clearing here
   pcall(ClearNext)
   pcall(ClearGroup)
   for _, row in ipairs(rows) do
@@ -1776,7 +1800,7 @@ end
 
 function X.ScrollRows(step)
   if not viewport or viewportCount <= visibleLimit or db.hidden
-      or not frame:IsShown() or InCombatLockdown() or X.PlayerSuspended()
+      or not frame:IsShown() or not X.SecureWriteAllowed() or X.PlayerSuspended()
       or (db.clickThrough and db.locked) or RowMouseHeld()
       or X.ReadUnitBool(_G.IsMouseButtonDown, "LeftButton") == true
       or X.ReadUnitBool(_G.IsMouseButtonDown, "RightButton") == true then return false end
@@ -1929,7 +1953,7 @@ local function RenderCoverage(entries, n)
   -- Pull countdown (1.15.0): while a pull timer runs (Extras tracks it
   -- in X.pull), the coverage line itself counts down -- the part of the
   -- pull-timer feature 1.14.0 trimmed. The steady ticker rebuilds this
-  -- line every 0.4s while the list is live, and Extras refreshes again
+  -- line after each completed scan while the list is live, and Extras refreshes again
   -- the moment the timer ends, so the number never goes stale.
   if X.pull and X.pull.endsAt then
     local left = math_ceil(X.pull.endsAt - GetTime())
@@ -1998,9 +2022,10 @@ function X.RenderQueue(entries, n, sessionShow, wasAfterCombat)
   end
 end
 
--- Scale drag (1.11.0). Cursor-driven; the OnUpdate runs only while a grip is
--- held. Scale = the cursor's horizontal distance from the fixed bottom
--- corner divided by the window's unscaled width.
+-- Scale drag (1.11.0). Cursor-driven, but event-only: OnMouseDown captures
+-- the fixed corner and OnMouseUp/OnDragStop reads the final cursor position.
+-- Scale = the cursor's horizontal distance from the fixed bottom corner
+-- divided by the window's unscaled width.
 local SNAPS = { 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2 }
 
 local function ScaleFromCursor(g)
@@ -2032,7 +2057,7 @@ local function PlaceScaled(g, ns)
 end
 
 local function EndEdgeDrag(e)
-  if not e or not e.isSizing or InCombatLockdown() then return end
+  if not e or not e.isSizing or not X.SecureWriteAllowed() then return end
   e.isSizing = false
   frame:StopMovingOrSizing()
   local cols = columns
@@ -2052,20 +2077,13 @@ local function BeginScaleDrag(g)
   g.fixedX = (g.side == "RIGHT") and l * s or r * s
   g.fixedY = y * s
   g.isSizing = true
-  g:SetScript("OnUpdate", function(self)
-    if InCombatLockdown() then EndScaleDrag(self); return end
-    local ns = ScaleFromCursor(self)
-    db.scale = ns
-    PlaceScaled(self, ns)
-  end)
 end
 
 EndScaleDrag = function(g)
   if not g or not g.isSizing then return end
-  g:SetScript("OnUpdate", nil)
-  if InCombatLockdown() then return end
+  if not X.SecureWriteAllowed() then g.isSizing = false; return end
   g.isSizing = false
-  local ns = math_floor((db.scale or 1) * 100 + 0.5) / 100
+  local ns = math_floor(ScaleFromCursor(g) * 100 + 0.5) / 100
   db.scale = ns
   PlaceScaled(g, ns)
   SavePosition()
@@ -2073,7 +2091,7 @@ EndScaleDrag = function(g)
 end
 
 local function EndWindowDrags()
-  if InCombatLockdown() then return end
+  if not X.SecureWriteAllowed() then return end
   if frame and frame.isMoving then
     frame:StopMovingOrSizing()
     frame.isMoving = false
@@ -2157,13 +2175,13 @@ local function BuildWindowFrame()
   frame:EnableMouseWheel(false)
   frame:RegisterForDrag("LeftButton")
   frame:SetScript("OnDragStart", function(self)
-    if not db.locked and not InCombatLockdown() then
+    if not db.locked and X.SecureWriteAllowed() then
       self:StartMoving()
       self.isMoving = true
     end
   end)
   frame:SetScript("OnDragStop", function(self)
-    if not self.isMoving or InCombatLockdown() then return end
+    if not self.isMoving or not X.SecureWriteAllowed() then return end
     self:StopMovingOrSizing()
     self.isMoving = false
     SavePosition()
@@ -2193,7 +2211,7 @@ local function BuildCloseControl()
   close:SetFrameLevel((frame:GetFrameLevel() or 0) + 10)
   close:Hide()
   close:SetScript("OnClick", function()
-    if X.PlayerSuspended() or InCombatLockdown() or (db.clickThrough and db.locked) then return end
+    if X.PlayerSuspended() or not X.SecureWriteAllowed() or (db.clickThrough and db.locked) then return end
     db.hidden = true; core.SetSessionShow(false)
     frame:Hide()
     Print(L["Hidden. Type /br to show it again."])
@@ -2202,7 +2220,7 @@ local function BuildCloseControl()
   frame:HookScript("OnLeave", X.UpdateFade)
   frame:HookScript("OnShow", X.UpdateFade)
   frame:HookScript("OnHide", function()
-    if not InCombatLockdown() then
+    if X.SecureWriteAllowed() then
       close:Hide()
       if db.hidden then
         wipe(rowMouseButtons)
@@ -2416,11 +2434,17 @@ local function BuildResizeControls()
         if texs[i] and texs[i].SetTexCoord then texs[i]:SetTexCoord(1, 0, 0, 1) end
       end
     end
+    g:RegisterForDrag("LeftButton")
     g:SetScript("OnMouseDown", function(self, button)
-      if button ~= "LeftButton" or db.locked or InCombatLockdown() then return end
+      if button ~= "LeftButton" or db.locked or not X.SecureWriteAllowed() then return end
       BeginScaleDrag(self)
     end)
     g:SetScript("OnMouseUp", function(self) EndScaleDrag(self) end)
+    g:SetScript("OnDragStart", function(self)
+      if db.locked or not X.SecureWriteAllowed() then return end
+      BeginScaleDrag(self)
+    end)
+    g:SetScript("OnDragStop", function(self) EndScaleDrag(self) end)
     g:SetScript("OnEnter", function(self)
       GameTooltip:SetOwner(self, right and "ANCHOR_RIGHT" or "ANCHOR_LEFT")
       GameTooltip:AddLine(L["Drag to resize the window"])
@@ -2443,7 +2467,7 @@ local function BuildResizeControls()
   edge:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -HEADER_H)
   edge:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 18)
   edge:SetScript("OnMouseDown", function(self, button)
-    if button ~= "LeftButton" or db.locked or InCombatLockdown() then return end
+    if button ~= "LeftButton" or db.locked or not X.SecureWriteAllowed() then return end
     frame:StartSizing("RIGHT")
     self.isSizing = true
   end)
@@ -2505,8 +2529,71 @@ local function BuildCastControls()
   if not okNext then Print(string.format(L["|cffff4040keybind button unavailable:|r %s"], tostring(errNext))) end
 end
 
+local function HideAdvancedFrame(name)
+  local widget = _G[name]
+  if widget and widget.Hide then pcall(widget.Hide, widget) end
+end
+
+local function ShowSimpleNext(show)
+  if not nextBtn then return end
+  if show then
+    nextBtn:ClearAllPoints()
+    nextBtn:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 8, 6)
+    nextBtn:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8, 6)
+    nextBtn:SetHeight(26)
+    nextBtn:SetFrameLevel((frame:GetFrameLevel() or 0) + 5)
+    nextBtn:SetAlpha(1)
+    nextBtn:EnableMouse(true)
+    if simpleNextTexture then simpleNextTexture:Show() end
+    if simpleNextLabel then simpleNextLabel:Show() end
+  else
+    nextBtn:ClearAllPoints()
+    nextBtn:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 0, 0)
+    nextBtn:SetSize(1, 1)
+    nextBtn:SetAlpha(0)
+    nextBtn:EnableMouse(false)
+    if simpleNextTexture then simpleNextTexture:Hide() end
+    if simpleNextLabel then simpleNextLabel:Hide() end
+  end
+end
+
+-- Simple Mode is a presentation switch. It hides advanced surfaces, leaves
+-- every saved preference intact, and exposes the existing secure next-buff
+-- button as a one-click control. No new casting path is introduced.
+function X.ApplySimpleMode(force)
+  if not built or not frame or not X.SecureWriteAllowed() then return end
+  local simple = db and db.simpleMode == true
+  if not force and simpleApplied == simple then return end
+  simpleApplied = simple
+  if simple then
+    for _, widget in ipairs({ title, bar, findBar, coverText, focusText, footerText,
+        nearbyButton, gear, pill, nextPreview, combatText, countText, overflowText,
+        closeButton, grip, leftGrip, widthHandle }) do
+      if widget then SetShownIfChanged(widget, false) end
+    end
+    for _, name in ipairs(advancedFrameNames) do HideAdvancedFrame(name) end
+    ShowSimpleNext(true)
+  else
+    ShowSimpleNext(false)
+    for _, widget in ipairs({ gear, grip, leftGrip, widthHandle, title }) do
+      if widget then SetShownIfChanged(widget, true) end
+    end
+    if nearbyButton then SetShownIfChanged(nearbyButton, not (db.clickThrough and db.locked)) end
+    X.ApplyRowLayout()
+    X.UpdateCounter()
+    if X.RefreshChips then X.RefreshChips() end
+    QueueRefresh()
+  end
+  if X.ApplyConfigMode then X.ApplyConfigMode() end
+end
+
+function X.UpdateSimpleMode()
+  local simple = db and db.simpleMode == true
+  if built and simpleApplied ~= simple then X.ApplySimpleMode(true) end
+end
+
 local function BuildUI()
-  if built or InCombatLockdown() then return end
+  if built or not X.SecureWriteAllowed() then return end
   BuildWindowFrame()
   BuildCloseControl()
   BuildStatusLabels()
@@ -2525,14 +2612,15 @@ local function BuildUI()
   UpdateCounter()
   X.BuildMinimapButton()
   built = true
+  X.ApplySimpleMode(true)
 end
 
 function X.BeginWindowCombat()
   wipe(rowMouseButtons)
   if X.ReadUnitBool(_G.IsMouseButtonDown, "LeftButton") == false then rowLeftPress = nil end
   if combatText then combatText:Show() end
-  -- Drivers clear cast attributes in combat; protected drag and visibility
-  -- work can run here only if the client has not started lockdown.
+  -- Drivers clear cast attributes and hide supported surfaces in combat.
+  -- A no-driver fallback may still hide before lockdown begins on this edge.
   if not InCombatLockdown() then
     EndWindowDrags()
     if frame and not frame.visibilityDriver then frame:Hide() end
@@ -2623,8 +2711,12 @@ X.GetFrame = function() return frame end
 X.GetNextButton = function() return nextBtn end
 X.NextBindState = function() return nextWrapped, nextCombatDriver end
 X.ApplyNextRegistration = ApplyNextRegistration
+X.ApplySimpleMode = X.ApplySimpleMode
+X.UpdateSimpleMode = X.UpdateSimpleMode
 X.InvalidateRows = InvalidateRows
 X.ApplyGeometry = ApplyGeometry
 X.ApplyAppearance = ApplyAppearance
 X.UpdateCounter = UpdateCounter
 X.PositionSave = SavePosition
+
+X.OnDBLoaded(function() if X.ApplySimpleMode then X.ApplySimpleMode(true) end end)

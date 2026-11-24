@@ -25,15 +25,17 @@ local math_floor, math_min = math.floor, math.min
 local table_sort = table.sort
 local wipe = wipe or function(t) for k in pairs(t) do t[k] = nil end return t end
 
-local OpenConfig, RefreshConfig  -- assigned in the block below, published on X after it
+local OpenConfig, RefreshConfig, ApplyConfigMode  -- assigned in the block below, published on X after it
 
 do
 local cfg
+local appliedSimpleMode
 local SelectTab
 local CONFIG_WIDTH, CONFIG_HEIGHT = 600, 610
 local NATIVE_TAB_DEPTH = 30  -- 32-unit native tabs start 2 units above the bottom edge
 local K = {}  -- keyboard navigation and speech are opt-in for this settings session
 local Actions = { definitions = {}, byID = {} }
+local diagnosticActions = { why=true, nearby=true, firstcast=true, support=true, selftest=true }
 local navigationHelp = L["Tab or Shift-Tab moves. Enter or Space selects. Arrows adjust. F1 toggles speech. Escape exits."]
 
 function K.Register(widget, panel, label, role, value, adjust)
@@ -796,7 +798,20 @@ SelectTab = function(key)
   if cfg.assignmentPanel then cfg.assignmentPanel:Hide() end
   if cfg.dailyOptions then cfg.dailyOptions:Hide() end
   if cfg.actionWhyPanel then cfg.actionWhyPanel:Hide() end
+  local simple = db and db.simpleMode
   for k, panel in pairs(cfg.panels) do panel:SetShown(k == key) end
+  if cfg.nativeTabs then
+    PanelTemplates_SetNumTabs(cfg, 6)
+  end
+  for k, btn in pairs(cfg.tabBtns) do
+    btn:SetShown(not simple or k == "look")
+  end
+  if cfg.searchToggle then cfg.searchToggle:SetShown(not simple) end
+  if cfg.actionsToggle then cfg.actionsToggle:SetShown(not simple) end
+  if cfg.simpleModeBtn then
+    cfg.simpleModeBtn:SetShown(true)
+    cfg.simpleModeBtn:SetText(simple and L["Show all settings"] or L["Simple Mode"])
+  end
   if cfg.searchToggle and cfg.panels[key] then
     cfg.searchToggle:ClearAllPoints()
     cfg.searchToggle:SetPoint("TOPRIGHT", cfg.panels[key], "TOPRIGHT", -8, -4)
@@ -815,6 +830,30 @@ SelectTab = function(key)
     end
   end
 end
+
+-- Simple Mode keeps the common Window controls reachable while hiding
+-- advanced tabs, actions and search from the settings surface. It never
+-- deletes a setting or changes its value.
+ApplyConfigMode = function()
+  if not cfg then return end
+  db = X.GetDB()
+  local simple = db and db.simpleMode
+  if simple and cfg.searchFooter and cfg.searchFooter:IsShown() then CloseSearch() end
+  if appliedSimpleMode ~= simple or (simple and cfg.curTab ~= "look") then
+    SelectTab(simple and "look" or (cfg.curTab or "look"))
+  end
+  appliedSimpleMode = simple
+  if cfg.simpleModeBtn then
+    cfg.simpleModeBtn:SetShown(true)
+    cfg.simpleModeBtn:SetText(simple and L["Show all settings"] or L["Simple Mode"])
+  end
+  if cfg.advancedPanels then
+    for _, panel in ipairs(cfg.advancedPanels) do
+      if simple and panel.Hide then panel:Hide() end
+    end
+  end
+end
+X.ApplyConfigMode = ApplyConfigMode
 
 local function BlessingOptionLabel(option)
   if option.key ~= "DEFAULT" then return option.name end
@@ -1464,6 +1503,7 @@ function AssignmentUI.BuildPractice(parent)
 end
 
 function X.OpenPractice()
+  if X.DiagnosticsPaused and X.DiagnosticsPaused() then return end
   if not CLASSIC_FEATURES or X.PlayerSuspended() or InCombatLockdown() then return end
   X.OpenAssignments()
   local parent = cfg.assignmentPanel
@@ -1483,6 +1523,7 @@ function X.OpenPractice()
 end
 
 function X.RunBlockerUndo()
+  if X.DiagnosticsPaused and X.DiagnosticsPaused() then return end
   if not CLASSIC_FEATURES or X.PlayerSuspended() or InCombatLockdown() then return end
   local applied, message = X.UndoBlockerEdit()
   if message then Print(L[message]) end
@@ -2275,6 +2316,7 @@ function AssignmentUI.BuildPreparation(panel)
 end
 
 function X.OpenRaidPreparation(personal)
+  if X.DiagnosticsPaused and X.DiagnosticsPaused() then return end
   local tab = personal and "personal" or "players"
   if not CLASSIC_FEATURES or not AssignmentUI.PreparationAvailable(tab) then return end
   if not cfg or not cfg.assignmentPanel or not cfg.assignmentPanel:IsVisible() then X.OpenAssignments() end
@@ -2517,6 +2559,7 @@ function AssignmentUI.OpenSubgroup(panel, fromCoverage)
 end
 
 function X.OpenSubgroupResponsibilities()
+  if X.DiagnosticsPaused and X.DiagnosticsPaused() then return end
   if not CLASSIC_FEATURES or X.PlayerSuspended() or InCombatLockdown() then return end
   X.OpenAssignments()
   AssignmentUI.OpenSubgroup(cfg.assignmentPanel)
@@ -2760,6 +2803,7 @@ function AssignmentUI.BuildCoordination(panel)
 end
 
 function X.OpenCoordination(tab)
+  if X.DiagnosticsPaused and X.DiagnosticsPaused() then return end
   if not CLASSIC_FEATURES or X.PlayerSuspended() or InCombatLockdown() then return end
   X.OpenAssignments()
   local panel = cfg.assignmentPanel
@@ -2870,6 +2914,7 @@ function AssignmentUI.Build()
 end
 
 function X.OpenAssignments(preview)
+  if X.DiagnosticsPaused and X.DiagnosticsPaused() then return end
   if not CLASSIC_FEATURES or X.PlayerSuspended() or InCombatLockdown() then return end
   OpenConfig(true)
   SelectTab("buffs")
@@ -2884,6 +2929,7 @@ function X.OpenAssignments(preview)
 end
 
 function X.OpenRaidCoverage()
+  if X.DiagnosticsPaused and X.DiagnosticsPaused() then return end
   if not CLASSIC_FEATURES or X.PlayerSuspended() or InCombatLockdown() then return end
   X.OpenAssignments()
   AssignmentUI.OpenCoverage(cfg.assignmentPanel)
@@ -3092,6 +3138,10 @@ function X.ActionState(id)
   elseif not X.GetDB() then reason = L["Settings not loaded yet."]
   elseif X.PlayerSuspended() then reason = L["Unavailable while dead or disconnected."]
   elseif InCombatLockdown() then reason = L["Can't do that during combat."]
+  elseif X.SimpleMode and X.SimpleMode() then
+    reason = L["Simple Mode hides advanced raid, assignment and diagnostic controls."]
+  elseif diagnosticActions[action.id] and X.PerformanceMode and X.PerformanceMode() then
+    reason = L["Diagnostics are paused in Performance Mode."]
   elseif action.writable and X.Settings.SaveState() == "future" then
     reason = L["Unavailable with settings from a newer addon version."]
   elseif action.id == "preparation" and not AssignmentUI.PreparationAvailable("players") then
@@ -3239,6 +3289,7 @@ function AssignmentUI.BuildReadinessSettings(panel)
       X.SetPreference(key, value)
       RefreshConfig()
     end)
+    cb.preferenceKey = key
     cb:SetPoint("TOPLEFT", x, y)
     WrapCheckLabel(cb)
     if tip then Tip(cb, L[text], L[tip]) end
@@ -3263,12 +3314,16 @@ function AssignmentUI.BuildReadinessSettings(panel)
   Tip(instance, L["Apply here"], L["Use a key from /br buffs. Clear the field to remove the rule."])
 
   section("Performance & alerts", 303, -10)
-  check("scanThrottle", "Adaptive scan throttle", 299, -35,
-    "Slow periodic scans at rest or with high latency. Event refreshes stay responsive.")
+  check("scanThrottle", "Adaptive UI sweep", 299, -35,
+    "Back off the non-critical UI sweep at rest or with high latency. Event refreshes stay responsive.")
   check("liteMode", "Lite mode", 299, -63,
     "Pause the checklist, forecasts, debuffs and optional aura watches without changing their settings.")
-  check("statusMinimap", "Status on the minimap", 299, -91)
-  check("visualAlerts", "Quiet visual alerts", 299, -119,
+  check("simpleMode", "Simple Mode", 299, -91,
+    "Simple Mode hides advanced raid, assignment and diagnostic controls.")
+  check("performanceMode", "Performance Mode", 299, -119,
+    "Performance Mode pauses restock previews and complex diagnostics.")
+  check("statusMinimap", "Status on the minimap", 299, -147)
+  check("visualAlerts", "Quiet visual alerts", 299, -175,
     "Briefly highlight the window or minimap without sound. Respects Reduced Motion.")
 
   section("Encounter debuffs", 14, -164)
@@ -3470,6 +3525,14 @@ local function BuildConfig()
     PanelTemplates_SetNumTabs(cfg, #tabList)
     cfg:SetClampRectInsets(0, 0, 0, -NATIVE_TAB_DEPTH)
   end
+  cfg.simpleModeBtn = MakeButton(cfg, "", 150, function()
+    X.SetPreference("simpleMode", not (db and db.simpleMode))
+    if X.RefreshConfig then X.RefreshConfig() end
+  end)
+  cfg.simpleModeBtn.preferenceKey = "simpleMode"
+  cfg.simpleModeBtn:SetPoint("TOPRIGHT", cfg.closeButton, "TOPLEFT", -6, 0)
+  cfg.advancedPanels = { cfg.themePreviewPanel, cfg.themePriorityPanel, cfg.displayPanel,
+    cfg.blessingPanel, cfg.assignmentPanel, cfg.dailyOptions, cfg.actionWhyPanel }
 
   cfg.readiness = AssignmentUI.BuildReadinessSettings(cfg.panels.readiness)
 
@@ -4071,7 +4134,7 @@ local function BuildConfig()
   Tip(cfg.clickThroughCheck, L["Click-through while locked"],
     L["While the window is locked, it and its rows stop catching mouse clicks, so clicks land on the game world behind them. Unlock with /br lock to move or use the window again."])
 
-  cfg.throttleCheck = MakeCheck(beh, L["Adaptive scan throttle"],
+  cfg.throttleCheck = MakeCheck(beh, L["Adaptive UI sweep"],
     function() return db.scanThrottle end,
     function(v) X.SetPreference("scanThrottle", v); RefreshConfig() end)
   cfg.throttleCheck:SetPoint("TOPLEFT", 10, -215)
@@ -4327,7 +4390,7 @@ local function BuildConfig()
   Tip(cfg.enterCheck, L["Instance-entry reminder"], L["One chat line when you step into a dungeon, raid or battleground while buffs are still missing: how many people still need buffs, and how many casts that is."])
   Tip(cfg.pullFlashCheck, L["Pull-timer flash"], L["When a group pull timer starts (the game's /countdown, or a boss-mod pull timer from a trusted sender), the border flashes and chat shows the seconds and how many casts are still needed. Same as /br pullflash."])
   Tip(cfg.fastAuraCheck, L["Fast aura updates"], L["Aura changes that touch no buff you can cast skip the rescan; the steady refresh still runs, and any doubtful payload rescans as before. Same as /br fastaura."])
-  Tip(cfg.throttleCheck, L["Adaptive scan throttle"], L["Slow periodic scans at rest or with high latency. Event refreshes stay responsive."])
+  Tip(cfg.throttleCheck, L["Adaptive UI sweep"], L["Back off the non-critical UI sweep at rest or with high latency. Event refreshes stay responsive."])
   Tip(cfg.petsCheck, L["Group pets"], L["Pets in your group get their own rows when they miss Fortitude, Mark of the Wild or Arcane Intellect — click the row to buff the pet. Pets never count in the coverage numbers. Same as /br pets."])
   Tip(cfg.auraCheck, L["Aura / aspect watch"], L["Forever only: your own row flags it when no hunter aspect or paladin aura is up. Same as /br aura."])
   Tip(cfg.worldCheck, L["World-buff watch"], L["Forever only: the coverage line lists your active world buffs (Dragonslayer, Warchief's Blessing, Songflower, ...) with the time left. Same as /br worldbuff."])
@@ -4608,12 +4671,16 @@ local function BuildConfig()
   for _,button in pairs(cfg.soundBtns or {}) do RecordPreferenceButton(button) end
   for _,button in pairs(cfg.colorBtns or {}) do RecordPreferenceButton(button) end
   SelectTab("look")
+  ApplyConfigMode()
   cfg:Hide()
 end
 
 RefreshConfig = function()
   db = X.GetDB()
   if not cfg or not cfg:IsShown() then return end
+  -- Refreshing values must not reselect the current tab: that would close
+  -- active modal subpanels such as assignments and theme priority. Mode changes
+  -- apply their presentation explicitly through X.ApplyConfigMode.
   ApplyConfigScale()
   local c = X.ThemeBackground()
   if cfg.swatch.SetBackdropColor then cfg.swatch:SetBackdropColor(c[1], c[2], c[3], 1) end
@@ -4807,11 +4874,12 @@ OpenConfig = function(forceShow)
   if X.PlayerSuspended() then return end
   db = X.GetDB()
   if not cfg then BuildConfig() end
+  ApplyConfigMode()
   if cfg:IsShown() and not forceShow then cfg:Hide() else cfg:Show() end
 end
 
 function X.OpenSettingsSearch()
-  if X.PlayerSuspended() then return end
+  if X.PlayerSuspended() or X.AdvancedHidden() then return end
   OpenConfig(true)
   if K.Modal() then
     SelectTab(cfg.curTab or "look")
@@ -4821,7 +4889,7 @@ function X.OpenSettingsSearch()
 end
 
 function X.OpenActions()
-  if X.PlayerSuspended() or InCombatLockdown() then return false end
+  if X.PlayerSuspended() or InCombatLockdown() or X.AdvancedHidden() then return false end
   X.OpenSettingsSearch()
   cfg.searchMode, cfg.searchPage = "actions", 1
   cfg.searchBox:SetText("")
@@ -4833,7 +4901,7 @@ end
 function BuffRadar_OpenActions() return X.OpenActions() end  -- optional Bindings.xml launcher
 
 function X.OpenSettingsNavigation(narrate)
-  if X.PlayerSuspended() or InCombatLockdown() then
+  if X.PlayerSuspended() or InCombatLockdown() or X.AdvancedHidden() then
     Print(L["Settings keyboard navigation is unavailable in combat or while dead."])
     return
   end
@@ -4859,6 +4927,7 @@ if X.supported and Settings and Settings.RegisterCanvasLayoutCategory and Settin
   about:SetText(string.format(L["BuffRadar's settings have their own window. You can also open it with the gear icon in the BuffRadar window, by right-clicking the minimap button or the addon menu entry, or with /br config."]))
   local open = MakeButton(page, L["Open BuffRadar settings"], 200, function()
     if X.PlayerSuspended() then return end
+    if X.SecureActionAllowed and not X.SecureActionAllowed() then return end
     if SettingsPanel and SettingsPanel:IsShown() and HideUIPanel then pcall(HideUIPanel, SettingsPanel) end
     OpenConfig(true)
   end)

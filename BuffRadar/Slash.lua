@@ -22,6 +22,19 @@ local BLESSINGS, BUFF_DEFS = X.BLESSINGS, X.BUFF_DEFS
 local ranks = core.Ranks
 local CLASSIC_FEATURES = X.classic
 local MIN_WIDTH, MAX_WIDTH = X.Settings.MinWidth, X.Settings.MaxWidth
+-- Simple Mode exposes only one-click buffing and the mode switches. Advanced
+-- commands remain implemented and documented, but hidden from that surface.
+local simpleAllowed = {
+  [""]=true, show=true, hide=true, config=true, help=true, simple=true, performance=true,
+  status=true, sound=true, mute=true, minimap=true, minimapstatus=true, visual=true,
+  lite=true, macro=true, key=true, gamepad=true,
+}
+local diagnosticCommands = {
+  why=true, nearby=true, apicheck=true, buffcheck=true, perf=true, diff=true, debug=true,
+  support=true, selftest=true, prep=true, coverage=true, coordinate=true, buffassign=true,
+  practice=true, undo=true, subgroup=true, death=true, wipe=true, ready=true,
+  readypost=true, stats=true, memory=true, supplies=true, bridge=true, firstcast=true,
+}
 local pairs, ipairs, next, type, tonumber, tostring, pcall = pairs, ipairs, next, type, tonumber, tostring, pcall
 local math_floor, math_min = math.floor, math.min
 local string_format = string.format
@@ -97,6 +110,7 @@ function X.AutoProfileCheck()
 end
 
 function X.SelfTest()
+  if X.DiagnosticsPaused and X.DiagnosticsPaused() then return end
   local ver, build, _, iface = GetBuildInfo()
   local metadata = (_G.C_AddOns and _G.C_AddOns.GetAddOnMetadata) or _G.GetAddOnMetadata
   local ok, version = pcall(metadata, "BuffRadar", "Version")
@@ -203,6 +217,11 @@ local function HandleSlash(msg)
   if (cmd == "firstcast" or cmd == "support") and X.ext[cmd] then X.ext[cmd](rest); return end
   if not X.supported then Print(L["BuffRadar requires the Forever package on Interface 16001. Casting is disabled."]); return end
   if not db then Print(L["Settings not loaded yet."]); return end
+  if X.SimpleMode and X.SimpleMode() and not simpleAllowed[cmd] and X.AdvancedHidden() then return end
+  if diagnosticCommands[cmd] and X.DiagnosticsPaused and X.DiagnosticsPaused() then return end
+  if X.PerformanceMode and X.PerformanceMode() and cmd == "status" and rest:lower() == "export" then
+    Print(L["Diagnostics are paused in Performance Mode."]); return
+  end
   if (cmd == "" or cmd == "show" or cmd == "hide" or cmd == "announce"
       or cmd == "summary" or cmd == "discord") and X.PlayerSuspended() then
     return
@@ -267,7 +286,7 @@ local function HandleSlash(msg)
     if not ok then Print(string.format(L["|cffff4040error building window:|r %s"], tostring(err))) end
   end
 
-  local needsOOC = { [""]=true, show=true, hide=true, reset=true, resetpos=true, scale=true, width=true, specscale=true, macro=true, buffassign=true }
+  local needsOOC = { [""]=true, show=true, hide=true, simple=true, reset=true, resetpos=true, scale=true, width=true, specscale=true, macro=true, buffassign=true }
   if needsOOC[cmd] and InCombatLockdown() then
     Print(L["Can't do that during combat."])
     return
@@ -288,6 +307,20 @@ local function HandleSlash(msg)
     db.hidden, sessionShow = false, true
   elseif cmd == "hide" then
     db.hidden, sessionShow = true, false
+  elseif cmd == "simple" or cmd == "performance" then
+    local key, label = cmd == "simple" and "simpleMode" or "performanceMode",
+      cmd == "simple" and L["Simple Mode"] or L["Performance Mode"]
+    local action = rest:lower()
+    if action == "on" or action == "off" then
+      local enabled = action == "on"
+      if X.SetPreference(key, enabled) then
+        Print(string.format(L[cmd == "simple" and "Simple Mode: %s" or "Performance Mode: %s"], OnOff(enabled)))
+      end
+    elseif action == "" then
+      Print(string.format(L[cmd == "simple" and "Simple Mode: %s" or "Performance Mode: %s"], OnOff(db[key])))
+    else
+      Print(L["  /br simple [on|off] · /br performance [on|off] · /br bridge - display snippets"])
+    end
   elseif cmd == "config" or cmd == "options" or cmd == "settings" then
     local subcommand = rest:lower()
     if subcommand == "find" and X.OpenSettingsSearch then
@@ -478,7 +511,7 @@ local function HandleSlash(msg)
     local platesOn = FriendlyPlatesOn()
     Print(string.format(L["friendly nameplates: %s, nameplate units seen: %d (%d players)"],
       platesOn == nil and "unknown" or (platesOn and "on" or "off"),
-      X.platesSeen, X.playersSeen))
+      tonumber(X.platesSeen) or 0, tonumber(X.playersSeen) or 0))
     Print(string.format(L["keybind safety: combat driver %s, click reset %s"], (nextCombatDriver  and  L["secure"]  or  L["fallback"]), (nextWrapped  and  L["secure"]  or  L["fallback"])))
     Print(string.format(L["cast mode: %s, clickreg: %s, ActionButtonUseKeyDown=%s"], tostring(db.castMethod), tostring(db.clickReg), tostring(GetCVar and GetCVar("ActionButtonUseKeyDown"))))
     if frame then
@@ -1434,6 +1467,10 @@ local function HandleSlash(msg)
   elseif X.ext[cmd] then
     if X.ext[cmd](rest) then return end
   else
+    if X.SimpleMode and X.SimpleMode() then
+      Print(L["Simple Mode: click a row or use /br show. Use /br simple off for advanced commands."])
+      return
+    end
     Print(L["Commands:"])
     Print(L["  /br  - show/hide the window   (/br debug if it won't appear)"])
     Print(L["  /br config  - settings window   /br config find - search settings"])
@@ -1490,9 +1527,10 @@ local function HandleSlash(msg)
     Print(L["  /br wipe [show]  - rebuff report after a wipe"])
     Print(L["  /br pin <name>  - keep a player at the top   /br pin none  - clear the pin"])
     Print(L["  /br weapon  - watch your weapon enchant   /br enterflash  - instance-entry reminder"])
-    Print(L["  /br history  - your recent casts   /br throttle [on|off]  - adaptive periodic scans"])
+    Print(L["  /br history  - your recent casts   /br throttle [on|off]  - adaptive UI sweep"])
     Print(L["  /br forecast [seconds|off|timer] · /br smartprio · /br debuff · /br readiness"])
     Print(L["  /br minimapstatus · /br visual · /br lite · /br stats memory · /br status [export] · /br feedback"])
+    Print(L["  /br simple [on|off] · /br performance [on|off] · /br bridge - display snippets"])
     Print(L["  /br growup  - list grows upward   /br theme <name>  - color theme"])
     Print(L["  Combat safety: the list hides and buff buttons are disabled until combat ends."])
     Print(L["  /br find <text> | findbox  - name finder   /br bars  - duration bars   /br markers  - raid markers"])

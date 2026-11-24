@@ -121,7 +121,7 @@ return function(step,fresh)
       picker.SetupColorPickerAndShow=function(self,args) options=args;self:Show() end
       picker.GetColorRGB=function() return 0.7,0.6,0.5 end
       cfg.swatch:Click();options.swatchFunc();local old=options
-      if mode=="replacement" then c.BuffRadarDB={dbVersion=23,theme="crimson"};f.event("ADDON_LOADED","BuffRadar");X.OpenConfig(true)
+      if mode=="replacement" then c.BuffRadarDB={dbVersion=24,theme="crimson"};f.event("ADDON_LOADED","BuffRadar");X.OpenConfig(true)
       elseif mode=="future" then c.BuffRadarDB={dbVersion=999,theme="crimson"};f.event("ADDON_LOADED","BuffRadar")
       elseif mode=="combat" then c.__combat=true
       else cfg.swatch:Click();options.swatchFunc() end

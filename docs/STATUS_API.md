@@ -23,6 +23,8 @@ end
 | `GetSummary()` | `version`, `revision`, `state`, `partial`, `actionable` (number of cast targets), `expiring` (number of confirmed buff forecasts), optional `firstExpiry = { spell, name, endsAt }`, and `reason` when unavailable. `endsAt` uses the game's `GetTime()` clock, rounded to seconds. |
 | `GetStatus()` | The summary plus `targets`, an ordered array of `{ unit, guid, name, missing }`. `missing` lists the localized spell names offered by the queue, including a group version when one is offered. |
 | `GetUnit(unitToken)` | A target record for the token's current readable GUID, or `nil`. This also works for a nameplate token representing a queued party or raid member. A stale or reassigned token does not inherit a former unit's status. |
+| `GetDisplay()` | A version-2, name-free display snapshot with `state`, `reason`, `partial`, `actionable`, `expiring`, `label`, a short `text` symbol, and an RGB `color` triple. It does not expose unit names or trigger actions. |
+| `GetImportStrings()` / `GetImportString(kind)` | Copies of the built-in Lua display snippets (`state`, `critical`, `count`). These are source snippets for a custom trigger, not serialized import packages. |
 
 `state` is one of `covered`, `attention`, `critical`, `unknown`, or `unavailable`.
 `attention` can mean an ordinary missing buff, an out-of-range need, or a

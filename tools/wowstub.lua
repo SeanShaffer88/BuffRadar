@@ -9,12 +9,14 @@ function WOWSTUB(chat, withTimer, noTemplates, forever, german)
   -- noTemplates: a client without ButtonFrameTemplate / PanelTemplates, so
   -- frames lack the template's members and the addon's fallback UI is used.
   local templateOnly = { SetTitle = true, Inset = true, CloseButton = true, SetPortraitToAsset = true }
-  if withTimer then  -- modern client: C_Timer; callbacks queue until the test runs them
-    env.__timers, env.__ticker = {}, false
-    env.C_Timer = {
-      After = function(_, f) env.__timers[#env.__timers + 1] = f end,
-      NewTicker = function(_, f) env.__ticker = f; return {} end,
-    }
+  -- C_Timer.After is available on supported clients; withTimer toggles only
+  -- the optional ticker. Delayed callbacks are flushed explicitly by tests.
+  env.__timers, env.__ticker = {}, false
+  env.C_Timer = {
+    After = function(_, f) env.__timers[#env.__timers + 1] = f end,
+  }
+  if withTimer then
+    env.C_Timer.NewTicker = function(_, f) env.__ticker = f; return {} end
   end
   local noop = function() end
 

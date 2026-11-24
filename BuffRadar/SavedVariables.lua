@@ -4,7 +4,7 @@
 
 local _, ns = ...
 local X = ns.X
-local DB_VERSION = 23
+local DB_VERSION = 24
 local PROFILE_MAX_BYTES = 4000
 local MIN_WIDTH, MAX_WIDTH = 180, 400
 
@@ -134,6 +134,8 @@ local DEFAULTS = {
   statusMinimap = true,
   visualAlerts = false,
   liteMode = false,
+  simpleMode = false,       -- one-click buffing UI; advanced controls stay saved but hidden
+  performanceMode = false,  -- pause restock previews and complex diagnostics (1.20.0)
   debuffWatch = false,
   debuffRules = {},     -- bounded list of { spellID, unit, encounterID }
   matrixView = false, selfStatusStrip = false,
@@ -166,7 +168,7 @@ local DEFAULTS = {
 
 -- One canonical allowlist shared by session recovery and pre-upgrade recovery.
 local ordinaryPreferences = {}
-for key in ("locked includeSelf avoidPvP autoHide rebuff scale width cfgScale castMethod clickReg bgAlpha showTitle showBorder playSound showCounter groupOnly pauseInCities groupCast groupCastMin sortMode alertSound clickThrough muteInInstance showMinimap lowMana roleFilter showStrip idleFade pill queueTag consumables weaponWatch enterFlash scanThrottle growUp theme autoThemePriority findBox durationBars raidMarkers focusWatch pets auraWatch worldWatch drinkWatch twoCol rowGap iconSize tooltipLevel viewMode classColors showRealm nameTrim scalePerSpec gripSnap tagSymbols reduceMotion rangeWatch assumeRange fastAura modClick pullFlash fallSound compact textScale charPoint pauseInBG pauseTaxi watchDrop forecastSeconds smartPriority statusMinimap visualAlerts liteMode debuffWatch readinessAura rememberPanelPositions matrixView selfStatusStrip restockEnabled restockSpendCap restockUnitCap bgColor enabled rebuffPer buffPrio alertSounds rowColors buffContext specScales restockTargets"):gmatch("%S+") do ordinaryPreferences[key]=true end
+for key in ("locked includeSelf avoidPvP autoHide rebuff scale width cfgScale castMethod clickReg bgAlpha showTitle showBorder playSound showCounter groupOnly pauseInCities groupCast groupCastMin sortMode alertSound clickThrough muteInInstance showMinimap lowMana roleFilter showStrip idleFade pill queueTag consumables weaponWatch enterFlash scanThrottle growUp theme autoThemePriority findBox durationBars raidMarkers focusWatch pets auraWatch worldWatch drinkWatch twoCol rowGap iconSize tooltipLevel viewMode classColors showRealm nameTrim scalePerSpec gripSnap tagSymbols reduceMotion rangeWatch assumeRange fastAura modClick pullFlash fallSound compact textScale charPoint pauseInBG pauseTaxi watchDrop forecastSeconds smartPriority statusMinimap visualAlerts liteMode simpleMode performanceMode debuffWatch readinessAura rememberPanelPositions matrixView selfStatusStrip restockEnabled restockSpendCap restockUnitCap bgColor enabled rebuffPer buffPrio alertSounds rowColors buffContext specScales restockTargets"):gmatch("%S+") do ordinaryPreferences[key]=true end
 local function PreferenceKeys()
   local keys={};for key in pairs(ordinaryPreferences) do keys[key]=true end;return keys
 end

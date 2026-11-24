@@ -78,7 +78,7 @@ return function(step,fresh,TestClient,LoadClient,forever)
     c.__combat=true;assert(not X.AssignmentCopy.Apply(drift))
   end)
   step('five core: first install and schema-only saves establish no restore point or pending notice',function()
-    for _,initial in ipairs({false,{dbVersion=23}}) do
+    for _,initial in ipairs({false,{dbVersion=24}}) do
       local c=TestClient();c.GetAddOnMetadata=function()return '1.17.0'end
       c.BuffRadarDB=initial or nil
       local X,start=LoadClient(c)

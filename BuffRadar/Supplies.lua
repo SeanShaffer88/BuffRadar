@@ -87,8 +87,11 @@ local function Quote()
   local db = X.GetDB()
   local quote = {rows={},session=session,reason="Restock data is unavailable."}
   if X.Settings.SaveState()=="future" then return quote end
+  if X.PerformanceMode and X.PerformanceMode() then
+    quote.reason = L["Restock previews are paused in Performance Mode."]; return quote
+  end
   if not db or db.restockEnabled ~= true then quote.reason="Restock previews are off."; return quote end
-  if InCombatLockdown() or X.PlayerSuspended() then
+  if not X.SecureActionAllowed() then
     quote.reason="Restock requires an out-of-combat merchant visit."; return quote
   end
   if not opened then quote.reason="Open a merchant to preview restocking."; return quote end
@@ -138,7 +141,12 @@ end
 function S.Confirm(id)
   local approved = consent
   consent = nil -- consume before any API call, including failures/reentrancy
-  if X.Settings.SaveState()=="future" then return false, L["Purchase quote changed. Refresh the preview."] end
+  if X.Settings.SaveState()=="future" or not X.SecureActionAllowed() then
+    return false, L["Purchase quote changed. Refresh the preview."]
+  end
+  if X.PerformanceMode and X.PerformanceMode() then
+    return false, L["Restock previews are paused in Performance Mode."]
+  end
   if not approved or id ~= approved.id then return false, L["Purchase quote changed. Refresh the preview."] end
   local current = Quote()
   current.id = id
@@ -253,7 +261,10 @@ local function Create()
   frame:SetScript("OnHide",function(self) consent=nil;self:EnableKeyboard(false) end)
 end
 function S.Show()
-  if InCombatLockdown() or X.PlayerSuspended() then return false end
+  if not X.SecureActionAllowed() then return false end
+  if X.PerformanceMode and X.PerformanceMode() then
+    X.Print(L["Restock previews are paused in Performance Mode."]); return false
+  end
   Listen();if not frame then Create() end
   local draft=S.Preview();frame.draftID=draft.id
   local lines={}

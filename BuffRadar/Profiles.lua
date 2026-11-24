@@ -27,7 +27,7 @@ local EXPORT_KEYS = { "locked", "includeSelf", "avoidPvP", "autoHide", "rebuff",
   "deathRecap", "wipeReport", "rowGap", "iconSize",
   "tooltipLevel", "viewMode", "classColors", "showRealm", "nameTrim",
   "scalePerSpec", "gripSnap", "tagSymbols", "reduceMotion", "rangeWatch", "assumeRange",
-  "fastAura", "modClick", "pullFlash", "fallSound" }
+  "fastAura", "modClick", "pullFlash", "fallSound", "simpleMode", "performanceMode" }
 
 local function Esc(v) return (tostring(v):gsub("%%", "%%25"):gsub(";", "%%3B"):gsub("=", "%%3D")) end
 local function Unesc(v) return (v:gsub("%%3D", "="):gsub("%%3B", ";"):gsub("%%25", "%%")) end
@@ -406,7 +406,7 @@ do
   local definitions={
     appearance="locked autoHide scale width cfgScale bgAlpha bgColor showTitle showBorder showCounter clickThrough showMinimap showStrip idleFade pill queueTag growUp theme autoThemePriority findBox durationBars raidMarkers twoCol compact textScale rowGap iconSize tooltipLevel viewMode classColors showRealm nameTrim scalePerSpec gripSnap tagSymbols reduceMotion charPoint coverParts rowColors specScales consumables",
     alerts="playSound alertSound alertSounds muteInInstance enterFlash pullFlash fallSound watchDrop rangeWatch visualAlerts statusMinimap deathRecap",
-    buffrules="enabled rebuff rebuffPer buffPrio buffContext blessingPreferences buffAssignments assignmentEnabled thornsAnyClassOutdoors blessingComplement includeSelf avoidPvP castMethod clickReg groupOnly pauseInCities pauseInBG pauseTaxi groupCast groupCastMin sortMode lowMana roleFilter weaponWatch focusWatch pets auraWatch worldWatch drinkWatch scanThrottle fastAura modClick forecastSeconds smartPriority liteMode debuffWatch readinessAura assumeRange",
+    buffrules="enabled rebuff rebuffPer buffPrio buffContext blessingPreferences buffAssignments assignmentEnabled thornsAnyClassOutdoors blessingComplement includeSelf avoidPvP castMethod clickReg groupOnly pauseInCities pauseInBG pauseTaxi groupCast groupCastMin sortMode lowMana roleFilter weaponWatch focusWatch pets auraWatch worldWatch drinkWatch scanThrottle fastAura modClick forecastSeconds smartPriority liteMode simpleMode performanceMode debuffWatch readinessAura assumeRange",
   }
   for section,keys in pairs(definitions) do
     for key in keys:gmatch("%S+") do registry[section][key]=true end

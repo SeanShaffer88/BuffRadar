@@ -199,6 +199,7 @@ local function Create()
 end
 
 function G.Open()
+  if X.DiagnosticsPaused and X.DiagnosticsPaused() then return end
   G.Close()
   if not frame then Create() end
   generation, active, state, reason = generation + 1, true, "discovering", "discovering"
@@ -316,6 +317,7 @@ function G.Report()
 end
 
 function G.ShowReport()
+  if X.DiagnosticsPaused and X.DiagnosticsPaused() then return end
   if active then inputPaused = true; Keyboard() end
   X.ShowExport(L["Technical details only. No player names or user text are included. Review and copy locally."]
     .. "\n\n" .. G.Report(), false, L["Support report"])

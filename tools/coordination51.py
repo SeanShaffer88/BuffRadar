@@ -110,11 +110,7 @@ CLIENT = r"""function(name, guid, withTimer)
       assert(clock >= now, "mock clock cannot move backward")
       local elapsed = clock - now
       now = clock
-      if withTimer then
-        drainTimers()
-      else
-        driver.scripts.OnUpdate(driver, elapsed)
-      end
+      if env.C_Timer and env.C_Timer.After then drainTimers() end
     end,
     buffers = function(fortitude, spirit)
       local db = env.BuffRadarDB

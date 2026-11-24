@@ -1,9 +1,44 @@
-# Security
+# Security and safety model
 
-BuffRadar is a World of Warcraft addon. It runs inside the game's addon
-sandbox: it has **no network access**, reads no files, and stores data only in
-the game's own SavedVariables for this addon (`BuffRadarDB` — your settings,
-ignore list, profiles and cast statistics, all on your own machine).
+BuffRadar is a World of Warcraft addon running inside the game's addon
+sandbox. It has **no network access**, reads no files, and stores data only in
+the game's SavedVariables for this addon (`BuffRadarDB`): settings, ignore
+list, profiles and cast statistics on this machine.
+
+## Protected actions and combat lockdown
+
+BuffRadar separates observation from action. Scans and status summaries read
+unit, spell and aura information; casting uses Blizzard secure action buttons
+and Blizzard's protected macro mechanism. A cast is never triggered by a
+periodic timer or by a status integration.
+
+- Secure cast attributes are written only while the client is outside combat
+  lockdown, the player is alive, the save is in a writable schema state, and
+  the selected package is supported. On a combat-edge event, BuffRadar latches
+  the action gate immediately; it releases that latch only after a safe
+  post-combat or resurrection event.
+- Secure buttons use the secure templates' protected handlers. BuffRadar
+  composes ordinary interaction with `HookScript` and `SecureHandlerWrapScript`;
+  it does not replace a secure button's `OnClick` handler with `SetScript`.
+- Combat state is checked before protected frame geometry, registration,
+  attribute and visibility-driver changes. If combat state cannot be read,
+  the protected write is refused. The game's `ADDON_ACTION_BLOCKED` and
+  `ADDON_ACTION_FORBIDDEN` events are recorded as local diagnostic faults.
+- Merchant purchases are opt-in, quote-bound, and require a fresh explicit
+  confirmation. The quote is revalidated immediately before the protected
+  purchase call. BuffRadar never automatically buys supplies.
+
+These controls are defense in depth, not a promise that every game build or
+third-party UI combination is taint-free. Taint is controlled by the game;
+users should report any blocked/forbidden-action event with the self-test
+output and client build. Do not use the addon to bypass combat lockdown.
+
+## Data and in-game communication
+
+BuffRadar does not upload telemetry, collect account credentials, or send
+personal data to an external service. Integrations expose read-only status
+through the versioned `BuffRadarAPI`; they cannot change settings or trigger a
+cast. Optional snippets read that API and display its state only.
 
 Communication, all inside the game:
 
@@ -17,6 +52,10 @@ Communication, all inside the game:
   and the post-wipe summary (`wipeReport`, off by default).
 - **Chat reading:** whispers and /say are read locally to tag a player who
   asks for a buff (`requests`, on by default). Nothing is stored or sent.
+
+SavedVariables are schema-versioned. Newer and over-limit saves are preserved
+rather than silently overwritten; see the recovery controls and
+`docs/STATUS_API.md` for the public read-only interface.
 
 ## Reporting a problem
 

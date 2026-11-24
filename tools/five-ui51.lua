@@ -115,7 +115,7 @@ return function(step,fresh)
     assert(not frame.keyboard,"alive revived closed dialog")
     X.Workflow.WhatsNew(true);frame=X.Workflow.UpdatesFrame();f.event("PLAYER_DEAD")
     assert(not frame.keyboard);frame:Hide();assert(frame.dismissPending)
-    c.BuffRadarDB={dbVersion=23,lastSeenAddonVersion="1.17.0",updatesDismissedVersion=""}
+    c.BuffRadarDB={dbVersion=24,lastSeenAddonVersion="1.17.0",updatesDismissedVersion=""}
     f.event("ADDON_LOADED","BuffRadar");f.event("PLAYER_ALIVE")
     assert(X.GetDB().updatesDismissedVersion=="","stale deferred dismissal wrote replacement")
   end)

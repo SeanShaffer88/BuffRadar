@@ -7,6 +7,16 @@ WoW: Forever (Interface 16001). For the short version see
 The shipping Forever TOC requires Interface 16001. The historical Retail
 TOC remains a test fixture; 1.7.0 was the last Retail release.
 
+## 1.20.0: Event-Driven Refresh and Safer Integration
+
+- Use event-driven refreshes instead of unnecessary recurring scans, while
+  retaining compatibility with clients that lack optional timers.
+- Expose a read-only status bridge for display integrations and diagnostics.
+- Harden combat and player-life transitions, including delayed updates to the
+  client's living flag and protected UI behavior.
+- Add Auto Theme Priority controls and keep settings modal panels open through
+  live refreshes.
+
 ## 1.19.1: Battleground and Blessing Diagnostics
 
 - `/br support` adds fixed instance, pause-preference, combat/PvP and cached

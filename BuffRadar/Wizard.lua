@@ -342,6 +342,7 @@ local function Why(name)
 end
 
 function X.Why(name)
+  if X.DiagnosticsPaused and X.DiagnosticsPaused() then return end
   local ok = pcall(X.WithDiagnosticReads, function() return Why(name) end)
   if not ok then Print(L["Diagnostic information is unavailable. Please try again."]) end
 end

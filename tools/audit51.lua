@@ -1,5 +1,18 @@
 -- Focused release-candidate regressions using the same isolated clients as the smoke gate.
 return function(step, fresh, testClient, loadClient, forever)
+  step("audit: combat edge latches secure actions before lockdown state catches up", function()
+    local f = fresh({ dbVersion = 24 }, true)
+    local X = f.X
+    assert(X.SecureActionAllowed(), "safe test client could not arm a secure action")
+    f.event("PLAYER_REGEN_DISABLED") -- intentionally leave the mock lockdown API false
+    assert(not X.SecureActionAllowed() and not X.SecureWriteAllowed(),
+      "combat-edge latch did not block protected actions and writes")
+    f.event("PLAYER_REGEN_ENABLED")
+    assert(X.SecureActionAllowed(), "post-combat event did not release the action latch")
+    f.event("PLAYER_DEAD")
+    assert(not X.SecureActionAllowed(), "dead player retained an action-ready state")
+  end)
+
   step("audit: excluded single-buff holders retain ownership in either roster order", function()
     if forever then return end
     for _, exclusion in ipairs({ "permanent", "session", "role", "failed" }) do
@@ -115,7 +128,7 @@ return function(step, fresh, testClient, loadClient, forever)
       customGroup = { Fortitude = "Prayer", Broken = "X;Y" }, stats = { Bright = 2, Bad = -1 }, offenders = { Alia = 3 } }
     local f = fresh(original)
     local db = f.db
-    assert(f.client.BuffRadarDB == original and db ~= original and db.dbVersion == 23)
+    assert(f.client.BuffRadarDB == original and db ~= original and db.dbVersion == 24)
     assert(db.scale == 1 and not db.futureOnly and not db.point and not db.pointByChar.bad)
     assert(db.specProfiles.s1.rebuffPer.FORTITUDE == 600 and not db.specProfiles.s1.enabled.FAKE and not db.specProfiles.junk)
     assert(db.customGroup.Fortitude == "Prayer" and not db.customGroup.Broken and not db.stats.Bad)
@@ -163,7 +176,7 @@ return function(step, fresh, testClient, loadClient, forever)
     assert(g.client.BuffRadarDB == original and g.X.Settings.SaveState() == "overflow" and original.profiles.Overflow)
     g.slash("storage delete profile Overflow")
     assert(not original.profiles.Overflow and original.profiles.P1 and original.dbVersion == 22)
-    assert(g.X.Settings.Load(true) == nil and g.client.BuffRadarDB ~= original and g.client.BuffRadarDB.dbVersion == 23)
+    assert(g.X.Settings.Load(true) == nil and g.client.BuffRadarDB ~= original and g.client.BuffRadarDB.dbVersion == 24)
   end)
 
   step("audit: settings review supports cancel, edit paste and re-review after drift", function()
@@ -661,8 +674,8 @@ return function(step, fresh, testClient, loadClient, forever)
     assert(c["BINDING_NAME_CLICK BuffRadarNextButton:LeftButton"] == L["Cast next buff"])
     local button = c.BuffRadarMinimapButton
     assert(not button.scripts.OnUpdate)
-    button.scripts.OnDragStart(button); assert(button.scripts.OnUpdate)
-    button.scripts.OnDragStop(button); assert(not button.scripts.OnUpdate)
+    button.scripts.OnDragStart(button); assert(button.dragging and not button.scripts.OnUpdate)
+    button.scripts.OnDragStop(button); assert(not button.dragging and not button.scripts.OnUpdate)
   end)
 
   step("audit: CPU counters measure scan, import, preparation and combat debuff work independently", function()
