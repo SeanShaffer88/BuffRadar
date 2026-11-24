@@ -2,6 +2,15 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.20.1 — WoW: Forever
+
+- Clarify that queue refreshes are event-driven while the low-frequency
+  cooldown-readiness sweep remains an adaptive fallback.
+- Add an explicit verification report separating automated fake-client results
+  from live-client testing, which remains unperformed for this release.
+- Improve the settings label and help for `/br throttle`; no casting or pause
+  behavior is changed by this documentation-focused update.
+
 ## 1.20.0 — WoW: Forever
 
 - Replace recurring polling with event-driven refreshes where supported, and

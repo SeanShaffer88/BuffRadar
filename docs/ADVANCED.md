@@ -13,8 +13,9 @@ minimal surface.
 closes their open panels. It does not change saved buff choices or cast rules.
 `/br performance off` restores normal behavior. The **Performance Mode**
 checkbox is under Readiness → Performance & alerts. This is separate from
-`/br throttle`, which adapts the non-critical UI sweep and does not schedule
-periodic player scans.
+`/br throttle`, a legacy command name for adapting the low-frequency cooldown
+sweep. It does not schedule or throttle the event-driven player/roster/aura
+refreshes.
 
 ## Slash command reference
 

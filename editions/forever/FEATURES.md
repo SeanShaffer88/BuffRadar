@@ -7,6 +7,13 @@ WoW: Forever (Interface 16001). For the short version see
 The shipping Forever TOC requires Interface 16001. The historical Retail
 TOC remains a test fixture; 1.7.0 was the last Retail release.
 
+## 1.20.1: Verification and Refresh Clarity
+
+- Document the distinction between event-driven player/roster/aura refreshes and
+  the remaining low-frequency cooldown-readiness sweep.
+- Correct `/br throttle` wording and publish automated test evidence separately
+  from the live-client checklist; no live test is claimed.
+
 ## 1.20.0: Event-Driven Refresh and Safer Integration
 
 - Use event-driven refreshes instead of unnecessary recurring scans, while
@@ -143,8 +150,8 @@ Actual merchant behavior and native rendering remain **Unverified**.
   checks. The client does not report placed Soulwell availability.
 - Choose role and activity in Quick Setup. Enable contextual minimap symbols
   and quiet visuals, with Reduced Motion support.
-- Read or export buff status, adjust periodic scans, report total memory and
-  pause optional work with Lite mode. Feedback copies a feature-request link.
+- Read or export buff status, adjust the adaptive cooldown sweep, report total
+  memory and pause optional work with Lite mode. Queue refreshes remain event-driven.
 
 **Verification:** fake-client Lua 5.1 and package checks. Live behavior remains
 **Unverified** pending the Forever release checklist.

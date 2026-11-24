@@ -3314,7 +3314,7 @@ function AssignmentUI.BuildReadinessSettings(panel)
   Tip(instance, L["Apply here"], L["Use a key from /br buffs. Clear the field to remove the rule."])
 
   section("Performance & alerts", 303, -10)
-  check("scanThrottle", "Adaptive UI sweep", 299, -35,
+  check("scanThrottle", "Adaptive scan throttle", 299, -35,
     "Back off the non-critical UI sweep at rest or with high latency. Event refreshes stay responsive.")
   check("liteMode", "Lite mode", 299, -63,
     "Pause the checklist, forecasts, debuffs and optional aura watches without changing their settings.")
@@ -4134,7 +4134,7 @@ local function BuildConfig()
   Tip(cfg.clickThroughCheck, L["Click-through while locked"],
     L["While the window is locked, it and its rows stop catching mouse clicks, so clicks land on the game world behind them. Unlock with /br lock to move or use the window again."])
 
-  cfg.throttleCheck = MakeCheck(beh, L["Adaptive UI sweep"],
+  cfg.throttleCheck = MakeCheck(beh, L["Adaptive scan throttle"],
     function() return db.scanThrottle end,
     function(v) X.SetPreference("scanThrottle", v); RefreshConfig() end)
   cfg.throttleCheck:SetPoint("TOPLEFT", 10, -215)
@@ -4390,7 +4390,7 @@ local function BuildConfig()
   Tip(cfg.enterCheck, L["Instance-entry reminder"], L["One chat line when you step into a dungeon, raid or battleground while buffs are still missing: how many people still need buffs, and how many casts that is."])
   Tip(cfg.pullFlashCheck, L["Pull-timer flash"], L["When a group pull timer starts (the game's /countdown, or a boss-mod pull timer from a trusted sender), the border flashes and chat shows the seconds and how many casts are still needed. Same as /br pullflash."])
   Tip(cfg.fastAuraCheck, L["Fast aura updates"], L["Aura changes that touch no buff you can cast skip the rescan; the steady refresh still runs, and any doubtful payload rescans as before. Same as /br fastaura."])
-  Tip(cfg.throttleCheck, L["Adaptive UI sweep"], L["Back off the non-critical UI sweep at rest or with high latency. Event refreshes stay responsive."])
+  Tip(cfg.throttleCheck, L["Adaptive scan throttle"], L["Back off the non-critical UI sweep at rest or with high latency. Event refreshes stay responsive."])
   Tip(cfg.petsCheck, L["Group pets"], L["Pets in your group get their own rows when they miss Fortitude, Mark of the Wild or Arcane Intellect — click the row to buff the pet. Pets never count in the coverage numbers. Same as /br pets."])
   Tip(cfg.auraCheck, L["Aura / aspect watch"], L["Forever only: your own row flags it when no hunter aspect or paladin aura is up. Same as /br aura."])
   Tip(cfg.worldCheck, L["World-buff watch"], L["Forever only: the coverage line lists your active world buffs (Dragonslayer, Warchief's Blessing, Songflower, ...) with the time left. Same as /br worldbuff."])

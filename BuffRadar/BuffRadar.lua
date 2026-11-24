@@ -53,7 +53,7 @@ BINDING_CATEGORY_BUFFRADAR = "BuffRadar"
 local NEXT_BINDING = "CLICK BuffRadarNextButton:LeftButton"
 local MACRO_NAME = "BuffRadar"
 
-local UPDATE_INTERVAL = 1.5  -- non-critical UI sweep only; scans are event-driven
+local UPDATE_INTERVAL = 1.5  -- UI maintenance and cooldown sweep; player refreshes are event-driven
 local SOUND_FILE = "Interface\\AddOns\\BuffRadar\\Media\\droplet.ogg"
 
 -- Runtime state used across the feature modules, not SavedVariables.
@@ -4762,9 +4762,9 @@ end
 
 -- Event bursts (UNIT_AURA storms in raids, nameplates appearing, roster
 -- changes and cooldown updates) collapse into one refresh SOON_DELAY later.
--- There is no per-frame loop and no periodic cast scan. A generous 1.5 s
--- C_Timer ticker only maintains non-critical presentation state; when it
--- observes a cooldown-state change it raises another event-driven refresh.
+-- There is no per-frame or periodic player/aura scan. A 1.5 s C_Timer ticker
+-- maintains UI state and checks known-buff cooldown readiness; only a readiness
+-- change requests a coalesced queue refresh. No cast is initiated by the ticker.
 -- How many players are in my group, me included (0 when solo)?
 local function GroupSize()
   if GetNumGroupMembers then
@@ -4779,7 +4779,7 @@ end
 
 local UI_TICK_INTERVAL = UPDATE_INTERVAL
 local Soon, StartTicker
-local scanTicksRemaining = 0  -- retained for adaptive UI-sweep policy and event resets
+local sweepTicksRemaining = 0  -- adaptive cooldown-sweep policy; primary queue refreshes are event-driven
 local cooldownSweepState = {}
 
 local function QueuedRefresh()
@@ -4843,12 +4843,12 @@ local function UITick()
   if X.UpdateSimpleMode then X.UpdateSimpleMode() end
   if X.CombatSafe() then
     local sweep = true
-    if db and db.scanThrottle and scanTicksRemaining > 0 then
-      scanTicksRemaining = scanTicksRemaining - 1
+    if db and db.scanThrottle and sweepTicksRemaining > 0 then
+      sweepTicksRemaining = sweepTicksRemaining - 1
       sweep = false
     else
-      local ticks = X.Intel and X.Intel.ScanTicks and X.Intel.ScanTicks(GroupSize) or 1
-      scanTicksRemaining = ticks - 1
+      local ticks = X.Intel and X.Intel.SweepTicks and X.Intel.SweepTicks(GroupSize) or 1
+      sweepTicksRemaining = ticks - 1
     end
     if sweep and CooldownSweep() then Soon() end
   end
@@ -5031,7 +5031,7 @@ driver:SetScript("OnEvent", function(self, event, arg1, ...)
     Soon() -- relevant client events replace periodic range/cooldown polling
     return
   elseif event == "PLAYER_STARTED_MOVING" or event == "PLAYER_STOPPED_MOVING" then
-    scanTicksRemaining = 0
+    sweepTicksRemaining = 0
     if db and db.scanThrottle and not refreshIdle and not InCombatLockdown() then Soon() end
     return
   elseif event == "ENCOUNTER_START" then

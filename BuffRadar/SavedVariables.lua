@@ -127,7 +127,7 @@ local DEFAULTS = {
   modClick = false,    -- Shift-click a row casts the group version of its buff (1.14.0, Brief 3)
   pullFlash = false,   -- flash + countdown line when a pull timer starts (1.14.0, Brief 4)
   enterFlash = true,   -- print a reminder when entering an instance unbuffed (1.7.0)
-  scanThrottle = false, -- adapt only the periodic scan to movement, group size and latency
+  scanThrottle = false, -- adapt the non-critical cooldown sweep to movement, group size and latency
   forecastSeconds = 0,  -- lead time for confirmed expiry notices; 0 = off
   smartPriority = false,
   instancePriority = {}, -- instance ID -> buff key; local rules, not shared profiles

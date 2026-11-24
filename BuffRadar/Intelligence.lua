@@ -145,7 +145,7 @@ function I.WakeAfterCombat()
   fastUntil = GetTime() + 3
 end
 
-function I.ScanTicks(groupSize)
+function I.SweepTicks(groupSize)
   if not db or not db.scanThrottle then lastTicks = 1; return 1 end
   local now = GetTime()
   local deadline = Deadline(now)

@@ -13,6 +13,14 @@ of exactly what they still need. Click a name to buff them — or press
 one key (or one macro) to buff the next person on the list. You always
 come first.
 
+## Simple by design, with room to tune
+
+Compared with Manners, BuffRadar is for players who want optional queue controls:
+sort by role, distance, or need; set rebuff thresholds per buff; and keep a
+persistent ignore list. The everyday workflow remains one small queue and one
+click or keypress. Turn on Simple Mode to hide advanced settings when you don't
+need them.
+
 ## Why you'll like it
 
 - **One list, no hunting.** Players stay listed until every buff you
@@ -44,22 +52,16 @@ come first.
   Russian and Simplified Chinese packs cover settings, help and visible
   status and error messages.
 
-## What's new in 1.18.0
+## What's new in 1.20.1
 
-Copy an assignment cell or row to a chosen destination, review configured rules
-and current-group offers, then apply locally. Normal assignment-picker edits
-are immediate; Done, X and Escape retain the selection. Blocker-draft Cancel,
-X and Escape discard staged edits, while review Back retains the draft.
+BuffRadar now documents its refresh and verification model more precisely:
+roster and aura updates are event-driven, while a low-frequency cooldown sweep
+remains as a readiness fallback. `/br throttle` adjusts that sweep, not queue
+events. The in-game label and help now say so.
 
-Import a Whole Profile or choose Appearance, Alerts and Buff Rules separately.
-Selected Sections leave identities, connections, supplies and unselected settings
-unchanged, while the full input is validated before applying anything.
-
-`/br recovery` opens one bounded local preference restore point for review and
-explicit restoration. This is not a file backup: identities, profiles, cast
-history and purchase authorization are excluded. A dismissible three-item update
-notice links to Daily Tasks; reopen it with `/br whatsnew`. Both tools are also
-available from settings.
+The verification report separates offline automated checks from live-client
+tests. No live-client result is claimed; the report includes a checklist for
+recording real combat-lockdown, pause-toggle, and API observations.
 
 ## Readiness
 
@@ -88,6 +90,7 @@ were informed by BuffYou by datdata (MIT). Since 1.3.2 the Forever
 and Retail editions are built from the same source; **from 1.8.0
 BuffRadar is Forever-only** — Retail support ended at 1.7.0.
 
-**Verification:** covers Lua 5.1 compilation, automated mock-client and locale
-checks, and package integrity. The package targets Interface 16001 and retains
-SavedVariables schema 23.
+**Verification:** automated Lua 5.1 fake-client, localization, and package
+checks are documented in the repository's [TESTING.md](https://github.com/SeanShaffer88/BuffRadar/blob/main/TESTING.md). They do not emulate
+WoW's live secure execution or real client APIs; no live-client result is
+claimed for this candidate. See the [field-test protocol](https://github.com/SeanShaffer88/BuffRadar/blob/main/docs/FIELD_TEST.md) for in-game validation.
