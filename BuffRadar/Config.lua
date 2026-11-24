@@ -29,6 +29,7 @@ local OpenConfig, RefreshConfig, ApplyConfigMode  -- assigned in the block below
 
 do
 local cfg
+local appliedSimpleMode
 local SelectTab
 local CONFIG_WIDTH, CONFIG_HEIGHT = 600, 610
 local NATIVE_TAB_DEPTH = 30  -- 32-unit native tabs start 2 units above the bottom edge
@@ -838,7 +839,10 @@ ApplyConfigMode = function()
   db = X.GetDB()
   local simple = db and db.simpleMode
   if simple and cfg.searchFooter and cfg.searchFooter:IsShown() then CloseSearch() end
-  SelectTab(simple and "look" or (cfg.curTab or "look"))
+  if appliedSimpleMode ~= simple or (simple and cfg.curTab ~= "look") then
+    SelectTab(simple and "look" or (cfg.curTab or "look"))
+  end
+  appliedSimpleMode = simple
   if cfg.simpleModeBtn then
     cfg.simpleModeBtn:SetShown(true)
     cfg.simpleModeBtn:SetText(simple and L["Show all settings"] or L["Simple Mode"])
@@ -4674,7 +4678,9 @@ end
 RefreshConfig = function()
   db = X.GetDB()
   if not cfg or not cfg:IsShown() then return end
-  ApplyConfigMode()
+  -- Refreshing values must not reselect the current tab: that would close
+  -- active modal subpanels such as assignments and theme priority. Mode changes
+  -- apply their presentation explicitly through X.ApplyConfigMode.
   ApplyConfigScale()
   local c = X.ThemeBackground()
   if cfg.swatch.SetBackdropColor then cfg.swatch:SetBackdropColor(c[1], c[2], c[3], 1) end

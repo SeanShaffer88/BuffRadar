@@ -651,6 +651,12 @@ step("modifier clicks: group spell mapping + shift-click bookkeeping (1.14.0)", 
   fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-shift", expected)
   local spell = NS.X.classic and "Prayer of Fortitude" or "Power Word: Fortitude"
   assert(db.castsTotal == count + 1 and db.history[#db.history].spell == spell, "wrong modifier spell credited")
+  -- With no C_Timer.After the success event refreshes synchronously; rebind
+  -- the test action as a fresh user click would use the newly painted row.
+  row = env.BuffRadarRow1
+  row.entry = { missing = { "Power Word: Fortitude" }, guid = env.UnitGUID("player"), unit = "player" }
+  row.bSpell = "Power Word: Fortitude"
+  row.attrs.type, row.attrs.spell = "spell", 1244
   env.IsShiftKeyDown = function() return false end
   row.scripts.PreClick(row, "LeftButton", false)
   fire("UNIT_SPELLCAST_SENT", "player", env.UnitName("player"), "cast-plain", 1244)
@@ -2904,14 +2910,14 @@ step("idle fade lowers the window alpha (1.5.0)", function()
   env.SlashCmdList.BUFFRADAR("fade 50")
   assert(env.BuffRadarDB.idleFade == 50, "fade setting not stored")
   env.__mouseOver = false
-  timerTick()
+  if env.__ticker then timerTick() else NS.X.UpdateFade() end
   assert(env.BuffRadarFrame.alpha == 0.5, "window did not fade: " .. tostring(env.BuffRadarFrame.alpha))
   env.__mouseOver = true
-  timerTick()
+  if env.__ticker then timerTick() else NS.X.UpdateFade() end
   assert(env.BuffRadarFrame.alpha == 1, "window did not unfade under the mouse")
   env.__mouseOver = false
   env.SlashCmdList.BUFFRADAR("fade 0")
-  timerTick()
+  if env.__ticker then timerTick() else NS.X.UpdateFade() end
   assert(env.BuffRadarFrame.alpha == 1, "window stayed faded with fading off")
 end)
 step("all-buffed pill replaces the window (1.6.0)", function()
@@ -3420,7 +3426,8 @@ step("scan throttle halves the big-group rescan (1.7.0)", function()
 end)
 step("delayed event refreshes coalesce without a recurring ticker", function()
   if env.__ticker then return end
-  local oldZone = env.__zone
+  local oldZone, oldPauseCity = env.__zone, env.BuffRadarDB.pauseInCities
+  env.BuffRadarDB.pauseInCities = true
   env.__zone = "Elwynn Forest"
   timerTick()
   local before = env.__zoneCalls
@@ -3434,7 +3441,7 @@ step("delayed event refreshes coalesce without a recurring ticker", function()
   assert(not driver.scripts.OnUpdate, "core registered a frame update")
   for _ = 1, 40 do if env.__ticker then env.__ticker() end end
   assert(env.__zoneCalls == stable, "no-ticker setup performed a periodic player scan")
-  env.__zone = oldZone
+  env.__zone, env.BuffRadarDB.pauseInCities = oldZone, oldPauseCity
 end)
 
 step("grow-up window anchors by its bottom edge (1.8.0)", function()

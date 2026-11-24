@@ -1240,6 +1240,7 @@ do
     X.autoThemeResolved, X.autoThemeAddon = resolved, selectedAddon
     ApplyAppearance()
     if X.RefreshConfig then X.RefreshConfig() end
+    if X.RefreshAutoThemePriority then X.RefreshAutoThemePriority() end
     return true
   end
 
@@ -2618,9 +2619,9 @@ function X.BeginWindowCombat()
   wipe(rowMouseButtons)
   if X.ReadUnitBool(_G.IsMouseButtonDown, "LeftButton") == false then rowLeftPress = nil end
   if combatText then combatText:Show() end
-  -- Drivers clear cast attributes in combat; protected drag and visibility
-  -- work can run here only if the client has not started lockdown.
-  if X.SecureWriteAllowed() then
+  -- Drivers clear cast attributes and hide supported surfaces in combat.
+  -- A no-driver fallback may still hide before lockdown begins on this edge.
+  if not InCombatLockdown() then
     EndWindowDrags()
     if frame and not frame.visibilityDriver then frame:Hide() end
     if pill and not pill.visibilityDriver then pill:Hide() end

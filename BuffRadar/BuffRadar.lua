@@ -4447,6 +4447,22 @@ local function SuspendBuffing()
   X.SyncCastMacro(true)
 end
 
+local lifeRecheckQueued
+local function ScheduleLifeRecheck()
+  if lifeRecheckQueued or not X.lifeCheckPending or not (C_Timer and C_Timer.After)
+      or (C_Timer and C_Timer.NewTicker) then return end
+  lifeRecheckQueued = true
+  C_Timer.After(0.25, function()
+    lifeRecheckQueued = nil
+    if not X.lifeCheckPending then return end
+    if X.ReadUnitBool(_G.UnitIsDeadOrGhost, "player") == false then
+      X.UpdatePlayerLife()
+    else
+      ScheduleLifeRecheck()
+    end
+  end)
+end
+
 function X.UpdatePlayerLife(event)
   local wasDead = X.playerDead
   if event == "PLAYER_DEAD" then
@@ -4463,6 +4479,7 @@ function X.UpdatePlayerLife(event)
     elseif not X.playerDead then
       X.lifeCheckPending = nil
     end
+    if X.lifeCheckPending then ScheduleLifeRecheck() end
   end
   if X.playerDead then
     SuspendBuffing()
@@ -4931,9 +4948,12 @@ end
 driver:SetScript("OnEvent", function(self, event, arg1, ...)
   if event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST" then
     X.ReleaseCombatGate()
-  elseif event == "PLAYER_REGEN_DISABLED" or event == "ENCOUNTER_START"
-      or event == "CHALLENGE_MODE_START" then
+  elseif event == "PLAYER_REGEN_DISABLED" then
     X.NoteCombatEdge(true)
+  elseif event == "ENCOUNTER_START" or event == "CHALLENGE_MODE_START" then
+    -- Encounter/run notifications can arrive outside player combat (for
+    -- example before a pull); only latch when the client combat APIs agree.
+    X.NoteCombatEdge()
   elseif event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_FLAGS_CHANGED"
       or event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN"
       or (event == "UNIT_FLAGS" and arg1 == "player") then

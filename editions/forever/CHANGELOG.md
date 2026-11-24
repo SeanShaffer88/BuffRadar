@@ -2,6 +2,17 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.20.0 — WoW: Forever
+
+- Replace recurring polling with event-driven refreshes where supported, and
+  expose read-only status for integrations through the display bridge.
+- Harden combat, death, and protected-action handling; settings and display
+  changes now respect client lockdown and recover from delayed life-state flags.
+- Add Auto Theme Priority controls and preserve modal editors during live
+  settings refreshes.
+- Expand offline coverage for timer variants, fallback UI templates, combat
+  transitions, and configuration panels.
+
 ## 1.19.1 — WoW: Forever
 
 - Add battleground, pause-setting, combat and PvP safety details to the private
