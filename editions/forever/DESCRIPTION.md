@@ -52,19 +52,16 @@ need them.
   Russian and Simplified Chinese packs cover settings, help and visible
   status and error messages.
 
-## What's new in 1.20.0
+## What's new in 1.20.1
 
-**Event-driven queue refreshes.** Roster, aura, nameplate and spell/cooldown
-events request coalesced updates. A low-frequency cooldown sweep remains as a
-readiness fallback; it never casts or replaces the event-driven player refresh.
+BuffRadar now documents its refresh and verification model more precisely:
+roster and aura updates are event-driven, while a low-frequency cooldown sweep
+remains as a readiness fallback. `/br throttle` adjusts that sweep, not queue
+events. The in-game label and help now say so.
 
-**Safer action gating.** Secure cast actions stay disarmed during combat
-lockdown and while the player is dead or ghosted, then recover after the client
-reports a safe state. The read-only display bridge exposes status without
-changing settings or triggering a cast.
-
-**Smoother settings.** Auto Theme Priority reflects live theme changes, and
-refreshing settings no longer closes an open modal editor.
+The verification report separates offline automated checks from live-client
+tests. No live-client result is claimed; the report includes a checklist for
+recording real combat-lockdown, pause-toggle, and API observations.
 
 ## Readiness
 

@@ -7,6 +7,13 @@ WoW: Forever (Interface 16001). For the short version see
 The shipping Forever TOC requires Interface 16001. The historical Retail
 TOC remains a test fixture; 1.7.0 was the last Retail release.
 
+## 1.20.1: Verification and Refresh Clarity
+
+- Document the distinction between event-driven player/roster/aura refreshes and
+  the remaining low-frequency cooldown-readiness sweep.
+- Correct `/br throttle` wording and publish automated test evidence separately
+  from the live-client checklist; no live test is claimed.
+
 ## 1.20.0: Event-Driven Refresh and Safer Integration
 
 - Use event-driven refreshes instead of unnecessary recurring scans, while

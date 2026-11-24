@@ -1,6 +1,7 @@
 # Testing and verification
 
-**Candidate:** BuffRadar 1.20.0 · WoW: Forever · Interface 16001  
+**Candidate:** BuffRadar 1.20.1 · WoW: Forever · Interface 16001
+
 **Live-client verification:** **Not performed.** No WoW: Forever client session, client build, or in-game test evidence is available for this candidate. The automated results below are offline tests and must not be read as proof of live-client combat-lockdown, taint, API, or gameplay behavior. See [`docs/FIELD_TEST.md`](docs/FIELD_TEST.md) for the step-by-step field protocol.
 
 ## Automated verification
