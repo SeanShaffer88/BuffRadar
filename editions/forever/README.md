@@ -223,7 +223,7 @@ click-to-buff casts still apply.
 | `/br debuff add <spell ID> [player\|focus] [encounter ID]` | Save a watch, then use `/br debuff on` to show readable icons and stacks. Omit the unit for yourself and the encounter ID to watch anywhere. Use `/br debuff list` or `/br debuff remove <spell ID> [player\|focus]` to manage watches. |
 | `/br readiness` | Open **Personal** checks, including carried Healthstones and gear durability, even when solo. `/br readiness aura <spell ID\|off>` watches a consumable aura such as an augment-rune equivalent. `/br prep` opens the group checklist. |
 | `/br minimapstatus` and `/br visual on` | Toggle coverage symbols or enable brief highlights independent of sound. Visual alerts respect Reduced Motion. |
-| `/br throttle on` and `/br stats memory` | Adjust periodic scans to movement, group size and latency, and see the game's reported total addon memory. Event refreshes stay responsive. |
+| `/br throttle on` and `/br stats memory` | Adjust the low-frequency cooldown sweep for movement, group size and latency, and see the game's reported total addon memory. Aura and roster refreshes remain event-driven. |
 | `/br lite on` | Pause forecasts, preparation, debuffs, and optional watches without losing their settings. The main cast queue still works. |
 | `/br status export` and `/br feedback` | Copy a local status report or the feature-request link. No player data is attached to feedback. |
 
@@ -537,7 +537,7 @@ outside a capital, or turn off the default city pause with `/br cities`.
 | `/br assign <BUFF> <name\|none>` | Leader assigns a buff to one player (rows float/sink by owner) |
 | `/br buddy` · `/br pill` | Split the list with other BuffRadar users · all-buffed pill |
 | `/br pin <name\|none>` · `/br readypost` | Pin a player to the top · post ready-check summaries |
-| `/br weapon` · `/br enterflash` · `/br throttle` | Weapon enchant watch · instance-entry reminder · adaptive periodic scan throttle |
+| `/br weapon` · `/br enterflash` · `/br throttle` | Weapon enchant watch · instance-entry reminder · adaptive cooldown-sweep throttle |
 | `/br history` | Your last 50 casts through BuffRadar |
 | `/br consumables` · `/br uptime` | Flask/food counts on the coverage line · coverage uptime % |
 | `/br custom add\|remove\|list <spell ID>` | Watch any buff spell you know |

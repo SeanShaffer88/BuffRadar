@@ -4,12 +4,27 @@
 
 [![CI](https://github.com/SeanShaffer88/BuffRadar/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/SeanShaffer88/BuffRadar/actions/workflows/ci.yml)
 
-BuffRadar shows which players need a buff you can cast in **WoW: Forever**
-(Interface 16001). Click a name, press your **Cast next buff** key, or use a
-macro to work through the list. Your character goes first by default.
+BuffRadar is a focused click-to-buff queue for **WoW: Forever** (Interface
+16001): see nearby players missing a buff you know, then click a name or press
+**Cast next buff**. Your character goes first by default. The queue is the main
+thing; optional controls stay out of the way until you want them.
+
+## Safe, smart, streamlined
+
+- **Simple core loop:** one small queue, one click or keypress. Turn on Simple
+  Mode to hide advanced settings without changing your buff choices.
+- **More control than a minimal buff list:** compared with Manners, BuffRadar
+  adds optional sorting by role, distance, or need; per-buff rebuff thresholds;
+  and a persistent ignore list. Use only the controls that help your group.
+- **Safety first:** casts use secure game buttons and stop during combat
+  lockdown. City, battleground, and flight-path pauses are available when you
+  want them. The read-only status bridge cannot cast or change settings.
 
 The [Forever Player Guide](editions/forever/README.md) describes the current
-workflow. Release history and its verification evidence remain in the
+workflow. See [TESTING.md](TESTING.md) for automated evidence, the event/timer
+audit, and the explicit live-client verification status; the detailed
+[field-test protocol](docs/FIELD_TEST.md) is available for in-game validation.
+Release history and feature details are in the
 [changelog](editions/forever/CHANGELOG.md) and [feature reference](editions/forever/FEATURES.md).
 
 ## Find Settings and Actions
@@ -79,6 +94,30 @@ The view and restock controls are also available in **Settings → Readiness**.
   a result does not change its value. Use Previous/Next for more matches
   and Escape to close search.
 
+## Screenshots
+
+A look at the live buff queue and the settings tabs. Select an image to view it
+at full size.
+
+<table>
+  <tr>
+    <td align="center"><a href="docs/screenshots/buff-queue.jpeg"><img src="docs/screenshots/buff-queue.jpeg" width="360" alt="BuffRadar live buff queue showing players and buffs they need"></a><br><sub>Live buff queue</sub></td>
+    <td align="center"><a href="docs/screenshots/settings-window.jpeg"><img src="docs/screenshots/settings-window.jpeg" width="360" alt="BuffRadar Window settings for appearance, layout, themes, and fade"></a><br><sub>Window and appearance settings</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="docs/screenshots/settings-alerts.jpeg"><img src="docs/screenshots/settings-alerts.jpeg" width="360" alt="BuffRadar Alerts settings for sounds, cast counter, and keybinds"></a><br><sub>Alerts and keybinds</sub></td>
+    <td align="center"><a href="docs/screenshots/settings-buffs.jpeg"><img src="docs/screenshots/settings-buffs.jpeg" width="360" alt="BuffRadar Buffs settings showing buff selection and assignments"></a><br><sub>Buff selection</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="docs/screenshots/settings-behavior.jpeg"><img src="docs/screenshots/settings-behavior.jpeg" width="360" alt="BuffRadar Behavior settings for scanning, casting, and coordination"></a><br><sub>Scanning, casting, and coordination</sub></td>
+    <td align="center"><a href="docs/screenshots/settings-ignore-stats.jpeg"><img src="docs/screenshots/settings-ignore-stats.jpeg" width="360" alt="BuffRadar Ignore and Stats settings with player, cast, and profile options"></a><br><sub>Ignore list, stats, and profiles</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="docs/screenshots/settings-readiness.jpeg"><img src="docs/screenshots/settings-readiness.jpeg" width="360" alt="BuffRadar Readiness settings for performance, diagnostics, and personal checks"></a><br><sub>Readiness and diagnostics</sub></td>
+    <td></td>
+  </tr>
+</table>
+
 ## Features
 
 [Live Buff Queue](#live-buff-queue) · [Casting](#casting) ·
@@ -97,7 +136,7 @@ The view and restock controls are also available in **Settings → Readiness**.
 | Queue order | Check yourself first, prioritize recently resurrected players, and pin one player. Sort by name, tanks and leaders, distance, or most buffs needed. Filter by name or by group role when the client supplies roles. Use `/br self`, `/br pin`, `/br sort`, `/br find`, and `/br filter`. |
 | List views | Use `/br view people\|buffs` for a row per player or per needed buff. The list fits up to 15 rows to the usable screen size. Scroll with the wheel or `/br scroll up\|down`; Cast Next Buff still uses the head of the full queue. |
 | Ignore lists | Right-click a row to save an ignore or Shift-right-click to ignore for this session. Manage entries under **Ignore & Stats** or with `/br ignore`, `/br unignore`, `/br signore`, and `/br unsignore`. Export or import with `/br ignorelist export` or `/br ignorelist import`. The permanent list holds up to 192 names; imports past that limit do not partially apply. |
-| Scan options | `/br throttle on` adjusts periodic scans to movement, group size, and latency without delaying event refreshes. `/br fastaura` skips rescans when a readable aura change can be identified as unrelated to watched buffs. |
+| Scan options | Queue refreshes are event-driven. `/br throttle on` adjusts the low-frequency cooldown sweep for movement, group size, and latency; it does not throttle aura or roster refresh events. `/br fastaura` skips rescans when a readable aura change can be identified as unrelated to watched buffs. |
 
 ### Casting
 
@@ -314,16 +353,6 @@ BuffRadar has targeted Forever since 1.8.0. The last Retail release was
 1.7.0. See the [Retail Guide](BuffRadar/README.md) and
 [Support Decision](docs/DECISIONS.md#2026-10-25--retail-support-dropped-forever-only-from-180-sean).
 
-## Screenshots
-
-**BuffRadar list**
-
-![BuffRadar list showing nearby players who need buffs.](editions/forever/screenshots/buffradar-forever-list.png)
-
-**BuffRadar settings**
-
-![BuffRadar settings window with appearance and behavior options.](editions/forever/screenshots/buffradar-forever-settings.png)
-
 ## Source and Contributions
 
 The [Forever TOC](editions/forever/BuffRadar.toc) and the historical
@@ -334,8 +363,8 @@ The [Forever TOC](editions/forever/BuffRadar.toc) and the historical
   `BuffRadarDB` on a detached copy; [Profiles](BuffRadar/Profiles.lua)
   handles settings and plan imports and exports.
 - [Core](BuffRadar/BuffRadar.lua) scans and builds the cast queue.
-  [Intelligence](BuffRadar/Intelligence.lua) owns scan cadence, forecasts and
-  contextual priority. [Status](BuffRadar/Status.lua) publishes copies;
+  [Intelligence](BuffRadar/Intelligence.lua) owns adaptive cooldown-sweep cadence,
+  forecasts and contextual priority. [Status](BuffRadar/Status.lua) publishes copies;
   [Debuffs](BuffRadar/Debuffs.lua) and [Readiness](BuffRadar/Readiness.lua)
   own optional aura and inventory checks.
   [Coordination](BuffRadar/Coordination.lua) handles group messages and plans.

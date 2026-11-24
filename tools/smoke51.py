@@ -3408,7 +3408,7 @@ step("cast history records your casts (1.7.0)", function()
   cleanup()
 end)
 
-step("scan throttle halves the big-group rescan (1.7.0)", function()
+step("adaptive cooldown-sweep throttle toggles for large groups (1.7.0)", function()
   local db = env.BuffRadarDB
   env.SlashCmdList.BUFFRADAR("throttle")
   assert(db.scanThrottle == true, "throttle setting not stored")
@@ -9275,7 +9275,7 @@ do
     assert(#f.db.debuffRules == 1, "watch could not be removed")
   end)
 
-  step("Adaptive cadence follows movement, latency and combat recovery without delaying unit events", function()
+  step("Adaptive cooldown sweep follows movement and latency without delaying queue events", function()
     local f = FeatureClient({ scanThrottle = true }, true)
     local c, X = f.client, f.X
     local speed, ping, samples = 0, 85, 0
@@ -9283,15 +9283,15 @@ do
     c.GetNetStats = function() samples = samples + 1; return 0, 0, 21, ping end
     local function group() return 30 end
     f.advance(0.11)
-    assert(X.Intel.ScanTicks(group) == 3 and samples == 1, "stationary raid did not slow steady scans")
+    assert(X.Intel.SweepTicks(group) == 3 and samples == 1, "stationary raid did not slow the cooldown sweep")
     speed = 7
     f.event("PLAYER_STARTED_MOVING")
     local before = c.__zoneCalls
     f.advance(0.11)
-    assert(c.__zoneCalls == before + 1 and X.Intel.ScanTicks(group) == 1 and samples == 1, "moving event waited for periodic scan or resampled latency")
+    assert(c.__zoneCalls == before + 1 and X.Intel.SweepTicks(group) == 1 and samples == 1, "movement event waited for a periodic player scan or resampled latency")
     ping, speed = 300, 0
     f.advance(5.1)
-    assert(X.Intel.ScanTicks(group) == 4 and samples == 2, "high latency was not sampled or backed off")
+    assert(X.Intel.SweepTicks(group) == 4 and samples == 2, "high latency was not sampled or did not back off the cooldown sweep")
     before = c.__zoneCalls
     f.event("UNIT_AURA", "player"); f.advance(0.11)
     assert(c.__zoneCalls == before + 1, "aura event was delayed by adaptive backoff")
@@ -9299,10 +9299,10 @@ do
     f.event("PLAYER_REGEN_DISABLED")
     before = c.__zoneCalls
     f.advance(0.41, true)
-    assert(c.__zoneCalls == before, "steady cast scan ran in combat")
+    assert(c.__zoneCalls == before, "cooldown sweep ran during combat")
     c.__combat = false
     f.event("PLAYER_REGEN_ENABLED"); f.advance(0.11)
-    assert(c.__zoneCalls == before + 1 and X.Intel.ScanTicks(group) == 1, "combat exit did not wake the scan or shorten cadence")
+    assert(c.__zoneCalls == before + 1 and X.Intel.SweepTicks(group) == 1, "combat exit did not refresh or restore the fast cooldown sweep cadence")
   end)
 
   step("Personal readiness shows bag-only stones, durability, and the configured consumable aura", function()

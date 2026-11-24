@@ -143,8 +143,8 @@ Actual merchant behavior and native rendering remain **Unverified**.
   checks. The client does not report placed Soulwell availability.
 - Choose role and activity in Quick Setup. Enable contextual minimap symbols
   and quiet visuals, with Reduced Motion support.
-- Read or export buff status, adjust periodic scans, report total memory and
-  pause optional work with Lite mode. Feedback copies a feature-request link.
+- Read or export buff status, adjust the adaptive cooldown sweep, report total
+  memory and pause optional work with Lite mode. Queue refreshes remain event-driven.
 
 **Verification:** fake-client Lua 5.1 and package checks. Live behavior remains
 **Unverified** pending the Forever release checklist.
