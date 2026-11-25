@@ -128,7 +128,7 @@ return function(step, fresh, testClient, loadClient, forever)
       customGroup = { Fortitude = "Prayer", Broken = "X;Y" }, stats = { Bright = 2, Bad = -1 }, offenders = { Alia = 3 } }
     local f = fresh(original)
     local db = f.db
-    assert(f.client.BuffRadarDB == original and db ~= original and db.dbVersion == 24)
+    assert(f.client.BuffRadarDB == original and db ~= original and db.dbVersion == 25)
     assert(db.scale == 1 and not db.futureOnly and not db.point and not db.pointByChar.bad)
     assert(db.specProfiles.s1.rebuffPer.FORTITUDE == 600 and not db.specProfiles.s1.enabled.FAKE and not db.specProfiles.junk)
     assert(db.customGroup.Fortitude == "Prayer" and not db.customGroup.Broken and not db.stats.Bad)
@@ -176,7 +176,7 @@ return function(step, fresh, testClient, loadClient, forever)
     assert(g.client.BuffRadarDB == original and g.X.Settings.SaveState() == "overflow" and original.profiles.Overflow)
     g.slash("storage delete profile Overflow")
     assert(not original.profiles.Overflow and original.profiles.P1 and original.dbVersion == 22)
-    assert(g.X.Settings.Load(true) == nil and g.client.BuffRadarDB ~= original and g.client.BuffRadarDB.dbVersion == 24)
+    assert(g.X.Settings.Load(true) == nil and g.client.BuffRadarDB ~= original and g.client.BuffRadarDB.dbVersion == 25)
   end)
 
   step("audit: settings review supports cancel, edit paste and re-review after drift", function()

@@ -201,9 +201,10 @@ aura and Hunter aspect reminders with `/br aura`.
   precedence over personal class preferences. Use
   `/br bless player <target|name> <blessing|DEFAULT>` for a normal blessing
   exception in your current group, subject to the plan's caster ownership.
-  Enable **Complement Nearby Blessings** with `/br bless complement on` to
-  offer a different known blessing outside your group when another Paladin
-  already provides your preferred one. Explicit rules take precedence.
+  **Complement Nearby Blessings** is on by default: outside your group, it
+  offers a different known blessing when another Paladin already provides
+  your preferred one. Use `/br bless complement off` to turn it off.
+  Explicit rules take precedence.
 - **Class & Role Assignments.** Enable the table in **Settings → Buffs** or
   with `/br buffassign on`. It uses the class and known group role, or
   the class's **World** cell when the role is unavailable or the player is
