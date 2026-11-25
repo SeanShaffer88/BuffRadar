@@ -280,12 +280,12 @@ and [roadmap](https://github.com/SeanShaffer88/BuffRadar/blob/main/docs/ROADMAP.
   the Buffs tab, or use `/br bless prefer <CLASS> <BLESSING|DEFAULT>`. An active
   group blessing plan takes precedence. Use
   `/br bless player <target|name> <BLESSING|DEFAULT>` to set or clear a
-  normal blessing exception for a member of your current group. Enable
-  **Complement Nearby Blessings** in the same panel or with
-  `/br bless complement on` to pick a different known class-appropriate
-  blessing when an ungrouped player already has your preferred blessing
-  from another Paladin, including its Greater version. It starts off and
-  does not override group plans or explicit class/role assignments.
+  normal blessing exception for a member of your current group.
+  **Complement Nearby Blessings** is on by default; use its checkbox or
+  `/br bless complement off` to disable it. It picks a different known
+  class-appropriate blessing when an ungrouped player already has your
+  preferred blessing from another Paladin, including its Greater version.
+  It does not override group plans or explicit class/role assignments.
 - **Class & Role Assignments** (optional): from Settings → Buffs, open
   **Class & Role Assignments** or type `/br buffassign`. A known group role
   uses its class and role cell. Strangers and players whose role is
@@ -531,7 +531,7 @@ outside a capital, or turn off the default city pause with `/br cities`.
 | `/br profile save\|load\|delete\|list <name>` | Named settings profiles |
 | `/br watch` · `/br taxi` | Alert when your single-target buff drops · pause on flight paths |
 | `/br bless <CLASS> <BLESSING> [name]` | Plan which blessing each class gets |
-| `/br bless complement on\|off` | Offer a different blessing to ungrouped players who have your preferred one from another Paladin |
+| `/br bless complement on\|off` | Toggle alternate blessings for ungrouped players already covered by another Paladin |
 | `/br bless player <target\|name> <BLESSING\|DEFAULT>` | Set or clear a normal blessing exception for a member of your current group |
 | `/br ready show\|hide\|next\|prev` | Show, hide, or scroll the local ready-check detail |
 | `/br assign <BUFF> <name\|none>` | Leader assigns a buff to one player (rows float/sink by owner) |

@@ -4,7 +4,7 @@
 
 local _, ns = ...
 local X = ns.X
-local DB_VERSION = 24
+local DB_VERSION = 25
 local PROFILE_MAX_BYTES = 4000
 local MIN_WIDTH, MAX_WIDTH = 180, 400
 
@@ -67,7 +67,7 @@ local DEFAULTS = {
   alertSounds = {},     -- per-alert-kind sound: new/drop/ask/fall -> a sound name (empty = use alertSound)
   buffPrio = {},        -- your buff order: buff keys, first offered first (empty = normal order)
   blessingPreferences = {}, -- class token -> preferred blessing key
-  blessingComplement = false, -- offer a different blessing to ungrouped players with another Paladin's copy
+  blessingComplement = true, -- complement another Paladin's blessing for nearby players outside the group
   plateRestore = {},    -- original values of supported game CVars changed by /br plates
   assignmentEnabled = false,
   thornsAnyClassOutdoors = false,
@@ -594,6 +594,9 @@ end
 local function Migrate(saved)
   local previous = saved.dbVersion or 0
   saved.showOutOfRange, saved.hideInCombat = false, true
+  -- v25 makes nearby blessing complement the default so another Paladin's
+  -- existing Kings blessing does not block a class-appropriate alternative.
+  if previous < 25 then saved.blessingComplement = true end
   if not X.classic then
     if saved.castMethod == "id" or saved.castMethod == "rank" then saved.castMethod = "target" end
     saved.groupCast = false

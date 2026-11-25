@@ -178,7 +178,7 @@ step("login fallback sanitizes without migrating and later loads replace the liv
   client.BuffRadarDB = replacement
   onEvent(startup, "ADDON_LOADED", "BuffRadar")
   assert(replacement.dbVersion == 9 and not replacement.wizardSeen, "migration edited the input table")
-  assert(X.GetDB() == client.BuffRadarDB and X.GetDB().dbVersion == 24 and X.GetDB().wizardSeen,
+  assert(X.GetDB() == client.BuffRadarDB and X.GetDB().dbVersion == 25 and X.GetDB().wizardSeen,
     "normal load did not migrate and publish detached settings")
   assert(not X.Ignore.Has("BeforeLogin", "BeforeLogin"), "ignore index retained a replaced save")
   X.ApplyGeometry()
@@ -199,7 +199,8 @@ local fire = function(ev, ...)
 end
 step("ADDON_LOADED", function()
   fire("ADDON_LOADED", "BuffRadar")
-  assert(NS.X.GetDB() == env.BuffRadarDB and env.BuffRadarDB.dbVersion == 24, "live settings were not published")
+  assert(NS.X.GetDB() == env.BuffRadarDB and env.BuffRadarDB.dbVersion == 25
+    and env.BuffRadarDB.blessingComplement, "live settings or the complement default were not published")
   local pullFrame = NS.X.pullFrame
   if not NS.X.ApiCheck then return end -- not in the Retail TOC
   assert(pullFrame and pullFrame.events.ADDON_LOADED, "pull listener missing at startup")
@@ -1909,7 +1910,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 24, "dbVersion not migrated to 24: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 25, "dbVersion not migrated to 25: " .. tostring(d.dbVersion))
   assert(d.assignmentEnabled == false and next(d.buffAssignments) == nil, "migration activated assignments")
   assert(next(d.blessingPreferences) == nil, "existing character got a blessing override")
   assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
@@ -1933,7 +1934,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 24 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 25 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
   -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
@@ -1941,23 +1942,27 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = { dbVersion = 9 }
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 24 and d.wizardSeen == true,
+  assert(d.dbVersion == 25 and d.wizardSeen == true,
     "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
   d.dbVersion, d.assignmentEnabled, d.thornsAnyClassOutdoors = 18, true, nil
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 24 and d.thornsAnyClassOutdoors == false and d.assignmentEnabled,
+  assert(d.dbVersion == 25 and d.thornsAnyClassOutdoors == false and d.assignmentEnabled,
     "v18 settings did not gain an opt-in Thorns default while preserving assignments")
   d.dbVersion, d.autoThemePriority, d.theme = 19, nil, "ui.auto"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 24 and d.theme == "ui.auto" and d.autoThemePriority == "",
+  assert(d.dbVersion == 25 and d.theme == "ui.auto" and d.autoThemePriority == "",
     "v19 migration changed Auto opt-in or failed to default the priority order")
-  d.dbVersion, d.blessingComplement, d.plateRestore = 20, nil, nil
+  d.dbVersion, d.blessingComplement, d.plateRestore = 24, false, nil
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 24 and d.blessingComplement == false and not next(d.plateRestore) and d.assignmentEnabled,
-    "v20 migration turned on a new feature or lost an existing preference")
+  assert(d.dbVersion == 25 and d.blessingComplement == true and not next(d.plateRestore) and d.assignmentEnabled,
+    "v24 migration did not enable nearby blessing complement or lost existing settings")
+  d.blessingComplement = false
+  fire("ADDON_LOADED", "BuffRadar")
+  d = env.BuffRadarDB
+  assert(d.dbVersion == 25 and not d.blessingComplement, "a current-version opt-out did not persist")
   d.blessingComplement = true
   d.plateRestore = { nameplateShowFriends = false, nameplateShowAll = true,
     [NS.X.friendlyPlateNamesCVar] = "0", nameplateShowEnemies = false }
@@ -6551,10 +6556,10 @@ step("Forever nearby blessing complement respects caster ownership and explicit 
   local oldPlan, oldEnabled, oldContext = X.blessPlan, db.enabled.BLESSINGS, db.buffContext.BLESSINGS
   local ok, err = pcall(function()
     local kings, greater, wisdom, might = "Blessing of Kings", "Greater Blessing of Kings", "Blessing of Wisdom", "Blessing of Might"
-    local unit = "nameplate2"
+    local unit = "nameplate1"
     local expiry, auras = env.GetTime() + 600, {}
     env.IsPlayerSpell = function(id) return id == 20217 or id == 19742 or id == 19740 or oldKnown(id) end
-    db.blessingComplement, db.blessingPreferences, db.buffAssignments, db.assignmentEnabled = false, {}, {}, false
+    db.blessingComplement, db.blessingPreferences, db.buffAssignments, db.assignmentEnabled = true, {}, {}, false
     db.enabled.BLESSINGS, db.buffContext.BLESSINGS, X.blessPlan = true, nil, {}
     env.IsSpellInRange = function() return 1 end
     O.Aura = function(u, name) if u == unit then return auras[name] end; return nil end
@@ -6571,11 +6576,17 @@ step("Forever nearby blessing complement respects caster ownership and explicit 
         assert((row[name] == true) == (expected == name), "scan " .. scan .. " unexpected queue spell: " .. name .. "; wanted " .. tostring(expected))
       end
     end
+    offers(kings) -- Default remains Kings when no other Paladin has covered the Warrior.
     auras[kings] = aura(false)
-    offers(nil)
+    offers(might) -- A Warrior gets Strength instead of duplicating another Paladin's Kings.
+    unit = "nameplate2"
+    offers(wisdom)
     local slash, sent = env.SlashCmdList.BUFFRADAR, #env.__addonSent
+    slash("bless complement off")
+    assert(not db.blessingComplement and #env.__addonSent == sent, "local opt-out was broadcast")
+    offers(nil)
     slash("bless complement on")
-    assert(db.blessingComplement and #env.__addonSent == sent, "world blessing opt-in was not local")
+    assert(db.blessingComplement and #env.__addonSent == sent, "world blessing toggle was not local")
     offers(wisdom)
     local before = #chat
     slash("why Tank2")
@@ -6635,12 +6646,12 @@ step("Forever nearby blessing complement respects caster ownership and explicit 
 
     assert(X.SaveProfile("ComplementAudit"), "could not save complement setting")
     local shared = assert(X.ProfileShareText("ComplementAudit", "full"))
-    assert(shared:find(";blessingComplement=1;", 1, true), "BR2 did not serialize the opt-in")
+    assert(shared:find(";blessingComplement=1;", 1, true), "BR2 did not serialize complement setting")
     assert(not X.ProfileImport(shared:gsub("blessingComplement=1", "blessingComplement=maybe")),
       "BR2 accepted a malformed complement setting")
     local older = shared:gsub(";blessingComplement=1;", ";")
     assert(X.ProfileImport(older, db.profiles.ComplementAudit) and X.LoadProfile("ComplementAudit") and not db.blessingComplement,
-      "a pre-v21 BR2 did not load with complement off")
+      "a pre-v21 BR2 did not retain its legacy complement default")
     offers(nil)
     assert(X.ProfileImport(shared, db.profiles.ComplementAudit) and X.LoadProfile("ComplementAudit") and db.blessingComplement,
       "a shared profile did not restore the opt-in")
@@ -8263,7 +8274,7 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n,NS.X.L["BuffRadar self-test -- paste this whole block into a bug report:"]), "no self-test header")
-  assert(chatSince(n, "dbVersion 24"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 25"), "self-test missing dbVersion")
   assert(chatTemplate(n,"  sync %s · requests %s · role filter %s · profiles %d · idle fade %s"), "self-test missing the 1.5.0 state line")
   assert(chatTemplate(n,"  pill %s · queue tag %s · consumables %s · custom spells %d · buddy split %s · uptime %s"), "self-test missing the 1.6.0 state line")
   assert(chatTemplate(n,"  readypost %s · pinned %s · weapon watch %s · entry reminder %s · throttle %s · covering %d · history %d"), "self-test missing the 1.7.0 state line")
@@ -9011,10 +9022,10 @@ do
 
   step("v23 migration keeps Simple and Performance Mode defaults explicit", function()
     local migrated = FeatureClient({ dbVersion = 23, simpleMode = true, performanceMode = true })
-    assert(migrated.db.dbVersion == 24 and migrated.db.simpleMode and migrated.db.performanceMode,
+    assert(migrated.db.dbVersion == 25 and migrated.db.simpleMode and migrated.db.performanceMode,
       "v23 mode preferences were not preserved")
     local defaults = FeatureClient({ dbVersion = 23 })
-    assert(defaults.db.dbVersion == 24 and defaults.db.simpleMode == false
+    assert(defaults.db.dbVersion == 25 and defaults.db.simpleMode == false
       and defaults.db.performanceMode == false, "v23 did not receive safe mode defaults")
   end)
 
@@ -9025,7 +9036,7 @@ do
         { spellID = 700, unit = "focus", encounterID = 99 }, { spellID = 701, unit = "target", encounterID = 0 },
         { spellID = math.huge, unit = "player", encounterID = 0 } } })
     local db, X = f.db, f.X
-    assert(db.dbVersion == 24 and db.forecastSeconds == 300 and not db.smartPriority
+    assert(db.dbVersion == 25 and db.forecastSeconds == 300 and not db.smartPriority
       and db.readinessAura == 0 and db.statusMinimap, "new scalar defaults or validation were wrong")
     assert(db.instancePriority[12] == "FORTITUDE" and not db.instancePriority[0] and not db.instancePriority[11]
       and #db.debuffRules == 1 and db.debuffRules[1].encounterID == 21, "invalid or duplicate rule survived sanitation")

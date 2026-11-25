@@ -428,9 +428,10 @@ each needs in-game evidence or a sharper definition, recorded in
   each class one fitting blessing: **Blessing of Kings leads every
   class list since 1.2.3** (it is learned after Might/Wisdom, so it
   was previously unreachable); Might (warriors, rogues) and Wisdom
-  (everyone else) are the fallbacks. **Complement Nearby Blessings**
-  (`/br bless complement on`) can choose an alternative when a player
-  outside your group has someone else's copy of your preferred blessing.
+  (everyone else) are the fallbacks. **Complement Nearby Blessings** is
+  on by default: when a player outside your group already has another
+  Paladin's copy of your preferred blessing, BuffRadar offers an available
+  class-appropriate alternative. Use `/br bless complement off` to disable it.
 - **Group-cast offers.** When enough of your party or raid needs the
   same buff, BuffRadar offers the group version (Prayer of
   Fortitude, Gift of the Wild, Greater Blessings…) instead — one
