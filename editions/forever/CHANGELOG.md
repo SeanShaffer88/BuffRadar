@@ -2,6 +2,13 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## 1.20.2 — WoW: Forever
+
+- Enable nearby blessing complement by default, so another Paladin's Kings
+  can be replaced by an available class-appropriate blessing such as Might.
+- Migrate existing settings to the new default; use
+  `/br bless complement off` to opt out.
+
 ## 1.20.1 — WoW: Forever
 
 - Clarify that queue refreshes are event-driven while the low-frequency
