@@ -2,7 +2,7 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
-## Rank caps
+## 1.21.0 Rank caps
 
 - On a character with two or more ranks of a buff, run
   `/br rank <BUFF_KEY> 1` (keys from `/br buffs`). Buff a player and check the

@@ -2,7 +2,7 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
-## Unreleased
+## 1.21.0 — WoW: Forever
 
 - Cap a buff at a cheaper rank with `/br rank <BUFF_KEY> <1-20>`, for example
   `/br rank ARCANE_INTELLECT 2`. Every cast mode, including macro mode, casts
