@@ -5323,7 +5323,7 @@ driver:SetScript("OnEvent", function(self, event, arg1, ...)
   elseif event == "PLAYER_REGEN_ENABLED" then
     X.afterCombat = true  -- Refresh() pulses the border if work is waiting
     if not X.CombatSafe() then return end
-    scanTicksRemaining = 0
+    sweepTicksRemaining = 0
     X.Intel.WakeAfterCombat()
     X.Debuffs.Refresh()
     X.SyncCastMacro(true)

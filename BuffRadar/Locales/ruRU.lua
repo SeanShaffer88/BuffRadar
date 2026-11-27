@@ -80,7 +80,6 @@ NS.Locales.ruRU = {
   ["Acknowledged"] = "Подтверждено",
   ["Action-bar macro %s: %s"] = "Макрос на панели %s: %s",
   ["Active pet"] = "Активный питомец",
-  ["Adaptive scan throttle"] = "Адаптивное обновление интерфейса",
   ["Adaptive scan throttle: %s"] = "Адаптивное обновление интерфейса: %s",
   ["Add Needed Buff"] = "Добавить нужное усиление",
   ["Alert when a watched buff drops"] = "Оповещать, когда отслеживаемый бафф спадает",

@@ -4,3 +4,6 @@ dist/
 
 # Local handoff artifacts for field testing (do not commit ZIPs).
 /release-candidates/
+
+# Python bytecode caches from running the tools/ checkers.
+__pycache__/

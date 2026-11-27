@@ -2,6 +2,14 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## Unreleased
+
+- With `/br throttle` on, the first cooldown check after combat runs right away
+  again instead of waiting out checks skipped before the fight. The reset was
+  writing to a stray global variable since 1.20.1.
+- Clean up the remaining static-analysis warnings: a duplicated settings label
+  in every language and two unused names. No visible text changes.
+
 ## 1.21.0 — WoW: Forever
 
 - Cap a buff at a cheaper rank with `/br rank <BUFF_KEY> <1-20>`, for example
