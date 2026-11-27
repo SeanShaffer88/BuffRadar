@@ -2,7 +2,7 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
-## Unreleased
+## 1.21.1 — WoW: Forever
 
 - With `/br throttle` on, the first cooldown check after combat runs right away
   again instead of waiting out checks skipped before the fight. The reset was
