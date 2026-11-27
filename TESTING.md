@@ -1,8 +1,8 @@
 # Testing and verification
 
-**Candidate:** BuffRadar 1.21.0 · WoW: Forever · Interface 16001
+**Candidate:** BuffRadar 1.21.1 · WoW: Forever · Interface 16001
 
-**Live-client verification:** **NOT RUN for 1.21.0.** The candidate ZIP is `BuffRadar-1.21.0-Forever.zip`, SHA-256 `a1a47641ee1f527cd2ea177dcea08f9e82b82b9b0be207f8fcfc7c26aa2fdda9`. The last field pass was BuffRadar 1.20.2 (all checks PASS, maintainer-reported on 2026-11-25, WoW Forever 1.60.1.71037, ZIP SHA-256 `403987d4da0e759f3e165ffc4b95f69e9719d6c0854800c2d3ae6abc1dd386e2`). Rank caps, new in 1.21.0, have not been run in the game; use the 1.21.0 steps in [`docs/FOREVER_RELEASE_CHECKLIST.md`](docs/FOREVER_RELEASE_CHECKLIST.md). See [`docs/FIELD_TEST.md`](docs/FIELD_TEST.md) for the field protocol.
+**Live-client verification:** **NOT RUN for 1.21.1.** The candidate ZIP is `BuffRadar-1.21.1-Forever.zip`, SHA-256 `de178018c4cabc1cfc1e1e9ff76b62ddfa42d25d64084478fe21ceb5846abdfe`. The last field pass was BuffRadar 1.20.2 (all checks PASS, maintainer-reported on 2026-11-25, WoW Forever 1.60.1.71037, ZIP SHA-256 `403987d4da0e759f3e165ffc4b95f69e9719d6c0854800c2d3ae6abc1dd386e2`). Rank caps (1.21.0) and the post-combat cooldown-sweep reset (1.21.1) have not been run in the game; use the 1.21.0 steps in [`docs/FOREVER_RELEASE_CHECKLIST.md`](docs/FOREVER_RELEASE_CHECKLIST.md). See [`docs/FIELD_TEST.md`](docs/FIELD_TEST.md) for the field protocol.
 
 ## Automated verification
 
@@ -22,9 +22,9 @@ The gate runs static Lua, limits, localization, locale-flow and pattern checks; 
 - Forever modern-client and delayed/no-template variants; and
 - German localization.
 
-The v1.21.0 release-prep tree passed the local gate on Windows 11 (Python 3.14, lupa), including 3,278 smoke steps with zero errors across the seven configurations listed above. The Forever ZIP built from an LF export of the release commit passed package verification (40 files, 30 TOC entries, five bindings) with SHA-256 `a1a47641ee1f527cd2ea177dcea08f9e82b82b9b0be207f8fcfc7c26aa2fdda9`. Pull-request CI for the rank-cap change ([SeanShaffer88/BuffRadar#76](https://github.com/SeanShaffer88/BuffRadar/pull/76)) passed both the gate and the Windows/POSIX package-digest comparison. Automated checks exercise controlled test clients; they do not independently verify live-client behavior.
+The v1.21.1 release-prep tree passed the local gate on Windows 11 (Python 3.14, lupa), including 3,285 smoke steps with zero errors across the seven configurations listed above. The Forever ZIP built from an LF export of the release commit passed package verification (40 files, 30 TOC entries, five bindings) with SHA-256 `de178018c4cabc1cfc1e1e9ff76b62ddfa42d25d64084478fe21ceb5846abdfe`. Pull-request CI for the fix ([SeanShaffer88/BuffRadar#77](https://github.com/SeanShaffer88/BuffRadar/pull/77)) passed both the gate and the Windows/POSIX package-digest comparison. Automated checks exercise controlled test clients; they do not independently verify live-client behavior.
 
-Real luacheck 1.2.0 (`tools/check.ps1`) reported 9 warnings and 0 errors in 30 files. All 9 are also present on the 1.20.2 source and none come from the rank-cap change; one is an accidental global, `scanTicksRemaining`, in `BuffRadar.lua`.
+Real luacheck 1.2.0 (`tools/check.ps1`) reported 0 warnings and 0 errors in 30 files. The 9 warnings recorded for 1.21.0 were removed in 1.21.1, including the accidental global `scanTicksRemaining` that skipped the post-combat cooldown-sweep reset.
 
 ### Safety and pause coverage in the fake client
 
@@ -44,7 +44,7 @@ There is one deliberate low-frequency `C_Timer.NewTicker` (1.5 seconds). It main
 
 ## Live-client verification status
 
-**The `PASS (maintainer-reported)` rows below are from the 1.20.2 field pass** (ZIP SHA-256 `403987d4…`); they have not been rerun on 1.21.0. No screenshots or diagnostic logs were attached.
+**The `PASS (maintainer-reported)` rows below are from the 1.20.2 field pass** (ZIP SHA-256 `403987d4…`); they have not been rerun on 1.21.0 or 1.21.1. No screenshots or diagnostic logs were attached.
 
 | Live scenario | Status | Evidence |
 |---|---|---|
