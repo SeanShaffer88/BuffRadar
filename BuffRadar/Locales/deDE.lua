@@ -1571,4 +1571,10 @@ NS.Locales.deDE = {
   ["  /br history  - your recent casts   /br throttle [on|off]  - adaptive UI sweep"] = "  /br history  - deine letzten Zauber   /br throttle [on|off]  - adaptive UI-Aktualisierung",
   ["  /br simple [on|off] · /br performance [on|off] · /br bridge - display snippets"] = "  /br simple [on|off] · /br performance [on|off] · /br bridge - Anzeige-Snippets",
   ["Usage: /br bridge"] = "Benutzung: /br bridge",
+  ["Rank caps are only available in the Forever edition."] = "Rangbegrenzungen gibt es nur in der Forever-Edition.",
+  ["%s is capped at Rank %d."] = "%s ist auf Rang %d begrenzt.",
+  ["%s casts its highest known rank again."] = "%s wirkt wieder den höchsten bekannten Rang.",
+  ["Rank caps: %s"] = "Rangbegrenzungen: %s",
+  ["No rank caps set."] = "Keine Rangbegrenzungen gesetzt.",
+  ["Usage: /br rank <BUFF_KEY> <1-20|max>   (/br buffs lists keys)"] = "Benutzung: /br rank <BUFF_KEY> <1-20|max>   (/br buffs zeigt die Schlüssel)",
 }

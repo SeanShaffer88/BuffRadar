@@ -178,7 +178,7 @@ step("login fallback sanitizes without migrating and later loads replace the liv
   client.BuffRadarDB = replacement
   onEvent(startup, "ADDON_LOADED", "BuffRadar")
   assert(replacement.dbVersion == 9 and not replacement.wizardSeen, "migration edited the input table")
-  assert(X.GetDB() == client.BuffRadarDB and X.GetDB().dbVersion == 25 and X.GetDB().wizardSeen,
+  assert(X.GetDB() == client.BuffRadarDB and X.GetDB().dbVersion == 26 and X.GetDB().wizardSeen,
     "normal load did not migrate and publish detached settings")
   assert(not X.Ignore.Has("BeforeLogin", "BeforeLogin"), "ignore index retained a replaced save")
   X.ApplyGeometry()
@@ -199,7 +199,7 @@ local fire = function(ev, ...)
 end
 step("ADDON_LOADED", function()
   fire("ADDON_LOADED", "BuffRadar")
-  assert(NS.X.GetDB() == env.BuffRadarDB and env.BuffRadarDB.dbVersion == 25
+  assert(NS.X.GetDB() == env.BuffRadarDB and env.BuffRadarDB.dbVersion == 26
     and env.BuffRadarDB.blessingComplement, "live settings or the complement default were not published")
   local pullFrame = NS.X.pullFrame
   if not NS.X.ApiCheck then return end -- not in the Retail TOC
@@ -1899,6 +1899,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
     scale = 99, width = "wide", bogusKey = true,
     ignored = { Bob = true, [3] = true },
     rebuffPer = { SKYFURY = 45, BAD = "x" }, stats = { Skyfury = 3 },
+    rankCap = { ARCANE_INTELLECT = 2, ZERO = 0, BIG = 21, HALF = 1.5, TEXT = "2", lower = 1, [3] = 2 },
     profiles = { RaidNight = "BR1;scale=1.5", Bad = 42 },
     roleFilter = "SIDEWAYS", idleFade = 500,
     customSpells = { 12345, "x", 0, 99999999, 12345 },
@@ -1910,7 +1911,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.castMethod == "target", "pre-v3 castMethod not reset: " .. tostring(d.castMethod))
   assert(d.clickReg == "both", "pre-v3 clickReg not reset: " .. tostring(d.clickReg))
   assert(d.includeSelf == true, "pre-v4 includeSelf not forced on")
-  assert(d.dbVersion == 25, "dbVersion not migrated to 25: " .. tostring(d.dbVersion))
+  assert(d.dbVersion == 26, "dbVersion not migrated to 26: " .. tostring(d.dbVersion))
   assert(d.assignmentEnabled == false and next(d.buffAssignments) == nil, "migration activated assignments")
   assert(next(d.blessingPreferences) == nil, "existing character got a blessing override")
   assert(d.wizardSeen == false, "ancient save should still count as a new user for the wizard")
@@ -1923,6 +1924,12 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   assert(d.bogusKey == nil, "unknown key survived sanitizing")
   assert(d.ignored.Bob == true and d.ignored[3] == nil, "ignore list not cleaned")
   assert(d.rebuffPer.SKYFURY == 45 and d.rebuffPer.BAD == nil, "rebuffPer not cleaned")
+  do
+    local n = 0
+    for _ in pairs(d.rankCap) do n = n + 1 end
+    assert(d.rankCap.ARCANE_INTELLECT == 2 and n == 1, "rank caps not cleaned to whole ranks 1-20 on buff keys")
+  end
+  d.rankCap = {}
   assert(d.profiles.RaidNight == "BR1;scale=1.5" and d.profiles.Bad == nil, "profiles not cleaned")
   assert(d.roleFilter == "ALL", "bad role filter not repaired: " .. tostring(d.roleFilter))
   assert(#d.customSpells == 1 and d.customSpells[1] == 12345, "custom spells not cleaned")
@@ -1934,7 +1941,7 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = "junk"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(type(d) == "table" and d.dbVersion == 25 and d.scale == 1,
+  assert(type(d) == "table" and d.dbVersion == 26 and d.scale == 1,
     "corrupt save not replaced with defaults")
   d.scale = 1
   -- a 1.7.0-era save (dbVersion 9): an existing user — the wizard
@@ -1942,27 +1949,27 @@ step("saved settings: legacy saves migrate, corrupt values repair (1.4.0)", func
   env.BuffRadarDB = { dbVersion = 9 }
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 25 and d.wizardSeen == true,
+  assert(d.dbVersion == 26 and d.wizardSeen == true,
     "existing user not marked wizard-seen: " .. tostring(d.wizardSeen))
   d.dbVersion, d.assignmentEnabled, d.thornsAnyClassOutdoors = 18, true, nil
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 25 and d.thornsAnyClassOutdoors == false and d.assignmentEnabled,
+  assert(d.dbVersion == 26 and d.thornsAnyClassOutdoors == false and d.assignmentEnabled,
     "v18 settings did not gain an opt-in Thorns default while preserving assignments")
   d.dbVersion, d.autoThemePriority, d.theme = 19, nil, "ui.auto"
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 25 and d.theme == "ui.auto" and d.autoThemePriority == "",
+  assert(d.dbVersion == 26 and d.theme == "ui.auto" and d.autoThemePriority == "",
     "v19 migration changed Auto opt-in or failed to default the priority order")
   d.dbVersion, d.blessingComplement, d.plateRestore = 24, false, nil
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 25 and d.blessingComplement == true and not next(d.plateRestore) and d.assignmentEnabled,
+  assert(d.dbVersion == 26 and d.blessingComplement == true and not next(d.plateRestore) and d.assignmentEnabled,
     "v24 migration did not enable nearby blessing complement or lost existing settings")
   d.blessingComplement = false
   fire("ADDON_LOADED", "BuffRadar")
   d = env.BuffRadarDB
-  assert(d.dbVersion == 25 and not d.blessingComplement, "a current-version opt-out did not persist")
+  assert(d.dbVersion == 26 and not d.blessingComplement, "a current-version opt-out did not persist")
   d.blessingComplement = true
   d.plateRestore = { nameplateShowFriends = false, nameplateShowAll = true,
     [NS.X.friendlyPlateNamesCVar] = "0", nameplateShowEnemies = false }
@@ -7083,6 +7090,98 @@ step("Forever uses the eligible rank and falls back from an unaffordable group c
   refresh()
   assert(ok, err)
 end)
+-- Player request: a level 29 mage wants to keep buffing everyone with the
+-- cheaper Arcane Intellect rank 2. /br rank KEY N caps one buff's rank in
+-- every cast mode; the target-level fallback still applies below the cap.
+step("rank cap: /br rank keeps a buff at or below a chosen rank in every cast mode", function()
+  local X, O, db, slash = NS.X, env.__over, env.BuffRadarDB, env.SlashCmdList.BUFFRADAR
+  if not env.__forever then
+    local n = #chat
+    slash("rank FORTITUDE 1")
+    assert(not (db.rankCap and next(db.rankCap)) and chatSince(n, "Forever"), "retail accepted a rank cap")
+    return
+  end
+  local cleanup = partyOfTwo("RankCap")
+  local oldSpell = env.C_Spell
+  local oldMode, oldCast, oldSelf, oldSort = db.castMethod, db.groupCast, db.includeSelf, db.sortMode
+  local targetLevel = 60
+  local ok, err = pcall(function()
+    env.C_Spell = { GetSpellLevelLearned = function(id)
+      return ({ [1243] = 1, [1244] = 24, [21562] = 20, [14752] = 50 })[id]
+    end }
+    O.UnitLevel = function(u) return u == "party1" and targetLevel or 60 end
+    O.Aura = function(u, name)
+      if u == "player" and (name == "Inner Fire" or name == "Shadowguard") then
+        return { expirationTime = env.GetTime() + 1000 }
+      end
+    end
+    env.IsSpellInRange = function() return 1 end
+    db.castMethod, db.groupCast, db.includeSelf, db.sortMode = "target", false, false, "name"
+    db.rankCap = {}
+    refresh()
+    local function spellOf() return shownRows().party1.row:GetAttribute("spell") end
+    local function textOf() return shownRows().party1.row:GetAttribute("macrotext") or "" end
+    assert(spellOf() == 1244, "uncapped high-level target did not get the highest rank")
+
+    local n = #chat
+    slash("rank FORTITUDE 1")
+    assert(db.rankCap.FORTITUDE == 1 and chatSince(n, "Rank 1"), "/br rank did not store or confirm the cap")
+    refresh()
+    assert(spellOf() == 1243 and env.BuffRadarNextButton.bSpellText == "Power Word: Fortitude(Rank 1)",
+      "target mode cast above the cap: " .. tostring(spellOf()))
+    db.castMethod = "id"
+    refresh()
+    assert(spellOf() == 1243, "id mode cast above the cap")
+    db.castMethod = "rank"
+    refresh()
+    assert(textOf():find("Power Word: Fortitude(Rank 1)", 1, true), "rank mode cast above the cap: " .. textOf())
+    db.castMethod = "macro"
+    refresh()
+    assert(textOf():find("Power Word: Fortitude(Rank 1)", 1, true),
+      "macro mode fell back to the game's highest rank despite the cap: " .. textOf())
+    db.castMethod = "target"
+
+    -- A cap above every known rank, or a target too low for the cap, keeps
+    -- the normal rules: highest known rank, then the level fallback.
+    slash("rank fortitude 5")
+    assert(db.rankCap.FORTITUDE == 5, "a cap above the known ranks was refused or key case mattered")
+    refresh()
+    assert(spellOf() == 1244, "a cap above the known ranks lowered the rank")
+    slash("rank FORTITUDE 2")
+    targetLevel = 12
+    refresh()
+    assert(spellOf() == 1243, "the cap skipped the target-level fallback")
+    targetLevel = 60
+
+    -- Misuse leaves the stored cap alone.
+    for _, bad in ipairs({ "rank FORTITUDE 0", "rank FORTITUDE 21", "rank FORTITUDE 1.5", "rank FORTITUDE x",
+        "rank NOT_A_BUFF 2", "rank FORTITUDE", "rank |cff 2" }) do
+      slash(bad)
+      assert(db.rankCap.FORTITUDE == 2 and not db.rankCap.NOT_A_BUFF, "misuse changed the cap: " .. bad)
+    end
+    n = #chat
+    slash("rank")
+    assert(chatSince(n, "FORTITUDE") and chatSince(n, "2"), "/br rank did not list the current caps")
+
+    -- Profiles carry the cap; clearing restores the highest rank.
+    local snapshot = assert(X.ProfileSnapshot())
+    local patch = assert(X.ParseProfile(snapshot), "profile with a rank cap did not parse")
+    assert(patch.rankCap and patch.rankCap.FORTITUDE == 2, "profile lost the rank cap")
+    assert(not X.ParseProfile(snapshot:gsub("rankCap%.FORTITUDE=2", "rankCap.FORTITUDE=0")),
+      "profile accepted rank 0")
+    slash("rank FORTITUDE max")
+    assert(db.rankCap.FORTITUDE == nil, "/br rank KEY max did not clear the cap")
+    refresh()
+    assert(spellOf() == 1244, "clearing the cap did not restore the highest rank")
+  end)
+  env.C_Spell = oldSpell
+  db.castMethod, db.groupCast, db.includeSelf, db.sortMode = oldMode, oldCast, oldSelf, oldSort
+  db.rankCap = {}
+  cleanup()
+  fire("SPELLS_CHANGED")
+  refresh()
+  assert(ok, err)
+end)
 step("Forever assignment rules route casts and coverage with safe group fallback", function()
   if not env.__forever then return end
   local cleanup = partyOfTwo("Assign")
@@ -8274,7 +8373,7 @@ step("/br selftest prints a paste-able block (1.4.0)", function()
   local n = #chat
   env.SlashCmdList.BUFFRADAR("selftest")
   assert(chatSince(n,NS.X.L["BuffRadar self-test -- paste this whole block into a bug report:"]), "no self-test header")
-  assert(chatSince(n, "dbVersion 25"), "self-test missing dbVersion")
+  assert(chatSince(n, "dbVersion 26"), "self-test missing dbVersion")
   assert(chatTemplate(n,"  sync %s · requests %s · role filter %s · profiles %d · idle fade %s"), "self-test missing the 1.5.0 state line")
   assert(chatTemplate(n,"  pill %s · queue tag %s · consumables %s · custom spells %d · buddy split %s · uptime %s"), "self-test missing the 1.6.0 state line")
   assert(chatTemplate(n,"  readypost %s · pinned %s · weapon watch %s · entry reminder %s · throttle %s · covering %d · history %d"), "self-test missing the 1.7.0 state line")
@@ -9022,10 +9121,10 @@ do
 
   step("v23 migration keeps Simple and Performance Mode defaults explicit", function()
     local migrated = FeatureClient({ dbVersion = 23, simpleMode = true, performanceMode = true })
-    assert(migrated.db.dbVersion == 25 and migrated.db.simpleMode and migrated.db.performanceMode,
+    assert(migrated.db.dbVersion == 26 and migrated.db.simpleMode and migrated.db.performanceMode,
       "v23 mode preferences were not preserved")
     local defaults = FeatureClient({ dbVersion = 23 })
-    assert(defaults.db.dbVersion == 25 and defaults.db.simpleMode == false
+    assert(defaults.db.dbVersion == 26 and defaults.db.simpleMode == false
       and defaults.db.performanceMode == false, "v23 did not receive safe mode defaults")
   end)
 
@@ -9036,7 +9135,7 @@ do
         { spellID = 700, unit = "focus", encounterID = 99 }, { spellID = 701, unit = "target", encounterID = 0 },
         { spellID = math.huge, unit = "player", encounterID = 0 } } })
     local db, X = f.db, f.X
-    assert(db.dbVersion == 25 and db.forecastSeconds == 300 and not db.smartPriority
+    assert(db.dbVersion == 26 and db.forecastSeconds == 300 and not db.smartPriority
       and db.readinessAura == 0 and db.statusMinimap, "new scalar defaults or validation were wrong")
     assert(db.instancePriority[12] == "FORTITUDE" and not db.instancePriority[0] and not db.instancePriority[11]
       and #db.debuffRules == 1 and db.debuffRules[1].encounterID == 21, "invalid or duplicate rule survived sanitation")

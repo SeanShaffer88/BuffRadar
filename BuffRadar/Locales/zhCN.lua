@@ -1548,4 +1548,10 @@ NS.Locales.zhCN = {
   ["  /br history  - your recent casts   /br throttle [on|off]  - adaptive UI sweep"] = "  /br history  - 最近的施法   /br throttle [on|off]  - 自适应界面刷新",
   ["  /br simple [on|off] · /br performance [on|off] · /br bridge - display snippets"] = "  /br simple [on|off] · /br performance [on|off] · /br bridge - 显示代码片段",
   ["Usage: /br bridge"] = "用法：/br bridge",
+  ["Rank caps are only available in the Forever edition."] = "等级上限仅在 Forever 版本中可用。",
+  ["%s is capped at Rank %d."] = "%s 的等级上限为 %d 级。",
+  ["%s casts its highest known rank again."] = "%s 将重新施放已知的最高等级。",
+  ["Rank caps: %s"] = "等级上限：%s",
+  ["No rank caps set."] = "未设置等级上限。",
+  ["Usage: /br rank <BUFF_KEY> <1-20|max>   (/br buffs lists keys)"] = "用法：/br rank <BUFF_KEY> <1-20|max>   （/br buffs 列出键名）",
 }

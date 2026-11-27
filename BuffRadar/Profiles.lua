@@ -88,7 +88,7 @@ do
     enabled = "boolean", rebuffPer = "number", ignored = "boolean",
     alertSounds = "sound", buffPrio = "priority", coverParts = "boolean",
     rowColors = "color", buffContext = "context", specScales = "number",
-    blessingPreferences = "blessing",
+    blessingPreferences = "blessing", rankCap = "rank",
   }
   local scalarKeys, scalarList, legacyScalars = {}, {}, {}
   -- Fields common to every full BR1 export since the original 1.4 writer.
@@ -195,12 +195,15 @@ do
       if raw == "raid" or raw == "instance" then return raw end
     elseif kind == "blessing" then
       if X.BLESSING_CLASSES[key] and BLESSINGS[raw] then return raw end
+    elseif kind == "rank" then
+      local rank = raw:match("^%d%d?$") and tonumber(raw)
+      if rank and rank >= 1 and rank <= 20 then return rank end
     end
   end
 
   local function BoundedMapMember(map, member)
     if map == "ignored" then return settings.ValidIgnore(member) end
-    if map == "enabled" or map == "rebuffPer" or map == "buffContext" then
+    if map == "enabled" or map == "rebuffPer" or map == "buffContext" or map == "rankCap" then
       return #member <= 40 and member:match("^[A-Z0-9_]+$")
     end
     if map == "specScales" then return member:match("^s[1-4]$") end
@@ -333,7 +336,7 @@ do
         for map in pairs(legacyMaps) do patch[map] = patch[map] or {} end
       end
     end
-    for _, key in ipairs({ "enabled", "rebuffPer", "ignored", "specScales", "buffContext", "coverParts" }) do
+    for _, key in ipairs({ "enabled", "rebuffPer", "rankCap", "ignored", "specScales", "buffContext", "coverParts" }) do
       if patch[key] and settings.Count(patch[key]) > settings.Limits[key] then return nil end
     end
     return patch
@@ -406,7 +409,7 @@ do
   local definitions={
     appearance="locked autoHide scale width cfgScale bgAlpha bgColor showTitle showBorder showCounter clickThrough showMinimap showStrip idleFade pill queueTag growUp theme autoThemePriority findBox durationBars raidMarkers twoCol compact textScale rowGap iconSize tooltipLevel viewMode classColors showRealm nameTrim scalePerSpec gripSnap tagSymbols reduceMotion charPoint coverParts rowColors specScales consumables",
     alerts="playSound alertSound alertSounds muteInInstance enterFlash pullFlash fallSound watchDrop rangeWatch visualAlerts statusMinimap deathRecap",
-    buffrules="enabled rebuff rebuffPer buffPrio buffContext blessingPreferences buffAssignments assignmentEnabled thornsAnyClassOutdoors blessingComplement includeSelf avoidPvP castMethod clickReg groupOnly pauseInCities pauseInBG pauseTaxi groupCast groupCastMin sortMode lowMana roleFilter weaponWatch focusWatch pets auraWatch worldWatch drinkWatch scanThrottle fastAura modClick forecastSeconds smartPriority liteMode simpleMode performanceMode debuffWatch readinessAura assumeRange",
+    buffrules="enabled rebuff rebuffPer rankCap buffPrio buffContext blessingPreferences buffAssignments assignmentEnabled thornsAnyClassOutdoors blessingComplement includeSelf avoidPvP castMethod clickReg groupOnly pauseInCities pauseInBG pauseTaxi groupCast groupCastMin sortMode lowMana roleFilter weaponWatch focusWatch pets auraWatch worldWatch drinkWatch scanThrottle fastAura modClick forecastSeconds smartPriority liteMode simpleMode performanceMode debuffWatch readinessAura assumeRange",
   }
   for section,keys in pairs(definitions) do
     for key in keys:gmatch("%S+") do registry[section][key]=true end

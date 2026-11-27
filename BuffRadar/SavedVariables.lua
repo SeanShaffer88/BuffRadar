@@ -4,12 +4,12 @@
 
 local _, ns = ...
 local X = ns.X
-local DB_VERSION = 25
+local DB_VERSION = 26
 local PROFILE_MAX_BYTES = 4000
 local MIN_WIDTH, MAX_WIDTH = 180, 400
 
 local LIMITS = { profiles = 32, ignored = 192, pointByChar = 64, stats = 192, specProfiles = 4,
-  specScales = 4, enabled = 256, rebuffPer = 256, coverParts = 16, buffContext = 256, offenders = 50 }
+  specScales = 4, enabled = 256, rebuffPer = 256, rankCap = 256, coverParts = 16, buffContext = 256, offenders = 50 }
 
 local function Count(map)
   local n = 0
@@ -63,6 +63,7 @@ local DEFAULTS = {
   sortMode = "name",   -- list order: "name" or "role" (tanks and leaders first)
   ignored = {},        -- player names BuffRadar never lists (right-click a row)
   rebuffPer = {},      -- per-buff rebuff thresholds in seconds: buff key -> seconds
+  rankCap = {},        -- per-buff highest rank to cast (Forever): buff key -> 1..20; absent = highest known
   alertSound = "droplet", -- alert sound: "droplet", "system" or "none"
   alertSounds = {},     -- per-alert-kind sound: new/drop/ask/fall -> a sound name (empty = use alertSound)
   buffPrio = {},        -- your buff order: buff keys, first offered first (empty = normal order)
@@ -168,7 +169,7 @@ local DEFAULTS = {
 
 -- One canonical allowlist shared by session recovery and pre-upgrade recovery.
 local ordinaryPreferences = {}
-for key in ("locked includeSelf avoidPvP autoHide rebuff scale width cfgScale castMethod clickReg bgAlpha showTitle showBorder playSound showCounter groupOnly pauseInCities groupCast groupCastMin sortMode alertSound clickThrough muteInInstance showMinimap lowMana roleFilter showStrip idleFade pill queueTag consumables weaponWatch enterFlash scanThrottle growUp theme autoThemePriority findBox durationBars raidMarkers focusWatch pets auraWatch worldWatch drinkWatch twoCol rowGap iconSize tooltipLevel viewMode classColors showRealm nameTrim scalePerSpec gripSnap tagSymbols reduceMotion rangeWatch assumeRange fastAura modClick pullFlash fallSound compact textScale charPoint pauseInBG pauseTaxi watchDrop forecastSeconds smartPriority statusMinimap visualAlerts liteMode simpleMode performanceMode debuffWatch readinessAura rememberPanelPositions matrixView selfStatusStrip restockEnabled restockSpendCap restockUnitCap bgColor enabled rebuffPer buffPrio alertSounds rowColors buffContext specScales restockTargets"):gmatch("%S+") do ordinaryPreferences[key]=true end
+for key in ("locked includeSelf avoidPvP autoHide rebuff scale width cfgScale castMethod clickReg bgAlpha showTitle showBorder playSound showCounter groupOnly pauseInCities groupCast groupCastMin sortMode alertSound clickThrough muteInInstance showMinimap lowMana roleFilter showStrip idleFade pill queueTag consumables weaponWatch enterFlash scanThrottle growUp theme autoThemePriority findBox durationBars raidMarkers focusWatch pets auraWatch worldWatch drinkWatch twoCol rowGap iconSize tooltipLevel viewMode classColors showRealm nameTrim scalePerSpec gripSnap tagSymbols reduceMotion rangeWatch assumeRange fastAura modClick pullFlash fallSound compact textScale charPoint pauseInBG pauseTaxi watchDrop forecastSeconds smartPriority statusMinimap visualAlerts liteMode simpleMode performanceMode debuffWatch readinessAura rememberPanelPositions matrixView selfStatusStrip restockEnabled restockSpendCap restockUnitCap bgColor enabled rebuffPer rankCap buffPrio alertSounds rowColors buffContext specScales restockTargets"):gmatch("%S+") do ordinaryPreferences[key]=true end
 local function PreferenceKeys()
   local keys={};for key in pairs(ordinaryPreferences) do keys[key]=true end;return keys
 end
@@ -305,6 +306,12 @@ local function ValidBuffToken(key) return PlainString(key, 40) and key:match("^[
 
 local function CopyBooleanMap(value)
   return CopyMap(value, LIMITS.enabled, function(k, v) return ValidBuffToken(k) and IsBoolean(v) end)
+end
+
+local function CopyRankCapMap(value)
+  return CopyMap(value, LIMITS.rankCap, function(k, v)
+    return ValidBuffToken(k) and IsNumber(v) and v >= 1 and v <= 20 and v == math.floor(v)
+  end)
 end
 
 local function CopyRebuffMap(value)
@@ -513,6 +520,7 @@ local TABLE_FIELDS = {
     return CopyMap(value, LIMITS.buffContext, function(k, v) return ValidBuffToken(k) and (v == "raid" or v == "instance") end)
   end,
   rebuffPer = CopyRebuffMap,
+  rankCap = CopyRankCapMap,
   stats = function(value) return CopyMap(value, LIMITS.stats, function(k, v) return PlainString(k, 128) and IsNonnegative(v) end) end,
   offenders = function(value)
     local function Valid(k, v)
@@ -597,6 +605,7 @@ local function Migrate(saved)
   -- v25 makes nearby blessing complement the default so another Paladin's
   -- existing Kings blessing does not block a class-appropriate alternative.
   if previous < 25 then saved.blessingComplement = true end
+  -- v26 adds per-buff rank caps (rankCap); the empty default needs no transform.
   if not X.classic then
     if saved.castMethod == "id" or saved.castMethod == "rank" then saved.castMethod = "target" end
     saved.groupCast = false
