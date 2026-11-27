@@ -1548,4 +1548,10 @@ NS.Locales.ruRU = {
   ["  /br history  - your recent casts   /br throttle [on|off]  - adaptive UI sweep"] = "  /br history  - недавние заклинания   /br throttle [on|off]  - адаптивное обновление интерфейса",
   ["  /br simple [on|off] · /br performance [on|off] · /br bridge - display snippets"] = "  /br simple [on|off] · /br performance [on|off] · /br bridge - фрагменты отображения",
   ["Usage: /br bridge"] = "Использование: /br bridge",
+  ["Rank caps are only available in the Forever edition."] = "Ограничения ранга доступны только в издании Forever.",
+  ["%s is capped at Rank %d."] = "%s ограничен рангом %d.",
+  ["%s casts its highest known rank again."] = "%s снова применяет высший известный ранг.",
+  ["Rank caps: %s"] = "Ограничения ранга: %s",
+  ["No rank caps set."] = "Ограничения ранга не заданы.",
+  ["Usage: /br rank <BUFF_KEY> <1-20|max>   (/br buffs lists keys)"] = "Использование: /br rank <BUFF_KEY> <1-20|max>   (/br buffs показывает ключи)",
 }

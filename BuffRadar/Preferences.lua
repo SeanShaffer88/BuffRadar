@@ -43,7 +43,7 @@ local function Path(key)
   local root,member=key:match("^([%a]+)%.(.+)$")
   root=root or key
   if not ordinary[root] and not pass[root] then return end
-  if member and (root~="enabled" and root~="rebuffPer" or not member:match("^[A-Z0-9_]+$")) then return end
+  if member and (root~="enabled" and root~="rebuffPer" and root~="rankCap" or not member:match("^[A-Z0-9_]+$")) then return end
   return root,member
 end
 local function Value(db,key)

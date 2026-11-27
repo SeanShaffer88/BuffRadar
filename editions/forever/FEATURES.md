@@ -7,6 +7,16 @@ WoW: Forever (Interface 16001). For the short version see
 The shipping Forever TOC requires Interface 16001. The historical Retail
 TOC remains a test fixture; 1.7.0 was the last Retail release.
 
+## Unreleased: rank caps
+
+- `/br rank <BUFF_KEY> <1-20>` keeps one buff at or below a chosen rank, to save
+  mana while levelling (for example Arcane Intellect rank 2). Target, ID, rank
+  and macro cast modes all honour it; the target-level rank fallback still
+  applies below the cap. `/br rank <BUFF_KEY> max` clears it and `/br rank`
+  lists the caps. `/br buffs` shows the buff keys.
+
+**Verification:** automated checks; live behavior remains **Unverified**.
+
 ## 1.20.1: Verification and Refresh Clarity
 
 - Document the distinction between event-driven player/roster/aura refreshes and

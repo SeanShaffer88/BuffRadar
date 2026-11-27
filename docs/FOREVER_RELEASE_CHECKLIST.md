@@ -2,6 +2,15 @@
 
 Run this against the exact candidate ZIP after CI passes. Record the version, client build, tester, and pass/fail for each check. Do not mark a build field-tested until the applicable checks pass.
 
+## Rank caps
+
+- On a character with two or more ranks of a buff, run
+  `/br rank <BUFF_KEY> 1` (keys from `/br buffs`). Buff a player and check the
+  cast used Rank 1 in the combat log or tooltip, from a list row, the Cast next
+  buff key and the action-bar macro.
+- Run `/br mode macro` and repeat; it must still cast Rank 1.
+- Run `/br rank <BUFF_KEY> max` and check the highest rank is cast again.
+
 ## 1.16.2 Macro after relog
 
 - Put the BuffRadar macro on an action bar, log out fully, and log back in.

@@ -2,6 +2,18 @@
 
 All notable changes to BuffRadar are listed here. Newest first.
 
+## Unreleased
+
+- Cap a buff at a cheaper rank with `/br rank <BUFF_KEY> <1-20>`, for example
+  `/br rank ARCANE_INTELLECT 2`. Every cast mode, including macro mode, casts
+  that rank or lower; a low-level target still falls back to a rank it can
+  receive. `/br rank <BUFF_KEY> max` removes the cap, and `/br rank` lists the
+  caps. Caps are saved for your account like other buff settings, so they also
+  apply to your other characters with that buff, and travel in shared profiles.
+- Settings schema 26 adds the empty rank-cap list; no existing setting changes.
+
+Automated checks cover every cast mode; live behavior remains **Unverified**.
+
 ## 1.20.2 — WoW: Forever
 
 - Enable nearby blessing complement by default, so another Paladin's Kings

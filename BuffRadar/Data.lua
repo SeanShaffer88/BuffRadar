@@ -1559,6 +1559,12 @@ local L = {
   ["Event-driven · UI sweep: %.1fs · Latency: %s"] = "Event-driven · UI sweep: %.1fs · Latency: %s",
   ["Adaptive scan throttle"] = "Adaptive UI sweep",
   ["Back off the non-critical UI sweep at rest or with high latency. Event refreshes stay responsive."] = "Back off the non-critical UI sweep at rest or with high latency. Event refreshes stay responsive.",
+  ["Rank caps are only available in the Forever edition."] = "Rank caps are only available in the Forever edition.",
+  ["%s is capped at Rank %d."] = "%s is capped at Rank %d.",
+  ["%s casts its highest known rank again."] = "%s casts its highest known rank again.",
+  ["Rank caps: %s"] = "Rank caps: %s",
+  ["No rank caps set."] = "No rank caps set.",
+  ["Usage: /br rank <BUFF_KEY> <1-20|max>   (/br buffs lists keys)"] = "Usage: /br rank <BUFF_KEY> <1-20|max>   (/br buffs lists keys)",
 }
 setmetatable(L, { __index = function(_, k) return k end })
 do

@@ -243,7 +243,7 @@ function X.SettingsChanged(changed)
   end
   if changed.forecastSeconds or changed.pullFlash or lite or changed.smartPriority or changed.scanThrottle
     or changed.profile or changed.matrixView or changed.selfStatusStrip
-    or changed.simpleMode or changed.performanceMode then X.Core.QueueRefresh() end
+    or changed.simpleMode or changed.performanceMode or changed.rankCap then X.Core.QueueRefresh() end
 end
 
 function X.SetPreference(key, value)

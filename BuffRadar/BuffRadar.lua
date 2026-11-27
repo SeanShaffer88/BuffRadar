@@ -2997,13 +2997,37 @@ local function RankRequirement(record, diagnostic)
   return record.learned
 end
 
+-- Per-buff rank cap (/br rank KEY N): the highest rank a player chose to
+-- cast, e.g. a cheaper Arcane Intellect while levelling. Keyed by buff key,
+-- matched to the spell through the buffs you know. nil = no cap.
+function X.RankCapFor(name)
+  local caps = db and db.rankCap
+  if not (CLASSIC_FEATURES and caps and next(caps)) then return nil end
+  for _, b in ipairs(myBuffs) do
+    if b.name == name then return caps[b.key] end
+  end
+end
+
+-- Index of the highest rank at or below the cap (all ranks when uncapped).
+local function TopRank(name, list)
+  local cap, top = X.RankCapFor(name), #list
+  if cap then
+    top = 1
+    for k = 1, #list do
+      if list[k].rank <= cap then top = k end
+    end
+  end
+  return top
+end
+
 local function PickRank(name, unit, targetLevel)
   local list = ranks[name]
   if not list or #list == 0 then return nil end
   if targetLevel == nil then targetLevel = unit and X.ReadUnitNumber(UnitLevel, unit) or 0 end
-  local pick = list[#list]
+  local top = TopRank(name, list)
+  local pick = list[top]
   if targetLevel and targetLevel > 0 then
-    for k = #list, 1, -1 do
+    for k = top, 1, -1 do
       local req = RankRequirement(list[k])
       if not req or req - 10 <= targetLevel then pick = list[k]; break end
       pick = list[k]  -- keep falling back toward rank 1
@@ -3022,10 +3046,12 @@ end
 function X.DefaultRank(spell, level, diagnostic)
   local list = ranks[spell]
   if not list or not level or level <= 0 then return nil end
-  for i = #list, 1, -1 do
+  local top = TopRank(spell, list)
+  for i = top, 1, -1 do
     local record = list[i]
     local requirement = RankRequirement(record, diagnostic)
-    if not requirement then return nil end
+    -- Unknown levels: cast by name (highest rank) unless a cap names a rank.
+    if not requirement then return top < #list and list[top] or nil end
     if requirement - 10 <= level then return #list > 1 and record or nil end
   end
   return false
@@ -4040,7 +4066,9 @@ function Bind(btn, unit, spell, isSelf, pick, gspell, gpick, hadTarget)
       btn:SetAttribute("shift-spell1", (gpick and gpick.id) or gspell)
     end
   else
-    local text = UnitCastMacro(unit, method == "rank" and CastText(spell, pick) or spell)
+    -- By plain name the game casts its highest rank, so a capped buff names its rank.
+    local named = method == "rank" or X.RankCapFor(spell)
+    local text = UnitCastMacro(unit, named and CastText(spell, pick) or spell)
     btn:SetAttribute("type", text and "macro" or nil)
     btn:SetAttribute("unit", nil)
     btn:SetAttribute("spell", nil)
@@ -4053,6 +4081,43 @@ function Bind(btn, unit, spell, isSelf, pick, gspell, gpick, hadTarget)
   end
 end
 X.PickRank, X.CastText = PickRank, CastText
+
+-- /br rank [KEY 1-20|max]: cap one buff at a cheaper rank (Forever).
+X.ext.rank = function(rest)
+  if not CLASSIC_FEATURES then Print(L["Rank caps are only available in the Forever edition."]); return true end
+  local usage = L["Usage: /br rank <BUFF_KEY> <1-20|max>   (/br buffs lists keys)"]
+  if rest == "" then
+    local keys = {}
+    for key, rank in pairs(db.rankCap or {}) do keys[#keys + 1] = key .. " " .. rank end
+    table_sort(keys)
+    Print(#keys > 0 and string_format(L["Rank caps: %s"], table.concat(keys, ", ")) or L["No rank caps set."])
+    Print(usage)
+    return true
+  end
+  local key, value = rest:match("^([%w_]+)%s+(%S+)$")
+  if not key then Print(usage); return true end
+  key = key:upper()
+  local def
+  for _, d in ipairs(X.BUFF_DEFS or {}) do if d.key == key then def = d; break end end
+  if not def then Print(L["Unknown buff key. Use /br buffs to see keys."]); return true end
+  local label = def.name or key
+  for _, b in ipairs(myBuffs) do if b.key == key then label = b.name; break end end
+  value = value:lower()
+  local rank = value:match("^%d%d?$") and tonumber(value)
+  if value == "max" then
+    X.SetPreference("rankCap." .. key, nil)
+    Print(string_format(L["%s casts its highest known rank again."], label))
+  elseif rank and rank >= 1 and rank <= 20 then
+    X.SetPreference("rankCap." .. key, rank)
+    Print(string_format(L["%s is capped at Rank %d."], label, rank))
+  else
+    Print(usage)
+    return true
+  end
+  if X.RefreshConfig then X.RefreshConfig() end
+  if QueueRefresh then QueueRefresh() end
+  return true
+end
 end -- Bind block
 
 local MakeMacro  -- defined with the macro helpers below
@@ -4196,7 +4261,7 @@ function X.BeginCastClick(btn, button, down, label, barBody)
   end
   local list = ranks[name]
   if not id and list and list[1] then
-    local pick = db.castMethod == "rank" and X.PickRank(name, entry.unit) or list[#list]
+    local pick = (db.castMethod == "rank" or X.RankCapFor(name)) and X.PickRank(name, entry.unit) or list[#list]
     id = pick and SpellID(pick.id)
   end
   if not id and C_Spell and C_Spell.GetSpellIDForSpellIdentifier then
