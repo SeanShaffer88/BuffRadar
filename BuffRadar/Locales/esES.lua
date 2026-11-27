@@ -79,7 +79,6 @@ NS.Locales.esES = {
   ["Acknowledged"] = "Confirmado",
   ["Action-bar macro %s: %s"] = "Macro de barra de acción %s: %s",
   ["Active pet"] = "Mascota activa",
-  ["Adaptive scan throttle"] = "Barrido adaptativo de IU",
   ["Adaptive scan throttle: %s"] = "Barrido adaptativo de IU: %s",
   ["Add Needed Buff"] = "Añadir beneficio necesario",
   ["Alert when a watched buff drops"] = "Alertar cuando un beneficio vigilado desaparece",

@@ -9489,6 +9489,40 @@ do
   end)
 end
 
+-- Regression: the rename to sweepTicksRemaining missed the combat-exit reset,
+-- which then wrote a global (luacheck W111) and left the throttled cooldown
+-- sweep waiting out ticks skipped before the fight.
+step("combat exit resets the throttled cooldown sweep without writing a global", function()
+  -- Shipping client with a ticker; the retail fixtures leave the player dead here.
+  if not (env.__ticker and env.__forever) then return end
+  local X, db = NS.X, env.BuffRadarDB
+  local oldThrottle, oldSweep = db.scanThrottle, X.Intel.SweepTicks
+  local sweeps = 0
+  local ok, err = pcall(function()
+    db.scanThrottle = true
+    X.Intel.SweepTicks = function() sweeps = sweeps + 1; return 4 end
+    -- Earlier steps may leave the sweep mid-cycle: tick until it sweeps once.
+    for _ = 1, 10 do
+      env.__ticker()
+      if sweeps > 0 then break end
+    end
+    assert(sweeps == 1, "the throttled sweep never ran")
+    env.__ticker()
+    assert(sweeps == 1, "throttled tick swept anyway")
+    env.__combat = true
+    fire("PLAYER_REGEN_DISABLED")
+    env.__combat = false
+    fire("PLAYER_REGEN_ENABLED")
+    env.__ticker()
+    assert(sweeps == 2, "the first tick after combat waited out ticks skipped before it")
+    assert(rawget(env, "scanTicksRemaining") == nil, "combat exit wrote a global scanTicksRemaining")
+  end)
+  db.scanThrottle, X.Intel.SweepTicks = oldThrottle, oldSweep
+  env.__combat = false
+  refresh()
+  assert(ok, err)
+end)
+
 step("German client uses the translation", function()
   if not env.__german then return end
   local found

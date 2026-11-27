@@ -308,8 +308,7 @@ local function HandleSlash(msg)
   elseif cmd == "hide" then
     db.hidden, sessionShow = true, false
   elseif cmd == "simple" or cmd == "performance" then
-    local key, label = cmd == "simple" and "simpleMode" or "performanceMode",
-      cmd == "simple" and L["Simple Mode"] or L["Performance Mode"]
+    local key = cmd == "simple" and "simpleMode" or "performanceMode"
     local action = rest:lower()
     if action == "on" or action == "off" then
       local enabled = action == "on"

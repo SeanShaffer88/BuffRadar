@@ -80,7 +80,6 @@ NS.Locales.zhCN = {
   ["Acknowledged"] = "已确认收到",
   ["Action-bar macro %s: %s"] = "动作条宏 %s：%s",
   ["Active pet"] = "当前宠物",
-  ["Adaptive scan throttle"] = "自适应界面刷新",
   ["Adaptive scan throttle: %s"] = "自适应界面刷新: %s",
   ["Add Needed Buff"] = "添加所需增益",
   ["Alert when a watched buff drops"] = "被监视的增益消失时提醒",

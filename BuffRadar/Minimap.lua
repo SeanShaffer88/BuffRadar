@@ -74,7 +74,7 @@ local function PositionMinimapButton()
   minimapBtn:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * rx, math.sin(angle) * ry)
 end
 
-local function UpdateAngleFromCursor(self)
+local function UpdateAngleFromCursor()
   if X.PlayerSuspended() or not db then return end
   local mx, my = Minimap:GetCenter()
   if not mx or not my then return end
@@ -90,7 +90,7 @@ end
 local function StopMinimapDrag(self)
   if self and self.dragging then
     self.dragging = nil
-    UpdateAngleFromCursor(self)
+    UpdateAngleFromCursor()
   end
 end
 

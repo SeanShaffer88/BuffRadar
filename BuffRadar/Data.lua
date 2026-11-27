@@ -958,7 +958,6 @@ local L = {
   ["Buff coverage could not be verified"] = "Buff coverage could not be verified",
   ["Raid markers on rows %s"] = "Raid markers on rows %s",
   ["An instance ID is required."] = "An instance ID is required.",
-  ["Adaptive scan throttle"] = "Adaptive UI sweep",
   ["Active pet"] = "Active pet",
   ["%d cast targets · %d forecast buffs"] = "%d cast targets · %d forecast buffs",
   ["Click to cast: %s"] = "Click to cast: %s",

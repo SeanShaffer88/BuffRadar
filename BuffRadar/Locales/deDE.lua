@@ -604,7 +604,6 @@ NS.Locales.deDE = {
   ["%d cast targets · %d forecast buffs"] = "%d Zauberziele · %d erwartete Ablaufwarnungen",
   ["%d ms"] = "%d ms",
   ["Active pet"] = "Aktiver Begleiter",
-  ["Adaptive scan throttle"] = "Adaptive UI-Aktualisierung",
   ["Adaptive scan throttle: %s"] = "Adaptive UI-Aktualisierung: %s",
   ["An instance ID is required."] = "Eine Instanz-ID ist erforderlich.",
   ["Apply here"] = "Hier anwenden",

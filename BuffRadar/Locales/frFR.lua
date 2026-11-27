@@ -79,7 +79,6 @@ NS.Locales.frFR = {
   ["Acknowledged"] = "Confirmé",
   ["Action-bar macro %s: %s"] = "Macro de barre d’action %s : %s",
   ["Active pet"] = "Familier actif",
-  ["Adaptive scan throttle"] = "Actualisation adaptative de l’interface",
   ["Adaptive scan throttle: %s"] = "Actualisation adaptative de l’interface: %s",
   ["Add Needed Buff"] = "Ajouter une amélioration nécessaire",
   ["Alert when a watched buff drops"] = "Alerte quand un buff surveillé disparaît",
