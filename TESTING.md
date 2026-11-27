@@ -1,8 +1,8 @@
 # Testing and verification
 
-**Candidate:** BuffRadar 1.20.2 · WoW: Forever · Interface 16001
+**Candidate:** BuffRadar 1.21.0 · WoW: Forever · Interface 16001
 
-**Live-client verification:** **PASS (maintainer-reported).** On 2026-11-25, the maintainer reported all field checks passed using BuffRadar 1.20.2 on WoW Forever 1.60.1.71037, Windows 11 x64. Exact candidate ZIP: `BuffRadar-1.20.2-Forever.zip`; SHA-256: `403987d4da0e759f3e165ffc4b95f69e9719d6c0854800c2d3ae6abc1dd386e2`. No screenshots or diagnostic logs were attached, so the in-game results have not been independently observed here. See [`docs/FIELD_TEST.md`](docs/FIELD_TEST.md) for the field protocol.
+**Live-client verification:** **NOT RUN for 1.21.0.** The candidate ZIP is `BuffRadar-1.21.0-Forever.zip`, SHA-256 `a1a47641ee1f527cd2ea177dcea08f9e82b82b9b0be207f8fcfc7c26aa2fdda9`. The last field pass was BuffRadar 1.20.2 (all checks PASS, maintainer-reported on 2026-11-25, WoW Forever 1.60.1.71037, ZIP SHA-256 `403987d4da0e759f3e165ffc4b95f69e9719d6c0854800c2d3ae6abc1dd386e2`). Rank caps, new in 1.21.0, have not been run in the game; use the 1.21.0 steps in [`docs/FOREVER_RELEASE_CHECKLIST.md`](docs/FOREVER_RELEASE_CHECKLIST.md). See [`docs/FIELD_TEST.md`](docs/FIELD_TEST.md) for the field protocol.
 
 ## Automated verification
 
@@ -22,9 +22,9 @@ The gate runs static Lua, limits, localization, locale-flow and pattern checks; 
 - Forever modern-client and delayed/no-template variants; and
 - German localization.
 
-The v1.20.2 release-prep tree passed the local gate, including 3,271 smoke steps with zero errors across the seven configurations listed above. The built Forever ZIP passed package verification (40 files, 30 TOC entries, five bindings) with SHA-256 `403987d4da0e759f3e165ffc4b95f69e9719d6c0854800c2d3ae6abc1dd386e2`. [PR CI](https://github.com/SeanShaffer88/BuffRadar/actions/runs/45661223715) and [post-merge CI](https://github.com/SeanShaffer88/BuffRadar/actions/runs/45661724840) passed, including the Windows/POSIX package-digest comparison. Automated checks exercise controlled test clients; they do not independently verify live-client behavior.
+The v1.21.0 release-prep tree passed the local gate on Windows 11 (Python 3.14, lupa), including 3,278 smoke steps with zero errors across the seven configurations listed above. The Forever ZIP built from an LF export of the release commit passed package verification (40 files, 30 TOC entries, five bindings) with SHA-256 `a1a47641ee1f527cd2ea177dcea08f9e82b82b9b0be207f8fcfc7c26aa2fdda9`. Pull-request CI for the rank-cap change ([SeanShaffer88/BuffRadar#76](https://github.com/SeanShaffer88/BuffRadar/pull/76)) passed both the gate and the Windows/POSIX package-digest comparison. Automated checks exercise controlled test clients; they do not independently verify live-client behavior.
 
-The separate real luacheck 1.2.0 run was not performed in this Linux workspace; the repository's `tools/check.ps1` wrapper requires Windows. The Lua 5.1 static/compiler checks in the gate passed.
+Real luacheck 1.2.0 (`tools/check.ps1`) reported 9 warnings and 0 errors in 30 files. All 9 are also present on the 1.20.2 source and none come from the rank-cap change; one is an accidental global, `scanTicksRemaining`, in `BuffRadar.lua`.
 
 ### Safety and pause coverage in the fake client
 
@@ -44,7 +44,7 @@ There is one deliberate low-frequency `C_Timer.NewTicker` (1.5 seconds). It main
 
 ## Live-client verification status
 
-**All rows below are `PASS (maintainer-reported)` for the exact candidate ZIP above.** No screenshots or diagnostic logs were attached.
+**The `PASS (maintainer-reported)` rows below are from the 1.20.2 field pass** (ZIP SHA-256 `403987d4…`); they have not been rerun on 1.21.0. No screenshots or diagnostic logs were attached.
 
 | Live scenario | Status | Evidence |
 |---|---|---|
@@ -56,5 +56,6 @@ There is one deliberate low-frequency `C_Timer.NewTicker` (1.5 seconds). It main
 | Roster, aura, nameplate, cooldown, and movement-triggered updates; compare `/br throttle` on/off | PASS (reported) | Maintainer report; no log attached |
 | Blessing complement against another Paladin's Kings; check class alternate and assignment precedence | PASS (reported) | Maintainer report; no log attached |
 | Core client API diagnostics and status bridge (`/br apicheck export`, `/br buffcheck`, `/br status export`, `/br bridge`) | PASS (reported) | Maintainer report; no log attached |
+| Rank caps (`/br rank`): capped rank cast from rows, Cast next buff, the bar macro and macro mode; `max` restores the highest rank | NOT RUN | New in 1.21.0 |
 
 For the complete safety, cast, pause, and evidence procedure, follow [`docs/FIELD_TEST.md`](docs/FIELD_TEST.md). Record each result as `PASS`, `FAIL`, or `NOT RUN`; include the exact ZIP digest and redact player names before sharing logs. Do not convert a pending test into a pass based on the offline suite.
